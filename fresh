@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+ROM_PATH="./roms/test.z64"
+
+if [ ! -f "$ROM_PATH" ]; then
+  echo "missing test ROM: $ROM_PATH" >&2
+  exit 1
+fi
+
+rm -rf build
+cmake -S . -B build
+cmake --build build
+./build/fn64 "$ROM_PATH"
