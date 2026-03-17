@@ -21,6 +21,40 @@ namespace {
   throw std::runtime_error("Unaligned CPU instruction fetch at PC " + std::to_string(pc));
 }
 
+std::uint8_t variable_shift_amount_u32(std::uint32_t value) {
+  return static_cast<std::uint8_t>(value & 0x1fu);
+}
+
+std::uint32_t arithmetic_shift_right_u32(std::uint32_t value, std::uint8_t sa) {
+  if (sa == 0) {
+    return value;
+  }
+
+  const std::uint32_t shifted = value >> sa;
+  if ((value & 0x80000000u) == 0) {
+    return shifted;
+  }
+
+  const std::uint32_t fill_mask = 0xffffffffu << (32 - sa);
+  return shifted | fill_mask;
+}
+
+std::int32_t reinterpret_u32_as_i32(std::uint32_t value) {
+  return static_cast<std::int32_t>(value);
+}
+
+std::uint32_t sign_extend_i16_to_u32(std::int16_t value) {
+  return static_cast<std::uint32_t>(static_cast<std::int32_t>(value));
+}
+
+std::uint32_t low_u32(std::uint64_t value) {
+  return static_cast<std::uint32_t>(value & 0xffffffffull);
+}
+
+std::uint32_t high_u32(std::uint64_t value) {
+  return static_cast<std::uint32_t>(value >> 32);
+}
+
 }  // namespace
 
 Machine::Machine(Cartridge cartridge)
@@ -442,6 +476,133 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     CpuInstructionIdentity identity,
     const DecodedCpuInstructionWord& instruction) {
   switch (identity) {
+    case CpuInstructionIdentity::kSpecialSll: {
+      const std::uint32_t value = read_cpu_gpr(instruction.rt) << instruction.sa;
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialSrl: {
+      const std::uint32_t value = read_cpu_gpr(instruction.rt) >> instruction.sa;
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialSra: {
+      const std::uint32_t value =
+          arithmetic_shift_right_u32(read_cpu_gpr(instruction.rt), instruction.sa);
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialSllv: {
+      const std::uint8_t sa =
+          variable_shift_amount_u32(read_cpu_gpr(instruction.rs));
+      const std::uint32_t value = read_cpu_gpr(instruction.rt) << sa;
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialSrlv: {
+      const std::uint8_t sa =
+          variable_shift_amount_u32(read_cpu_gpr(instruction.rs));
+      const std::uint32_t value = read_cpu_gpr(instruction.rt) >> sa;
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialSrav: {
+      const std::uint8_t sa =
+          variable_shift_amount_u32(read_cpu_gpr(instruction.rs));
+      const std::uint32_t value =
+          arithmetic_shift_right_u32(read_cpu_gpr(instruction.rt), sa);
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialMfhi: {
+      write_cpu_gpr(instruction.rd, cpu_hi());
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialMthi: {
+      write_cpu_hi(read_cpu_gpr(instruction.rs));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialMflo: {
+      write_cpu_gpr(instruction.rd, cpu_lo());
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialMtlo: {
+      write_cpu_lo(read_cpu_gpr(instruction.rs));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialMult: {
+      const std::int64_t lhs =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs)));
+      const std::int64_t rhs =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rt)));
+      const std::uint64_t product = static_cast<std::uint64_t>(lhs * rhs);
+      write_cpu_lo(low_u32(product));
+      write_cpu_hi(high_u32(product));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialMultu: {
+      const std::uint64_t lhs = static_cast<std::uint64_t>(read_cpu_gpr(instruction.rs));
+      const std::uint64_t rhs = static_cast<std::uint64_t>(read_cpu_gpr(instruction.rt));
+      const std::uint64_t product = lhs * rhs;
+      write_cpu_lo(low_u32(product));
+      write_cpu_hi(high_u32(product));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDiv: {
+      const std::uint32_t divisor_u32 = read_cpu_gpr(instruction.rt);
+      if (divisor_u32 == 0) {
+        return CpuInstructionExecutionResult::kExecuted;
+      }
+
+      const std::int64_t dividend =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs)));
+      const std::int64_t divisor =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(divisor_u32));
+      const std::int64_t quotient = dividend / divisor;
+      const std::int64_t remainder = dividend % divisor;
+      write_cpu_lo(static_cast<std::uint32_t>(quotient));
+      write_cpu_hi(static_cast<std::uint32_t>(remainder));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDivu: {
+      const std::uint32_t divisor = read_cpu_gpr(instruction.rt);
+      if (divisor == 0) {
+        return CpuInstructionExecutionResult::kExecuted;
+      }
+
+      const std::uint32_t dividend = read_cpu_gpr(instruction.rs);
+      write_cpu_lo(dividend / divisor);
+      write_cpu_hi(dividend % divisor);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialAddu: {
+      const std::uint32_t value =
+          read_cpu_gpr(instruction.rs) + read_cpu_gpr(instruction.rt);
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialSubu: {
+      const std::uint32_t value =
+          read_cpu_gpr(instruction.rs) - read_cpu_gpr(instruction.rt);
+      write_cpu_gpr(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kSpecialAnd: {
       const std::uint32_t value =
           read_cpu_gpr(instruction.rs) & read_cpu_gpr(instruction.rt);
@@ -470,6 +631,45 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kSpecialSlt: {
+      const bool value =
+          reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs)) <
+          reinterpret_u32_as_i32(read_cpu_gpr(instruction.rt));
+      write_cpu_gpr(instruction.rd, value ? 1u : 0u);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialSltu: {
+      const bool value =
+          read_cpu_gpr(instruction.rs) < read_cpu_gpr(instruction.rt);
+      write_cpu_gpr(instruction.rd, value ? 1u : 0u);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kAddiu: {
+      const std::uint32_t value =
+          read_cpu_gpr(instruction.rs) +
+          sign_extend_i16_to_u32(instruction.immediate_i16);
+      write_cpu_gpr(instruction.rt, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSlti: {
+      const bool value =
+          reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs)) <
+          static_cast<std::int32_t>(instruction.immediate_i16);
+      write_cpu_gpr(instruction.rt, value ? 1u : 0u);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSltiu: {
+      const bool value =
+          read_cpu_gpr(instruction.rs) <
+          sign_extend_i16_to_u32(instruction.immediate_i16);
+      write_cpu_gpr(instruction.rt, value ? 1u : 0u);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kAndi: {
       const std::uint32_t value =
           read_cpu_gpr(instruction.rs) &
@@ -490,6 +690,13 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t value =
           read_cpu_gpr(instruction.rs) ^
           static_cast<std::uint32_t>(instruction.immediate_u16);
+      write_cpu_gpr(instruction.rt, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kLui: {
+      const std::uint32_t value =
+          static_cast<std::uint32_t>(instruction.immediate_u16) << 16;
       write_cpu_gpr(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }

@@ -16,11 +16,22 @@
 namespace fn64 {
 namespace {
 
-constexpr std::uint32_t encode_ori(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
-  return (static_cast<std::uint32_t>(0x0D) << 26) |
+constexpr std::uint32_t encode_special(
+    std::uint8_t rs,
+    std::uint8_t rt,
+    std::uint8_t rd,
+    std::uint8_t sa,
+    std::uint8_t funct) {
+  return (static_cast<std::uint32_t>(0x00) << 26) |
          (static_cast<std::uint32_t>(rs) << 21) |
          (static_cast<std::uint32_t>(rt) << 16) |
-         static_cast<std::uint32_t>(immediate);
+         (static_cast<std::uint32_t>(rd) << 11) |
+         (static_cast<std::uint32_t>(sa) << 6) |
+         static_cast<std::uint32_t>(funct);
+}
+
+constexpr std::uint32_t encode_multu(std::uint8_t rs, std::uint8_t rt) {
+  return encode_special(rs, rt, 0x00, 0x00, 0x19);
 }
 
 void print_hex64(const char* label, std::uint64_t value) {
@@ -36,18 +47,19 @@ void print_demo_cpu_state(const char* heading, const Machine& machine) {
   print_hex64("  lo", machine.cpu_lo());
   print_hex64("  gpr[1]", machine.read_cpu_gpr(1));
   print_hex64("  gpr[2]", machine.read_cpu_gpr(2));
+  print_hex64("  gpr[3]", machine.read_cpu_gpr(3));
 }
 
 void run_single_step_demo(Machine& machine) {
   constexpr std::uint32_t kDemoInstructionAddress = 0x00000000;
-  constexpr std::uint64_t kSourceValue = 0x0000000012340000ULL;
-  constexpr std::uint32_t kDemoInstruction = encode_ori(2, 1, 0x00FF);
+  constexpr std::uint32_t kDemoInstruction = encode_multu(1, 2);
 
   machine.write_cpu_pc(kDemoInstructionAddress);
-  machine.write_cpu_hi(0);
-  machine.write_cpu_lo(0);
-  machine.write_cpu_gpr(1, kSourceValue);
-  machine.write_cpu_gpr(2, 0);
+  machine.write_cpu_hi(0xaaaaaaaa);
+  machine.write_cpu_lo(0x55555555);
+  machine.write_cpu_gpr(1, 0xffffffff);
+  machine.write_cpu_gpr(2, 0x00000002);
+  machine.write_cpu_gpr(3, 0);
   machine.write_rdram_u32_be(kDemoInstructionAddress, kDemoInstruction);
 
   std::cout << "fn64 bootstrap single-step demo\n";
