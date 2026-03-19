@@ -156,11 +156,13 @@ public:
 
   enum class CpuInstructionExecutionResult {
     kExecuted,
+    kStopped,
     kUnsupported,
   };
 
   enum class CpuInstructionStepResult {
     kStepped,
+    kStopped,
     kUnsupported,
   };
 
@@ -178,11 +180,13 @@ public:
   void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
 
   std::uint32_t cpu_pc() const;
+  std::uint32_t cpu_next_pc() const;
   std::uint32_t cpu_hi() const;
   std::uint32_t cpu_lo() const;
   std::uint32_t read_cpu_gpr(std::size_t index) const;
 
   void write_cpu_pc(std::uint32_t value);
+  void write_cpu_next_pc(std::uint32_t value);
   void write_cpu_hi(std::uint32_t value);
   void write_cpu_lo(std::uint32_t value);
   void write_cpu_gpr(std::size_t index, std::uint32_t value);
@@ -209,6 +213,7 @@ private:
   std::array<std::uint8_t, kRdramSizeBytes> rdram_{};
 
   std::uint32_t cpu_pc_ = 0;
+  std::uint32_t cpu_next_pc_ = 4;
   std::uint32_t cpu_hi_ = 0;
   std::uint32_t cpu_lo_ = 0;
   std::array<std::uint32_t, kCpuGprCount> cpu_gprs_{};
