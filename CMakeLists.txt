@@ -15,6 +15,12 @@ add_executable(fn64
   src/rom.cpp
   src/cartridge.cpp
   src/machine.cpp
+  src/bootstrap.cpp
+  src/bootstrap_common.cpp
+  src/bootstrap_arith.cpp
+  src/bootstrap_data.cpp
+  src/bootstrap_traps.cpp
+  src/bootstrap_control.cpp
 )
 
 target_include_directories(fn64 PRIVATE src)

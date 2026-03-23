@@ -157,6 +157,7 @@ public:
   enum class CpuInstructionExecutionResult {
     kExecuted,
     kStopped,
+    kBranchLikelyNotTaken,
     kUnsupported,
   };
 
