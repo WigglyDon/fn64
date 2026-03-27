@@ -54,11 +54,17 @@ constexpr std::uint32_t encode_jal(std::uint32_t target_address) {
   return encode_j_type(0x03, target_address);
 }
 
-constexpr std::uint32_t encode_beq(std::uint8_t rs, std::uint8_t rt, std::uint16_t immediate) {
+constexpr std::uint32_t encode_beq(
+    std::uint8_t rs,
+    std::uint8_t rt,
+    std::uint16_t immediate) {
   return encode_i_type(0x04, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_bne(std::uint8_t rs, std::uint8_t rt, std::uint16_t immediate) {
+constexpr std::uint32_t encode_bne(
+    std::uint8_t rs,
+    std::uint8_t rt,
+    std::uint16_t immediate) {
   return encode_i_type(0x05, rs, rt, immediate);
 }
 
@@ -70,31 +76,52 @@ constexpr std::uint32_t encode_bgtz(std::uint8_t rs, std::uint16_t immediate) {
   return encode_i_type(0x07, rs, 0, immediate);
 }
 
-constexpr std::uint32_t encode_addi(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_addi(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x08, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_addiu(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_addiu(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x09, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_slti(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_slti(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x0a, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_sltiu(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_sltiu(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x0b, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_andi(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_andi(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x0c, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_ori(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_ori(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x0d, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_xori(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_xori(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x0e, rs, rt, immediate);
 }
 
@@ -102,27 +129,101 @@ constexpr std::uint32_t encode_lui(std::uint8_t rt, std::uint16_t immediate) {
   return encode_i_type(0x0f, 0, rt, immediate);
 }
 
-constexpr std::uint32_t encode_lwl(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_lb(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x20, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_lh(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x21, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_lwl(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x22, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_lwr(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_lw(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x23, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_lbu(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x24, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_lhu(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x25, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_lwr(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x26, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_swl(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_sb(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x28, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_sh(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x29, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_swl(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x2a, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_swr(std::uint8_t rt, std::uint8_t rs, std::uint16_t immediate) {
+constexpr std::uint32_t encode_sw(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x2b, rs, rt, immediate);
+}
+
+constexpr std::uint32_t encode_swr(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
   return encode_i_type(0x2e, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_beql(std::uint8_t rs, std::uint8_t rt, std::uint16_t immediate) {
+constexpr std::uint32_t encode_beql(
+    std::uint8_t rs,
+    std::uint8_t rt,
+    std::uint16_t immediate) {
   return encode_i_type(0x14, rs, rt, immediate);
 }
 
-constexpr std::uint32_t encode_bnel(std::uint8_t rs, std::uint8_t rt, std::uint16_t immediate) {
+constexpr std::uint32_t encode_bnel(
+    std::uint8_t rs,
+    std::uint8_t rt,
+    std::uint16_t immediate) {
   return encode_i_type(0x15, rs, rt, immediate);
 }
 
@@ -174,7 +275,10 @@ constexpr std::uint32_t encode_jalr(std::uint8_t rd, std::uint8_t rs) {
   return encode_special(rs, 0, rd, 0, 0x09);
 }
 
-constexpr std::uint32_t encode_sltu(std::uint8_t rd, std::uint8_t rs, std::uint8_t rt) {
+constexpr std::uint32_t encode_sltu(
+    std::uint8_t rd,
+    std::uint8_t rs,
+    std::uint8_t rt) {
   return encode_special(rs, rt, rd, 0, 0x2b);
 }
 

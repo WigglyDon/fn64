@@ -31,11 +31,11 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   constexpr std::uint32_t kAddiuInstruction = encode_addiu(
       static_cast<std::uint8_t>(kAddiuResultIndex),
       static_cast<std::uint8_t>(kAddiuSourceIndex),
-      0x0001u);
+      0xfffeu);
   constexpr std::uint32_t kSltiInstruction = encode_slti(
       static_cast<std::uint8_t>(kSltiResultIndex),
       static_cast<std::uint8_t>(kSltiSourceIndex),
-      0x0001u);
+      0xffffu);
   constexpr std::uint32_t kSltiuInstruction = encode_sltiu(
       static_cast<std::uint8_t>(kSltiuResultIndex),
       static_cast<std::uint8_t>(kSltiuSourceIndex),
@@ -45,9 +45,9 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   machine.write_cpu_pc(kAddiAddress);
   machine.write_cpu_gpr(kAddiSourceIndex, 0x00000001u);
   machine.write_cpu_gpr(kAddiResultIndex, 0u);
-  machine.write_cpu_gpr(kAddiuSourceIndex, 0xffffffffu);
+  machine.write_cpu_gpr(kAddiuSourceIndex, 0x00000010u);
   machine.write_cpu_gpr(kAddiuResultIndex, 0u);
-  machine.write_cpu_gpr(kSltiSourceIndex, 0xffffffffu);
+  machine.write_cpu_gpr(kSltiSourceIndex, 0xfffffffeu);
   machine.write_cpu_gpr(kSltiResultIndex, 0u);
   machine.write_cpu_gpr(kSltiuSourceIndex, 0u);
   machine.write_cpu_gpr(kSltiuResultIndex, 0u);
@@ -58,7 +58,9 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   machine.write_rdram_u32_be(kSltiuAddress, kSltiuInstruction);
   machine.write_rdram_u32_be(kBreakAddress, kBreakInstruction);
 
-  std::cout << "fn64 bootstrap reg-immediate arithmetic/compare demo: explicit ADDI/ADDIU/SLTI/SLTIU proof\n";
+  std::cout
+      << "fn64 bootstrap reg-immediate arithmetic/compare demo: explicit negative-immediate "
+         "ADDI/ADDIU/SLTI/SLTIU proof\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kAddiSourceIndex));
@@ -95,7 +97,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   }
 
   if (machine.read_cpu_gpr(kAddiResultIndex) != 0u) {
-    throw std::runtime_error("reg-immediate demo ADDI signed immediate result was wrong");
+    throw std::runtime_error("reg-immediate demo ADDI negative immediate result was wrong");
   }
 
   const std::uint32_t addiu_raw = machine.fetch_cpu_instruction_word();
@@ -122,8 +124,8 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
     throw std::runtime_error("reg-immediate demo did not advance from ADDIU to SLTI");
   }
 
-  if (machine.read_cpu_gpr(kAddiuResultIndex) != 0u) {
-    throw std::runtime_error("reg-immediate demo ADDIU wrapping result was wrong");
+  if (machine.read_cpu_gpr(kAddiuResultIndex) != 0x0000000eu) {
+    throw std::runtime_error("reg-immediate demo ADDIU negative immediate result was wrong");
   }
 
   const std::uint32_t slti_raw = machine.fetch_cpu_instruction_word();
@@ -151,7 +153,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   }
 
   if (machine.read_cpu_gpr(kSltiResultIndex) != 1u) {
-    throw std::runtime_error("reg-immediate demo SLTI signed compare result was wrong");
+    throw std::runtime_error("reg-immediate demo SLTI negative immediate compare result was wrong");
   }
 
   const std::uint32_t sltiu_raw = machine.fetch_cpu_instruction_word();
@@ -179,7 +181,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   }
 
   if (machine.read_cpu_gpr(kSltiuResultIndex) != 1u) {
-    throw std::runtime_error("reg-immediate demo SLTIU unsigned compare result was wrong");
+    throw std::runtime_error("reg-immediate demo SLTIU negative immediate result was wrong");
   }
 
   require_stopped(machine.step_cpu_instruction(), "reg_immediate_demo_break");
@@ -192,7 +194,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   }
 }
 
-void run_addi_overflow_demo(Machine& machine) {
+void run_addi_positive_overflow_demo(Machine& machine) {
   constexpr std::size_t kSourceIndex = 4;
   constexpr std::size_t kResultIndex = 5;
 
@@ -209,7 +211,7 @@ void run_addi_overflow_demo(Machine& machine) {
 
   machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
 
-  std::cout << "fn64 bootstrap reg-immediate arithmetic demo: ADDI overflow fails loudly\n";
+  std::cout << "fn64 bootstrap reg-immediate arithmetic demo: ADDI positive overflow fails loudly\n";
   std::cout << "before failing step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
@@ -226,7 +228,7 @@ void run_addi_overflow_demo(Machine& machine) {
             << Machine::cpu_instruction_identity_name(addi_identity) << '\n';
 
   if (addi_identity != Machine::CpuInstructionIdentity::kAddi) {
-    throw std::runtime_error("addi overflow demo did not identify ADDI explicitly");
+    throw std::runtime_error("addi positive overflow demo did not identify ADDI explicitly");
   }
 
   try {
@@ -238,21 +240,86 @@ void run_addi_overflow_demo(Machine& machine) {
     print_hex64("  gpr[5]", machine.read_cpu_gpr(kResultIndex));
 
     if (machine.cpu_pc() != kAddiAddress) {
-      throw std::runtime_error("addi overflow demo did not restore pc after throw");
+      throw std::runtime_error("addi positive overflow demo did not restore pc after throw");
     }
 
     if (machine.cpu_next_pc() != kAfterAddiAddress) {
-      throw std::runtime_error("addi overflow demo did not restore next_pc after throw");
+      throw std::runtime_error("addi positive overflow demo did not restore next_pc after throw");
     }
 
     if (machine.read_cpu_gpr(kResultIndex) != 0x2468ace0u) {
-      throw std::runtime_error("addi overflow demo unexpectedly changed the destination register");
+      throw std::runtime_error(
+          "addi positive overflow demo unexpectedly changed the destination register");
     }
 
     return;
   }
 
-  throw std::runtime_error("addi overflow demo did not fail loudly");
+  throw std::runtime_error("addi positive overflow demo did not fail loudly");
+}
+
+void run_addi_negative_overflow_demo(Machine& machine) {
+  constexpr std::size_t kSourceIndex = 4;
+  constexpr std::size_t kResultIndex = 5;
+
+  constexpr std::uint32_t kAddiAddress = 0x00000470u;
+  constexpr std::uint32_t kAfterAddiAddress = 0x00000474u;
+  constexpr std::uint32_t kAddiInstruction = encode_addi(
+      static_cast<std::uint8_t>(kResultIndex),
+      static_cast<std::uint8_t>(kSourceIndex),
+      0xffffu);
+
+  machine.write_cpu_pc(kAddiAddress);
+  machine.write_cpu_gpr(kSourceIndex, 0x80000000u);
+  machine.write_cpu_gpr(kResultIndex, 0x13579bdfu);
+
+  machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
+
+  std::cout << "fn64 bootstrap reg-immediate arithmetic demo: ADDI negative overflow fails loudly\n";
+  std::cout << "before failing step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[5]", machine.read_cpu_gpr(kResultIndex));
+
+  const std::uint32_t addi_raw = machine.fetch_cpu_instruction_word();
+  const Machine::DecodedCpuInstructionWord addi_decoded =
+      Machine::decode_cpu_instruction_word(addi_raw);
+  const Machine::CpuInstructionIdentity addi_identity =
+      Machine::identify_cpu_instruction(addi_decoded);
+
+  print_hex32("  addi_raw", addi_raw);
+  std::cout << "  addi_identity = "
+            << Machine::cpu_instruction_identity_name(addi_identity) << '\n';
+
+  if (addi_identity != Machine::CpuInstructionIdentity::kAddi) {
+    throw std::runtime_error("addi negative overflow demo did not identify ADDI explicitly");
+  }
+
+  try {
+    static_cast<void>(machine.step_cpu_instruction());
+  } catch (const std::exception& exception) {
+    std::cout << "  exception = " << exception.what() << '\n';
+    std::cout << "after failing step:\n";
+    print_control_flow_state(machine);
+    print_hex64("  gpr[5]", machine.read_cpu_gpr(kResultIndex));
+
+    if (machine.cpu_pc() != kAddiAddress) {
+      throw std::runtime_error("addi negative overflow demo did not restore pc after throw");
+    }
+
+    if (machine.cpu_next_pc() != kAfterAddiAddress) {
+      throw std::runtime_error("addi negative overflow demo did not restore next_pc after throw");
+    }
+
+    if (machine.read_cpu_gpr(kResultIndex) != 0x13579bdfu) {
+      throw std::runtime_error(
+          "addi negative overflow demo unexpectedly changed the destination register");
+    }
+
+    return;
+  }
+
+  throw std::runtime_error("addi negative overflow demo did not fail loudly");
 }
 
 void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
@@ -491,7 +558,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_hex64("  gpr[10]", machine.read_cpu_gpr(kMaxIndex));
 
   if (machine.cpu_pc() != kOneOriAddress) {
-    throw std::runtime_error("logic/immediate demo did not advance from second ORI to one-building ORI");
+    throw std::runtime_error(
+        "logic/immediate demo did not advance from second ORI to one-building ORI");
   }
 
   if (machine.read_cpu_gpr(kMaxIndex) != 0xffffffffu) {
@@ -570,7 +638,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
 
 void run_arithmetic_demos(Machine& machine) {
   run_register_immediate_arithmetic_compare_demo(machine);
-  run_addi_overflow_demo(machine);
+  run_addi_positive_overflow_demo(machine);
+  run_addi_negative_overflow_demo(machine);
   run_logic_immediate_unsigned_compare_demo(machine);
 }
 
