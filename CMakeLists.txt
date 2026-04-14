@@ -21,6 +21,11 @@ add_executable(fn64
   src/bootstrap_data.cpp
   src/bootstrap_traps.cpp
   src/bootstrap_control.cpp
+  src/bootstrap_control_jumps.cpp
+  src/bootstrap_control_unsupported.cpp
+  src/bootstrap_control_ordinary_branches.cpp
+  src/bootstrap_control_branch_likely.cpp
+  src/bootstrap_control_register_jump_demos.cpp
 )
 
 target_include_directories(fn64 PRIVATE src)

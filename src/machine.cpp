@@ -820,8 +820,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBltzal: {
-      write_cpu_gpr(31, link_return_address(cpu_pc()));
       const std::int32_t value = reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs));
+      write_cpu_gpr(31, link_return_address(cpu_pc()));
       if (value < 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
@@ -829,8 +829,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBgezal: {
-      write_cpu_gpr(31, link_return_address(cpu_pc()));
       const std::int32_t value = reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs));
+      write_cpu_gpr(31, link_return_address(cpu_pc()));
       if (value >= 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
