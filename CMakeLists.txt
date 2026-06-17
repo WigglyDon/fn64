@@ -32,6 +32,12 @@ add_library(fn64_proof
 target_include_directories(fn64_proof PUBLIC src/proof)
 target_link_libraries(fn64_proof PUBLIC fn64_core)
 
+add_executable(fn64_inspect
+  src/host/cli/inspect_main.cpp
+)
+
+target_link_libraries(fn64_inspect PRIVATE fn64_core)
+
 find_package(SDL3 CONFIG)
 
 if (SDL3_FOUND)
@@ -49,6 +55,7 @@ endif()
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(fn64_core PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(fn64_proof PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(fn64_inspect PRIVATE -Wall -Wextra -Wpedantic)
   if (TARGET fn64)
     target_compile_options(fn64 PRIVATE -Wall -Wextra -Wpedantic)
   endif()

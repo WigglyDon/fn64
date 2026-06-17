@@ -84,6 +84,8 @@ Normal ROM launch does not stage or execute cartridge bytes automatically.
 
 ## No-window ROM inspection
 
+The `fn64_inspect` build target provides a tiny SDL-free inspection executable for ROM/core facts.
+
 fn64 --inspect-rom path/to/game.z64
 
 This loads the cartridge, prints cartridge metadata and initial machine state, then exits.
