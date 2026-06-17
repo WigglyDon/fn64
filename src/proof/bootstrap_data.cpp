@@ -199,6 +199,40 @@ void require_stage_exception_contains(
   throw std::runtime_error(std::string(label) + " did not throw exception");
 }
 
+void require_cpu_rdram_translation(
+    const char* label,
+    std::uint32_t cpu_address,
+    std::size_t width,
+    std::uint32_t expected_rdram_address) {
+  std::uint32_t translated = 0xffffffffu;
+  if (!Machine::translate_cpu_rdram_address(cpu_address, width, translated)) {
+    throw std::runtime_error(std::string(label) + " did not translate");
+  }
+
+  std::cout << "  " << label << '\n';
+  print_hex32("    cpu_address", cpu_address);
+  print_hex64("    width", width);
+  print_hex32("    rdram_address", translated);
+
+  if (translated != expected_rdram_address) {
+    throw std::runtime_error(std::string(label) + " translated to the wrong RDRAM offset");
+  }
+}
+
+void require_cpu_rdram_translation_failure(
+    const char* label,
+    std::uint32_t cpu_address,
+    std::size_t width) {
+  std::uint32_t translated = 0xffffffffu;
+  if (Machine::translate_cpu_rdram_address(cpu_address, width, translated)) {
+    throw std::runtime_error(std::string(label) + " unexpectedly translated");
+  }
+
+  std::cout << "  " << label << " rejected\n";
+  print_hex32("    cpu_address", cpu_address);
+  print_hex64("    width", width);
+}
+
 void run_cartridge_staging_demo() {
   constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
   constexpr std::uint32_t kProgramRdramAddress = 0x00000800u;
@@ -352,6 +386,85 @@ void run_cartridge_staging_preflight_demo() {
       kDestinationFailureSentinel) {
     throw std::runtime_error(
         "cartridge staging destination preflight changed RDRAM before failing");
+  }
+}
+
+void run_cpu_rdram_translation_demo(Machine& machine) {
+  constexpr std::size_t kRdramSizeBytes = 0x00400000u;
+  constexpr std::uint32_t kLastWordRdramAddress = 0x003ffffcu;
+  constexpr std::uint32_t kKseg0RdramBase = 0x80000000u;
+  constexpr std::uint32_t kKseg1RdramBase = 0xa0000000u;
+  constexpr std::uint32_t kFetchWord = 0x34081234u;
+
+  std::cout
+      << "fn64 bootstrap CPU RDRAM translation demo: physical/KSEG0/KSEG1 windows and rejection stay explicit\n";
+
+  require_cpu_rdram_translation(
+      "physical_zero_word",
+      0x00000000u,
+      4,
+      0x00000000u);
+  require_cpu_rdram_translation(
+      "physical_tail_word",
+      kLastWordRdramAddress,
+      4,
+      kLastWordRdramAddress);
+  require_cpu_rdram_translation(
+      "kseg0_zero_word",
+      kKseg0RdramBase,
+      4,
+      0x00000000u);
+  require_cpu_rdram_translation(
+      "kseg0_tail_word",
+      kKseg0RdramBase + kLastWordRdramAddress,
+      4,
+      kLastWordRdramAddress);
+  require_cpu_rdram_translation(
+      "kseg1_zero_word",
+      kKseg1RdramBase,
+      4,
+      0x00000000u);
+  require_cpu_rdram_translation(
+      "kseg1_tail_word",
+      kKseg1RdramBase + kLastWordRdramAddress,
+      4,
+      kLastWordRdramAddress);
+
+  require_cpu_rdram_translation_failure(
+      "zero_width",
+      0x00000000u,
+      0);
+  require_cpu_rdram_translation_failure(
+      "wider_than_rdram",
+      0x00000000u,
+      kRdramSizeBytes + 1u);
+  require_cpu_rdram_translation_failure(
+      "physical_word_crosses_tail",
+      0x003ffffdu,
+      4);
+  require_cpu_rdram_translation_failure(
+      "physical_past_rdram",
+      0x00400000u,
+      4);
+  require_cpu_rdram_translation_failure(
+      "kseg0_past_rdram",
+      0x80400000u,
+      4);
+  require_cpu_rdram_translation_failure(
+      "kseg1_past_rdram",
+      0xa0400000u,
+      4);
+
+  machine.write_rdram_u32_be(0x00000000u, kFetchWord);
+  machine.write_cpu_pc(kKseg1RdramBase);
+
+  const std::uint32_t fetched = machine.fetch_cpu_instruction_word();
+  std::cout << "  kseg1_fetch\n";
+  print_hex32("    pc", kKseg1RdramBase);
+  print_hex32("    fetched_word", fetched);
+
+  if (fetched != kFetchWord) {
+    throw std::runtime_error("CPU RDRAM translation demo did not fetch through KSEG1");
   }
 }
 
@@ -1678,6 +1791,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 void run_data_demos(Machine& machine) {
   run_cartridge_staging_demo();
   run_cartridge_staging_preflight_demo();
+  run_cpu_rdram_translation_demo(machine);
   run_cpu_rdram_alias_demo(machine);
   run_unaligned_load_word_demo(machine);
   run_unaligned_store_word_demo(machine);
