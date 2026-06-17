@@ -169,8 +169,19 @@ public:
 
   explicit Machine(Cartridge cartridge);
 
+  static constexpr std::uint32_t kBlankInitialCpuPc = 0x00000000u;
+  static constexpr std::uint32_t kBlankInitialCpuNextPc = 0x00000004u;
+
+  void reset_to_blank_rdram_power_on_state();
+
   bool powered_on() const;
   const Cartridge& cartridge() const;
+  std::size_t rdram_size_bytes() const noexcept;
+
+  static bool translate_cpu_rdram_address(
+      std::uint32_t cpu_address,
+      std::size_t width,
+      std::uint32_t& out_rdram_address) noexcept;
 
   std::uint8_t read_rdram_u8(std::uint32_t address) const;
   std::uint16_t read_rdram_u16_be(std::uint32_t address) const;
@@ -179,6 +190,11 @@ public:
   void write_rdram_u8(std::uint32_t address, std::uint8_t value);
   void write_rdram_u16_be(std::uint32_t address, std::uint16_t value);
   void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
+
+  void stage_cartridge_bytes_to_rdram(
+      std::uint32_t cartridge_offset,
+      std::uint32_t rdram_address,
+      std::uint32_t byte_count);
 
   std::uint32_t cpu_pc() const;
   std::uint32_t cpu_next_pc() const;
@@ -209,12 +225,25 @@ private:
   static constexpr std::size_t kRdramSizeBytes = 4 * 1024 * 1024;
   static constexpr std::size_t kCpuGprCount = 32;
 
+  static std::uint32_t require_cpu_rdram_address(
+      const char* operation,
+      std::uint32_t cpu_address,
+      std::size_t width);
+
+  std::uint8_t read_cpu_memory_u8(std::uint32_t cpu_address) const;
+  std::uint16_t read_cpu_memory_u16_be(std::uint32_t cpu_address) const;
+  std::uint32_t read_cpu_memory_u32_be(std::uint32_t cpu_address) const;
+
+  void write_cpu_memory_u8(std::uint32_t cpu_address, std::uint8_t value);
+  void write_cpu_memory_u16_be(std::uint32_t cpu_address, std::uint16_t value);
+  void write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value);
+
   Cartridge cartridge_;
-  bool powered_on_ = true;
+  bool powered_on_ = false;
   std::array<std::uint8_t, kRdramSizeBytes> rdram_{};
 
-  std::uint32_t cpu_pc_ = 0;
-  std::uint32_t cpu_next_pc_ = 4;
+  std::uint32_t cpu_pc_ = kBlankInitialCpuPc;
+  std::uint32_t cpu_next_pc_ = kBlankInitialCpuNextPc;
   std::uint32_t cpu_hi_ = 0;
   std::uint32_t cpu_lo_ = 0;
   std::array<std::uint32_t, kCpuGprCount> cpu_gprs_{};

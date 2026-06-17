@@ -7,30 +7,49 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(SDL3 REQUIRED CONFIG)
-
-add_executable(fn64
-  src/main.cpp
-  src/app.cpp
-  src/rom.cpp
-  src/cartridge.cpp
-  src/machine.cpp
-  src/bootstrap.cpp
-  src/bootstrap_common.cpp
-  src/bootstrap_arith.cpp
-  src/bootstrap_data.cpp
-  src/bootstrap_traps.cpp
-  src/bootstrap_control.cpp
-  src/bootstrap_control_jumps.cpp
-  src/bootstrap_control_unsupported.cpp
-  src/bootstrap_control_ordinary_branches.cpp
-  src/bootstrap_control_branch_likely.cpp
-  src/bootstrap_control_register_jump_demos.cpp
+add_library(fn64_core
+  src/core/rom.cpp
+  src/core/cartridge.cpp
+  src/core/machine.cpp
 )
 
-target_include_directories(fn64 PRIVATE src)
-target_link_libraries(fn64 PRIVATE SDL3::SDL3)
+target_include_directories(fn64_core PUBLIC src/core)
+
+add_library(fn64_proof
+  src/proof/bootstrap.cpp
+  src/proof/bootstrap_common.cpp
+  src/proof/bootstrap_arith.cpp
+  src/proof/bootstrap_data.cpp
+  src/proof/bootstrap_traps.cpp
+  src/proof/bootstrap_control.cpp
+  src/proof/bootstrap_control_jumps.cpp
+  src/proof/bootstrap_control_unsupported.cpp
+  src/proof/bootstrap_control_ordinary_branches.cpp
+  src/proof/bootstrap_control_branch_likely.cpp
+  src/proof/bootstrap_control_register_jump_demos.cpp
+)
+
+target_include_directories(fn64_proof PUBLIC src/proof)
+target_link_libraries(fn64_proof PUBLIC fn64_core)
+
+find_package(SDL3 CONFIG)
+
+if (SDL3_FOUND)
+  add_executable(fn64
+    src/host/sdl/main.cpp
+    src/host/sdl/app.cpp
+  )
+
+  target_include_directories(fn64 PRIVATE src/host/sdl)
+  target_link_libraries(fn64 PRIVATE SDL3::SDL3 fn64_core fn64_proof)
+else()
+  message(STATUS "SDL3 not found; fn64 SDL host executable will not be built")
+endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(fn64 PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(fn64_core PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(fn64_proof PRIVATE -Wall -Wextra -Wpedantic)
+  if (TARGET fn64)
+    target_compile_options(fn64 PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
 endif()

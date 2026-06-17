@@ -634,9 +634,215 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   }
 }
 
+
+void run_cpu_local_single_ori_execute_demo(Machine& machine) {
+  constexpr std::uint8_t kZeroIndex = 0;
+  constexpr std::uint8_t kSourceIndex = 4;
+
+  constexpr std::uint32_t kPc = 0x00000680u;
+  constexpr std::uint32_t kNextPc = 0x00000684u;
+  constexpr std::uint32_t kSourceValue = 0x12340000u;
+  constexpr std::uint32_t kInstruction = encode_ori(
+      kZeroIndex,
+      kSourceIndex,
+      0x00ffu);
+
+  machine.write_cpu_pc(kPc);
+  machine.write_cpu_next_pc(kNextPc);
+  machine.write_cpu_gpr(kSourceIndex, kSourceValue);
+  machine.write_cpu_gpr(kZeroIndex, 0xffffffffu);
+
+  const Machine::DecodedCpuInstructionWord decoded =
+      Machine::decode_cpu_instruction_word(kInstruction);
+  const Machine::CpuInstructionIdentity identity =
+      Machine::identify_cpu_instruction(decoded);
+
+  std::cout << "fn64 bootstrap CPU-local execute demo: single ORI keeps zero register and PC lane untouched\n";
+  std::cout << "before execute:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[0]", machine.read_cpu_gpr(kZeroIndex));
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex32("  ori_raw", kInstruction);
+  std::cout << "  ori_identity = "
+            << Machine::cpu_instruction_identity_name(identity) << '\n';
+
+  if (identity != Machine::CpuInstructionIdentity::kOri) {
+    throw std::runtime_error("CPU-local execute demo did not identify ORI explicitly");
+  }
+
+  if (decoded.rs != kSourceIndex || decoded.rt != kZeroIndex) {
+    throw std::runtime_error("CPU-local execute demo decoded the wrong ORI registers");
+  }
+
+  const Machine::CpuInstructionExecutionResult result =
+      machine.execute_cpu_instruction(identity, decoded);
+
+  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
+    throw std::runtime_error("CPU-local execute demo did not execute ORI");
+  }
+
+  std::cout << "after execute:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[0]", machine.read_cpu_gpr(kZeroIndex));
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
+
+  if (machine.cpu_pc() != kPc) {
+    throw std::runtime_error("CPU-local execute demo unexpectedly changed pc");
+  }
+
+  if (machine.cpu_next_pc() != kNextPc) {
+    throw std::runtime_error("CPU-local execute demo unexpectedly changed next_pc");
+  }
+
+  if (machine.read_cpu_gpr(kZeroIndex) != 0) {
+    throw std::runtime_error("CPU-local execute demo wrote to gpr[0]");
+  }
+
+  if (machine.read_cpu_gpr(kSourceIndex) != kSourceValue) {
+    throw std::runtime_error("CPU-local execute demo changed the source register");
+  }
+}
+
+void run_cpu_local_addiu_aliased_source_target_execute_demo(Machine& machine) {
+  constexpr std::uint8_t kAliasedIndex = 5;
+
+  constexpr std::uint32_t kPc = 0x00000690u;
+  constexpr std::uint32_t kNextPc = 0x00000694u;
+  constexpr std::uint32_t kOriginalValue = 0x00000010u;
+  constexpr std::uint32_t kExpectedValue = 0x0000000fu;
+  constexpr std::uint32_t kInstruction = encode_addiu(
+      kAliasedIndex,
+      kAliasedIndex,
+      0xffffu);
+
+  machine.write_cpu_pc(kPc);
+  machine.write_cpu_next_pc(kNextPc);
+  machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
+
+  const Machine::DecodedCpuInstructionWord decoded =
+      Machine::decode_cpu_instruction_word(kInstruction);
+  const Machine::CpuInstructionIdentity identity =
+      Machine::identify_cpu_instruction(decoded);
+
+  std::cout
+      << "fn64 bootstrap CPU-local execute demo: ADDIU with rs == rt reads before writeback\n";
+  std::cout << "before execute:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[5]", machine.read_cpu_gpr(kAliasedIndex));
+  print_hex32("  addiu_raw", kInstruction);
+  std::cout << "  addiu_identity = "
+            << Machine::cpu_instruction_identity_name(identity) << '\n';
+
+  if (identity != Machine::CpuInstructionIdentity::kAddiu) {
+    throw std::runtime_error(
+        "CPU-local aliased ADDIU demo did not identify ADDIU explicitly");
+  }
+
+  if (decoded.rs != kAliasedIndex || decoded.rt != kAliasedIndex) {
+    throw std::runtime_error(
+        "CPU-local aliased ADDIU demo decoded the wrong registers");
+  }
+
+  const Machine::CpuInstructionExecutionResult result =
+      machine.execute_cpu_instruction(identity, decoded);
+
+  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
+    throw std::runtime_error("CPU-local aliased ADDIU demo did not execute ADDIU");
+  }
+
+  std::cout << "after execute:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[5]", machine.read_cpu_gpr(kAliasedIndex));
+
+  if (machine.cpu_pc() != kPc) {
+    throw std::runtime_error("CPU-local aliased ADDIU demo unexpectedly changed pc");
+  }
+
+  if (machine.cpu_next_pc() != kNextPc) {
+    throw std::runtime_error(
+        "CPU-local aliased ADDIU demo unexpectedly changed next_pc");
+  }
+
+  if (machine.read_cpu_gpr(kAliasedIndex) != kExpectedValue) {
+    throw std::runtime_error(
+        "CPU-local aliased ADDIU demo did not read original source before writeback");
+  }
+}
+
+void run_cpu_local_sltiu_aliased_source_target_execute_demo(Machine& machine) {
+  constexpr std::uint8_t kAliasedIndex = 6;
+
+  constexpr std::uint32_t kPc = 0x000006a0u;
+  constexpr std::uint32_t kNextPc = 0x000006a4u;
+  constexpr std::uint32_t kOriginalValue = 0x00000002u;
+  constexpr std::uint32_t kExpectedValue = 0x00000000u;
+  constexpr std::uint32_t kInstruction = encode_sltiu(
+      kAliasedIndex,
+      kAliasedIndex,
+      0x0001u);
+
+  machine.write_cpu_pc(kPc);
+  machine.write_cpu_next_pc(kNextPc);
+  machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
+
+  const Machine::DecodedCpuInstructionWord decoded =
+      Machine::decode_cpu_instruction_word(kInstruction);
+  const Machine::CpuInstructionIdentity identity =
+      Machine::identify_cpu_instruction(decoded);
+
+  std::cout
+      << "fn64 bootstrap CPU-local execute demo: SLTIU with rs == rt reads before writeback\n";
+  std::cout << "before execute:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[6]", machine.read_cpu_gpr(kAliasedIndex));
+  print_hex32("  sltiu_raw", kInstruction);
+  std::cout << "  sltiu_identity = "
+            << Machine::cpu_instruction_identity_name(identity) << '\n';
+
+  if (identity != Machine::CpuInstructionIdentity::kSltiu) {
+    throw std::runtime_error(
+        "CPU-local aliased SLTIU demo did not identify SLTIU explicitly");
+  }
+
+  if (decoded.rs != kAliasedIndex || decoded.rt != kAliasedIndex) {
+    throw std::runtime_error(
+        "CPU-local aliased SLTIU demo decoded the wrong registers");
+  }
+
+  const Machine::CpuInstructionExecutionResult result =
+      machine.execute_cpu_instruction(identity, decoded);
+
+  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
+    throw std::runtime_error("CPU-local aliased SLTIU demo did not execute SLTIU");
+  }
+
+  std::cout << "after execute:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[6]", machine.read_cpu_gpr(kAliasedIndex));
+
+  if (machine.cpu_pc() != kPc) {
+    throw std::runtime_error("CPU-local aliased SLTIU demo unexpectedly changed pc");
+  }
+
+  if (machine.cpu_next_pc() != kNextPc) {
+    throw std::runtime_error(
+        "CPU-local aliased SLTIU demo unexpectedly changed next_pc");
+  }
+
+  if (machine.read_cpu_gpr(kAliasedIndex) != kExpectedValue) {
+    throw std::runtime_error(
+        "CPU-local aliased SLTIU demo did not read original source before writeback");
+  }
+}
+
+
+
 }  // namespace
 
 void run_arithmetic_demos(Machine& machine) {
+  run_cpu_local_single_ori_execute_demo(machine);
+  run_cpu_local_addiu_aliased_source_target_execute_demo(machine);
+  run_cpu_local_sltiu_aliased_source_target_execute_demo(machine);
   run_register_immediate_arithmetic_compare_demo(machine);
   run_addi_positive_overflow_demo(machine);
   run_addi_negative_overflow_demo(machine);

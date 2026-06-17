@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <fstream>
 #include <utility>
 
 namespace fn64 {
@@ -23,35 +22,6 @@ const char* rom_source_layout_name(RomSourceLayout layout) {
 namespace {
 constexpr std::size_t kRomHeaderSize = 0x40;
 constexpr std::uint32_t kExpectedHeaderMagic = 0x80371240;
-
-bool read_file_bytes(
-    const std::filesystem::path& path,
-    std::vector<std::uint8_t>& out_bytes,
-    std::string& error
-) {
-  std::ifstream file(path, std::ios::binary | std::ios::ate);
-  if (!file.is_open()) {
-    error = "could not open file";
-    return false;
-  }
-
-  const std::streamsize size = file.tellg();
-  if (size < 0) {
-    error = "could not determine file size";
-    return false;
-  }
-
-  file.seekg(0, std::ios::beg);
-
-  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
-  if (size > 0 && !file.read(reinterpret_cast<char*>(bytes.data()), size)) {
-    error = "could not read file bytes";
-    return false;
-  }
-
-  out_bytes = std::move(bytes);
-  return true;
-}
 
 bool detect_rom_source_layout(
     const std::vector<std::uint8_t>& raw_bytes,
@@ -90,30 +60,28 @@ bool detect_rom_source_layout(
 }
 
 std::vector<std::uint8_t> normalize_rom_bytes(
-    const std::vector<std::uint8_t>& raw_bytes,
+    std::vector<std::uint8_t> raw_bytes,
     RomSourceLayout layout
 ) {
-  std::vector<std::uint8_t> normalized = raw_bytes;
-
   switch (layout) {
     case RomSourceLayout::kBigEndian:
-      return normalized;
+      return raw_bytes;
 
     case RomSourceLayout::kByteSwapped16:
-      for (std::size_t i = 0; i < normalized.size(); i += 2) {
-        std::swap(normalized[i], normalized[i + 1]);
+      for (std::size_t i = 0; i < raw_bytes.size(); i += 2) {
+        std::swap(raw_bytes[i], raw_bytes[i + 1]);
       }
-      return normalized;
+      return raw_bytes;
 
     case RomSourceLayout::kLittleEndian32:
-      for (std::size_t i = 0; i < normalized.size(); i += 4) {
-        std::swap(normalized[i], normalized[i + 3]);
-        std::swap(normalized[i + 1], normalized[i + 2]);
+      for (std::size_t i = 0; i < raw_bytes.size(); i += 4) {
+        std::swap(raw_bytes[i], raw_bytes[i + 3]);
+        std::swap(raw_bytes[i + 1], raw_bytes[i + 2]);
       }
-      return normalized;
+      return raw_bytes;
   }
 
-  return normalized;
+  return raw_bytes;
 }
 
 std::uint32_t read_be_u32(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
@@ -180,18 +148,13 @@ bool parse_rom_metadata(
 
 }  // namespace
 
-bool load_normalized_rom_image(
-    const std::filesystem::path& path,
+bool normalize_rom_image(
+    std::vector<std::uint8_t> raw_bytes,
     NormalizedRomImage& out_image,
     std::string& error
 ) {
   out_image = {};
   error.clear();
-
-  std::vector<std::uint8_t> raw_bytes;
-  if (!read_file_bytes(path, raw_bytes, error)) {
-    return false;
-  }
 
   if (raw_bytes.size() < kRomHeaderSize) {
     error = "file is too small to contain a complete 0x40-byte N64 ROM header";
@@ -204,13 +167,12 @@ bool load_normalized_rom_image(
   }
 
   NormalizedRomImage image;
-  image.path = path;
 
   if (!detect_rom_source_layout(raw_bytes, image.source_layout, error)) {
     return false;
   }
 
-  image.bytes = normalize_rom_bytes(raw_bytes, image.source_layout);
+  image.bytes = normalize_rom_bytes(std::move(raw_bytes), image.source_layout);
 
   if (!parse_rom_metadata(image.bytes, image.metadata, error)) {
     return false;

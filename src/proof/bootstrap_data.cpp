@@ -2,8 +2,11 @@
 
 #include <exception>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace fn64::bootstrap_detail {
 namespace {
@@ -75,6 +78,43 @@ constexpr std::uint32_t encode_sw(
   return encode_i_type(0x2b, rt, rs, immediate);
 }
 
+void write_be_u32(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint32_t value) {
+  bytes[offset] = static_cast<std::uint8_t>((value >> 24) & 0xffu);
+  bytes[offset + 1] = static_cast<std::uint8_t>((value >> 16) & 0xffu);
+  bytes[offset + 2] = static_cast<std::uint8_t>((value >> 8) & 0xffu);
+  bytes[offset + 3] = static_cast<std::uint8_t>(value & 0xffu);
+}
+
+std::vector<std::uint8_t> make_bootstrap_cartridge_staging_rom(
+    std::uint32_t first_instruction,
+    std::uint32_t second_instruction) {
+  constexpr std::size_t kRomSize = 0x48;
+  constexpr std::size_t kProgramOffset = 0x40;
+
+  std::vector<std::uint8_t> rom(kRomSize, 0);
+  write_be_u32(rom, 0x00, 0x80371240u);
+  write_be_u32(rom, 0x04, 0x0000000fu);
+  write_be_u32(rom, 0x08, 0x80000400u);
+  write_be_u32(rom, 0x0c, 0x00000000u);
+  write_be_u32(rom, 0x10, 0x00000000u);
+  write_be_u32(rom, 0x14, 0x00000000u);
+
+  const std::string image_name = "FN64 STAGE TEST";
+  for (std::size_t i = 0; i < image_name.size(); ++i) {
+    rom[0x20 + i] = static_cast<std::uint8_t>(image_name[i]);
+  }
+
+  rom[0x3c] = static_cast<std::uint8_t>('F');
+  rom[0x3d] = static_cast<std::uint8_t>('6');
+  rom[0x3e] = 0x45u;
+  rom[0x3f] = 0x00u;
+
+  write_be_u32(rom, kProgramOffset, first_instruction);
+  write_be_u32(rom, kProgramOffset + 4, second_instruction);
+
+  return rom;
+}
+
 void print_and_require_current_instruction_identity(
     Machine& machine,
     Machine::CpuInstructionIdentity expected_identity,
@@ -134,6 +174,141 @@ void require_step_exception_contains(
   }
 
   throw std::runtime_error(std::string(label) + " did not throw exception");
+}
+
+void run_cartridge_staging_demo() {
+  constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
+  constexpr std::uint32_t kProgramRdramAddress = 0x00000800u;
+  constexpr std::uint32_t kProgramCpuAddress = 0x80000800u;
+  constexpr std::uint32_t kProgramByteCount = 8u;
+  constexpr std::uint8_t kTargetRegister = 8;
+  constexpr std::uint16_t kImmediate = 0x1234u;
+
+  const std::uint32_t kOriInstruction = encode_ori(kTargetRegister, 0, kImmediate);
+  const std::uint32_t kBreakInstruction = encode_break();
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(
+          make_bootstrap_cartridge_staging_rom(kOriInstruction, kBreakInstruction),
+          cartridge,
+          error)) {
+    throw std::runtime_error("cartridge staging demo could not load generated ROM: " + error);
+  }
+
+  auto staged_machine = std::make_unique<Machine>(std::move(cartridge));
+  staged_machine->stage_cartridge_bytes_to_rdram(
+      kProgramCartridgeOffset,
+      kProgramRdramAddress,
+      kProgramByteCount);
+  staged_machine->write_cpu_pc(kProgramCpuAddress);
+
+  std::cout << "fn64 bootstrap cartridge staging demo: cartridge bytes stage into RDRAM and execute from KSEG0\n";
+  print_hex32("  cartridge_offset", kProgramCartridgeOffset);
+  print_hex32("  staged_rdram_address", kProgramRdramAddress);
+  print_hex32("  staged_cpu_pc", kProgramCpuAddress);
+  print_rdram_word(*staged_machine, "  staged_rdram[0x00000800]", kProgramRdramAddress);
+  print_rdram_word(*staged_machine, "  staged_rdram[0x00000804]", kProgramRdramAddress + 4u);
+
+  print_and_require_current_instruction_identity(
+      *staged_machine,
+      Machine::CpuInstructionIdentity::kOri,
+      "  staged_raw",
+      "staged_identity",
+      "cartridge staging demo did not identify ORI explicitly");
+
+  require_stepped(staged_machine->step_cpu_instruction(), "cartridge_staging_demo_ori");
+
+  if (staged_machine->read_cpu_gpr(kTargetRegister) != kImmediate) {
+    throw std::runtime_error("cartridge staging demo ORI did not execute from staged bytes");
+  }
+
+  print_hex64("  gpr[8]", staged_machine->read_cpu_gpr(kTargetRegister));
+
+  require_stopped(staged_machine->step_cpu_instruction(), "cartridge_staging_demo_break");
+}
+
+void run_cpu_rdram_alias_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kTargetIndex = 12;
+
+  constexpr std::uint32_t kLwCpuAddress = 0x80000700u;
+  constexpr std::uint32_t kBreakCpuAddress = 0x80000704u;
+  constexpr std::uint32_t kLwRdramAddress = 0x00000700u;
+  constexpr std::uint32_t kBreakRdramAddress = 0x00000704u;
+
+  constexpr std::uint32_t kDataCpuAddress = 0xa0000740u;
+  constexpr std::uint32_t kDataRdramAddress = 0x00000740u;
+  constexpr std::uint32_t kDataWord = 0xcafef00du;
+
+  const std::uint32_t kLwInstruction = encode_lw(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const std::uint32_t kBreakInstruction = encode_break();
+
+  std::uint32_t translated_fetch = 0;
+  std::uint32_t translated_data = 0;
+  if (!Machine::translate_cpu_rdram_address(kLwCpuAddress, 4, translated_fetch)) {
+    throw std::runtime_error("CPU RDRAM alias demo could not translate KSEG0 fetch");
+  }
+
+  if (!Machine::translate_cpu_rdram_address(kDataCpuAddress, 4, translated_data)) {
+    throw std::runtime_error("CPU RDRAM alias demo could not translate KSEG1 data");
+  }
+
+  if (translated_fetch != kLwRdramAddress || translated_data != kDataRdramAddress) {
+    throw std::runtime_error("CPU RDRAM alias demo translated to the wrong RDRAM offset");
+  }
+
+  machine.write_cpu_pc(kLwCpuAddress);
+  machine.write_cpu_gpr(kBaseIndex, kDataCpuAddress);
+  machine.write_cpu_gpr(kTargetIndex, 0x00000000u);
+
+  machine.write_rdram_u32_be(kLwRdramAddress, kLwInstruction);
+  machine.write_rdram_u32_be(kBreakRdramAddress, kBreakInstruction);
+  machine.write_rdram_u32_be(kDataRdramAddress, kDataWord);
+
+  std::cout << "fn64 bootstrap CPU RDRAM alias demo: KSEG0 fetch and KSEG1 data access resolve to local RDRAM\n";
+  std::cout << "before step 1:\n";
+  print_control_flow_state(machine);
+  print_hex32("  kseg0_fetch_pc", kLwCpuAddress);
+  print_hex32("  translated_fetch_rdram", translated_fetch);
+  print_hex32("  kseg1_data_address", kDataCpuAddress);
+  print_hex32("  translated_data_rdram", translated_data);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+  print_rdram_word(machine, "  rdram[0x00000740]", kDataRdramAddress);
+
+  const std::uint32_t lw_raw = machine.fetch_cpu_instruction_word();
+  const Machine::DecodedCpuInstructionWord lw_decoded =
+      Machine::decode_cpu_instruction_word(lw_raw);
+  const Machine::CpuInstructionIdentity lw_identity =
+      Machine::identify_cpu_instruction(lw_decoded);
+
+  print_hex32("  lw_raw", lw_raw);
+  std::cout << "  lw_identity = "
+            << Machine::cpu_instruction_identity_name(lw_identity) << '\n';
+
+  if (lw_identity != Machine::CpuInstructionIdentity::kLw) {
+    throw std::runtime_error("CPU RDRAM alias demo did not identify LW explicitly");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "cpu_rdram_alias_demo_lw");
+
+  std::cout << "after step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != kBreakCpuAddress) {
+    throw std::runtime_error("CPU RDRAM alias demo did not advance to KSEG0 BREAK");
+  }
+
+  if (machine.read_cpu_gpr(kTargetIndex) != kDataWord) {
+    throw std::runtime_error("CPU RDRAM alias demo LW did not read through KSEG1");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), "cpu_rdram_alias_demo_break");
 }
 
 void run_unaligned_load_word_demo(Machine& machine) {
@@ -1374,6 +1549,8 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 }  // namespace
 
 void run_data_demos(Machine& machine) {
+  run_cartridge_staging_demo();
+  run_cpu_rdram_alias_demo(machine);
   run_unaligned_load_word_demo(machine);
   run_unaligned_store_word_demo(machine);
   run_aligned_word_load_store_demo(machine);

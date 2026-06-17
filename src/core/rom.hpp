@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -29,14 +28,13 @@ struct RomMetadata {
 };
 
 struct NormalizedRomImage {
-  std::filesystem::path path;
   RomSourceLayout source_layout = RomSourceLayout::kBigEndian;
   std::vector<std::uint8_t> bytes;  // Canonical big-endian cartridge byte order.
   RomMetadata metadata;
 };
 
-bool load_normalized_rom_image(
-    const std::filesystem::path& path,
+bool normalize_rom_image(
+    std::vector<std::uint8_t> raw_bytes,
     NormalizedRomImage& out_image,
     std::string& error
 );

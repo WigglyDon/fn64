@@ -29,19 +29,13 @@ void require_readable_range(std::size_t image_size, std::uint32_t cart_addr, std
 }  // namespace
 
 Cartridge::Cartridge(
-    std::filesystem::path path,
     RomSourceLayout source_layout,
     std::vector<std::uint8_t> image,
     RomMetadata metadata
 )
-    : path_(std::move(path)),
-      source_layout_(source_layout),
+    : source_layout_(source_layout),
       image_(std::move(image)),
       metadata_(std::move(metadata)) {}
-
-const std::filesystem::path& Cartridge::path() const noexcept {
-  return path_;
-}
 
 RomSourceLayout Cartridge::source_layout() const noexcept {
   return source_layout_;
@@ -82,18 +76,17 @@ std::uint32_t Cartridge::read_u32_be(std::uint32_t cart_addr) const {
 }
 
 bool load_cartridge(
-    const std::filesystem::path& path,
+    std::vector<std::uint8_t> raw_bytes,
     Cartridge& out_cartridge,
     std::string& error
 ) {
   NormalizedRomImage image;
-  if (!load_normalized_rom_image(path, image, error)) {
-    out_cartridge = Cartridge({}, RomSourceLayout::kBigEndian, {}, {});
+  if (!normalize_rom_image(std::move(raw_bytes), image, error)) {
+    out_cartridge = Cartridge(RomSourceLayout::kBigEndian, {}, {});
     return false;
   }
 
   out_cartridge = Cartridge(
-      std::move(image.path),
       image.source_layout,
       std::move(image.bytes),
       std::move(image.metadata)

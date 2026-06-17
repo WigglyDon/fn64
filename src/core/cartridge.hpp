@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -14,7 +13,6 @@ class Cartridge {
 public:
   Cartridge() = default;
 
-  const std::filesystem::path& path() const noexcept;
   RomSourceLayout source_layout() const noexcept;
   const RomMetadata& metadata() const noexcept;
 
@@ -26,26 +24,24 @@ public:
 
 private:
   Cartridge(
-      std::filesystem::path path,
       RomSourceLayout source_layout,
       std::vector<std::uint8_t> image,
       RomMetadata metadata
   );
 
-  std::filesystem::path path_;
   RomSourceLayout source_layout_ = RomSourceLayout::kBigEndian;
   std::vector<std::uint8_t> image_;
   RomMetadata metadata_;
 
   friend bool load_cartridge(
-      const std::filesystem::path& path,
+      std::vector<std::uint8_t> raw_bytes,
       Cartridge& out_cartridge,
       std::string& error
   );
 };
 
 bool load_cartridge(
-    const std::filesystem::path& path,
+    std::vector<std::uint8_t> raw_bytes,
     Cartridge& out_cartridge,
     std::string& error
 );
