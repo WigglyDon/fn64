@@ -1,5 +1,6 @@
 #include "machine.hpp"
 
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -105,6 +106,15 @@ std::uint32_t arithmetic_shift_right_u32(std::uint32_t value, std::uint8_t sa) {
 
 std::int32_t reinterpret_u32_as_i32(std::uint32_t value) {
   return static_cast<std::int32_t>(value);
+}
+
+bool signed_i32_result_out_of_range(std::int64_t value) {
+  return value < static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min()) ||
+         value > static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
+}
+
+std::uint32_t signed_i32_result_bits(std::int64_t value) {
+  return static_cast<std::uint32_t>(static_cast<std::int32_t>(value));
 }
 
 bool signed_register_value_greater_equal(std::uint32_t lhs, std::uint32_t rhs) {
@@ -1077,16 +1087,17 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kSpecialAdd: {
-      const std::int32_t lhs = reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs));
-      const std::int32_t rhs = reinterpret_u32_as_i32(read_cpu_gpr(instruction.rt));
-      const std::int32_t value = lhs + rhs;
+      const std::int64_t lhs =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs)));
+      const std::int64_t rhs =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rt)));
+      const std::int64_t value = lhs + rhs;
 
-      if ((rhs > 0 && lhs > (INT32_MAX - rhs)) ||
-          (rhs < 0 && lhs < (INT32_MIN - rhs))) {
+      if (signed_i32_result_out_of_range(value)) {
         throw std::runtime_error("ADD overflow");
       }
 
-      write_cpu_gpr(instruction.rd, static_cast<std::uint32_t>(value));
+      write_cpu_gpr(instruction.rd, signed_i32_result_bits(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
@@ -1098,16 +1109,17 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kSpecialSub: {
-      const std::int32_t lhs = reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs));
-      const std::int32_t rhs = reinterpret_u32_as_i32(read_cpu_gpr(instruction.rt));
-      const std::int32_t value = lhs - rhs;
+      const std::int64_t lhs =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs)));
+      const std::int64_t rhs =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rt)));
+      const std::int64_t value = lhs - rhs;
 
-      if ((rhs < 0 && lhs > (INT32_MAX + rhs)) ||
-          (rhs > 0 && lhs < (INT32_MIN + rhs))) {
+      if (signed_i32_result_out_of_range(value)) {
         throw std::runtime_error("SUB overflow");
       }
 
-      write_cpu_gpr(instruction.rd, static_cast<std::uint32_t>(value));
+      write_cpu_gpr(instruction.rd, signed_i32_result_bits(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
@@ -1162,16 +1174,16 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kAddi: {
-      const std::int32_t lhs = reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs));
-      const std::int32_t rhs = static_cast<std::int32_t>(instruction.immediate_i16);
-      const std::int32_t value = lhs + rhs;
+      const std::int64_t lhs =
+          static_cast<std::int64_t>(reinterpret_u32_as_i32(read_cpu_gpr(instruction.rs)));
+      const std::int64_t rhs = static_cast<std::int64_t>(instruction.immediate_i16);
+      const std::int64_t value = lhs + rhs;
 
-      if ((rhs > 0 && lhs > (INT32_MAX - rhs)) ||
-          (rhs < 0 && lhs < (INT32_MIN - rhs))) {
+      if (signed_i32_result_out_of_range(value)) {
         throw std::runtime_error("ADDI overflow");
       }
 
-      write_cpu_gpr(instruction.rt, static_cast<std::uint32_t>(value));
+      write_cpu_gpr(instruction.rt, signed_i32_result_bits(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 

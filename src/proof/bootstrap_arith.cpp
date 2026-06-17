@@ -194,6 +194,144 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   }
 }
 
+void run_add_positive_overflow_demo(Machine& machine) {
+  constexpr std::size_t kLhsIndex = 4;
+  constexpr std::size_t kRhsIndex = 5;
+  constexpr std::size_t kResultIndex = 6;
+
+  constexpr std::uint32_t kAddAddress = 0x00000420u;
+  constexpr std::uint32_t kAfterAddAddress = 0x00000424u;
+  constexpr std::uint32_t kAddInstruction = encode_special(
+      static_cast<std::uint8_t>(kLhsIndex),
+      static_cast<std::uint8_t>(kRhsIndex),
+      static_cast<std::uint8_t>(kResultIndex),
+      0,
+      0x20);
+
+  machine.write_cpu_pc(kAddAddress);
+  machine.write_cpu_gpr(kLhsIndex, 0x7fffffffu);
+  machine.write_cpu_gpr(kRhsIndex, 0x00000001u);
+  machine.write_cpu_gpr(kResultIndex, 0x2468ace0u);
+
+  machine.write_rdram_u32_be(kAddAddress, kAddInstruction);
+
+  std::cout << "fn64 bootstrap register arithmetic demo: ADD positive overflow fails loudly\n";
+  std::cout << "before failing step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kLhsIndex));
+  print_hex64("  gpr[5]", machine.read_cpu_gpr(kRhsIndex));
+  print_hex64("  gpr[6]", machine.read_cpu_gpr(kResultIndex));
+
+  const std::uint32_t add_raw = machine.fetch_cpu_instruction_word();
+  const Machine::DecodedCpuInstructionWord add_decoded =
+      Machine::decode_cpu_instruction_word(add_raw);
+  const Machine::CpuInstructionIdentity add_identity =
+      Machine::identify_cpu_instruction(add_decoded);
+
+  print_hex32("  add_raw", add_raw);
+  std::cout << "  add_identity = "
+            << Machine::cpu_instruction_identity_name(add_identity) << '\n';
+
+  if (add_identity != Machine::CpuInstructionIdentity::kSpecialAdd) {
+    throw std::runtime_error("add positive overflow demo did not identify ADD explicitly");
+  }
+
+  try {
+    static_cast<void>(machine.step_cpu_instruction());
+  } catch (const std::exception& exception) {
+    std::cout << "  exception = " << exception.what() << '\n';
+    std::cout << "after failing step:\n";
+    print_control_flow_state(machine);
+    print_hex64("  gpr[6]", machine.read_cpu_gpr(kResultIndex));
+
+    if (machine.cpu_pc() != kAddAddress) {
+      throw std::runtime_error("add positive overflow demo did not restore pc after throw");
+    }
+
+    if (machine.cpu_next_pc() != kAfterAddAddress) {
+      throw std::runtime_error("add positive overflow demo did not restore next_pc after throw");
+    }
+
+    if (machine.read_cpu_gpr(kResultIndex) != 0x2468ace0u) {
+      throw std::runtime_error(
+          "add positive overflow demo unexpectedly changed the destination register");
+    }
+
+    return;
+  }
+
+  throw std::runtime_error("add positive overflow demo did not fail loudly");
+}
+
+void run_sub_negative_overflow_demo(Machine& machine) {
+  constexpr std::size_t kLhsIndex = 4;
+  constexpr std::size_t kRhsIndex = 5;
+  constexpr std::size_t kResultIndex = 6;
+
+  constexpr std::uint32_t kSubAddress = 0x00000430u;
+  constexpr std::uint32_t kAfterSubAddress = 0x00000434u;
+  constexpr std::uint32_t kSubInstruction = encode_special(
+      static_cast<std::uint8_t>(kLhsIndex),
+      static_cast<std::uint8_t>(kRhsIndex),
+      static_cast<std::uint8_t>(kResultIndex),
+      0,
+      0x22);
+
+  machine.write_cpu_pc(kSubAddress);
+  machine.write_cpu_gpr(kLhsIndex, 0x80000000u);
+  machine.write_cpu_gpr(kRhsIndex, 0x00000001u);
+  machine.write_cpu_gpr(kResultIndex, 0x13579bdfu);
+
+  machine.write_rdram_u32_be(kSubAddress, kSubInstruction);
+
+  std::cout << "fn64 bootstrap register arithmetic demo: SUB negative overflow fails loudly\n";
+  std::cout << "before failing step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kLhsIndex));
+  print_hex64("  gpr[5]", machine.read_cpu_gpr(kRhsIndex));
+  print_hex64("  gpr[6]", machine.read_cpu_gpr(kResultIndex));
+
+  const std::uint32_t sub_raw = machine.fetch_cpu_instruction_word();
+  const Machine::DecodedCpuInstructionWord sub_decoded =
+      Machine::decode_cpu_instruction_word(sub_raw);
+  const Machine::CpuInstructionIdentity sub_identity =
+      Machine::identify_cpu_instruction(sub_decoded);
+
+  print_hex32("  sub_raw", sub_raw);
+  std::cout << "  sub_identity = "
+            << Machine::cpu_instruction_identity_name(sub_identity) << '\n';
+
+  if (sub_identity != Machine::CpuInstructionIdentity::kSpecialSub) {
+    throw std::runtime_error("sub negative overflow demo did not identify SUB explicitly");
+  }
+
+  try {
+    static_cast<void>(machine.step_cpu_instruction());
+  } catch (const std::exception& exception) {
+    std::cout << "  exception = " << exception.what() << '\n';
+    std::cout << "after failing step:\n";
+    print_control_flow_state(machine);
+    print_hex64("  gpr[6]", machine.read_cpu_gpr(kResultIndex));
+
+    if (machine.cpu_pc() != kSubAddress) {
+      throw std::runtime_error("sub negative overflow demo did not restore pc after throw");
+    }
+
+    if (machine.cpu_next_pc() != kAfterSubAddress) {
+      throw std::runtime_error("sub negative overflow demo did not restore next_pc after throw");
+    }
+
+    if (machine.read_cpu_gpr(kResultIndex) != 0x13579bdfu) {
+      throw std::runtime_error(
+          "sub negative overflow demo unexpectedly changed the destination register");
+    }
+
+    return;
+  }
+
+  throw std::runtime_error("sub negative overflow demo did not fail loudly");
+}
+
 void run_addi_positive_overflow_demo(Machine& machine) {
   constexpr std::size_t kSourceIndex = 4;
   constexpr std::size_t kResultIndex = 5;
@@ -844,6 +982,8 @@ void run_arithmetic_demos(Machine& machine) {
   run_cpu_local_addiu_aliased_source_target_execute_demo(machine);
   run_cpu_local_sltiu_aliased_source_target_execute_demo(machine);
   run_register_immediate_arithmetic_compare_demo(machine);
+  run_add_positive_overflow_demo(machine);
+  run_sub_negative_overflow_demo(machine);
   run_addi_positive_overflow_demo(machine);
   run_addi_negative_overflow_demo(machine);
   run_logic_immediate_unsigned_compare_demo(machine);
