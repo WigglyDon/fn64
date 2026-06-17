@@ -20,7 +20,6 @@ private:
       const Cartridge& cartridge);
   static void print_machine_state(const Machine& machine);
 
-  int inspect_rom(const std::filesystem::path& rom_path);
   int run_rom_session(const std::filesystem::path& rom_path);
 
   bool init();

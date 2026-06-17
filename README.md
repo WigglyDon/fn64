@@ -23,7 +23,7 @@ fn64_selftest
 
 Runs the internal CPU/RDRAM bootstrap demos and exits. This is the proof path, not the emulator runtime.
 
-fn64 --inspect-rom path/to/game.z64
+fn64_inspect path/to/game.z64
 
 Loads a cartridge, prints the normalized ROM metadata and initial machine state, then exits without opening an SDL window.
 
@@ -86,7 +86,7 @@ Normal ROM launch does not stage or execute cartridge bytes automatically.
 
 The `fn64_inspect` build target provides a tiny SDL-free inspection executable for ROM/core facts.
 
-fn64 --inspect-rom path/to/game.z64
+fn64_inspect path/to/game.z64
 
 This loads the cartridge, prints cartridge metadata and initial machine state, then exits.
 

@@ -83,7 +83,7 @@ void App::print_usage() {
       << "  fn64 <rom-path>\n"
       << "\n"
       << "--self-test moved to fn64_selftest.\n"
-      << "--inspect-rom loads a cartridge, prints session state, and exits without opening SDL.\n"
+      << "--inspect-rom moved to fn64_inspect <rom-path>.\n"
       << "<rom-path> loads a cartridge and opens the session window.\n"
       << "Cartridge execution is not wired yet.\n";
 }
@@ -159,26 +159,6 @@ void App::pump_events() {
   }
 }
 
-int App::inspect_rom(const std::filesystem::path& rom_path) {
-  Cartridge cartridge;
-  std::string error;
-  if (!load_cartridge_file(rom_path, cartridge, error)) {
-    std::cerr << error << '\n';
-    return 1;
-  }
-
-  print_loaded_cartridge(rom_path, cartridge);
-
-  Machine machine(std::move(cartridge));
-  print_machine_state(machine);
-
-  std::cout << "\n"
-            << "inspection mode: no SDL window opened, no demos run, "
-            << "no cartridge bytes staged, no CPU instructions stepped\n";
-
-  return 0;
-}
-
 int App::run_rom_session(const std::filesystem::path& rom_path) {
   if (!init()) {
     return 1;
@@ -245,7 +225,9 @@ int App::run(int argc, char** argv) {
         return 1;
       }
 
-      return inspect_rom(std::filesystem::path(argv[2]));
+      std::cerr << "fn64 --inspect-rom has moved. Use fn64_inspect "
+                << argv[2] << ".\n";
+      return 1;
     }
 
     if (argc != 2) {
