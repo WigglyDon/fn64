@@ -13,7 +13,6 @@
 #include <utility>
 #include <vector>
 
-#include "bootstrap.hpp"
 #include "cartridge.hpp"
 #include "machine.hpp"
 
@@ -83,7 +82,7 @@ void App::print_usage() {
       << "  fn64 --inspect-rom <rom-path>\n"
       << "  fn64 <rom-path>\n"
       << "\n"
-      << "--self-test runs the internal CPU/RDRAM bootstrap demos and exits.\n"
+      << "--self-test moved to fn64_selftest.\n"
       << "--inspect-rom loads a cartridge, prints session state, and exits without opening SDL.\n"
       << "<rom-path> loads a cartridge and opens the session window.\n"
       << "Cartridge execution is not wired yet.\n";
@@ -160,13 +159,6 @@ void App::pump_events() {
   }
 }
 
-int App::run_self_test() {
-  Machine machine(Cartridge{});
-  run_bootstrap_demos(machine);
-  std::cout << "fn64 self-test: PASS\n";
-  return 0;
-}
-
 int App::inspect_rom(const std::filesystem::path& rom_path) {
   Cartridge cartridge;
   std::string error;
@@ -181,7 +173,7 @@ int App::inspect_rom(const std::filesystem::path& rom_path) {
   print_machine_state(machine);
 
   std::cout << "\n"
-            << "inspection mode: no SDL window opened, no bootstrap demos run, "
+            << "inspection mode: no SDL window opened, no demos run, "
             << "no cartridge bytes staged, no CPU instructions stepped\n";
 
   return 0;
@@ -243,7 +235,8 @@ int App::run(int argc, char** argv) {
         return 1;
       }
 
-      return run_self_test();
+      std::cerr << "fn64 --self-test has moved. Use fn64_selftest.\n";
+      return 1;
     }
 
     if (argument == "--inspect-rom") {

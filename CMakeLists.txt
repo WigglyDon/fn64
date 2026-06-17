@@ -38,6 +38,12 @@ add_executable(fn64_inspect
 
 target_link_libraries(fn64_inspect PRIVATE fn64_core)
 
+add_executable(fn64_selftest
+  src/proof/selftest_main.cpp
+)
+
+target_link_libraries(fn64_selftest PRIVATE fn64_core fn64_proof)
+
 find_package(SDL3 CONFIG)
 
 if (SDL3_FOUND)
@@ -47,7 +53,7 @@ if (SDL3_FOUND)
   )
 
   target_include_directories(fn64 PRIVATE src/host/sdl)
-  target_link_libraries(fn64 PRIVATE SDL3::SDL3 fn64_core fn64_proof)
+  target_link_libraries(fn64 PRIVATE SDL3::SDL3 fn64_core)
 else()
   message(STATUS "SDL3 not found; fn64 SDL host executable will not be built")
 endif()
@@ -56,6 +62,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(fn64_core PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(fn64_proof PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(fn64_inspect PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(fn64_selftest PRIVATE -Wall -Wextra -Wpedantic)
   if (TARGET fn64)
     target_compile_options(fn64 PRIVATE -Wall -Wextra -Wpedantic)
   endif()

@@ -19,9 +19,9 @@ sudo dnf install gcc-c++ cmake ninja-build SDL3-devel
 
 ## Run modes
 
-fn64 --self-test
+fn64_selftest
 
-Runs the internal CPU/RDRAM bootstrap demos and exits. This is the proof path.
+Runs the internal CPU/RDRAM bootstrap demos and exits. This is the proof path, not the emulator runtime.
 
 fn64 --inspect-rom path/to/game.z64
 
@@ -78,7 +78,7 @@ This is not cartridge execution mapping.
 It is not a bus.
 It is not N64 boot.
 
-The self-test path proves the seam by loading a tiny generated ROM, staging two cartridge instructions into RDRAM, setting the CPU PC to the staged KSEG0 address, and stepping ORI then BREAK.
+The `fn64_selftest` proof path proves the seam by loading a tiny generated ROM, staging two cartridge instructions into RDRAM, setting the CPU PC to the staged KSEG0 address, and stepping ORI then BREAK.
 
 Normal ROM launch does not stage or execute cartridge bytes automatically.
 
