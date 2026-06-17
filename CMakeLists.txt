@@ -11,6 +11,7 @@ add_library(fn64_core
   src/core/rom.cpp
   src/core/cartridge.cpp
   src/core/machine.cpp
+  src/core/machine_cpu.cpp
 )
 
 target_include_directories(fn64_core PUBLIC src/core)
