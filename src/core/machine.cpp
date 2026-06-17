@@ -25,6 +25,19 @@ namespace {
       " byte_count=" + std::to_string(byte_count));
 }
 
+[[noreturn]] void fail_cartridge_stage_range(
+    const char* span_name,
+    std::uint32_t start,
+    std::uint32_t byte_count,
+    std::size_t size) {
+  throw std::out_of_range(
+      std::string("cartridge staging span out of range: ") +
+      span_name +
+      " start=" + std::to_string(start) +
+      " byte_count=" + std::to_string(byte_count) +
+      " size=" + std::to_string(size));
+}
+
 void require_u32_span(
     const char* span_name,
     std::uint32_t start,
@@ -37,6 +50,22 @@ void require_u32_span(
                              static_cast<std::uint64_t>(byte_count - 1u);
   if (last > 0xffffffffull) {
     fail_cartridge_stage_span(span_name, start, byte_count);
+  }
+}
+
+void require_stage_span_inside_buffer(
+    const char* span_name,
+    std::uint32_t start,
+    std::uint32_t byte_count,
+    std::size_t size) {
+  if (byte_count == 0) {
+    return;
+  }
+
+  const std::uint64_t last = static_cast<std::uint64_t>(start) +
+                             static_cast<std::uint64_t>(byte_count - 1u);
+  if (last >= static_cast<std::uint64_t>(size)) {
+    fail_cartridge_stage_range(span_name, start, byte_count, size);
   }
 }
 
@@ -372,6 +401,16 @@ void Machine::stage_cartridge_bytes_to_rdram(
     std::uint32_t byte_count) {
   require_u32_span("cartridge source", cartridge_offset, byte_count);
   require_u32_span("RDRAM destination", rdram_address, byte_count);
+  require_stage_span_inside_buffer(
+      "cartridge source",
+      cartridge_offset,
+      byte_count,
+      cartridge_.size_bytes());
+  require_stage_span_inside_buffer(
+      "RDRAM destination",
+      rdram_address,
+      byte_count,
+      rdram_.size());
 
   for (std::uint32_t i = 0; i < byte_count; ++i) {
     write_rdram_u8(rdram_address + i, cartridge_.read_u8(cartridge_offset + i));

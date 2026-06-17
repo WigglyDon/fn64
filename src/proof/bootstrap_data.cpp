@@ -176,6 +176,29 @@ void require_step_exception_contains(
   throw std::runtime_error(std::string(label) + " did not throw exception");
 }
 
+void require_stage_exception_contains(
+    Machine& machine,
+    std::uint32_t cartridge_offset,
+    std::uint32_t rdram_address,
+    std::uint32_t byte_count,
+    const char* label,
+    const char* expected_substring) {
+  try {
+    machine.stage_cartridge_bytes_to_rdram(cartridge_offset, rdram_address, byte_count);
+  } catch (const std::exception& e) {
+    std::cout << "  " << label << " threw: " << e.what() << '\n';
+
+    if (std::string(e.what()).find(expected_substring) == std::string::npos) {
+      throw std::runtime_error(
+          std::string(label) + " threw unexpected exception text");
+    }
+
+    return;
+  }
+
+  throw std::runtime_error(std::string(label) + " did not throw exception");
+}
+
 void run_cartridge_staging_demo() {
   constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
   constexpr std::uint32_t kProgramRdramAddress = 0x00000800u;
@@ -210,6 +233,14 @@ void run_cartridge_staging_demo() {
   print_rdram_word(*staged_machine, "  staged_rdram[0x00000800]", kProgramRdramAddress);
   print_rdram_word(*staged_machine, "  staged_rdram[0x00000804]", kProgramRdramAddress + 4u);
 
+  if (staged_machine->read_rdram_u32_be(kProgramRdramAddress) != kOriInstruction) {
+    throw std::runtime_error("cartridge staging demo did not copy ORI bytes into RDRAM");
+  }
+
+  if (staged_machine->read_rdram_u32_be(kProgramRdramAddress + 4u) != kBreakInstruction) {
+    throw std::runtime_error("cartridge staging demo did not copy BREAK bytes into RDRAM");
+  }
+
   print_and_require_current_instruction_identity(
       *staged_machine,
       Machine::CpuInstructionIdentity::kOri,
@@ -226,6 +257,102 @@ void run_cartridge_staging_demo() {
   print_hex64("  gpr[8]", staged_machine->read_cpu_gpr(kTargetRegister));
 
   require_stopped(staged_machine->step_cpu_instruction(), "cartridge_staging_demo_break");
+}
+
+void run_cartridge_staging_preflight_demo() {
+  constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
+  constexpr std::uint32_t kProgramByteCount = 8u;
+  constexpr std::uint32_t kSourceFailureOffset = 0x00000046u;
+  constexpr std::uint32_t kFailureByteCount = 4u;
+  constexpr std::uint32_t kSourceFailureRdramAddress = 0x00000820u;
+  constexpr std::uint32_t kSourceFailureSentinel = 0xaabbccddu;
+  constexpr std::uint32_t kDestinationFailureSentinel = 0x11223344u;
+
+  const std::uint32_t kOriInstruction = encode_ori(8, 0, 0x1234u);
+  const std::uint32_t kBreakInstruction = encode_break();
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(
+          make_bootstrap_cartridge_staging_rom(kOriInstruction, kBreakInstruction),
+          cartridge,
+          error)) {
+    throw std::runtime_error(
+        "cartridge staging preflight demo could not load generated ROM: " + error);
+  }
+
+  auto preflight_machine = std::make_unique<Machine>(std::move(cartridge));
+  const std::uint32_t kDestinationFailureSentinelAddress =
+      static_cast<std::uint32_t>(preflight_machine->rdram_size_bytes() - 4);
+  const std::uint32_t kDestinationFailureRdramAddress =
+      static_cast<std::uint32_t>(preflight_machine->rdram_size_bytes() - 2);
+
+  std::cout
+      << "fn64 bootstrap cartridge staging preflight demo: failed staging leaves RDRAM unchanged\n";
+
+  preflight_machine->stage_cartridge_bytes_to_rdram(
+      kProgramCartridgeOffset,
+      kSourceFailureRdramAddress,
+      kProgramByteCount);
+  print_rdram_word(
+      *preflight_machine,
+      "  successful_staged_rdram[0x00000820]",
+      kSourceFailureRdramAddress);
+  print_rdram_word(
+      *preflight_machine,
+      "  successful_staged_rdram[0x00000824]",
+      kSourceFailureRdramAddress + 4u);
+
+  if (preflight_machine->read_rdram_u32_be(kSourceFailureRdramAddress) != kOriInstruction) {
+    throw std::runtime_error("cartridge staging preflight demo did not preserve success copy");
+  }
+
+  if (preflight_machine->read_rdram_u32_be(kSourceFailureRdramAddress + 4u) !=
+      kBreakInstruction) {
+    throw std::runtime_error("cartridge staging preflight demo did not preserve success tail copy");
+  }
+
+  preflight_machine->write_rdram_u32_be(kSourceFailureRdramAddress, kSourceFailureSentinel);
+  require_stage_exception_contains(
+      *preflight_machine,
+      kSourceFailureOffset,
+      kSourceFailureRdramAddress,
+      kFailureByteCount,
+      "cartridge_staging_source_preflight",
+      "cartridge staging span out of range: cartridge source");
+
+  print_rdram_word(
+      *preflight_machine,
+      "  source_failure_rdram[0x00000820]",
+      kSourceFailureRdramAddress);
+
+  if (preflight_machine->read_rdram_u32_be(kSourceFailureRdramAddress) !=
+      kSourceFailureSentinel) {
+    throw std::runtime_error(
+        "cartridge staging source preflight changed RDRAM before failing");
+  }
+
+  preflight_machine->write_rdram_u32_be(
+      kDestinationFailureSentinelAddress,
+      kDestinationFailureSentinel);
+  require_stage_exception_contains(
+      *preflight_machine,
+      kProgramCartridgeOffset,
+      kDestinationFailureRdramAddress,
+      kFailureByteCount,
+      "cartridge_staging_destination_preflight",
+      "cartridge staging span out of range: RDRAM destination");
+
+  print_rdram_word(
+      *preflight_machine,
+      "  destination_failure_rdram_tail",
+      kDestinationFailureSentinelAddress);
+
+  if (preflight_machine->read_rdram_u32_be(kDestinationFailureSentinelAddress) !=
+      kDestinationFailureSentinel) {
+    throw std::runtime_error(
+        "cartridge staging destination preflight changed RDRAM before failing");
+  }
 }
 
 void run_cpu_rdram_alias_demo(Machine& machine) {
@@ -1550,6 +1677,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 
 void run_data_demos(Machine& machine) {
   run_cartridge_staging_demo();
+  run_cartridge_staging_preflight_demo();
   run_cpu_rdram_alias_demo(machine);
   run_unaligned_load_word_demo(machine);
   run_unaligned_store_word_demo(machine);
