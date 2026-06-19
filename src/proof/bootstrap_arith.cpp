@@ -3,6 +3,7 @@
 #include <exception>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 namespace fn64::bootstrap_detail {
 namespace {
@@ -973,6 +974,215 @@ void run_cpu_local_sltiu_aliased_source_target_execute_demo(Machine& machine) {
   }
 }
 
+void execute_hilo_instruction(
+    Machine& machine,
+    std::uint32_t instruction,
+    Machine::CpuInstructionIdentity expected_identity,
+    const char* label) {
+  const Machine::DecodedCpuInstructionWord decoded =
+      Machine::decode_cpu_instruction_word(instruction);
+  const Machine::CpuInstructionIdentity identity =
+      Machine::identify_cpu_instruction(decoded);
+
+  print_hex32("  instruction_raw", instruction);
+  std::cout << "  instruction_label = " << label << '\n';
+  std::cout << "  instruction_identity = "
+            << Machine::cpu_instruction_identity_name(identity) << '\n';
+
+  if (identity != expected_identity) {
+    throw std::runtime_error(std::string("HI/LO demo did not identify ") + label);
+  }
+
+  const Machine::CpuInstructionExecutionResult result =
+      machine.execute_cpu_instruction(identity, decoded);
+
+  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
+    throw std::runtime_error(std::string("HI/LO demo did not execute ") + label);
+  }
+}
+
+void run_hilo_arithmetic_demo(Machine& machine) {
+  constexpr std::uint32_t kPc = 0x000006b0u;
+  constexpr std::uint32_t kNextPc = 0x000006b4u;
+
+  constexpr std::uint8_t kHiSourceIndex = 4;
+  constexpr std::uint8_t kLoSourceIndex = 5;
+  constexpr std::uint8_t kHiReadIndex = 6;
+  constexpr std::uint8_t kLoReadIndex = 7;
+  constexpr std::uint8_t kLhsIndex = 8;
+  constexpr std::uint8_t kRhsIndex = 9;
+
+  constexpr std::uint32_t kMthiValue = 0x89abcdefu;
+  constexpr std::uint32_t kMtloValue = 0x01234567u;
+  constexpr std::uint32_t kMultExpectedHi = 0xffffffffu;
+  constexpr std::uint32_t kMultExpectedLo = 0xfffffffau;
+  constexpr std::uint32_t kMultuExpectedHi = 0x00000001u;
+  constexpr std::uint32_t kMultuExpectedLo = 0xfffffffeu;
+  constexpr std::uint32_t kDivExpectedHi = 0xfffffffdu;
+  constexpr std::uint32_t kDivExpectedLo = 0xfffffffeu;
+  constexpr std::uint32_t kDivuExpectedHi = 0x00000003u;
+  constexpr std::uint32_t kDivuExpectedLo = 0x00000002u;
+  constexpr std::uint32_t kDivZeroHi = 0x13579bdfu;
+  constexpr std::uint32_t kDivZeroLo = 0x2468ace0u;
+  constexpr std::uint32_t kDivuZeroHi = 0x0badc0deu;
+  constexpr std::uint32_t kDivuZeroLo = 0x00c0ffeeu;
+
+  machine.write_cpu_pc(kPc);
+  machine.write_cpu_next_pc(kNextPc);
+  machine.write_cpu_gpr(kHiSourceIndex, kMthiValue);
+  machine.write_cpu_gpr(kLoSourceIndex, kMtloValue);
+  machine.write_cpu_gpr(kHiReadIndex, 0);
+  machine.write_cpu_gpr(kLoReadIndex, 0);
+  machine.write_cpu_gpr(0, 0xffffffffu);
+
+  std::cout << "fn64 bootstrap HI/LO arithmetic demo: Machine-owned HI/LO state transitions\n";
+  std::cout << "before execute:\n";
+  print_control_flow_state(machine);
+  print_hex32("  hi", machine.cpu_hi());
+  print_hex32("  lo", machine.cpu_lo());
+  print_hex64("  gpr[0]", machine.read_cpu_gpr(0));
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kHiSourceIndex));
+  print_hex64("  gpr[5]", machine.read_cpu_gpr(kLoSourceIndex));
+
+  execute_hilo_instruction(
+      machine,
+      encode_special(kHiSourceIndex, 0, 0, 0, 0x11),
+      Machine::CpuInstructionIdentity::kSpecialMthi,
+      "MTHI");
+  execute_hilo_instruction(
+      machine,
+      encode_special(kLoSourceIndex, 0, 0, 0, 0x13),
+      Machine::CpuInstructionIdentity::kSpecialMtlo,
+      "MTLO");
+
+  if (machine.cpu_hi() != kMthiValue || machine.cpu_lo() != kMtloValue) {
+    throw std::runtime_error("HI/LO demo did not write HI/LO with MTHI/MTLO");
+  }
+
+  execute_hilo_instruction(
+      machine,
+      encode_special(0, 0, kHiReadIndex, 0, 0x10),
+      Machine::CpuInstructionIdentity::kSpecialMfhi,
+      "MFHI");
+  execute_hilo_instruction(
+      machine,
+      encode_special(0, 0, kLoReadIndex, 0, 0x12),
+      Machine::CpuInstructionIdentity::kSpecialMflo,
+      "MFLO");
+
+  if (machine.read_cpu_gpr(kHiReadIndex) != kMthiValue ||
+      machine.read_cpu_gpr(kLoReadIndex) != kMtloValue) {
+    throw std::runtime_error("HI/LO demo did not read HI/LO with MFHI/MFLO");
+  }
+
+  execute_hilo_instruction(
+      machine,
+      encode_special(0, 0, 0, 0, 0x10),
+      Machine::CpuInstructionIdentity::kSpecialMfhi,
+      "MFHI $0");
+  execute_hilo_instruction(
+      machine,
+      encode_special(0, 0, 0, 0, 0x12),
+      Machine::CpuInstructionIdentity::kSpecialMflo,
+      "MFLO $0");
+
+  if (machine.read_cpu_gpr(0) != 0) {
+    throw std::runtime_error("HI/LO demo wrote HI/LO reads into gpr[0]");
+  }
+
+  machine.write_cpu_gpr(kLhsIndex, 0xfffffffeu);
+  machine.write_cpu_gpr(kRhsIndex, 0x00000003u);
+  execute_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x18),
+      Machine::CpuInstructionIdentity::kSpecialMult,
+      "MULT");
+
+  if (machine.cpu_hi() != kMultExpectedHi || machine.cpu_lo() != kMultExpectedLo) {
+    throw std::runtime_error("HI/LO demo signed MULT result was wrong");
+  }
+
+  machine.write_cpu_gpr(kLhsIndex, 0xffffffffu);
+  machine.write_cpu_gpr(kRhsIndex, 0x00000002u);
+  execute_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x19),
+      Machine::CpuInstructionIdentity::kSpecialMultu,
+      "MULTU");
+
+  if (machine.cpu_hi() != kMultuExpectedHi || machine.cpu_lo() != kMultuExpectedLo) {
+    throw std::runtime_error("HI/LO demo unsigned MULTU result was wrong");
+  }
+
+  machine.write_cpu_gpr(kLhsIndex, 0xfffffff3u);
+  machine.write_cpu_gpr(kRhsIndex, 0x00000005u);
+  execute_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1a),
+      Machine::CpuInstructionIdentity::kSpecialDiv,
+      "DIV");
+
+  if (machine.cpu_hi() != kDivExpectedHi || machine.cpu_lo() != kDivExpectedLo) {
+    throw std::runtime_error("HI/LO demo signed DIV result was wrong");
+  }
+
+  machine.write_cpu_gpr(kLhsIndex, 0x0000000du);
+  machine.write_cpu_gpr(kRhsIndex, 0x00000005u);
+  execute_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1b),
+      Machine::CpuInstructionIdentity::kSpecialDivu,
+      "DIVU");
+
+  if (machine.cpu_hi() != kDivuExpectedHi || machine.cpu_lo() != kDivuExpectedLo) {
+    throw std::runtime_error("HI/LO demo unsigned DIVU result was wrong");
+  }
+
+  machine.write_cpu_hi(kDivZeroHi);
+  machine.write_cpu_lo(kDivZeroLo);
+  machine.write_cpu_gpr(kLhsIndex, 0x80000000u);
+  machine.write_cpu_gpr(kRhsIndex, 0);
+  execute_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1a),
+      Machine::CpuInstructionIdentity::kSpecialDiv,
+      "DIV by zero");
+
+  if (machine.cpu_hi() != kDivZeroHi || machine.cpu_lo() != kDivZeroLo) {
+    throw std::runtime_error("HI/LO demo DIV by zero changed HI/LO");
+  }
+
+  machine.write_cpu_hi(kDivuZeroHi);
+  machine.write_cpu_lo(kDivuZeroLo);
+  machine.write_cpu_gpr(kLhsIndex, 0xffffffffu);
+  machine.write_cpu_gpr(kRhsIndex, 0);
+  execute_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1b),
+      Machine::CpuInstructionIdentity::kSpecialDivu,
+      "DIVU by zero");
+
+  if (machine.cpu_hi() != kDivuZeroHi || machine.cpu_lo() != kDivuZeroLo) {
+    throw std::runtime_error("HI/LO demo DIVU by zero changed HI/LO");
+  }
+
+  std::cout << "after execute:\n";
+  print_control_flow_state(machine);
+  print_hex32("  hi", machine.cpu_hi());
+  print_hex32("  lo", machine.cpu_lo());
+  print_hex64("  gpr[0]", machine.read_cpu_gpr(0));
+  print_hex64("  gpr[6]", machine.read_cpu_gpr(kHiReadIndex));
+  print_hex64("  gpr[7]", machine.read_cpu_gpr(kLoReadIndex));
+
+  if (machine.cpu_pc() != kPc) {
+    throw std::runtime_error("HI/LO demo unexpectedly changed pc");
+  }
+
+  if (machine.cpu_next_pc() != kNextPc) {
+    throw std::runtime_error("HI/LO demo unexpectedly changed next_pc");
+  }
+}
+
 
 
 }  // namespace
@@ -987,6 +1197,7 @@ void run_arithmetic_demos(Machine& machine) {
   run_addi_positive_overflow_demo(machine);
   run_addi_negative_overflow_demo(machine);
   run_logic_immediate_unsigned_compare_demo(machine);
+  run_hilo_arithmetic_demo(machine);
 }
 
 }  // namespace fn64::bootstrap_detail
