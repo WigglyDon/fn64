@@ -119,6 +119,10 @@ void run_unsupported_identity_demo(
   constexpr std::size_t kPreservedRegisterIndex = 23;
   constexpr std::size_t kFollowingMarkerIndex = 24;
   constexpr std::uint32_t kPreservedRegisterValue = 0x13572468u;
+  constexpr std::uint32_t kHiValue = 0x24681357u;
+  constexpr std::uint32_t kLoValue = 0x89abcdefu;
+  constexpr std::uint32_t kRdramSentinelAddress = 0x00000940u;
+  constexpr std::uint32_t kRdramSentinelValue = 0x5a17c0deu;
 
   const std::uint32_t kFollowingAddress = unsupported_address + 4u;
   const std::uint32_t kFollowingInstruction = encode_ori(
@@ -127,15 +131,21 @@ void run_unsupported_identity_demo(
   machine.write_cpu_pc(unsupported_address);
   machine.write_cpu_gpr(kPreservedRegisterIndex, kPreservedRegisterValue);
   machine.write_cpu_gpr(kFollowingMarkerIndex, 0);
+  machine.write_cpu_hi(kHiValue);
+  machine.write_cpu_lo(kLoValue);
 
   machine.write_rdram_u32_be(unsupported_address, unsupported_instruction);
   machine.write_rdram_u32_be(kFollowingAddress, kFollowingInstruction);
+  machine.write_rdram_u32_be(kRdramSentinelAddress, kRdramSentinelValue);
 
   std::cout << "fn64 bootstrap unsupported demo: " << label << '\n';
   std::cout << "before step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[23]", machine.read_cpu_gpr(kPreservedRegisterIndex));
   print_hex64("  gpr[24]", machine.read_cpu_gpr(kFollowingMarkerIndex));
+  print_hex32("  hi", machine.cpu_hi());
+  print_hex32("  lo", machine.cpu_lo());
+  print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
   const std::uint32_t raw = machine.fetch_cpu_instruction_word();
   const Machine::DecodedCpuInstructionWord decoded =
@@ -165,6 +175,9 @@ void run_unsupported_identity_demo(
   print_control_flow_state(machine);
   print_hex64("  gpr[23]", machine.read_cpu_gpr(kPreservedRegisterIndex));
   print_hex64("  gpr[24]", machine.read_cpu_gpr(kFollowingMarkerIndex));
+  print_hex32("  hi", machine.cpu_hi());
+  print_hex32("  lo", machine.cpu_lo());
+  print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
   if (machine.cpu_pc() != preserved_pc || machine.cpu_next_pc() != preserved_next_pc) {
     throw std::runtime_error(
@@ -179,6 +192,16 @@ void run_unsupported_identity_demo(
   if (machine.read_cpu_gpr(kFollowingMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("unsupported demo leaked follow-on instruction side effects: ") + label);
+  }
+
+  if (machine.cpu_hi() != kHiValue || machine.cpu_lo() != kLoValue) {
+    throw std::runtime_error(
+        std::string("unsupported demo changed HI/LO state: ") + label);
+  }
+
+  if (machine.read_rdram_u32_be(kRdramSentinelAddress) != kRdramSentinelValue) {
+    throw std::runtime_error(
+        std::string("unsupported demo changed RDRAM sentinel: ") + label);
   }
 
   if (machine.fetch_cpu_instruction_word() != unsupported_instruction) {
