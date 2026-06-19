@@ -1677,6 +1677,119 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
   require_stopped(machine.step_cpu_instruction(), "negative_halfword_demo_break");
 }
 
+void run_failed_partial_store_no_ghost_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSourceIndex = 29;
+
+  constexpr std::uint32_t kSwlAddress = 0x000001f0u;
+  constexpr std::uint32_t kSwrAddress = 0x000001f4u;
+
+  constexpr std::uint32_t kInvalidKseg1Address = 0xa0400000u;
+  constexpr std::uint32_t kLowSentinelAddress = 0x00000570u;
+  constexpr std::uint32_t kTailSentinelAddress = 0x003ffffcu;
+  constexpr std::uint32_t kLowSentinel = 0x10203040u;
+  constexpr std::uint32_t kTailSentinel = 0x50607080u;
+
+  const std::uint32_t kSwlInstruction = encode_swl(
+      static_cast<std::uint8_t>(kSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const std::uint32_t kSwrInstruction = encode_swr(
+      static_cast<std::uint8_t>(kSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+
+  machine.write_rdram_u32_be(kSwlAddress, kSwlInstruction);
+  machine.write_rdram_u32_be(kSwrAddress, kSwrInstruction);
+  machine.write_rdram_u32_be(kLowSentinelAddress, kLowSentinel);
+  machine.write_rdram_u32_be(kTailSentinelAddress, kTailSentinel);
+  machine.write_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
+  machine.write_cpu_gpr(kSourceIndex, 0xa1b2c3d4u);
+
+  std::cout
+      << "fn64 bootstrap failed partial-store no-ghost demo: SWL/SWR faults do not mutate RDRAM or advance control state\n";
+
+  machine.write_cpu_pc(kSwlAddress);
+
+  std::cout << "before SWL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[29]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex32("  swl_effective_address", kInvalidKseg1Address);
+  print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  print_and_require_current_instruction_identity(
+      machine,
+      Machine::CpuInstructionIdentity::kSwl,
+      "  swl_raw",
+      "swl_identity",
+      "failed partial-store no-ghost demo did not identify SWL explicitly");
+
+  require_step_exception_contains(
+      machine,
+      "failed_partial_store_demo_swl",
+      "RDRAM access out of range");
+
+  std::cout << "after SWL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  if (machine.cpu_pc() != kSwlAddress) {
+    throw std::runtime_error("failed partial-store no-ghost demo SWL changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != kSwlAddress + 4u) {
+    throw std::runtime_error("failed partial-store no-ghost demo SWL changed next_pc on fault");
+  }
+
+  if (machine.read_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
+      machine.read_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
+    throw std::runtime_error("failed partial-store no-ghost demo SWL changed RDRAM on fault");
+  }
+
+  machine.write_cpu_pc(kSwrAddress);
+
+  std::cout << "before SWR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[29]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex32("  swr_effective_address", kInvalidKseg1Address);
+  print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  print_and_require_current_instruction_identity(
+      machine,
+      Machine::CpuInstructionIdentity::kSwr,
+      "  swr_raw",
+      "swr_identity",
+      "failed partial-store no-ghost demo did not identify SWR explicitly");
+
+  require_step_exception_contains(
+      machine,
+      "failed_partial_store_demo_swr",
+      "RDRAM access out of range");
+
+  std::cout << "after SWR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  if (machine.cpu_pc() != kSwrAddress) {
+    throw std::runtime_error("failed partial-store no-ghost demo SWR changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != kSwrAddress + 4u) {
+    throw std::runtime_error("failed partial-store no-ghost demo SWR changed next_pc on fault");
+  }
+
+  if (machine.read_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
+      machine.read_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
+    throw std::runtime_error("failed partial-store no-ghost demo SWR changed RDRAM on fault");
+  }
+}
+
 void run_negative_out_of_range_guard_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 27;
@@ -1803,6 +1916,7 @@ void run_data_demos(Machine& machine) {
   run_negative_word_load_store_demo(machine);
   run_negative_byte_load_store_demo(machine);
   run_negative_halfword_load_store_demo(machine);
+  run_failed_partial_store_no_ghost_demo(machine);
   run_negative_out_of_range_guard_demo(machine);
 }
 
