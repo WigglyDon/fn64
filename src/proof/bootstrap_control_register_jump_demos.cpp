@@ -174,6 +174,101 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
   }
 }
 
+void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
+  constexpr std::size_t kTargetRegisterIndex = 18;
+  constexpr std::size_t kDelaySlotMarkerIndex = 19;
+  constexpr std::size_t kLinkIndex = 31;
+
+  constexpr std::uint32_t kJalrAddress = 0x00000720u;
+  constexpr std::uint32_t kDelaySlotAddress = 0x00000724u;
+  constexpr std::uint32_t kMisalignedTargetAddress = 0x00000732u;
+  constexpr std::uint32_t kInitialLinkValue = 0x13579bdfu;
+  constexpr std::uint32_t kExpectedLinkValue = 0x00000728u;
+
+  constexpr std::uint32_t kJalrInstruction = encode_jalr(
+      static_cast<std::uint8_t>(kLinkIndex),
+      static_cast<std::uint8_t>(kTargetRegisterIndex));
+  constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
+      static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74d1u);
+
+  machine.write_cpu_pc(kJalrAddress);
+  machine.write_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
+  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.write_cpu_gpr(kLinkIndex, kInitialLinkValue);
+
+  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+
+  std::cout << "fn64 bootstrap jump failure demo: special_jalr rd = 31 misaligned register target leaves link untouched\n";
+  std::cout << "before failing step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[18]", machine.read_cpu_gpr(kTargetRegisterIndex));
+  print_hex64("  gpr[19]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+
+  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const Machine::DecodedCpuInstructionWord decoded =
+      Machine::decode_cpu_instruction_word(raw);
+  const Machine::CpuInstructionIdentity identity =
+      Machine::identify_cpu_instruction(decoded);
+
+  print_hex32("  jalr_raw", raw);
+  std::cout << "  jalr_identity = "
+            << Machine::cpu_instruction_identity_name(identity) << '\n';
+  std::cout << "  decoded_rs = " << static_cast<unsigned>(decoded.rs) << '\n';
+  std::cout << "  decoded_rd = " << static_cast<unsigned>(decoded.rd) << '\n';
+
+  if (identity != Machine::CpuInstructionIdentity::kSpecialJalr) {
+    throw std::runtime_error("jalr rd = 31 misaligned demo did not identify JALR explicitly");
+  }
+
+  if (decoded.rs != kTargetRegisterIndex || decoded.rd != kLinkIndex) {
+    throw std::runtime_error("jalr rd = 31 misaligned demo decoded the wrong rd/rs pair");
+  }
+
+  const std::uint32_t preserved_pc = machine.cpu_pc();
+  const std::uint32_t preserved_next_pc = machine.cpu_next_pc();
+
+  try {
+    static_cast<void>(machine.step_cpu_instruction());
+    throw std::runtime_error("jalr rd = 31 misaligned demo expected step_cpu_instruction to throw");
+  } catch (const std::runtime_error& error) {
+    std::cout << "  jalr_rd31_misaligned_step threw: " << error.what() << '\n';
+
+    if (std::string(error.what()).find(
+            "JALR requires naturally aligned control-transfer target") ==
+        std::string::npos) {
+      throw std::runtime_error("jalr rd = 31 misaligned demo threw unexpected text");
+    }
+  }
+
+  std::cout << "after failing step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[18]", machine.read_cpu_gpr(kTargetRegisterIndex));
+  print_hex64("  gpr[19]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+
+  if (machine.cpu_pc() != preserved_pc || machine.cpu_next_pc() != preserved_next_pc) {
+    throw std::runtime_error("jalr rd = 31 misaligned demo did not preserve pc/next_pc rollback");
+  }
+
+  if (machine.read_cpu_gpr(kTargetRegisterIndex) != kMisalignedTargetAddress) {
+    throw std::runtime_error("jalr rd = 31 misaligned demo changed the target register");
+  }
+
+  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) != 0) {
+    throw std::runtime_error("jalr rd = 31 misaligned demo executed or modified the delay slot path");
+  }
+
+  if (machine.read_cpu_gpr(kLinkIndex) != kInitialLinkValue) {
+    throw std::runtime_error("jalr rd = 31 misaligned demo changed the link register");
+  }
+
+  if (machine.read_cpu_gpr(kLinkIndex) == kExpectedLinkValue) {
+    throw std::runtime_error("jalr rd = 31 misaligned demo leaked the speculative link value");
+  }
+}
+
 void run_jalr_rd_equals_rs_demo(Machine& machine) {
   constexpr std::size_t kAliasedRegisterIndex = 13;
   constexpr std::size_t kDelaySlotMarkerIndex = 14;
@@ -661,6 +756,7 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
 void run_control_register_jump_demos(Machine& machine) {
   run_jr_misaligned_target_demo(machine);
   run_jalr_rd_equals_rs_misaligned_target_demo(machine);
+  run_jalr_rd31_misaligned_target_demo(machine);
   run_jalr_rd_equals_rs_demo(machine);
   run_jalr_encoded_rd_demo(machine);
   run_jalr_rd31_demo(machine);
