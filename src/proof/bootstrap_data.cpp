@@ -767,6 +767,213 @@ void run_unaligned_store_word_demo(Machine& machine) {
   require_stopped(machine.step_cpu_instruction(), "unaligned_store_demo_break");
 }
 
+struct PartialLoadLaneCase {
+  const char* label;
+  std::uint32_t instruction;
+  Machine::CpuInstructionIdentity expected_identity;
+  std::uint32_t expected_gpr;
+};
+
+struct PartialStoreLaneCase {
+  const char* label;
+  std::uint32_t instruction;
+  Machine::CpuInstructionIdentity expected_identity;
+  std::uint32_t expected_memory_word;
+};
+
+void run_partial_word_lane_matrix_demo(Machine& machine) {
+  constexpr std::uint8_t kBaseIndex = 4;
+  constexpr std::uint8_t kLoadTargetIndex = 16;
+  constexpr std::uint8_t kStoreSourceIndex = 17;
+
+  constexpr std::uint32_t kInstructionAddress = 0x00000600u;
+  constexpr std::uint32_t kAfterInstructionAddress = kInstructionAddress + 4u;
+  constexpr std::uint32_t kDataWordAddress = 0x00000640u;
+  constexpr std::uint32_t kInitialLoadTarget = 0xaabbccddu;
+  constexpr std::uint32_t kLoadMemoryWord = 0x10203040u;
+  constexpr std::uint32_t kStoreSource = 0xa1b2c3d4u;
+  constexpr std::uint32_t kInitialStoreMemoryWord = 0x11223344u;
+
+  const PartialLoadLaneCase kLoadCases[] = {
+      {
+          "LWL offset 0",
+          encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0000u),
+          Machine::CpuInstructionIdentity::kLwl,
+          0x10203040u,
+      },
+      {
+          "LWL offset 1",
+          encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0001u),
+          Machine::CpuInstructionIdentity::kLwl,
+          0x203040ddu,
+      },
+      {
+          "LWL offset 2",
+          encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0002u),
+          Machine::CpuInstructionIdentity::kLwl,
+          0x3040ccddu,
+      },
+      {
+          "LWL offset 3",
+          encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0003u),
+          Machine::CpuInstructionIdentity::kLwl,
+          0x40bbccddu,
+      },
+      {
+          "LWR offset 0",
+          encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0000u),
+          Machine::CpuInstructionIdentity::kLwr,
+          0xaabbcc10u,
+      },
+      {
+          "LWR offset 1",
+          encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0001u),
+          Machine::CpuInstructionIdentity::kLwr,
+          0xaabb1020u,
+      },
+      {
+          "LWR offset 2",
+          encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0002u),
+          Machine::CpuInstructionIdentity::kLwr,
+          0xaa102030u,
+      },
+      {
+          "LWR offset 3",
+          encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0003u),
+          Machine::CpuInstructionIdentity::kLwr,
+          0x10203040u,
+      },
+  };
+
+  const PartialStoreLaneCase kStoreCases[] = {
+      {
+          "SWL offset 0",
+          encode_swl(kStoreSourceIndex, kBaseIndex, 0x0000u),
+          Machine::CpuInstructionIdentity::kSwl,
+          0xa1b2c3d4u,
+      },
+      {
+          "SWL offset 1",
+          encode_swl(kStoreSourceIndex, kBaseIndex, 0x0001u),
+          Machine::CpuInstructionIdentity::kSwl,
+          0x11a1b2c3u,
+      },
+      {
+          "SWL offset 2",
+          encode_swl(kStoreSourceIndex, kBaseIndex, 0x0002u),
+          Machine::CpuInstructionIdentity::kSwl,
+          0x1122a1b2u,
+      },
+      {
+          "SWL offset 3",
+          encode_swl(kStoreSourceIndex, kBaseIndex, 0x0003u),
+          Machine::CpuInstructionIdentity::kSwl,
+          0x112233a1u,
+      },
+      {
+          "SWR offset 0",
+          encode_swr(kStoreSourceIndex, kBaseIndex, 0x0000u),
+          Machine::CpuInstructionIdentity::kSwr,
+          0xd4223344u,
+      },
+      {
+          "SWR offset 1",
+          encode_swr(kStoreSourceIndex, kBaseIndex, 0x0001u),
+          Machine::CpuInstructionIdentity::kSwr,
+          0xc3d43344u,
+      },
+      {
+          "SWR offset 2",
+          encode_swr(kStoreSourceIndex, kBaseIndex, 0x0002u),
+          Machine::CpuInstructionIdentity::kSwr,
+          0xb2c3d444u,
+      },
+      {
+          "SWR offset 3",
+          encode_swr(kStoreSourceIndex, kBaseIndex, 0x0003u),
+          Machine::CpuInstructionIdentity::kSwr,
+          0xa1b2c3d4u,
+      },
+  };
+
+  std::cout
+      << "fn64 bootstrap partial-word lane matrix demo: LWL/LWR/SWL/SWR local byte lanes\n";
+
+  for (const PartialLoadLaneCase& test_case : kLoadCases) {
+    machine.write_cpu_pc(kInstructionAddress);
+    machine.write_cpu_gpr(kBaseIndex, kDataWordAddress);
+    machine.write_cpu_gpr(kLoadTargetIndex, kInitialLoadTarget);
+    machine.write_rdram_u32_be(kInstructionAddress, test_case.instruction);
+    machine.write_rdram_u32_be(kDataWordAddress, kLoadMemoryWord);
+
+    std::cout << "load lane row: " << test_case.label << '\n';
+    print_control_flow_state(machine);
+    print_hex64("  gpr[16]", machine.read_cpu_gpr(kLoadTargetIndex));
+    print_rdram_word(machine, "  rdram[0x00000640]", kDataWordAddress);
+
+    print_and_require_current_instruction_identity(
+        machine,
+        test_case.expected_identity,
+        "  raw",
+        "identity",
+        "partial-word lane matrix demo did not identify load instruction explicitly");
+
+    require_stepped(machine.step_cpu_instruction(), test_case.label);
+
+    print_hex64("  actual_gpr[16]", machine.read_cpu_gpr(kLoadTargetIndex));
+    print_hex32("  expected_gpr[16]", test_case.expected_gpr);
+
+    if (machine.cpu_pc() != kAfterInstructionAddress) {
+      throw std::runtime_error(
+          std::string("partial-word lane matrix demo did not advance after ") +
+          test_case.label);
+    }
+
+    if (machine.read_cpu_gpr(kLoadTargetIndex) != test_case.expected_gpr) {
+      throw std::runtime_error(
+          std::string("partial-word lane matrix demo result was wrong for ") +
+          test_case.label);
+    }
+  }
+
+  for (const PartialStoreLaneCase& test_case : kStoreCases) {
+    machine.write_cpu_pc(kInstructionAddress);
+    machine.write_cpu_gpr(kBaseIndex, kDataWordAddress);
+    machine.write_cpu_gpr(kStoreSourceIndex, kStoreSource);
+    machine.write_rdram_u32_be(kInstructionAddress, test_case.instruction);
+    machine.write_rdram_u32_be(kDataWordAddress, kInitialStoreMemoryWord);
+
+    std::cout << "store lane row: " << test_case.label << '\n';
+    print_control_flow_state(machine);
+    print_hex64("  gpr[17]", machine.read_cpu_gpr(kStoreSourceIndex));
+    print_rdram_word(machine, "  rdram[0x00000640]", kDataWordAddress);
+
+    print_and_require_current_instruction_identity(
+        machine,
+        test_case.expected_identity,
+        "  raw",
+        "identity",
+        "partial-word lane matrix demo did not identify store instruction explicitly");
+
+    require_stepped(machine.step_cpu_instruction(), test_case.label);
+
+    print_rdram_word(machine, "  actual_rdram[0x00000640]", kDataWordAddress);
+    print_hex32("  expected_rdram[0x00000640]", test_case.expected_memory_word);
+
+    if (machine.cpu_pc() != kAfterInstructionAddress) {
+      throw std::runtime_error(
+          std::string("partial-word lane matrix demo did not advance after ") +
+          test_case.label);
+    }
+
+    if (machine.read_rdram_u32_be(kDataWordAddress) != test_case.expected_memory_word) {
+      throw std::runtime_error(
+          std::string("partial-word lane matrix demo memory word was wrong for ") +
+          test_case.label);
+    }
+  }
+}
+
 void run_aligned_word_load_store_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 11;
@@ -2009,6 +2216,7 @@ void run_data_demos(Machine& machine) {
   run_cpu_rdram_alias_demo(machine);
   run_unaligned_load_word_demo(machine);
   run_unaligned_store_word_demo(machine);
+  run_partial_word_lane_matrix_demo(machine);
   run_aligned_word_load_store_demo(machine);
   run_word_alignment_guard_demo(machine);
   run_byte_load_store_demo(machine);
