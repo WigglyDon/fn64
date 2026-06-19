@@ -1677,6 +1677,107 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
   require_stopped(machine.step_cpu_instruction(), "negative_halfword_demo_break");
 }
 
+void run_failed_partial_load_no_ghost_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kTargetIndex = 30;
+
+  constexpr std::uint32_t kLwlAddress = 0x00000200u;
+  constexpr std::uint32_t kLwrAddress = 0x00000204u;
+
+  constexpr std::uint32_t kInvalidKseg1Address = 0xa0400000u;
+  constexpr std::uint32_t kTargetSentinel = 0x89abcdefu;
+
+  const std::uint32_t kLwlInstruction = encode_lwl(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const std::uint32_t kLwrInstruction = encode_lwr(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+
+  machine.write_rdram_u32_be(kLwlAddress, kLwlInstruction);
+  machine.write_rdram_u32_be(kLwrAddress, kLwrInstruction);
+  machine.write_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
+  machine.write_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+  std::cout
+      << "fn64 bootstrap failed partial-load no-ghost demo: LWL/LWR faults do not write target GPR or advance control state\n";
+
+  machine.write_cpu_pc(kLwlAddress);
+
+  std::cout << "before LWL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex32("  lwl_effective_address", kInvalidKseg1Address);
+
+  print_and_require_current_instruction_identity(
+      machine,
+      Machine::CpuInstructionIdentity::kLwl,
+      "  lwl_raw",
+      "lwl_identity",
+      "failed partial-load no-ghost demo did not identify LWL explicitly");
+
+  require_step_exception_contains(
+      machine,
+      "failed_partial_load_demo_lwl",
+      "RDRAM access out of range");
+
+  std::cout << "after LWL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != kLwlAddress) {
+    throw std::runtime_error("failed partial-load no-ghost demo LWL changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != kLwlAddress + 4u) {
+    throw std::runtime_error("failed partial-load no-ghost demo LWL changed next_pc on fault");
+  }
+
+  if (machine.read_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+    throw std::runtime_error("failed partial-load no-ghost demo LWL changed target GPR on fault");
+  }
+
+  machine.write_cpu_pc(kLwrAddress);
+  machine.write_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+  std::cout << "before LWR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex32("  lwr_effective_address", kInvalidKseg1Address);
+
+  print_and_require_current_instruction_identity(
+      machine,
+      Machine::CpuInstructionIdentity::kLwr,
+      "  lwr_raw",
+      "lwr_identity",
+      "failed partial-load no-ghost demo did not identify LWR explicitly");
+
+  require_step_exception_contains(
+      machine,
+      "failed_partial_load_demo_lwr",
+      "RDRAM access out of range");
+
+  std::cout << "after LWR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != kLwrAddress) {
+    throw std::runtime_error("failed partial-load no-ghost demo LWR changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != kLwrAddress + 4u) {
+    throw std::runtime_error("failed partial-load no-ghost demo LWR changed next_pc on fault");
+  }
+
+  if (machine.read_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+    throw std::runtime_error("failed partial-load no-ghost demo LWR changed target GPR on fault");
+  }
+}
+
 void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 29;
@@ -1916,6 +2017,7 @@ void run_data_demos(Machine& machine) {
   run_negative_word_load_store_demo(machine);
   run_negative_byte_load_store_demo(machine);
   run_negative_halfword_load_store_demo(machine);
+  run_failed_partial_load_no_ghost_demo(machine);
   run_failed_partial_store_no_ghost_demo(machine);
   run_negative_out_of_range_guard_demo(machine);
 }
