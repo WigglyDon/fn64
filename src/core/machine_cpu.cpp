@@ -186,14 +186,6 @@ std::uint32_t replace_u32_byte_be(
          (static_cast<std::uint32_t>(byte_value) << shift);
 }
 
-Machine::CpuInstructionExecutionResult trap_execution_result(bool trap_taken) {
-  if (trap_taken) {
-    return Machine::CpuInstructionExecutionResult::kStopped;
-  }
-
-  return Machine::CpuInstructionExecutionResult::kExecuted;
-}
-
 }  // namespace
 
 std::uint32_t Machine::require_cpu_rdram_address(
@@ -593,6 +585,11 @@ const char* Machine::cpu_instruction_identity_name(CpuInstructionIdentity identi
 Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     CpuInstructionIdentity identity,
     const DecodedCpuInstructionWord& instruction) {
+  const auto trap_execution_result = [](bool trap_taken) {
+    return trap_taken ? CpuInstructionExecutionResult::kStopped
+                      : CpuInstructionExecutionResult::kExecuted;
+  };
+
   switch (identity) {
     case CpuInstructionIdentity::kSpecialSll: {
       const std::uint32_t value = read_cpu_gpr(instruction.rt) << instruction.sa;

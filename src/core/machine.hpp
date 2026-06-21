@@ -154,13 +154,6 @@ public:
     kSd,
   };
 
-  enum class CpuInstructionExecutionResult {
-    kExecuted,
-    kStopped,
-    kBranchLikelyNotTaken,
-    kUnsupported,
-  };
-
   enum class CpuInstructionStepResult {
     kStepped,
     kStopped,
@@ -218,6 +211,13 @@ public:
   CpuInstructionStepResult step_cpu_instruction();
 
 private:
+  enum class CpuInstructionExecutionResult {
+    kExecuted,
+    kStopped,
+    kBranchLikelyNotTaken,
+    kUnsupported,
+  };
+
   static constexpr std::size_t kRdramSizeBytes = 4 * 1024 * 1024;
   static constexpr std::size_t kCpuGprCount = 32;
 
