@@ -165,8 +165,6 @@ public:
   static constexpr std::uint32_t kBlankInitialCpuPc = 0x00000000u;
   static constexpr std::uint32_t kBlankInitialCpuNextPc = 0x00000004u;
 
-  void reset_to_blank_rdram_power_on_state();
-
   bool powered_on() const;
   const Cartridge& cartridge() const;
   std::size_t rdram_size_bytes() const noexcept;
@@ -176,12 +174,8 @@ public:
       std::size_t width,
       std::uint32_t& out_rdram_address) noexcept;
 
-  std::uint8_t read_rdram_u8(std::uint32_t address) const;
-  std::uint16_t read_rdram_u16_be(std::uint32_t address) const;
   std::uint32_t read_rdram_u32_be(std::uint32_t address) const;
 
-  void write_rdram_u8(std::uint32_t address, std::uint8_t value);
-  void write_rdram_u16_be(std::uint32_t address, std::uint16_t value);
   void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
 
   void stage_cartridge_bytes_to_rdram(
@@ -220,6 +214,14 @@ private:
 
   static constexpr std::size_t kRdramSizeBytes = 4 * 1024 * 1024;
   static constexpr std::size_t kCpuGprCount = 32;
+
+  void reset_to_blank_rdram_power_on_state();
+
+  std::uint8_t read_rdram_u8(std::uint32_t address) const;
+  std::uint16_t read_rdram_u16_be(std::uint32_t address) const;
+
+  void write_rdram_u8(std::uint32_t address, std::uint8_t value);
+  void write_rdram_u16_be(std::uint32_t address, std::uint16_t value);
 
   static std::uint32_t require_cpu_rdram_address(
       const char* operation,
