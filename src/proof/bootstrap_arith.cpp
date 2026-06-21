@@ -774,7 +774,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
 }
 
 
-void run_cpu_local_single_ori_execute_demo(Machine& machine) {
+void run_cpu_local_single_ori_step_demo(Machine& machine) {
   constexpr std::uint8_t kZeroIndex = 0;
   constexpr std::uint8_t kSourceIndex = 4;
 
@@ -790,59 +790,56 @@ void run_cpu_local_single_ori_execute_demo(Machine& machine) {
   machine.write_cpu_next_pc(kNextPc);
   machine.write_cpu_gpr(kSourceIndex, kSourceValue);
   machine.write_cpu_gpr(kZeroIndex, 0xffffffffu);
+  machine.write_rdram_u32_be(kPc, kInstruction);
 
+  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
   const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(kInstruction);
+      Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
       Machine::identify_cpu_instruction(decoded);
 
-  std::cout << "fn64 bootstrap CPU-local execute demo: single ORI keeps zero register and PC lane untouched\n";
-  std::cout << "before execute:\n";
+  std::cout << "fn64 bootstrap CPU step demo: single ORI keeps zero register explicit\n";
+  std::cout << "before step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[0]", machine.read_cpu_gpr(kZeroIndex));
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
-  print_hex32("  ori_raw", kInstruction);
+  print_hex32("  ori_raw", raw);
   std::cout << "  ori_identity = "
             << Machine::cpu_instruction_identity_name(identity) << '\n';
 
   if (identity != Machine::CpuInstructionIdentity::kOri) {
-    throw std::runtime_error("CPU-local execute demo did not identify ORI explicitly");
+    throw std::runtime_error("CPU step demo did not identify ORI explicitly");
   }
 
   if (decoded.rs != kSourceIndex || decoded.rt != kZeroIndex) {
-    throw std::runtime_error("CPU-local execute demo decoded the wrong ORI registers");
+    throw std::runtime_error("CPU step demo decoded the wrong ORI registers");
   }
 
-  const Machine::CpuInstructionExecutionResult result =
-      machine.execute_cpu_instruction(identity, decoded);
+  require_stepped(machine.step_cpu_instruction(), "cpu_step_single_ori");
 
-  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
-    throw std::runtime_error("CPU-local execute demo did not execute ORI");
-  }
-
-  std::cout << "after execute:\n";
+  std::cout << "after step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[0]", machine.read_cpu_gpr(kZeroIndex));
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
 
-  if (machine.cpu_pc() != kPc) {
-    throw std::runtime_error("CPU-local execute demo unexpectedly changed pc");
+  if (machine.cpu_pc() != kNextPc) {
+    throw std::runtime_error("CPU step demo did not advance pc after ORI");
   }
 
-  if (machine.cpu_next_pc() != kNextPc) {
-    throw std::runtime_error("CPU-local execute demo unexpectedly changed next_pc");
+  if (machine.cpu_next_pc() != kNextPc + 4u) {
+    throw std::runtime_error("CPU step demo did not advance next_pc after ORI");
   }
 
   if (machine.read_cpu_gpr(kZeroIndex) != 0) {
-    throw std::runtime_error("CPU-local execute demo wrote to gpr[0]");
+    throw std::runtime_error("CPU step demo wrote to gpr[0]");
   }
 
   if (machine.read_cpu_gpr(kSourceIndex) != kSourceValue) {
-    throw std::runtime_error("CPU-local execute demo changed the source register");
+    throw std::runtime_error("CPU step demo changed the source register");
   }
 }
 
-void run_cpu_local_addiu_aliased_source_target_execute_demo(Machine& machine) {
+void run_cpu_local_addiu_aliased_source_target_step_demo(Machine& machine) {
   constexpr std::uint8_t kAliasedIndex = 5;
 
   constexpr std::uint32_t kPc = 0x00000690u;
@@ -857,58 +854,55 @@ void run_cpu_local_addiu_aliased_source_target_execute_demo(Machine& machine) {
   machine.write_cpu_pc(kPc);
   machine.write_cpu_next_pc(kNextPc);
   machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
+  machine.write_rdram_u32_be(kPc, kInstruction);
 
+  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
   const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(kInstruction);
+      Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
       Machine::identify_cpu_instruction(decoded);
 
   std::cout
-      << "fn64 bootstrap CPU-local execute demo: ADDIU with rs == rt reads before writeback\n";
-  std::cout << "before execute:\n";
+      << "fn64 bootstrap CPU step demo: ADDIU with rs == rt reads before writeback\n";
+  std::cout << "before step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kAliasedIndex));
-  print_hex32("  addiu_raw", kInstruction);
+  print_hex32("  addiu_raw", raw);
   std::cout << "  addiu_identity = "
             << Machine::cpu_instruction_identity_name(identity) << '\n';
 
   if (identity != Machine::CpuInstructionIdentity::kAddiu) {
     throw std::runtime_error(
-        "CPU-local aliased ADDIU demo did not identify ADDIU explicitly");
+        "CPU step aliased ADDIU demo did not identify ADDIU explicitly");
   }
 
   if (decoded.rs != kAliasedIndex || decoded.rt != kAliasedIndex) {
     throw std::runtime_error(
-        "CPU-local aliased ADDIU demo decoded the wrong registers");
+        "CPU step aliased ADDIU demo decoded the wrong registers");
   }
 
-  const Machine::CpuInstructionExecutionResult result =
-      machine.execute_cpu_instruction(identity, decoded);
+  require_stepped(machine.step_cpu_instruction(), "cpu_step_aliased_addiu");
 
-  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
-    throw std::runtime_error("CPU-local aliased ADDIU demo did not execute ADDIU");
-  }
-
-  std::cout << "after execute:\n";
+  std::cout << "after step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kAliasedIndex));
 
-  if (machine.cpu_pc() != kPc) {
-    throw std::runtime_error("CPU-local aliased ADDIU demo unexpectedly changed pc");
+  if (machine.cpu_pc() != kNextPc) {
+    throw std::runtime_error("CPU step aliased ADDIU demo did not advance pc");
   }
 
-  if (machine.cpu_next_pc() != kNextPc) {
+  if (machine.cpu_next_pc() != kNextPc + 4u) {
     throw std::runtime_error(
-        "CPU-local aliased ADDIU demo unexpectedly changed next_pc");
+        "CPU step aliased ADDIU demo did not advance next_pc");
   }
 
   if (machine.read_cpu_gpr(kAliasedIndex) != kExpectedValue) {
     throw std::runtime_error(
-        "CPU-local aliased ADDIU demo did not read original source before writeback");
+        "CPU step aliased ADDIU demo did not read original source before writeback");
   }
 }
 
-void run_cpu_local_sltiu_aliased_source_target_execute_demo(Machine& machine) {
+void run_cpu_local_sltiu_aliased_source_target_step_demo(Machine& machine) {
   constexpr std::uint8_t kAliasedIndex = 6;
 
   constexpr std::uint32_t kPc = 0x000006a0u;
@@ -923,68 +917,69 @@ void run_cpu_local_sltiu_aliased_source_target_execute_demo(Machine& machine) {
   machine.write_cpu_pc(kPc);
   machine.write_cpu_next_pc(kNextPc);
   machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
+  machine.write_rdram_u32_be(kPc, kInstruction);
 
+  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
   const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(kInstruction);
+      Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
       Machine::identify_cpu_instruction(decoded);
 
   std::cout
-      << "fn64 bootstrap CPU-local execute demo: SLTIU with rs == rt reads before writeback\n";
-  std::cout << "before execute:\n";
+      << "fn64 bootstrap CPU step demo: SLTIU with rs == rt reads before writeback\n";
+  std::cout << "before step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kAliasedIndex));
-  print_hex32("  sltiu_raw", kInstruction);
+  print_hex32("  sltiu_raw", raw);
   std::cout << "  sltiu_identity = "
             << Machine::cpu_instruction_identity_name(identity) << '\n';
 
   if (identity != Machine::CpuInstructionIdentity::kSltiu) {
     throw std::runtime_error(
-        "CPU-local aliased SLTIU demo did not identify SLTIU explicitly");
+        "CPU step aliased SLTIU demo did not identify SLTIU explicitly");
   }
 
   if (decoded.rs != kAliasedIndex || decoded.rt != kAliasedIndex) {
     throw std::runtime_error(
-        "CPU-local aliased SLTIU demo decoded the wrong registers");
+        "CPU step aliased SLTIU demo decoded the wrong registers");
   }
 
-  const Machine::CpuInstructionExecutionResult result =
-      machine.execute_cpu_instruction(identity, decoded);
+  require_stepped(machine.step_cpu_instruction(), "cpu_step_aliased_sltiu");
 
-  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
-    throw std::runtime_error("CPU-local aliased SLTIU demo did not execute SLTIU");
-  }
-
-  std::cout << "after execute:\n";
+  std::cout << "after step:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kAliasedIndex));
 
-  if (machine.cpu_pc() != kPc) {
-    throw std::runtime_error("CPU-local aliased SLTIU demo unexpectedly changed pc");
+  if (machine.cpu_pc() != kNextPc) {
+    throw std::runtime_error("CPU step aliased SLTIU demo did not advance pc");
   }
 
-  if (machine.cpu_next_pc() != kNextPc) {
+  if (machine.cpu_next_pc() != kNextPc + 4u) {
     throw std::runtime_error(
-        "CPU-local aliased SLTIU demo unexpectedly changed next_pc");
+        "CPU step aliased SLTIU demo did not advance next_pc");
   }
 
   if (machine.read_cpu_gpr(kAliasedIndex) != kExpectedValue) {
     throw std::runtime_error(
-        "CPU-local aliased SLTIU demo did not read original source before writeback");
+        "CPU step aliased SLTIU demo did not read original source before writeback");
   }
 }
 
-void execute_hilo_instruction(
+void step_hilo_instruction(
     Machine& machine,
     std::uint32_t instruction,
     Machine::CpuInstructionIdentity expected_identity,
     const char* label) {
+  const std::uint32_t instruction_address = machine.cpu_pc();
+  machine.write_rdram_u32_be(instruction_address, instruction);
+
+  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
   const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(instruction);
+      Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
       Machine::identify_cpu_instruction(decoded);
 
-  print_hex32("  instruction_raw", instruction);
+  print_hex32("  instruction_raw", raw);
   std::cout << "  instruction_label = " << label << '\n';
   std::cout << "  instruction_identity = "
             << Machine::cpu_instruction_identity_name(identity) << '\n';
@@ -993,12 +988,7 @@ void execute_hilo_instruction(
     throw std::runtime_error(std::string("HI/LO demo did not identify ") + label);
   }
 
-  const Machine::CpuInstructionExecutionResult result =
-      machine.execute_cpu_instruction(identity, decoded);
-
-  if (result != Machine::CpuInstructionExecutionResult::kExecuted) {
-    throw std::runtime_error(std::string("HI/LO demo did not execute ") + label);
-  }
+  require_stepped(machine.step_cpu_instruction(), std::string("hilo_step_") + label);
 }
 
 void run_hilo_arithmetic_demo(Machine& machine) {
@@ -1036,7 +1026,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   machine.write_cpu_gpr(0, 0xffffffffu);
 
   std::cout << "fn64 bootstrap HI/LO arithmetic demo: Machine-owned HI/LO state transitions\n";
-  std::cout << "before execute:\n";
+  std::cout << "before step sequence:\n";
   print_control_flow_state(machine);
   print_hex32("  hi", machine.cpu_hi());
   print_hex32("  lo", machine.cpu_lo());
@@ -1044,12 +1034,12 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kHiSourceIndex));
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kLoSourceIndex));
 
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kHiSourceIndex, 0, 0, 0, 0x11),
       Machine::CpuInstructionIdentity::kSpecialMthi,
       "MTHI");
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kLoSourceIndex, 0, 0, 0, 0x13),
       Machine::CpuInstructionIdentity::kSpecialMtlo,
@@ -1059,12 +1049,12 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo did not write HI/LO with MTHI/MTLO");
   }
 
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(0, 0, kHiReadIndex, 0, 0x10),
       Machine::CpuInstructionIdentity::kSpecialMfhi,
       "MFHI");
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(0, 0, kLoReadIndex, 0, 0x12),
       Machine::CpuInstructionIdentity::kSpecialMflo,
@@ -1075,12 +1065,12 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo did not read HI/LO with MFHI/MFLO");
   }
 
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(0, 0, 0, 0, 0x10),
       Machine::CpuInstructionIdentity::kSpecialMfhi,
       "MFHI $0");
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(0, 0, 0, 0, 0x12),
       Machine::CpuInstructionIdentity::kSpecialMflo,
@@ -1092,7 +1082,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
 
   machine.write_cpu_gpr(kLhsIndex, 0xfffffffeu);
   machine.write_cpu_gpr(kRhsIndex, 0x00000003u);
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x18),
       Machine::CpuInstructionIdentity::kSpecialMult,
@@ -1104,7 +1094,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
 
   machine.write_cpu_gpr(kLhsIndex, 0xffffffffu);
   machine.write_cpu_gpr(kRhsIndex, 0x00000002u);
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x19),
       Machine::CpuInstructionIdentity::kSpecialMultu,
@@ -1116,7 +1106,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
 
   machine.write_cpu_gpr(kLhsIndex, 0xfffffff3u);
   machine.write_cpu_gpr(kRhsIndex, 0x00000005u);
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1a),
       Machine::CpuInstructionIdentity::kSpecialDiv,
@@ -1128,7 +1118,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
 
   machine.write_cpu_gpr(kLhsIndex, 0x0000000du);
   machine.write_cpu_gpr(kRhsIndex, 0x00000005u);
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1b),
       Machine::CpuInstructionIdentity::kSpecialDivu,
@@ -1142,7 +1132,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   machine.write_cpu_lo(kDivZeroLo);
   machine.write_cpu_gpr(kLhsIndex, 0x80000000u);
   machine.write_cpu_gpr(kRhsIndex, 0);
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1a),
       Machine::CpuInstructionIdentity::kSpecialDiv,
@@ -1156,7 +1146,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   machine.write_cpu_lo(kDivuZeroLo);
   machine.write_cpu_gpr(kLhsIndex, 0xffffffffu);
   machine.write_cpu_gpr(kRhsIndex, 0);
-  execute_hilo_instruction(
+  step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1b),
       Machine::CpuInstructionIdentity::kSpecialDivu,
@@ -1166,7 +1156,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo DIVU by zero changed HI/LO");
   }
 
-  std::cout << "after execute:\n";
+  std::cout << "after step sequence:\n";
   print_control_flow_state(machine);
   print_hex32("  hi", machine.cpu_hi());
   print_hex32("  lo", machine.cpu_lo());
@@ -1174,12 +1164,16 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kHiReadIndex));
   print_hex64("  gpr[7]", machine.read_cpu_gpr(kLoReadIndex));
 
-  if (machine.cpu_pc() != kPc) {
-    throw std::runtime_error("HI/LO demo unexpectedly changed pc");
+  constexpr std::uint32_t kSteppedInstructionCount = 12u;
+  constexpr std::uint32_t kExpectedFinalPc = kPc + (kSteppedInstructionCount * 4u);
+  constexpr std::uint32_t kExpectedFinalNextPc = kExpectedFinalPc + 4u;
+
+  if (machine.cpu_pc() != kExpectedFinalPc) {
+    throw std::runtime_error("HI/LO demo did not advance pc through the step sequence");
   }
 
-  if (machine.cpu_next_pc() != kNextPc) {
-    throw std::runtime_error("HI/LO demo unexpectedly changed next_pc");
+  if (machine.cpu_next_pc() != kExpectedFinalNextPc) {
+    throw std::runtime_error("HI/LO demo did not advance next_pc through the step sequence");
   }
 }
 
@@ -1188,9 +1182,9 @@ void run_hilo_arithmetic_demo(Machine& machine) {
 }  // namespace
 
 void run_arithmetic_demos(Machine& machine) {
-  run_cpu_local_single_ori_execute_demo(machine);
-  run_cpu_local_addiu_aliased_source_target_execute_demo(machine);
-  run_cpu_local_sltiu_aliased_source_target_execute_demo(machine);
+  run_cpu_local_single_ori_step_demo(machine);
+  run_cpu_local_addiu_aliased_source_target_step_demo(machine);
+  run_cpu_local_sltiu_aliased_source_target_step_demo(machine);
   run_register_immediate_arithmetic_compare_demo(machine);
   run_add_positive_overflow_demo(machine);
   run_sub_negative_overflow_demo(machine);

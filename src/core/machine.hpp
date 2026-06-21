@@ -215,10 +215,6 @@ public:
       const DecodedCpuInstructionWord& instruction);
   static const char* cpu_instruction_identity_name(CpuInstructionIdentity identity);
 
-  CpuInstructionExecutionResult execute_cpu_instruction(
-      CpuInstructionIdentity identity,
-      const DecodedCpuInstructionWord& instruction);
-
   CpuInstructionStepResult step_cpu_instruction();
 
 private:
@@ -237,6 +233,10 @@ private:
   void write_cpu_memory_u8(std::uint32_t cpu_address, std::uint8_t value);
   void write_cpu_memory_u16_be(std::uint32_t cpu_address, std::uint16_t value);
   void write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value);
+
+  CpuInstructionExecutionResult execute_cpu_instruction(
+      CpuInstructionIdentity identity,
+      const DecodedCpuInstructionWord& instruction);
 
   Cartridge cartridge_;
   bool powered_on_ = false;
