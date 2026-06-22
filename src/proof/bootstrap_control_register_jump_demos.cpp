@@ -35,7 +35,7 @@ void run_jr_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[17]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
   print_hex64("  gpr[31]", machine.read_cpu_gpr(31));
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = kJrInstruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -117,7 +117,7 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
   print_hex64("  gpr[15]", machine.read_cpu_gpr(kTargetMarkerIndex));
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = kJalrInstruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -206,7 +206,7 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[19]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = kJalrInstruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -328,7 +328,7 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
     throw std::runtime_error("jalr demo 4 failed to seed the aliased target register");
   }
 
-  const std::uint32_t jalr_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t jalr_raw = kJalrInstruction;
   const Machine::DecodedCpuInstructionWord jalr_decoded =
       Machine::decode_cpu_instruction_word(jalr_raw);
   const Machine::CpuInstructionIdentity jalr_identity =
@@ -691,7 +691,7 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[20]", machine.read_cpu_gpr(kLinkIndex));
   print_hex64("  gpr[31]", machine.read_cpu_gpr(31));
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = kJalrInstruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =

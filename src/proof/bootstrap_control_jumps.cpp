@@ -49,7 +49,7 @@ void run_jump_demo(
   print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
-  const std::uint32_t jump_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t jump_raw = jump_instruction;
   const Machine::DecodedCpuInstructionWord jump_decoded =
       Machine::decode_cpu_instruction_word(jump_raw);
   const Machine::CpuInstructionIdentity jump_identity =
@@ -193,7 +193,7 @@ void run_jr_demo(Machine& machine) {
   print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
-  const std::uint32_t jr_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t jr_raw = kJrInstruction;
   const Machine::DecodedCpuInstructionWord jr_decoded =
       Machine::decode_cpu_instruction_word(jr_raw);
   const Machine::CpuInstructionIdentity jr_identity =

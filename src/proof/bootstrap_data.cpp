@@ -115,13 +115,12 @@ std::vector<std::uint8_t> make_bootstrap_cartridge_staging_rom(
   return rom;
 }
 
-void print_and_require_current_instruction_identity(
-    Machine& machine,
+void print_and_require_staged_instruction_identity(
+    std::uint32_t raw,
     Machine::CpuInstructionIdentity expected_identity,
     const char* raw_label,
     const char* identity_label,
     const char* failure_label) {
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -275,8 +274,8 @@ void run_cartridge_staging_demo() {
     throw std::runtime_error("cartridge staging demo did not copy BREAK bytes into RDRAM");
   }
 
-  print_and_require_current_instruction_identity(
-      *staged_machine,
+  print_and_require_staged_instruction_identity(
+      kOriInstruction,
       Machine::CpuInstructionIdentity::kOri,
       "  staged_raw",
       "staged_identity",
@@ -457,14 +456,25 @@ void run_cpu_rdram_translation_demo(Machine& machine) {
 
   machine.write_rdram_u32_be(0x00000000u, kFetchWord);
   machine.write_cpu_pc(kKseg1RdramBase);
+  machine.write_cpu_next_pc(kKseg1RdramBase + 4u);
+  machine.write_cpu_gpr(8, 0);
 
-  const std::uint32_t fetched = machine.fetch_cpu_instruction_word();
-  std::cout << "  kseg1_fetch\n";
+  std::cout << "  kseg1_step_fetch\n";
   print_hex32("    pc", kKseg1RdramBase);
-  print_hex32("    fetched_word", fetched);
+  print_hex32("    staged_word", kFetchWord);
 
-  if (fetched != kFetchWord) {
-    throw std::runtime_error("CPU RDRAM translation demo did not fetch through KSEG1");
+  require_stepped(machine.step_cpu_instruction(), "kseg1_translation_demo_ori");
+
+  print_control_flow_state(machine);
+  print_hex64("    gpr[8]", machine.read_cpu_gpr(8));
+
+  if (machine.cpu_pc() != kKseg1RdramBase + 4u ||
+      machine.cpu_next_pc() != kKseg1RdramBase + 8u) {
+    throw std::runtime_error("CPU RDRAM translation demo did not step through KSEG1");
+  }
+
+  if (machine.read_cpu_gpr(8) != 0x00001234u) {
+    throw std::runtime_error("CPU RDRAM translation demo did not execute through KSEG1");
   }
 }
 
@@ -520,7 +530,7 @@ void run_cpu_rdram_alias_demo(Machine& machine) {
   print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x00000740]", kDataRdramAddress);
 
-  const std::uint32_t lw_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t lw_raw = kLwInstruction;
   const Machine::DecodedCpuInstructionWord lw_decoded =
       Machine::decode_cpu_instruction_word(lw_raw);
   const Machine::CpuInstructionIdentity lw_identity =
@@ -592,7 +602,7 @@ void run_unaligned_load_word_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x00000410]", kDataWord0Address);
   print_rdram_word(machine, "  rdram[0x00000414]", kDataWord1Address);
 
-  const std::uint32_t lwl_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t lwl_raw = kLwlInstruction;
   const Machine::DecodedCpuInstructionWord lwl_decoded =
       Machine::decode_cpu_instruction_word(lwl_raw);
   const Machine::CpuInstructionIdentity lwl_identity =
@@ -620,7 +630,7 @@ void run_unaligned_load_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned load demo LWL merge result was wrong");
   }
 
-  const std::uint32_t lwr_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t lwr_raw = kLwrInstruction;
   const Machine::DecodedCpuInstructionWord lwr_decoded =
       Machine::decode_cpu_instruction_word(lwr_raw);
   const Machine::CpuInstructionIdentity lwr_identity =
@@ -693,7 +703,7 @@ void run_unaligned_store_word_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x00000430]", kDataWord0Address);
   print_rdram_word(machine, "  rdram[0x00000434]", kDataWord1Address);
 
-  const std::uint32_t swl_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t swl_raw = kSwlInstruction;
   const Machine::DecodedCpuInstructionWord swl_decoded =
       Machine::decode_cpu_instruction_word(swl_raw);
   const Machine::CpuInstructionIdentity swl_identity =
@@ -726,7 +736,7 @@ void run_unaligned_store_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned store demo SWL touched the wrong aligned word");
   }
 
-  const std::uint32_t swr_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t swr_raw = kSwrInstruction;
   const Machine::DecodedCpuInstructionWord swr_decoded =
       Machine::decode_cpu_instruction_word(swr_raw);
   const Machine::CpuInstructionIdentity swr_identity =
@@ -911,8 +921,8 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
     print_hex64("  gpr[16]", machine.read_cpu_gpr(kLoadTargetIndex));
     print_rdram_word(machine, "  rdram[0x00000640]", kDataWordAddress);
 
-    print_and_require_current_instruction_identity(
-        machine,
+    print_and_require_staged_instruction_identity(
+        test_case.instruction,
         test_case.expected_identity,
         "  raw",
         "identity",
@@ -948,8 +958,8 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
     print_hex64("  gpr[17]", machine.read_cpu_gpr(kStoreSourceIndex));
     print_rdram_word(machine, "  rdram[0x00000640]", kDataWordAddress);
 
-    print_and_require_current_instruction_identity(
-        machine,
+    print_and_require_staged_instruction_identity(
+        test_case.instruction,
         test_case.expected_identity,
         "  raw",
         "identity",
@@ -1018,8 +1028,8 @@ void run_aligned_word_load_store_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x00000450]", kDataBaseAddress);
   print_rdram_word(machine, "  rdram[0x00000454]", kEffectiveAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSwInstruction,
       Machine::CpuInstructionIdentity::kSw,
       "  sw_raw",
       "sw_identity",
@@ -1040,8 +1050,8 @@ void run_aligned_word_load_store_demo(Machine& machine) {
     throw std::runtime_error("aligned word demo SW store result was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLwInstruction,
       Machine::CpuInstructionIdentity::kLw,
       "  lw_raw",
       "lw_identity",
@@ -1105,8 +1115,8 @@ void run_word_alignment_guard_demo(Machine& machine) {
   print_hex32("  sw_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x00000470]", kDataBaseAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSwInstruction,
       Machine::CpuInstructionIdentity::kSw,
       "  sw_raw",
       "sw_identity",
@@ -1143,8 +1153,8 @@ void run_word_alignment_guard_demo(Machine& machine) {
   print_hex32("  lw_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x00000470]", kDataBaseAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLwInstruction,
       Machine::CpuInstructionIdentity::kLw,
       "  lw_raw",
       "lw_identity",
@@ -1220,8 +1230,8 @@ void run_byte_load_store_demo(Machine& machine) {
   print_hex64("  gpr[13]", machine.read_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000490]", kDataBaseAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSbInstruction,
       Machine::CpuInstructionIdentity::kSb,
       "  sb_raw",
       "sb_identity",
@@ -1241,8 +1251,8 @@ void run_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("byte demo SB shaping was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLbInstruction,
       Machine::CpuInstructionIdentity::kLb,
       "  lb_raw",
       "lb_identity",
@@ -1262,8 +1272,8 @@ void run_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("byte demo LB sign-extension result was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLbuInstruction,
       Machine::CpuInstructionIdentity::kLbu,
       "  lbu_raw",
       "lbu_identity",
@@ -1334,8 +1344,8 @@ void run_halfword_load_store_demo(Machine& machine) {
   print_hex64("  gpr[16]", machine.read_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x000004b0]", kDataBaseAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kShInstruction,
       Machine::CpuInstructionIdentity::kSh,
       "  sh_raw",
       "sh_identity",
@@ -1355,8 +1365,8 @@ void run_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("halfword demo SH shaping was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLhInstruction,
       Machine::CpuInstructionIdentity::kLh,
       "  lh_raw",
       "lh_identity",
@@ -1376,8 +1386,8 @@ void run_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("halfword demo LH sign-extension result was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLhuInstruction,
       Machine::CpuInstructionIdentity::kLhu,
       "  lhu_raw",
       "lhu_identity",
@@ -1448,8 +1458,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
   print_hex32("  sh_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x000004d0]", kDataBaseAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kShInstruction,
       Machine::CpuInstructionIdentity::kSh,
       "  sh_raw",
       "sh_identity",
@@ -1485,8 +1495,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
   print_hex64("  gpr[17]", machine.read_cpu_gpr(kSignedTargetIndex));
   print_hex32("  lh_effective_address", kMisalignedAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLhInstruction,
       Machine::CpuInstructionIdentity::kLh,
       "  lh_raw",
       "lh_identity",
@@ -1522,8 +1532,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
   print_hex64("  gpr[18]", machine.read_cpu_gpr(kUnsignedTargetIndex));
   print_hex32("  lhu_effective_address", kMisalignedAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLhuInstruction,
       Machine::CpuInstructionIdentity::kLhu,
       "  lhu_raw",
       "lhu_identity",
@@ -1597,8 +1607,8 @@ void run_negative_word_load_store_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x000004f0]", kEffectiveAddress);
   print_rdram_word(machine, "  rdram[0x000004f4]", kBaseAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSwInstruction,
       Machine::CpuInstructionIdentity::kSw,
       "  sw_raw",
       "sw_identity",
@@ -1623,8 +1633,8 @@ void run_negative_word_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset word demo touched the base word unexpectedly");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLwInstruction,
       Machine::CpuInstructionIdentity::kLw,
       "  lw_raw",
       "lw_identity",
@@ -1700,8 +1710,8 @@ void run_negative_byte_load_store_demo(Machine& machine) {
   print_hex64("  gpr[21]", machine.read_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000510]", kDataWordAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSbInstruction,
       Machine::CpuInstructionIdentity::kSb,
       "  sb_raw",
       "sb_identity",
@@ -1721,8 +1731,8 @@ void run_negative_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset byte demo SB shaping was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLbInstruction,
       Machine::CpuInstructionIdentity::kLb,
       "  lb_raw",
       "lb_identity",
@@ -1742,8 +1752,8 @@ void run_negative_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset byte demo LB sign-extension result was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLbuInstruction,
       Machine::CpuInstructionIdentity::kLbu,
       "  lbu_raw",
       "lbu_identity",
@@ -1818,8 +1828,8 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
   print_hex64("  gpr[24]", machine.read_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000530]", kDataWordAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kShInstruction,
       Machine::CpuInstructionIdentity::kSh,
       "  sh_raw",
       "sh_identity",
@@ -1839,8 +1849,8 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset halfword demo SH shaping was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLhInstruction,
       Machine::CpuInstructionIdentity::kLh,
       "  lh_raw",
       "lh_identity",
@@ -1860,8 +1870,8 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset halfword demo LH sign-extension result was wrong");
   }
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLhuInstruction,
       Machine::CpuInstructionIdentity::kLhu,
       "  lhu_raw",
       "lhu_identity",
@@ -1919,8 +1929,8 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
   print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
   print_hex32("  lwl_effective_address", kInvalidKseg1Address);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLwlInstruction,
       Machine::CpuInstructionIdentity::kLwl,
       "  lwl_raw",
       "lwl_identity",
@@ -1956,8 +1966,8 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
   print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
   print_hex32("  lwr_effective_address", kInvalidKseg1Address);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLwrInstruction,
       Machine::CpuInstructionIdentity::kLwr,
       "  lwr_raw",
       "lwr_identity",
@@ -2027,8 +2037,8 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
   print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSwlInstruction,
       Machine::CpuInstructionIdentity::kSwl,
       "  swl_raw",
       "swl_identity",
@@ -2067,8 +2077,8 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
   print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSwrInstruction,
       Machine::CpuInstructionIdentity::kSwr,
       "  swr_raw",
       "swr_identity",
@@ -2140,8 +2150,8 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
   print_hex64("  gpr[27]", machine.read_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000550]", kSentinelAddress);
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kSbInstruction,
       Machine::CpuInstructionIdentity::kSb,
       "  sb_raw",
       "sb_identity",
@@ -2178,8 +2188,8 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
   print_hex32("  lb_effective_address", kEffectiveAddress);
   print_hex64("  gpr[28]", machine.read_cpu_gpr(kTargetIndex));
 
-  print_and_require_current_instruction_identity(
-      machine,
+  print_and_require_staged_instruction_identity(
+      kLbInstruction,
       Machine::CpuInstructionIdentity::kLb,
       "  lb_raw",
       "lb_identity",

@@ -195,8 +195,6 @@ public:
   void write_cpu_lo(std::uint32_t value);
   void write_cpu_gpr(std::size_t index, std::uint32_t value);
 
-  std::uint32_t fetch_cpu_instruction_word() const;
-
   static DecodedCpuInstructionWord decode_cpu_instruction_word(std::uint32_t raw);
   static CpuInstructionIdentity identify_cpu_instruction(
       const DecodedCpuInstructionWord& instruction);
@@ -235,6 +233,8 @@ private:
   void write_cpu_memory_u8(std::uint32_t cpu_address, std::uint8_t value);
   void write_cpu_memory_u16_be(std::uint32_t cpu_address, std::uint16_t value);
   void write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value);
+
+  std::uint32_t fetch_cpu_instruction_word() const;
 
   CpuInstructionExecutionResult execute_cpu_instruction(
       CpuInstructionIdentity identity,

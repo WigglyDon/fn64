@@ -68,7 +68,7 @@ void run_ordinary_branch_demo(
   print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
-  const std::uint32_t branch_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t branch_raw = branch_instruction;
   const Machine::DecodedCpuInstructionWord branch_decoded =
       Machine::decode_cpu_instruction_word(branch_raw);
   const Machine::CpuInstructionIdentity branch_identity =
@@ -285,7 +285,7 @@ void run_aliased_register_link_branch_demo(
   print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kAliasedSourceAndLinkIndex));
 
-  const std::uint32_t branch_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t branch_raw = branch_instruction;
   const Machine::DecodedCpuInstructionWord branch_decoded =
       Machine::decode_cpu_instruction_word(branch_raw);
   const Machine::CpuInstructionIdentity branch_identity =
@@ -568,7 +568,7 @@ void run_backward_ordinary_branch_demo(
   print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
   print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
 
-  const std::uint32_t branch_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t branch_raw = branch_instruction;
   const Machine::DecodedCpuInstructionWord branch_decoded =
       Machine::decode_cpu_instruction_word(branch_raw);
   const Machine::CpuInstructionIdentity branch_identity =

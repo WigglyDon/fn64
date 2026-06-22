@@ -73,7 +73,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   print_hex64("  gpr[10]", machine.read_cpu_gpr(kSltiuSourceIndex));
   print_hex64("  gpr[11]", machine.read_cpu_gpr(kSltiuResultIndex));
 
-  const std::uint32_t addi_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t addi_raw = kAddiInstruction;
   const Machine::DecodedCpuInstructionWord addi_decoded =
       Machine::decode_cpu_instruction_word(addi_raw);
   const Machine::CpuInstructionIdentity addi_identity =
@@ -101,7 +101,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
     throw std::runtime_error("reg-immediate demo ADDI negative immediate result was wrong");
   }
 
-  const std::uint32_t addiu_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t addiu_raw = kAddiuInstruction;
   const Machine::DecodedCpuInstructionWord addiu_decoded =
       Machine::decode_cpu_instruction_word(addiu_raw);
   const Machine::CpuInstructionIdentity addiu_identity =
@@ -129,7 +129,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
     throw std::runtime_error("reg-immediate demo ADDIU negative immediate result was wrong");
   }
 
-  const std::uint32_t slti_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t slti_raw = kSltiInstruction;
   const Machine::DecodedCpuInstructionWord slti_decoded =
       Machine::decode_cpu_instruction_word(slti_raw);
   const Machine::CpuInstructionIdentity slti_identity =
@@ -157,7 +157,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
     throw std::runtime_error("reg-immediate demo SLTI negative immediate compare result was wrong");
   }
 
-  const std::uint32_t sltiu_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t sltiu_raw = kSltiuInstruction;
   const Machine::DecodedCpuInstructionWord sltiu_decoded =
       Machine::decode_cpu_instruction_word(sltiu_raw);
   const Machine::CpuInstructionIdentity sltiu_identity =
@@ -223,7 +223,7 @@ void run_add_positive_overflow_demo(Machine& machine) {
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kRhsIndex));
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kResultIndex));
 
-  const std::uint32_t add_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t add_raw = kAddInstruction;
   const Machine::DecodedCpuInstructionWord add_decoded =
       Machine::decode_cpu_instruction_word(add_raw);
   const Machine::CpuInstructionIdentity add_identity =
@@ -292,7 +292,7 @@ void run_sub_negative_overflow_demo(Machine& machine) {
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kRhsIndex));
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kResultIndex));
 
-  const std::uint32_t sub_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t sub_raw = kSubInstruction;
   const Machine::DecodedCpuInstructionWord sub_decoded =
       Machine::decode_cpu_instruction_word(sub_raw);
   const Machine::CpuInstructionIdentity sub_identity =
@@ -356,7 +356,7 @@ void run_addi_positive_overflow_demo(Machine& machine) {
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kResultIndex));
 
-  const std::uint32_t addi_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t addi_raw = kAddiInstruction;
   const Machine::DecodedCpuInstructionWord addi_decoded =
       Machine::decode_cpu_instruction_word(addi_raw);
   const Machine::CpuInstructionIdentity addi_identity =
@@ -420,7 +420,7 @@ void run_addi_negative_overflow_demo(Machine& machine) {
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kSourceIndex));
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kResultIndex));
 
-  const std::uint32_t addi_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t addi_raw = kAddiInstruction;
   const Machine::DecodedCpuInstructionWord addi_decoded =
       Machine::decode_cpu_instruction_word(addi_raw);
   const Machine::CpuInstructionIdentity addi_identity =
@@ -536,7 +536,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_hex64("  gpr[11]", machine.read_cpu_gpr(kOneIndex));
   print_hex64("  gpr[12]", machine.read_cpu_gpr(kCompareResultIndex));
 
-  const std::uint32_t lui_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t lui_raw = kLuiInstruction;
   const Machine::DecodedCpuInstructionWord lui_decoded =
       Machine::decode_cpu_instruction_word(lui_raw);
   const Machine::CpuInstructionIdentity lui_identity =
@@ -564,7 +564,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo LUI result was wrong");
   }
 
-  const std::uint32_t ori_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t ori_raw = kOriInstruction;
   const Machine::DecodedCpuInstructionWord ori_decoded =
       Machine::decode_cpu_instruction_word(ori_raw);
   const Machine::CpuInstructionIdentity ori_identity =
@@ -592,7 +592,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo ORI result was wrong");
   }
 
-  const std::uint32_t andi_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t andi_raw = kAndiInstruction;
   const Machine::DecodedCpuInstructionWord andi_decoded =
       Machine::decode_cpu_instruction_word(andi_raw);
   const Machine::CpuInstructionIdentity andi_identity =
@@ -620,7 +620,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo ANDI result was wrong");
   }
 
-  const std::uint32_t xori_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t xori_raw = kXoriInstruction;
   const Machine::DecodedCpuInstructionWord xori_decoded =
       Machine::decode_cpu_instruction_word(xori_raw);
   const Machine::CpuInstructionIdentity xori_identity =
@@ -648,7 +648,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo XORI result was wrong");
   }
 
-  const std::uint32_t max_lui_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t max_lui_raw = kMaxLuiInstruction;
   const Machine::DecodedCpuInstructionWord max_lui_decoded =
       Machine::decode_cpu_instruction_word(max_lui_raw);
   const Machine::CpuInstructionIdentity max_lui_identity =
@@ -676,7 +676,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo second LUI result was wrong");
   }
 
-  const std::uint32_t max_ori_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t max_ori_raw = kMaxOriInstruction;
   const Machine::DecodedCpuInstructionWord max_ori_decoded =
       Machine::decode_cpu_instruction_word(max_ori_raw);
   const Machine::CpuInstructionIdentity max_ori_identity =
@@ -705,7 +705,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo second ORI result was wrong");
   }
 
-  const std::uint32_t one_ori_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t one_ori_raw = kOneOriInstruction;
   const Machine::DecodedCpuInstructionWord one_ori_decoded =
       Machine::decode_cpu_instruction_word(one_ori_raw);
   const Machine::CpuInstructionIdentity one_ori_identity =
@@ -733,7 +733,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo one-building ORI result was wrong");
   }
 
-  const std::uint32_t sltu_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t sltu_raw = kSltuInstruction;
   const Machine::DecodedCpuInstructionWord sltu_decoded =
       Machine::decode_cpu_instruction_word(sltu_raw);
   const Machine::CpuInstructionIdentity sltu_identity =
@@ -792,7 +792,7 @@ void run_cpu_local_single_ori_step_demo(Machine& machine) {
   machine.write_cpu_gpr(kZeroIndex, 0xffffffffu);
   machine.write_rdram_u32_be(kPc, kInstruction);
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = kInstruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -856,7 +856,7 @@ void run_cpu_local_addiu_aliased_source_target_step_demo(Machine& machine) {
   machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
   machine.write_rdram_u32_be(kPc, kInstruction);
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = kInstruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -919,7 +919,7 @@ void run_cpu_local_sltiu_aliased_source_target_step_demo(Machine& machine) {
   machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
   machine.write_rdram_u32_be(kPc, kInstruction);
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = kInstruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -973,7 +973,7 @@ void step_hilo_instruction(
   const std::uint32_t instruction_address = machine.cpu_pc();
   machine.write_rdram_u32_be(instruction_address, instruction);
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = instruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =

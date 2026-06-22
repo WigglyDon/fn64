@@ -147,7 +147,7 @@ void run_unsupported_identity_demo(
   print_hex32("  lo", machine.cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
-  const std::uint32_t raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t raw = unsupported_instruction;
   const Machine::DecodedCpuInstructionWord decoded =
       Machine::decode_cpu_instruction_word(raw);
   const Machine::CpuInstructionIdentity identity =
@@ -204,9 +204,9 @@ void run_unsupported_identity_demo(
         std::string("unsupported demo changed RDRAM sentinel: ") + label);
   }
 
-  if (machine.fetch_cpu_instruction_word() != unsupported_instruction) {
+  if (machine.read_rdram_u32_be(unsupported_address) != unsupported_instruction) {
     throw std::runtime_error(
-        std::string("unsupported demo did not remain positioned at the same instruction: ") + label);
+        std::string("unsupported demo did not preserve the staged unsupported instruction: ") + label);
   }
 }
 

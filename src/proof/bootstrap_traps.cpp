@@ -36,7 +36,7 @@ void run_break_stop_demo(Machine& machine) {
     throw std::runtime_error("break demo did not advance to BREAK");
   }
 
-  const std::uint32_t break_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t break_raw = kBreakInstruction;
   const Machine::DecodedCpuInstructionWord break_instruction =
       Machine::decode_cpu_instruction_word(break_raw);
   const Machine::CpuInstructionIdentity break_identity =
@@ -99,7 +99,7 @@ void run_sync_noop_demo(Machine& machine) {
     throw std::runtime_error("sync demo did not advance to SYNC");
   }
 
-  const std::uint32_t sync_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t sync_raw = kSyncInstruction;
   const Machine::DecodedCpuInstructionWord sync_instruction =
       Machine::decode_cpu_instruction_word(sync_raw);
   const Machine::CpuInstructionIdentity sync_identity =
@@ -187,7 +187,7 @@ void run_syscall_stop_demo(Machine& machine) {
     throw std::runtime_error("syscall demo did not advance to SYSCALL");
   }
 
-  const std::uint32_t syscall_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t syscall_raw = kSyscallInstruction;
   const Machine::DecodedCpuInstructionWord syscall_instruction =
       Machine::decode_cpu_instruction_word(syscall_raw);
   const Machine::CpuInstructionIdentity syscall_identity =
@@ -265,7 +265,7 @@ void run_special_register_trap_demo(
   print_hex64("  gpr[5]", machine.read_cpu_gpr(kRtIndex));
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
 
-  const std::uint32_t trap_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t trap_raw = trap_instruction;
   const Machine::DecodedCpuInstructionWord trap_decoded =
       Machine::decode_cpu_instruction_word(trap_raw);
   const Machine::CpuInstructionIdentity trap_identity =
@@ -441,7 +441,7 @@ void run_regimm_immediate_trap_demo(
   print_hex64("  gpr[4]", machine.read_cpu_gpr(kRsIndex));
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
 
-  const std::uint32_t trap_raw = machine.fetch_cpu_instruction_word();
+  const std::uint32_t trap_raw = trap_instruction;
   const Machine::DecodedCpuInstructionWord trap_decoded =
       Machine::decode_cpu_instruction_word(trap_raw);
   const Machine::CpuInstructionIdentity trap_identity =
