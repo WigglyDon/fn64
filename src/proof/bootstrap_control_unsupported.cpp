@@ -114,7 +114,6 @@ void run_unsupported_identity_demo(
     const char* label,
     std::uint32_t unsupported_address,
     std::uint32_t unsupported_instruction,
-    Machine::CpuInstructionIdentity expected_identity,
     std::uint16_t following_marker) {
   constexpr std::size_t kPreservedRegisterIndex = 23;
   constexpr std::size_t kFollowingMarkerIndex = 24;
@@ -148,19 +147,8 @@ void run_unsupported_identity_demo(
   print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
   const std::uint32_t raw = unsupported_instruction;
-  const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(raw);
-  const Machine::CpuInstructionIdentity identity =
-      Machine::identify_cpu_instruction(decoded);
 
   print_hex32("  unsupported_raw", raw);
-  std::cout << "  unsupported_identity = "
-            << Machine::cpu_instruction_identity_name(identity) << '\n';
-
-  if (identity != expected_identity) {
-    throw std::runtime_error(
-        std::string("unsupported demo identified the wrong unsupported path: ") + label);
-  }
 
   const std::uint32_t preserved_pc = machine.cpu_pc();
   const std::uint32_t preserved_next_pc = machine.cpu_next_pc();
@@ -225,7 +213,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       "cop0 path returns unsupported with rollback intact",
       0x000006c0u,
       kCop0UnsupportedInstruction,
-      Machine::CpuInstructionIdentity::kCop0,
       0x75c1u);
 
   run_unsupported_identity_demo(
@@ -233,7 +220,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       "special unknown funct returns unsupported with rollback intact",
       0x000006d0u,
       kSpecialUnknownUnsupportedInstruction,
-      Machine::CpuInstructionIdentity::kSpecialUnknown,
       0x75d1u);
 
   run_unsupported_identity_demo(
@@ -241,7 +227,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       "regimm unknown rt returns unsupported with rollback intact",
       0x000006e0u,
       kRegimmUnknownUnsupportedInstruction,
-      Machine::CpuInstructionIdentity::kRegimmUnknown,
       0x75e1u);
 
   run_unsupported_identity_demo(
@@ -249,7 +234,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       "unknown primary opcode returns unsupported with rollback intact",
       0x000006f0u,
       kUnknownPrimaryUnsupportedInstruction,
-      Machine::CpuInstructionIdentity::kUnknownPrimary,
       0x75f1u);
 }
 

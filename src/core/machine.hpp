@@ -10,6 +10,50 @@ namespace fn64 {
 
 class Machine {
 public:
+  enum class CpuInstructionStepResult {
+    kStepped,
+    kStopped,
+    kUnsupported,
+  };
+
+  explicit Machine(Cartridge cartridge);
+
+  static constexpr std::uint32_t kBlankInitialCpuPc = 0x00000000u;
+  static constexpr std::uint32_t kBlankInitialCpuNextPc = 0x00000004u;
+
+  bool powered_on() const;
+  const Cartridge& cartridge() const;
+  std::size_t rdram_size_bytes() const noexcept;
+
+  static bool translate_cpu_rdram_address(
+      std::uint32_t cpu_address,
+      std::size_t width,
+      std::uint32_t& out_rdram_address) noexcept;
+
+  std::uint32_t read_rdram_u32_be(std::uint32_t address) const;
+
+  void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
+
+  void stage_cartridge_bytes_to_rdram(
+      std::uint32_t cartridge_offset,
+      std::uint32_t rdram_address,
+      std::uint32_t byte_count);
+
+  std::uint32_t cpu_pc() const;
+  std::uint32_t cpu_next_pc() const;
+  std::uint32_t cpu_hi() const;
+  std::uint32_t cpu_lo() const;
+  std::uint32_t read_cpu_gpr(std::size_t index) const;
+
+  void write_cpu_pc(std::uint32_t value);
+  void write_cpu_next_pc(std::uint32_t value);
+  void write_cpu_hi(std::uint32_t value);
+  void write_cpu_lo(std::uint32_t value);
+  void write_cpu_gpr(std::size_t index, std::uint32_t value);
+
+  CpuInstructionStepResult step_cpu_instruction();
+
+private:
   struct DecodedCpuInstructionWord {
     std::uint32_t raw = 0;
     std::uint8_t opcode = 0;
@@ -154,55 +198,6 @@ public:
     kSd,
   };
 
-  enum class CpuInstructionStepResult {
-    kStepped,
-    kStopped,
-    kUnsupported,
-  };
-
-  explicit Machine(Cartridge cartridge);
-
-  static constexpr std::uint32_t kBlankInitialCpuPc = 0x00000000u;
-  static constexpr std::uint32_t kBlankInitialCpuNextPc = 0x00000004u;
-
-  bool powered_on() const;
-  const Cartridge& cartridge() const;
-  std::size_t rdram_size_bytes() const noexcept;
-
-  static bool translate_cpu_rdram_address(
-      std::uint32_t cpu_address,
-      std::size_t width,
-      std::uint32_t& out_rdram_address) noexcept;
-
-  std::uint32_t read_rdram_u32_be(std::uint32_t address) const;
-
-  void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
-
-  void stage_cartridge_bytes_to_rdram(
-      std::uint32_t cartridge_offset,
-      std::uint32_t rdram_address,
-      std::uint32_t byte_count);
-
-  std::uint32_t cpu_pc() const;
-  std::uint32_t cpu_next_pc() const;
-  std::uint32_t cpu_hi() const;
-  std::uint32_t cpu_lo() const;
-  std::uint32_t read_cpu_gpr(std::size_t index) const;
-
-  void write_cpu_pc(std::uint32_t value);
-  void write_cpu_next_pc(std::uint32_t value);
-  void write_cpu_hi(std::uint32_t value);
-  void write_cpu_lo(std::uint32_t value);
-  void write_cpu_gpr(std::size_t index, std::uint32_t value);
-
-  static DecodedCpuInstructionWord decode_cpu_instruction_word(std::uint32_t raw);
-  static CpuInstructionIdentity identify_cpu_instruction(
-      const DecodedCpuInstructionWord& instruction);
-  static const char* cpu_instruction_identity_name(CpuInstructionIdentity identity);
-
-  CpuInstructionStepResult step_cpu_instruction();
-
-private:
   enum class CpuInstructionExecutionResult {
     kExecuted,
     kStopped,
@@ -235,6 +230,10 @@ private:
   void write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value);
 
   std::uint32_t fetch_cpu_instruction_word() const;
+
+  static DecodedCpuInstructionWord decode_cpu_instruction_word(std::uint32_t raw);
+  static CpuInstructionIdentity identify_cpu_instruction(
+      const DecodedCpuInstructionWord& instruction);
 
   CpuInstructionExecutionResult execute_cpu_instruction(
       CpuInstructionIdentity identity,

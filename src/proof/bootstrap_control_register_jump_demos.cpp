@@ -36,22 +36,8 @@ void run_jr_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[31]", machine.read_cpu_gpr(31));
 
   const std::uint32_t raw = kJrInstruction;
-  const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(raw);
-  const Machine::CpuInstructionIdentity identity =
-      Machine::identify_cpu_instruction(decoded);
 
   print_hex32("  jr_raw", raw);
-  std::cout << "  jr_identity = "
-            << Machine::cpu_instruction_identity_name(identity) << '\n';
-
-  if (identity != Machine::CpuInstructionIdentity::kSpecialJr) {
-    throw std::runtime_error("jr misaligned demo did not identify JR explicitly");
-  }
-
-  if (decoded.rs != kTargetRegisterIndex) {
-    throw std::runtime_error("jr misaligned demo decoded the wrong rs register");
-  }
 
   const std::uint32_t preserved_pc = machine.cpu_pc();
   const std::uint32_t preserved_next_pc = machine.cpu_next_pc();
@@ -118,24 +104,8 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[15]", machine.read_cpu_gpr(kTargetMarkerIndex));
 
   const std::uint32_t raw = kJalrInstruction;
-  const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(raw);
-  const Machine::CpuInstructionIdentity identity =
-      Machine::identify_cpu_instruction(decoded);
 
   print_hex32("  jalr_raw", raw);
-  std::cout << "  jalr_identity = "
-            << Machine::cpu_instruction_identity_name(identity) << '\n';
-  std::cout << "  decoded_rs = " << static_cast<unsigned>(decoded.rs) << '\n';
-  std::cout << "  decoded_rd = " << static_cast<unsigned>(decoded.rd) << '\n';
-
-  if (identity != Machine::CpuInstructionIdentity::kSpecialJalr) {
-    throw std::runtime_error("jalr rd == rs misaligned demo did not identify JALR explicitly");
-  }
-
-  if (decoded.rs != kAliasedRegisterIndex || decoded.rd != kAliasedRegisterIndex) {
-    throw std::runtime_error("jalr rd == rs misaligned demo did not decode the aliased case");
-  }
 
   const std::uint32_t preserved_pc = machine.cpu_pc();
   const std::uint32_t preserved_next_pc = machine.cpu_next_pc();
@@ -207,24 +177,8 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
   const std::uint32_t raw = kJalrInstruction;
-  const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(raw);
-  const Machine::CpuInstructionIdentity identity =
-      Machine::identify_cpu_instruction(decoded);
 
   print_hex32("  jalr_raw", raw);
-  std::cout << "  jalr_identity = "
-            << Machine::cpu_instruction_identity_name(identity) << '\n';
-  std::cout << "  decoded_rs = " << static_cast<unsigned>(decoded.rs) << '\n';
-  std::cout << "  decoded_rd = " << static_cast<unsigned>(decoded.rd) << '\n';
-
-  if (identity != Machine::CpuInstructionIdentity::kSpecialJalr) {
-    throw std::runtime_error("jalr rd = 31 misaligned demo did not identify JALR explicitly");
-  }
-
-  if (decoded.rs != kTargetRegisterIndex || decoded.rd != kLinkIndex) {
-    throw std::runtime_error("jalr rd = 31 misaligned demo decoded the wrong rd/rs pair");
-  }
 
   const std::uint32_t preserved_pc = machine.cpu_pc();
   const std::uint32_t preserved_next_pc = machine.cpu_next_pc();
@@ -328,28 +282,9 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
     throw std::runtime_error("jalr demo 4 failed to seed the aliased target register");
   }
 
-  const std::uint32_t jalr_raw = kJalrInstruction;
-  const Machine::DecodedCpuInstructionWord jalr_decoded =
-      Machine::decode_cpu_instruction_word(jalr_raw);
-  const Machine::CpuInstructionIdentity jalr_identity =
-      Machine::identify_cpu_instruction(jalr_decoded);
-
   std::cout << "before step 2:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[13]", machine.read_cpu_gpr(kAliasedRegisterIndex));
-  std::cout << "  jalr_identity = "
-            << Machine::cpu_instruction_identity_name(jalr_identity) << '\n';
-  std::cout << "  decoded_rs = " << static_cast<unsigned>(jalr_decoded.rs) << '\n';
-  std::cout << "  decoded_rd = " << static_cast<unsigned>(jalr_decoded.rd) << '\n';
-
-  if (jalr_identity != Machine::CpuInstructionIdentity::kSpecialJalr) {
-    throw std::runtime_error("jalr demo 4 did not identify JALR explicitly");
-  }
-
-  if (jalr_decoded.rs != kAliasedRegisterIndex ||
-      jalr_decoded.rd != kAliasedRegisterIndex) {
-    throw std::runtime_error("jalr demo 4 did not decode the rd == rs alias case");
-  }
 
   require_stepped(machine.step_cpu_instruction(), "jalr_demo4_issue_jalr");
 
@@ -692,22 +627,8 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
   print_hex64("  gpr[31]", machine.read_cpu_gpr(31));
 
   const std::uint32_t raw = kJalrInstruction;
-  const Machine::DecodedCpuInstructionWord decoded =
-      Machine::decode_cpu_instruction_word(raw);
-  const Machine::CpuInstructionIdentity identity =
-      Machine::identify_cpu_instruction(decoded);
 
   print_hex32("  jalr_raw", raw);
-  std::cout << "  jalr_identity = "
-            << Machine::cpu_instruction_identity_name(identity) << '\n';
-
-  if (identity != Machine::CpuInstructionIdentity::kSpecialJalr) {
-    throw std::runtime_error("jalr misaligned demo did not identify JALR explicitly");
-  }
-
-  if (decoded.rd != kLinkIndex || decoded.rs != kTargetRegisterIndex) {
-    throw std::runtime_error("jalr misaligned demo decoded the wrong rd/rs pair");
-  }
 
   const std::uint32_t preserved_pc = machine.cpu_pc();
   const std::uint32_t preserved_next_pc = machine.cpu_next_pc();

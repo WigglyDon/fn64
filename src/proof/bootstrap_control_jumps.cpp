@@ -12,7 +12,6 @@ void run_jump_demo(
     const char* label,
     std::uint32_t base_address,
     std::uint32_t jump_instruction,
-    Machine::CpuInstructionIdentity expected_identity,
     bool expect_link,
     std::uint16_t delay_slot_marker,
     std::uint16_t target_marker) {
@@ -50,19 +49,8 @@ void run_jump_demo(
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
   const std::uint32_t jump_raw = jump_instruction;
-  const Machine::DecodedCpuInstructionWord jump_decoded =
-      Machine::decode_cpu_instruction_word(jump_raw);
-  const Machine::CpuInstructionIdentity jump_identity =
-      Machine::identify_cpu_instruction(jump_decoded);
 
   print_hex32("  jump_raw", jump_raw);
-  std::cout << "  jump_identity = "
-            << Machine::cpu_instruction_identity_name(jump_identity) << '\n';
-
-  if (jump_identity != expected_identity) {
-    throw std::runtime_error(
-        std::string("jump demo identified the wrong instruction: ") + label);
-  }
 
   require_stepped(machine.step_cpu_instruction(), std::string(label) + "_jump");
 
@@ -194,18 +182,8 @@ void run_jr_demo(Machine& machine) {
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
   const std::uint32_t jr_raw = kJrInstruction;
-  const Machine::DecodedCpuInstructionWord jr_decoded =
-      Machine::decode_cpu_instruction_word(jr_raw);
-  const Machine::CpuInstructionIdentity jr_identity =
-      Machine::identify_cpu_instruction(jr_decoded);
 
   print_hex32("  jr_raw", jr_raw);
-  std::cout << "  jr_identity = "
-            << Machine::cpu_instruction_identity_name(jr_identity) << '\n';
-
-  if (jr_identity != Machine::CpuInstructionIdentity::kSpecialJr) {
-    throw std::runtime_error("jr demo did not identify JR explicitly");
-  }
 
   require_stepped(machine.step_cpu_instruction(), "jr_demo_jump");
 
@@ -287,7 +265,6 @@ void run_ordinary_jump_demos(Machine& machine) {
       "j explicit target scheduling with normal delay slot",
       0x00000500u,
       encode_j(0x00000510u),
-      Machine::CpuInstructionIdentity::kJ,
       false,
       0x7301u,
       0x7302u);
@@ -297,7 +274,6 @@ void run_ordinary_jump_demos(Machine& machine) {
       "jal explicit target scheduling with link",
       0x00000520u,
       encode_jal(0x00000530u),
-      Machine::CpuInstructionIdentity::kJal,
       true,
       0x7311u,
       0x7312u);

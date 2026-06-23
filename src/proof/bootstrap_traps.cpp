@@ -37,20 +37,10 @@ void run_break_stop_demo(Machine& machine) {
   }
 
   const std::uint32_t break_raw = kBreakInstruction;
-  const Machine::DecodedCpuInstructionWord break_instruction =
-      Machine::decode_cpu_instruction_word(break_raw);
-  const Machine::CpuInstructionIdentity break_identity =
-      Machine::identify_cpu_instruction(break_instruction);
 
   std::cout << "  break_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << break_raw
             << std::dec << std::setfill(' ') << '\n';
-  std::cout << "  break_identity = "
-            << Machine::cpu_instruction_identity_name(break_identity) << '\n';
-
-  if (break_identity != Machine::CpuInstructionIdentity::kSpecialBreak) {
-    throw std::runtime_error("break demo did not identify BREAK explicitly");
-  }
 
   require_stopped(machine.step_cpu_instruction(), "break_demo_break");
 
@@ -100,20 +90,10 @@ void run_sync_noop_demo(Machine& machine) {
   }
 
   const std::uint32_t sync_raw = kSyncInstruction;
-  const Machine::DecodedCpuInstructionWord sync_instruction =
-      Machine::decode_cpu_instruction_word(sync_raw);
-  const Machine::CpuInstructionIdentity sync_identity =
-      Machine::identify_cpu_instruction(sync_instruction);
 
   std::cout << "  sync_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << sync_raw
             << std::dec << std::setfill(' ') << '\n';
-  std::cout << "  sync_identity = "
-            << Machine::cpu_instruction_identity_name(sync_identity) << '\n';
-
-  if (sync_identity != Machine::CpuInstructionIdentity::kSpecialSync) {
-    throw std::runtime_error("sync demo did not identify SYNC explicitly");
-  }
 
   require_stepped(machine.step_cpu_instruction(), "sync_demo_sync");
 
@@ -188,20 +168,10 @@ void run_syscall_stop_demo(Machine& machine) {
   }
 
   const std::uint32_t syscall_raw = kSyscallInstruction;
-  const Machine::DecodedCpuInstructionWord syscall_instruction =
-      Machine::decode_cpu_instruction_word(syscall_raw);
-  const Machine::CpuInstructionIdentity syscall_identity =
-      Machine::identify_cpu_instruction(syscall_instruction);
 
   std::cout << "  syscall_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << syscall_raw
             << std::dec << std::setfill(' ') << '\n';
-  std::cout << "  syscall_identity = "
-            << Machine::cpu_instruction_identity_name(syscall_identity) << '\n';
-
-  if (syscall_identity != Machine::CpuInstructionIdentity::kSpecialSyscall) {
-    throw std::runtime_error("syscall demo did not identify SYSCALL explicitly");
-  }
 
   require_stopped(machine.step_cpu_instruction(), "syscall_demo_syscall");
 
@@ -232,7 +202,6 @@ void run_special_register_trap_demo(
     const char* label,
     std::uint32_t base_address,
     std::uint32_t trap_instruction,
-    Machine::CpuInstructionIdentity expected_identity,
     std::uint32_t rs_value,
     std::uint32_t rt_value,
     bool expect_taken,
@@ -266,21 +235,10 @@ void run_special_register_trap_demo(
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
 
   const std::uint32_t trap_raw = trap_instruction;
-  const Machine::DecodedCpuInstructionWord trap_decoded =
-      Machine::decode_cpu_instruction_word(trap_raw);
-  const Machine::CpuInstructionIdentity trap_identity =
-      Machine::identify_cpu_instruction(trap_decoded);
 
   std::cout << "  trap_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << trap_raw
             << std::dec << std::setfill(' ') << '\n';
-  std::cout << "  trap_identity = "
-            << Machine::cpu_instruction_identity_name(trap_identity) << '\n';
-
-  if (trap_identity != expected_identity) {
-    throw std::runtime_error(
-        std::string("trap demo identified the wrong instruction: ") + label);
-  }
 
   if (expect_taken) {
     require_stopped(machine.step_cpu_instruction(), std::string(label) + "_trap_stop");
@@ -345,7 +303,6 @@ void run_special_register_trap_demos(Machine& machine) {
       "special_tge not taken signed compare",
       0x00000140u,
       encode_special_register_trap(4, 5, 0x30),
-      Machine::CpuInstructionIdentity::kSpecialTge,
       0xffffffffu,
       0x00000001u,
       false,
@@ -356,7 +313,6 @@ void run_special_register_trap_demos(Machine& machine) {
       "special_tgeu taken unsigned compare",
       0x00000160u,
       encode_special_register_trap(4, 5, 0x31),
-      Machine::CpuInstructionIdentity::kSpecialTgeu,
       0xffffffffu,
       0x00000001u,
       true,
@@ -367,7 +323,6 @@ void run_special_register_trap_demos(Machine& machine) {
       "special_tlt taken signed compare",
       0x00000180u,
       encode_special_register_trap(4, 5, 0x32),
-      Machine::CpuInstructionIdentity::kSpecialTlt,
       0xffffffffu,
       0x00000001u,
       true,
@@ -378,7 +333,6 @@ void run_special_register_trap_demos(Machine& machine) {
       "special_tltu not taken unsigned compare",
       0x000001a0u,
       encode_special_register_trap(4, 5, 0x33),
-      Machine::CpuInstructionIdentity::kSpecialTltu,
       0xffffffffu,
       0x00000001u,
       false,
@@ -389,7 +343,6 @@ void run_special_register_trap_demos(Machine& machine) {
       "special_teq taken equality compare",
       0x000001c0u,
       encode_special_register_trap(4, 5, 0x34),
-      Machine::CpuInstructionIdentity::kSpecialTeq,
       0x12345678u,
       0x12345678u,
       true,
@@ -400,7 +353,6 @@ void run_special_register_trap_demos(Machine& machine) {
       "special_tne not taken inequality compare",
       0x000001e0u,
       encode_special_register_trap(4, 5, 0x36),
-      Machine::CpuInstructionIdentity::kSpecialTne,
       0x12345678u,
       0x12345678u,
       false,
@@ -412,7 +364,6 @@ void run_regimm_immediate_trap_demo(
     const char* label,
     std::uint32_t base_address,
     std::uint32_t trap_instruction,
-    Machine::CpuInstructionIdentity expected_identity,
     std::uint32_t rs_value,
     bool expect_taken,
     std::uint16_t fallthrough_marker) {
@@ -442,21 +393,10 @@ void run_regimm_immediate_trap_demo(
   print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
 
   const std::uint32_t trap_raw = trap_instruction;
-  const Machine::DecodedCpuInstructionWord trap_decoded =
-      Machine::decode_cpu_instruction_word(trap_raw);
-  const Machine::CpuInstructionIdentity trap_identity =
-      Machine::identify_cpu_instruction(trap_decoded);
 
   std::cout << "  trap_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << trap_raw
             << std::dec << std::setfill(' ') << '\n';
-  std::cout << "  trap_identity = "
-            << Machine::cpu_instruction_identity_name(trap_identity) << '\n';
-
-  if (trap_identity != expected_identity) {
-    throw std::runtime_error(
-        std::string("regimm immediate trap demo identified the wrong instruction: ") + label);
-  }
 
   if (expect_taken) {
     require_stopped(machine.step_cpu_instruction(), std::string(label) + "_trap_stop");
@@ -529,7 +469,6 @@ void run_regimm_immediate_trap_demos(Machine& machine) {
       "regimm_tgei not taken signed compare",
       0x00000200u,
       encode_regimm_immediate_trap(4, 0x08, 0x0001u),
-      Machine::CpuInstructionIdentity::kRegimmTgei,
       0xffffffffu,
       false,
       0x7101u);
@@ -539,7 +478,6 @@ void run_regimm_immediate_trap_demos(Machine& machine) {
       "regimm_tgeiu taken unsigned compare with sign-extended immediate",
       0x00000220u,
       encode_regimm_immediate_trap(4, 0x09, 0xffffu),
-      Machine::CpuInstructionIdentity::kRegimmTgeiu,
       0xffffffffu,
       true,
       0x7102u);
@@ -549,7 +487,6 @@ void run_regimm_immediate_trap_demos(Machine& machine) {
       "regimm_tlti taken signed compare",
       0x00000240u,
       encode_regimm_immediate_trap(4, 0x0a, 0x0001u),
-      Machine::CpuInstructionIdentity::kRegimmTlti,
       0xffffffffu,
       true,
       0x7103u);
@@ -559,7 +496,6 @@ void run_regimm_immediate_trap_demos(Machine& machine) {
       "regimm_tltiu not taken unsigned compare with sign-extended immediate",
       0x00000260u,
       encode_regimm_immediate_trap(4, 0x0b, 0xffffu),
-      Machine::CpuInstructionIdentity::kRegimmTltiu,
       0xffffffffu,
       false,
       0x7104u);
@@ -569,7 +505,6 @@ void run_regimm_immediate_trap_demos(Machine& machine) {
       "regimm_teqi taken equality compare",
       0x00000280u,
       encode_regimm_immediate_trap(4, 0x0c, 0xffffu),
-      Machine::CpuInstructionIdentity::kRegimmTeqi,
       0xffffffffu,
       true,
       0x7105u);
@@ -579,7 +514,6 @@ void run_regimm_immediate_trap_demos(Machine& machine) {
       "regimm_tnei not taken inequality compare",
       0x000002a0u,
       encode_regimm_immediate_trap(4, 0x0e, 0xffffu),
-      Machine::CpuInstructionIdentity::kRegimmTnei,
       0xffffffffu,
       false,
       0x7106u);

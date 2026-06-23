@@ -13,7 +13,6 @@ void run_branch_likely_demo(
     const char* label,
     std::uint32_t base_address,
     std::uint32_t branch_instruction,
-    Machine::CpuInstructionIdentity expected_identity,
     std::uint32_t rs_value,
     std::uint32_t rt_value,
     bool expect_taken,
@@ -65,21 +64,10 @@ void run_branch_likely_demo(
   print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
 
   const std::uint32_t branch_raw = branch_instruction;
-  const Machine::DecodedCpuInstructionWord branch_decoded =
-      Machine::decode_cpu_instruction_word(branch_raw);
-  const Machine::CpuInstructionIdentity branch_identity =
-      Machine::identify_cpu_instruction(branch_decoded);
 
   std::cout << "  branch_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << branch_raw
             << std::dec << std::setfill(' ') << '\n';
-  std::cout << "  branch_identity = "
-            << Machine::cpu_instruction_identity_name(branch_identity) << '\n';
-
-  if (branch_identity != expected_identity) {
-    throw std::runtime_error(
-        std::string("branch-likely demo identified the wrong instruction: ") + label);
-  }
 
   require_stepped(machine.step_cpu_instruction(), std::string(label) + "_branch");
 
@@ -207,7 +195,6 @@ void run_branch_likely_link_demo(
     const char* label,
     std::uint32_t base_address,
     std::uint32_t branch_instruction,
-    Machine::CpuInstructionIdentity expected_identity,
     std::uint8_t rs_index,
     std::uint32_t rs_value,
     std::uint32_t initial_link_value,
@@ -261,26 +248,10 @@ void run_branch_likely_link_demo(
   print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
 
   const std::uint32_t branch_raw = branch_instruction;
-  const Machine::DecodedCpuInstructionWord branch_decoded =
-      Machine::decode_cpu_instruction_word(branch_raw);
-  const Machine::CpuInstructionIdentity branch_identity =
-      Machine::identify_cpu_instruction(branch_decoded);
 
   std::cout << "  branch_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << branch_raw
             << std::dec << std::setfill(' ') << '\n';
-  std::cout << "  branch_identity = "
-            << Machine::cpu_instruction_identity_name(branch_identity) << '\n';
-
-  if (branch_identity != expected_identity) {
-    throw std::runtime_error(
-        std::string("branch-likely link demo identified the wrong instruction: ") + label);
-  }
-
-  if (branch_decoded.rs != rs_index) {
-    throw std::runtime_error(
-        std::string("branch-likely link demo decoded the wrong source register: ") + label);
-  }
 
   require_stepped(machine.step_cpu_instruction(), std::string(label) + "_branch");
 
@@ -408,10 +379,8 @@ void run_backward_branch_likely_demo(
     const char* label,
     std::uint32_t base_address,
     std::uint32_t branch_instruction,
-    Machine::CpuInstructionIdentity expected_identity,
     std::uint32_t rs_value,
     std::uint32_t rt_value,
-    std::int16_t expected_immediate,
     std::uint16_t delay_slot_marker,
     std::uint16_t fallthrough_marker,
     std::uint16_t target_marker) {
@@ -460,26 +429,8 @@ void run_backward_branch_likely_demo(
   print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
 
   const std::uint32_t branch_raw = branch_instruction;
-  const Machine::DecodedCpuInstructionWord branch_decoded =
-      Machine::decode_cpu_instruction_word(branch_raw);
-  const Machine::CpuInstructionIdentity branch_identity =
-      Machine::identify_cpu_instruction(branch_decoded);
 
   print_hex32("  branch_raw", branch_raw);
-  std::cout << "  branch_identity = "
-            << Machine::cpu_instruction_identity_name(branch_identity) << '\n';
-  std::cout << "  decoded_immediate_i16 = "
-            << branch_decoded.immediate_i16 << '\n';
-
-  if (branch_identity != expected_identity) {
-    throw std::runtime_error(
-        std::string("backward branch-likely demo identified the wrong instruction: ") + label);
-  }
-
-  if (branch_decoded.immediate_i16 != expected_immediate) {
-    throw std::runtime_error(
-        std::string("backward branch-likely demo decoded the wrong signed immediate: ") + label);
-  }
 
   require_stepped(machine.step_cpu_instruction(), std::string(label) + "_branch");
 
@@ -579,7 +530,6 @@ void run_branch_likely_demos(Machine& machine) {
       "beql taken equality compare",
       0x00000300u,
       encode_beql(4, 5, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kBeql,
       0x11223344u,
       0x11223344u,
       true,
@@ -592,7 +542,6 @@ void run_branch_likely_demos(Machine& machine) {
       "bnel not taken equality compare",
       0x00000320u,
       encode_bnel(4, 5, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kBnel,
       0x55667788u,
       0x55667788u,
       false,
@@ -605,7 +554,6 @@ void run_branch_likely_demos(Machine& machine) {
       "blezl taken signed compare",
       0x00000340u,
       encode_blezl(4, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kBlezl,
       0xffffffffu,
       0,
       true,
@@ -618,7 +566,6 @@ void run_branch_likely_demos(Machine& machine) {
       "bgtzl not taken signed compare",
       0x00000360u,
       encode_bgtzl(4, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kBgtzl,
       0,
       0,
       false,
@@ -631,7 +578,6 @@ void run_branch_likely_demos(Machine& machine) {
       "regimm_bltzl taken signed compare",
       0x00000380u,
       encode_bltzl(4, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kRegimmBltzl,
       0xffffffffu,
       0,
       true,
@@ -644,7 +590,6 @@ void run_branch_likely_demos(Machine& machine) {
       "regimm_bgezl not taken signed compare",
       0x000003a0u,
       encode_bgezl(4, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kRegimmBgezl,
       0xffffffffu,
       0,
       false,
@@ -657,7 +602,6 @@ void run_branch_likely_demos(Machine& machine) {
       "regimm_bltzall taken signed compare",
       0x000003c0u,
       encode_bltzall(4, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kRegimmBltzall,
       4,
       0xffffffffu,
       0,
@@ -672,7 +616,6 @@ void run_branch_likely_demos(Machine& machine) {
       "regimm_bgezall not taken signed compare",
       0x000003e0u,
       encode_bgezall(4, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kRegimmBgezall,
       4,
       0xffffffffu,
       0,
@@ -687,7 +630,6 @@ void run_branch_likely_demos(Machine& machine) {
       "regimm_bltzall taken signed compare with rs == 31 reads original source before link",
       0x00000440u,
       encode_bltzall(31, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kRegimmBltzall,
       31,
       0xffffffffu,
       0,
@@ -702,7 +644,6 @@ void run_branch_likely_demos(Machine& machine) {
       "regimm_bgezall not taken signed compare with rs == 31 does not link after reading original source",
       0x00000460u,
       encode_bgezall(31, kTargetImmediate),
-      Machine::CpuInstructionIdentity::kRegimmBgezall,
       31,
       0xffffffffu,
       0,
@@ -717,10 +658,8 @@ void run_branch_likely_demos(Machine& machine) {
       "beql taken backward negative offset",
       0x00000420u,
       encode_beql(4, 5, static_cast<std::uint16_t>(kBackwardImmediate)),
-      Machine::CpuInstructionIdentity::kBeql,
       0x2468ace0u,
       0x2468ace0u,
-      kBackwardImmediate,
       0x7281u,
       0x7282u,
       0x7283u);
