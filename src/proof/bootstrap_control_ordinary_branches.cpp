@@ -50,12 +50,12 @@ void run_ordinary_branch_demo(
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, 0);
 
-  machine.write_rdram_u32_be(kBranchAddress, branch_instruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kFallthroughAddress, kFallthroughInstruction);
-  machine.write_rdram_u32_be(kNotTakenSentinelAddress, kBreakInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kTakenSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kBranchAddress, branch_instruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kFallthroughAddress, kFallthroughInstruction);
+  machine.stage_rdram_u32_be(kNotTakenSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kTakenSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap ordinary branch demo: " << label << '\n';
   std::cout << "before branch step:\n";
@@ -257,12 +257,12 @@ void run_aliased_register_link_branch_demo(
   machine.stage_cpu_gpr(kFallthroughMarkerIndex, 0);
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
-  machine.write_rdram_u32_be(kBranchAddress, branch_instruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kFallthroughAddress, kFallthroughInstruction);
-  machine.write_rdram_u32_be(kNotTakenSentinelAddress, kBreakInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kTakenSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kBranchAddress, branch_instruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kFallthroughAddress, kFallthroughInstruction);
+  machine.stage_rdram_u32_be(kNotTakenSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kTakenSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap aliased register-link branch demo: " << label << '\n';
   std::cout << "before branch step:\n";
@@ -520,12 +520,12 @@ void run_backward_ordinary_branch_demo(
   machine.stage_cpu_gpr(kFallthroughMarkerIndex, 0);
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kTargetSentinelAddress, kBreakInstruction);
-  machine.write_rdram_u32_be(kBranchAddress, branch_instruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kFallthroughAddress, kFallthroughInstruction);
-  machine.write_rdram_u32_be(kFallthroughSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kTargetSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kBranchAddress, branch_instruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kFallthroughAddress, kFallthroughInstruction);
+  machine.stage_rdram_u32_be(kFallthroughSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap backward ordinary branch demo: " << label << '\n';
   std::cout << "before branch step:\n";

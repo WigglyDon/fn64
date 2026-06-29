@@ -25,8 +25,8 @@ void run_jr_misaligned_target_demo(Machine& machine) {
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(31, 0);
 
-  machine.write_rdram_u32_be(kJrAddress, kJrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kJrAddress, kJrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
 
   std::cout << "fn64 bootstrap jump failure demo: special_jr misaligned register target\n";
   std::cout << "before failing step:\n";
@@ -93,8 +93,8 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
-  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
 
   std::cout << "fn64 bootstrap jump failure demo: special_jalr rd == rs misaligned target reads original register before link\n";
   std::cout << "before failing step:\n";
@@ -166,8 +166,8 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, kInitialLinkValue);
 
-  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
 
   std::cout << "fn64 bootstrap jump failure demo: special_jalr rd = 31 misaligned register target leaves link untouched\n";
   std::cout << "before failing step:\n";
@@ -251,12 +251,12 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
-  machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
-  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kLinkReturnAddress, kBreakInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kLinkReturnAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jalr demo 4: rd == rs reads target before link overwrite\n";
   std::cout << "  load_target_raw = 0x"
@@ -394,12 +394,12 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   machine.stage_cpu_gpr(7, 0);
   machine.stage_cpu_gpr(31, 0);
 
-  machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
-  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kLinkReturnAddress, kBreakInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kLinkReturnAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jalr demo 1: encoded rd link register\n";
   std::cout << "  ori_target_raw = 0x"
@@ -494,12 +494,12 @@ void run_jalr_rd31_demo(Machine& machine) {
   machine.stage_cpu_gpr(9, 0);
   machine.stage_cpu_gpr(31, 0);
 
-  machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
-  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kLinkReturnAddress, kBreakInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kLinkReturnAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jalr demo 2: rd = 31 normal link case\n";
   std::cout << "  jalr_raw = 0x"
@@ -553,12 +553,12 @@ void run_jalr_rd0_demo(Machine& machine) {
   machine.stage_cpu_gpr(11, 0);
   machine.stage_cpu_gpr(12, 0);
 
-  machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
-  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kJalrAddress + 8u, kBreakInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress + 8u, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jalr demo 3: rd = 0 discards link through normal gpr[0] behavior\n";
   std::cout << "  jalr_raw = 0x"
@@ -615,8 +615,8 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
   machine.stage_cpu_gpr(kLinkIndex, 0);
   machine.stage_cpu_gpr(31, 0);
 
-  machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kJalrAddress, kJalrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
 
   std::cout << "fn64 bootstrap jump failure demo: special_jalr misaligned register target\n";
   std::cout << "before failing step:\n";

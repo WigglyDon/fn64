@@ -53,11 +53,11 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   machine.stage_cpu_gpr(kSltiuSourceIndex, 0u);
   machine.stage_cpu_gpr(kSltiuResultIndex, 0u);
 
-  machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
-  machine.write_rdram_u32_be(kAddiuAddress, kAddiuInstruction);
-  machine.write_rdram_u32_be(kSltiAddress, kSltiInstruction);
-  machine.write_rdram_u32_be(kSltiuAddress, kSltiuInstruction);
-  machine.write_rdram_u32_be(kBreakAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kAddiAddress, kAddiInstruction);
+  machine.stage_rdram_u32_be(kAddiuAddress, kAddiuInstruction);
+  machine.stage_rdram_u32_be(kSltiAddress, kSltiInstruction);
+  machine.stage_rdram_u32_be(kSltiuAddress, kSltiuInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
 
   std::cout
       << "fn64 bootstrap reg-immediate arithmetic/compare demo: explicit negative-immediate "
@@ -174,7 +174,7 @@ void run_add_positive_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kRhsIndex, 0x00000001u);
   machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
 
-  machine.write_rdram_u32_be(kAddAddress, kAddInstruction);
+  machine.stage_rdram_u32_be(kAddAddress, kAddInstruction);
 
   std::cout << "fn64 bootstrap register arithmetic demo: ADD positive overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -233,7 +233,7 @@ void run_sub_negative_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kRhsIndex, 0x00000001u);
   machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
 
-  machine.write_rdram_u32_be(kSubAddress, kSubInstruction);
+  machine.stage_rdram_u32_be(kSubAddress, kSubInstruction);
 
   std::cout << "fn64 bootstrap register arithmetic demo: SUB negative overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -288,7 +288,7 @@ void run_addi_positive_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
   machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
 
-  machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
+  machine.stage_rdram_u32_be(kAddiAddress, kAddiInstruction);
 
   std::cout << "fn64 bootstrap reg-immediate arithmetic demo: ADDI positive overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -342,7 +342,7 @@ void run_addi_negative_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kSourceIndex, 0x80000000u);
   machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
 
-  machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
+  machine.stage_rdram_u32_be(kAddiAddress, kAddiInstruction);
 
   std::cout << "fn64 bootstrap reg-immediate arithmetic demo: ADDI negative overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -436,15 +436,15 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   machine.stage_cpu_gpr(kOneIndex, 0);
   machine.stage_cpu_gpr(kCompareResultIndex, 0);
 
-  machine.write_rdram_u32_be(kLuiAddress, kLuiInstruction);
-  machine.write_rdram_u32_be(kOriAddress, kOriInstruction);
-  machine.write_rdram_u32_be(kAndiAddress, kAndiInstruction);
-  machine.write_rdram_u32_be(kXoriAddress, kXoriInstruction);
-  machine.write_rdram_u32_be(kMaxLuiAddress, kMaxLuiInstruction);
-  machine.write_rdram_u32_be(kMaxOriAddress, kMaxOriInstruction);
-  machine.write_rdram_u32_be(kOneOriAddress, kOneOriInstruction);
-  machine.write_rdram_u32_be(kSltuAddress, kSltuInstruction);
-  machine.write_rdram_u32_be(kBreakAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kLuiAddress, kLuiInstruction);
+  machine.stage_rdram_u32_be(kOriAddress, kOriInstruction);
+  machine.stage_rdram_u32_be(kAndiAddress, kAndiInstruction);
+  machine.stage_rdram_u32_be(kXoriAddress, kXoriInstruction);
+  machine.stage_rdram_u32_be(kMaxLuiAddress, kMaxLuiInstruction);
+  machine.stage_rdram_u32_be(kMaxOriAddress, kMaxOriInstruction);
+  machine.stage_rdram_u32_be(kOneOriAddress, kOneOriInstruction);
+  machine.stage_rdram_u32_be(kSltuAddress, kSltuInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap logic/immediate demo: explicit LUI/ORI/ANDI/XORI/SLTU proof\n";
   std::cout << "before step 1:\n";
@@ -629,7 +629,7 @@ void run_cpu_local_single_ori_step_demo(Machine& machine) {
   machine.stage_cpu_next_pc(kNextPc);
   machine.stage_cpu_gpr(kSourceIndex, kSourceValue);
   machine.stage_cpu_gpr(kZeroIndex, 0xffffffffu);
-  machine.write_rdram_u32_be(kPc, kInstruction);
+  machine.stage_rdram_u32_be(kPc, kInstruction);
 
   const std::uint32_t raw = kInstruction;
 
@@ -679,7 +679,7 @@ void run_cpu_local_addiu_aliased_source_target_step_demo(Machine& machine) {
   machine.stage_cpu_pc(kPc);
   machine.stage_cpu_next_pc(kNextPc);
   machine.stage_cpu_gpr(kAliasedIndex, kOriginalValue);
-  machine.write_rdram_u32_be(kPc, kInstruction);
+  machine.stage_rdram_u32_be(kPc, kInstruction);
 
   const std::uint32_t raw = kInstruction;
 
@@ -726,7 +726,7 @@ void run_cpu_local_sltiu_aliased_source_target_step_demo(Machine& machine) {
   machine.stage_cpu_pc(kPc);
   machine.stage_cpu_next_pc(kNextPc);
   machine.stage_cpu_gpr(kAliasedIndex, kOriginalValue);
-  machine.write_rdram_u32_be(kPc, kInstruction);
+  machine.stage_rdram_u32_be(kPc, kInstruction);
 
   const std::uint32_t raw = kInstruction;
 
@@ -763,7 +763,7 @@ void step_hilo_instruction(
     std::uint32_t instruction,
     const char* label) {
   const std::uint32_t instruction_address = machine.cpu_pc();
-  machine.write_rdram_u32_be(instruction_address, instruction);
+  machine.stage_rdram_u32_be(instruction_address, instruction);
 
   const std::uint32_t raw = instruction;
 

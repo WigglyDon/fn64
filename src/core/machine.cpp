@@ -182,6 +182,10 @@ void Machine::write_rdram_u16_be(std::uint32_t address, std::uint16_t value) {
   rdram_[address + 1] = static_cast<std::uint8_t>(value & 0xff);
 }
 
+void Machine::stage_rdram_u32_be(std::uint32_t address, std::uint32_t value) {
+  write_rdram_u32_be(address, value);
+}
+
 void Machine::write_rdram_u32_be(std::uint32_t address, std::uint32_t value) {
   if (address > rdram_.size() - 4) {
     fail_rdram_access(address, 4);

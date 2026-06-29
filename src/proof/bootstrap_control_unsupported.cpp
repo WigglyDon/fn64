@@ -32,7 +32,7 @@ void run_fetch_failure_no_ghost_case(
   machine.stage_cpu_gpr(kLinkGprIndex, kLinkGprValue);
   machine.stage_cpu_hi(kHiValue);
   machine.stage_cpu_lo(kLoValue);
-  machine.write_rdram_u32_be(kRdramSentinelAddress, kRdramSentinelValue);
+  machine.stage_rdram_u32_be(kRdramSentinelAddress, kRdramSentinelValue);
 
   std::cout << "fetch failure row: " << label << '\n';
   std::cout << "before failing step:\n";
@@ -133,9 +133,9 @@ void run_unsupported_identity_demo(
   machine.stage_cpu_hi(kHiValue);
   machine.stage_cpu_lo(kLoValue);
 
-  machine.write_rdram_u32_be(unsupported_address, unsupported_instruction);
-  machine.write_rdram_u32_be(kFollowingAddress, kFollowingInstruction);
-  machine.write_rdram_u32_be(kRdramSentinelAddress, kRdramSentinelValue);
+  machine.stage_rdram_u32_be(unsupported_address, unsupported_instruction);
+  machine.stage_rdram_u32_be(kFollowingAddress, kFollowingInstruction);
+  machine.stage_rdram_u32_be(kRdramSentinelAddress, kRdramSentinelValue);
 
   std::cout << "fn64 bootstrap unsupported demo: " << label << '\n';
   std::cout << "before step:\n";

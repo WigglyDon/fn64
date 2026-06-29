@@ -32,7 +32,7 @@ public:
 
   std::uint32_t read_rdram_u32_be(std::uint32_t address) const;
 
-  void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
+  void stage_rdram_u32_be(std::uint32_t address, std::uint32_t value);
 
   void stage_cartridge_bytes_to_rdram(
       std::uint32_t cartridge_offset,
@@ -215,6 +215,7 @@ private:
 
   void write_rdram_u8(std::uint32_t address, std::uint8_t value);
   void write_rdram_u16_be(std::uint32_t address, std::uint16_t value);
+  void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
 
   static std::uint32_t require_cpu_rdram_address(
       const char* operation,

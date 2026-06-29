@@ -19,8 +19,8 @@ void run_break_stop_demo(Machine& machine) {
   machine.stage_cpu_pc(kSetupAddress);
   machine.stage_cpu_gpr(13, 0);
 
-  machine.write_rdram_u32_be(kSetupAddress, kSetupInstruction);
-  machine.write_rdram_u32_be(kBreakAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kSetupAddress, kSetupInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap break demo: explicit local stop\n";
   std::cout << "before step 1:\n";
@@ -67,10 +67,10 @@ void run_sync_noop_demo(Machine& machine) {
   machine.stage_cpu_gpr(14, 0);
   machine.stage_cpu_gpr(15, 0);
 
-  machine.write_rdram_u32_be(kSetupAddress, kSetupInstruction);
-  machine.write_rdram_u32_be(kSyncAddress, kSyncInstruction);
-  machine.write_rdram_u32_be(kAfterSyncAddress, kAfterSyncInstruction);
-  machine.write_rdram_u32_be(kBreakAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kSetupAddress, kSetupInstruction);
+  machine.stage_rdram_u32_be(kSyncAddress, kSyncInstruction);
+  machine.stage_rdram_u32_be(kAfterSyncAddress, kAfterSyncInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap sync demo: explicit local no-op\n";
   std::cout << "before step 1:\n";
@@ -146,9 +146,9 @@ void run_syscall_stop_demo(Machine& machine) {
   machine.stage_cpu_gpr(16, 0);
   machine.stage_cpu_gpr(17, 0);
 
-  machine.write_rdram_u32_be(kSetupAddress, kSetupInstruction);
-  machine.write_rdram_u32_be(kSyscallAddress, kSyscallInstruction);
-  machine.write_rdram_u32_be(kAfterSyscallAddress, kAfterSyscallInstruction);
+  machine.stage_rdram_u32_be(kSetupAddress, kSetupInstruction);
+  machine.stage_rdram_u32_be(kSyscallAddress, kSyscallInstruction);
+  machine.stage_rdram_u32_be(kAfterSyscallAddress, kAfterSyscallInstruction);
 
   std::cout << "fn64 bootstrap syscall demo: explicit local stop\n";
   std::cout << "before step 1:\n";
@@ -223,9 +223,9 @@ void run_special_register_trap_demo(
   machine.stage_cpu_gpr(kRtIndex, rt_value);
   machine.stage_cpu_gpr(kMarkerIndex, 0);
 
-  machine.write_rdram_u32_be(kTrapAddress, trap_instruction);
-  machine.write_rdram_u32_be(kAfterTrapAddress, kAfterTrapInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTrapAddress, trap_instruction);
+  machine.stage_rdram_u32_be(kAfterTrapAddress, kAfterTrapInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap trap demo: " << label << '\n';
   std::cout << "before trap step:\n";
@@ -382,9 +382,9 @@ void run_regimm_immediate_trap_demo(
   machine.stage_cpu_gpr(kRsIndex, rs_value);
   machine.stage_cpu_gpr(kMarkerIndex, 0);
 
-  machine.write_rdram_u32_be(kTrapAddress, trap_instruction);
-  machine.write_rdram_u32_be(kAfterTrapAddress, kAfterTrapInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kTrapAddress, trap_instruction);
+  machine.stage_rdram_u32_be(kAfterTrapAddress, kAfterTrapInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap regimm immediate trap demo: " << label << '\n';
   std::cout << "before trap step:\n";

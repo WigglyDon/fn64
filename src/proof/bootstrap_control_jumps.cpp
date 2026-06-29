@@ -36,10 +36,10 @@ void run_jump_demo(
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, 0);
 
-  machine.write_rdram_u32_be(kJumpAddress, jump_instruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kJumpAddress, jump_instruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jump demo: " << label << '\n';
   std::cout << "before jump step:\n";
@@ -168,10 +168,10 @@ void run_jr_demo(Machine& machine) {
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, 0);
 
-  machine.write_rdram_u32_be(kJrAddress, kJrInstruction);
-  machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
-  machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
-  machine.write_rdram_u32_be(kSentinelAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kJrAddress, kJrInstruction);
+  machine.stage_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
+  machine.stage_rdram_u32_be(kTargetAddress, kTargetInstruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jump demo: special_jr explicit register target\n";
   std::cout << "before jump step:\n";
