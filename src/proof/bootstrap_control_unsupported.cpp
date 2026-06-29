@@ -25,13 +25,13 @@ void run_fetch_failure_no_ghost_case(
   constexpr std::uint32_t kRdramSentinelAddress = 0x00000900u;
   constexpr std::uint32_t kRdramSentinelValue = 0xfeed1234u;
 
-  machine.write_cpu_pc(failing_pc);
-  machine.write_cpu_next_pc(preserved_next_pc);
-  machine.write_cpu_gpr(kFirstGprIndex, kFirstGprValue);
-  machine.write_cpu_gpr(kSecondGprIndex, kSecondGprValue);
-  machine.write_cpu_gpr(kLinkGprIndex, kLinkGprValue);
-  machine.write_cpu_hi(kHiValue);
-  machine.write_cpu_lo(kLoValue);
+  machine.stage_cpu_pc(failing_pc);
+  machine.stage_cpu_next_pc(preserved_next_pc);
+  machine.stage_cpu_gpr(kFirstGprIndex, kFirstGprValue);
+  machine.stage_cpu_gpr(kSecondGprIndex, kSecondGprValue);
+  machine.stage_cpu_gpr(kLinkGprIndex, kLinkGprValue);
+  machine.stage_cpu_hi(kHiValue);
+  machine.stage_cpu_lo(kLoValue);
   machine.write_rdram_u32_be(kRdramSentinelAddress, kRdramSentinelValue);
 
   std::cout << "fetch failure row: " << label << '\n';
@@ -127,11 +127,11 @@ void run_unsupported_identity_demo(
   const std::uint32_t kFollowingInstruction = encode_ori(
       static_cast<std::uint8_t>(kFollowingMarkerIndex), 0, following_marker);
 
-  machine.write_cpu_pc(unsupported_address);
-  machine.write_cpu_gpr(kPreservedRegisterIndex, kPreservedRegisterValue);
-  machine.write_cpu_gpr(kFollowingMarkerIndex, 0);
-  machine.write_cpu_hi(kHiValue);
-  machine.write_cpu_lo(kLoValue);
+  machine.stage_cpu_pc(unsupported_address);
+  machine.stage_cpu_gpr(kPreservedRegisterIndex, kPreservedRegisterValue);
+  machine.stage_cpu_gpr(kFollowingMarkerIndex, 0);
+  machine.stage_cpu_hi(kHiValue);
+  machine.stage_cpu_lo(kLoValue);
 
   machine.write_rdram_u32_be(unsupported_address, unsupported_instruction);
   machine.write_rdram_u32_be(kFollowingAddress, kFollowingInstruction);

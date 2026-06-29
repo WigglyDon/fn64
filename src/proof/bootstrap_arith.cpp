@@ -43,15 +43,15 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
       0xffffu);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kAddiAddress);
-  machine.write_cpu_gpr(kAddiSourceIndex, 0x00000001u);
-  machine.write_cpu_gpr(kAddiResultIndex, 0u);
-  machine.write_cpu_gpr(kAddiuSourceIndex, 0x00000010u);
-  machine.write_cpu_gpr(kAddiuResultIndex, 0u);
-  machine.write_cpu_gpr(kSltiSourceIndex, 0xfffffffeu);
-  machine.write_cpu_gpr(kSltiResultIndex, 0u);
-  machine.write_cpu_gpr(kSltiuSourceIndex, 0u);
-  machine.write_cpu_gpr(kSltiuResultIndex, 0u);
+  machine.stage_cpu_pc(kAddiAddress);
+  machine.stage_cpu_gpr(kAddiSourceIndex, 0x00000001u);
+  machine.stage_cpu_gpr(kAddiResultIndex, 0u);
+  machine.stage_cpu_gpr(kAddiuSourceIndex, 0x00000010u);
+  machine.stage_cpu_gpr(kAddiuResultIndex, 0u);
+  machine.stage_cpu_gpr(kSltiSourceIndex, 0xfffffffeu);
+  machine.stage_cpu_gpr(kSltiResultIndex, 0u);
+  machine.stage_cpu_gpr(kSltiuSourceIndex, 0u);
+  machine.stage_cpu_gpr(kSltiuResultIndex, 0u);
 
   machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
   machine.write_rdram_u32_be(kAddiuAddress, kAddiuInstruction);
@@ -169,10 +169,10 @@ void run_add_positive_overflow_demo(Machine& machine) {
       0,
       0x20);
 
-  machine.write_cpu_pc(kAddAddress);
-  machine.write_cpu_gpr(kLhsIndex, 0x7fffffffu);
-  machine.write_cpu_gpr(kRhsIndex, 0x00000001u);
-  machine.write_cpu_gpr(kResultIndex, 0x2468ace0u);
+  machine.stage_cpu_pc(kAddAddress);
+  machine.stage_cpu_gpr(kLhsIndex, 0x7fffffffu);
+  machine.stage_cpu_gpr(kRhsIndex, 0x00000001u);
+  machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
 
   machine.write_rdram_u32_be(kAddAddress, kAddInstruction);
 
@@ -228,10 +228,10 @@ void run_sub_negative_overflow_demo(Machine& machine) {
       0,
       0x22);
 
-  machine.write_cpu_pc(kSubAddress);
-  machine.write_cpu_gpr(kLhsIndex, 0x80000000u);
-  machine.write_cpu_gpr(kRhsIndex, 0x00000001u);
-  machine.write_cpu_gpr(kResultIndex, 0x13579bdfu);
+  machine.stage_cpu_pc(kSubAddress);
+  machine.stage_cpu_gpr(kLhsIndex, 0x80000000u);
+  machine.stage_cpu_gpr(kRhsIndex, 0x00000001u);
+  machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
 
   machine.write_rdram_u32_be(kSubAddress, kSubInstruction);
 
@@ -284,9 +284,9 @@ void run_addi_positive_overflow_demo(Machine& machine) {
       static_cast<std::uint8_t>(kSourceIndex),
       0x0001u);
 
-  machine.write_cpu_pc(kAddiAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0x7fffffffu);
-  machine.write_cpu_gpr(kResultIndex, 0x2468ace0u);
+  machine.stage_cpu_pc(kAddiAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
+  machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
 
   machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
 
@@ -338,9 +338,9 @@ void run_addi_negative_overflow_demo(Machine& machine) {
       static_cast<std::uint8_t>(kSourceIndex),
       0xffffu);
 
-  machine.write_cpu_pc(kAddiAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0x80000000u);
-  machine.write_cpu_gpr(kResultIndex, 0x13579bdfu);
+  machine.stage_cpu_pc(kAddiAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0x80000000u);
+  machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
 
   machine.write_rdram_u32_be(kAddiAddress, kAddiInstruction);
 
@@ -428,13 +428,13 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
       static_cast<std::uint8_t>(kOneIndex));
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kLuiAddress);
-  machine.write_cpu_gpr(kValueIndex, 0);
-  machine.write_cpu_gpr(kAndResultIndex, 0);
-  machine.write_cpu_gpr(kXorResultIndex, 0);
-  machine.write_cpu_gpr(kMaxIndex, 0);
-  machine.write_cpu_gpr(kOneIndex, 0);
-  machine.write_cpu_gpr(kCompareResultIndex, 0);
+  machine.stage_cpu_pc(kLuiAddress);
+  machine.stage_cpu_gpr(kValueIndex, 0);
+  machine.stage_cpu_gpr(kAndResultIndex, 0);
+  machine.stage_cpu_gpr(kXorResultIndex, 0);
+  machine.stage_cpu_gpr(kMaxIndex, 0);
+  machine.stage_cpu_gpr(kOneIndex, 0);
+  machine.stage_cpu_gpr(kCompareResultIndex, 0);
 
   machine.write_rdram_u32_be(kLuiAddress, kLuiInstruction);
   machine.write_rdram_u32_be(kOriAddress, kOriInstruction);
@@ -625,10 +625,10 @@ void run_cpu_local_single_ori_step_demo(Machine& machine) {
       kSourceIndex,
       0x00ffu);
 
-  machine.write_cpu_pc(kPc);
-  machine.write_cpu_next_pc(kNextPc);
-  machine.write_cpu_gpr(kSourceIndex, kSourceValue);
-  machine.write_cpu_gpr(kZeroIndex, 0xffffffffu);
+  machine.stage_cpu_pc(kPc);
+  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_gpr(kSourceIndex, kSourceValue);
+  machine.stage_cpu_gpr(kZeroIndex, 0xffffffffu);
   machine.write_rdram_u32_be(kPc, kInstruction);
 
   const std::uint32_t raw = kInstruction;
@@ -676,9 +676,9 @@ void run_cpu_local_addiu_aliased_source_target_step_demo(Machine& machine) {
       kAliasedIndex,
       0xffffu);
 
-  machine.write_cpu_pc(kPc);
-  machine.write_cpu_next_pc(kNextPc);
-  machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
+  machine.stage_cpu_pc(kPc);
+  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_gpr(kAliasedIndex, kOriginalValue);
   machine.write_rdram_u32_be(kPc, kInstruction);
 
   const std::uint32_t raw = kInstruction;
@@ -723,9 +723,9 @@ void run_cpu_local_sltiu_aliased_source_target_step_demo(Machine& machine) {
       kAliasedIndex,
       0x0001u);
 
-  machine.write_cpu_pc(kPc);
-  machine.write_cpu_next_pc(kNextPc);
-  machine.write_cpu_gpr(kAliasedIndex, kOriginalValue);
+  machine.stage_cpu_pc(kPc);
+  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_gpr(kAliasedIndex, kOriginalValue);
   machine.write_rdram_u32_be(kPc, kInstruction);
 
   const std::uint32_t raw = kInstruction;
@@ -799,13 +799,13 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   constexpr std::uint32_t kDivuZeroHi = 0x0badc0deu;
   constexpr std::uint32_t kDivuZeroLo = 0x00c0ffeeu;
 
-  machine.write_cpu_pc(kPc);
-  machine.write_cpu_next_pc(kNextPc);
-  machine.write_cpu_gpr(kHiSourceIndex, kMthiValue);
-  machine.write_cpu_gpr(kLoSourceIndex, kMtloValue);
-  machine.write_cpu_gpr(kHiReadIndex, 0);
-  machine.write_cpu_gpr(kLoReadIndex, 0);
-  machine.write_cpu_gpr(0, 0xffffffffu);
+  machine.stage_cpu_pc(kPc);
+  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_gpr(kHiSourceIndex, kMthiValue);
+  machine.stage_cpu_gpr(kLoSourceIndex, kMtloValue);
+  machine.stage_cpu_gpr(kHiReadIndex, 0);
+  machine.stage_cpu_gpr(kLoReadIndex, 0);
+  machine.stage_cpu_gpr(0, 0xffffffffu);
 
   std::cout << "fn64 bootstrap HI/LO arithmetic demo: Machine-owned HI/LO state transitions\n";
   std::cout << "before step sequence:\n";
@@ -856,8 +856,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo wrote HI/LO reads into gpr[0]");
   }
 
-  machine.write_cpu_gpr(kLhsIndex, 0xfffffffeu);
-  machine.write_cpu_gpr(kRhsIndex, 0x00000003u);
+  machine.stage_cpu_gpr(kLhsIndex, 0xfffffffeu);
+  machine.stage_cpu_gpr(kRhsIndex, 0x00000003u);
   step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x18),
@@ -867,8 +867,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo signed MULT result was wrong");
   }
 
-  machine.write_cpu_gpr(kLhsIndex, 0xffffffffu);
-  machine.write_cpu_gpr(kRhsIndex, 0x00000002u);
+  machine.stage_cpu_gpr(kLhsIndex, 0xffffffffu);
+  machine.stage_cpu_gpr(kRhsIndex, 0x00000002u);
   step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x19),
@@ -878,8 +878,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo unsigned MULTU result was wrong");
   }
 
-  machine.write_cpu_gpr(kLhsIndex, 0xfffffff3u);
-  machine.write_cpu_gpr(kRhsIndex, 0x00000005u);
+  machine.stage_cpu_gpr(kLhsIndex, 0xfffffff3u);
+  machine.stage_cpu_gpr(kRhsIndex, 0x00000005u);
   step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1a),
@@ -889,8 +889,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo signed DIV result was wrong");
   }
 
-  machine.write_cpu_gpr(kLhsIndex, 0x0000000du);
-  machine.write_cpu_gpr(kRhsIndex, 0x00000005u);
+  machine.stage_cpu_gpr(kLhsIndex, 0x0000000du);
+  machine.stage_cpu_gpr(kRhsIndex, 0x00000005u);
   step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1b),
@@ -900,10 +900,10 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo unsigned DIVU result was wrong");
   }
 
-  machine.write_cpu_hi(kDivZeroHi);
-  machine.write_cpu_lo(kDivZeroLo);
-  machine.write_cpu_gpr(kLhsIndex, 0x80000000u);
-  machine.write_cpu_gpr(kRhsIndex, 0);
+  machine.stage_cpu_hi(kDivZeroHi);
+  machine.stage_cpu_lo(kDivZeroLo);
+  machine.stage_cpu_gpr(kLhsIndex, 0x80000000u);
+  machine.stage_cpu_gpr(kRhsIndex, 0);
   step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1a),
@@ -913,10 +913,10 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo DIV by zero changed HI/LO");
   }
 
-  machine.write_cpu_hi(kDivuZeroHi);
-  machine.write_cpu_lo(kDivuZeroLo);
-  machine.write_cpu_gpr(kLhsIndex, 0xffffffffu);
-  machine.write_cpu_gpr(kRhsIndex, 0);
+  machine.stage_cpu_hi(kDivuZeroHi);
+  machine.stage_cpu_lo(kDivuZeroLo);
+  machine.stage_cpu_gpr(kLhsIndex, 0xffffffffu);
+  machine.stage_cpu_gpr(kRhsIndex, 0);
   step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1b),

@@ -237,7 +237,7 @@ void run_cartridge_staging_demo() {
       kProgramCartridgeOffset,
       kProgramRdramAddress,
       kProgramByteCount);
-  staged_machine->write_cpu_pc(kProgramCpuAddress);
+  staged_machine->stage_cpu_pc(kProgramCpuAddress);
 
   std::cout << "fn64 bootstrap cartridge staging demo: cartridge bytes stage into RDRAM and execute from KSEG0\n";
   print_hex32("  cartridge_offset", kProgramCartridgeOffset);
@@ -428,9 +428,9 @@ void run_cpu_rdram_translation_demo(Machine& machine) {
       4);
 
   machine.write_rdram_u32_be(0x00000000u, kFetchWord);
-  machine.write_cpu_pc(kKseg1RdramBase);
-  machine.write_cpu_next_pc(kKseg1RdramBase + 4u);
-  machine.write_cpu_gpr(8, 0);
+  machine.stage_cpu_pc(kKseg1RdramBase);
+  machine.stage_cpu_next_pc(kKseg1RdramBase + 4u);
+  machine.stage_cpu_gpr(8, 0);
 
   std::cout << "  kseg1_step_fetch\n";
   print_hex32("    pc", kKseg1RdramBase);
@@ -484,9 +484,9 @@ void run_cpu_rdram_alias_demo(Machine& machine) {
     throw std::runtime_error("CPU RDRAM alias demo translated to the wrong RDRAM offset");
   }
 
-  machine.write_cpu_pc(kLwCpuAddress);
-  machine.write_cpu_gpr(kBaseIndex, kDataCpuAddress);
-  machine.write_cpu_gpr(kTargetIndex, 0x00000000u);
+  machine.stage_cpu_pc(kLwCpuAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kDataCpuAddress);
+  machine.stage_cpu_gpr(kTargetIndex, 0x00000000u);
 
   machine.write_rdram_u32_be(kLwRdramAddress, kLwInstruction);
   machine.write_rdram_u32_be(kBreakRdramAddress, kBreakInstruction);
@@ -546,9 +546,9 @@ void run_unaligned_load_word_demo(Machine& machine) {
       0x0005u);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kLwlAddress);
-  machine.write_cpu_gpr(kBaseIndex, kDataWord0Address);
-  machine.write_cpu_gpr(kTargetIndex, 0xaabbccddu);
+  machine.stage_cpu_pc(kLwlAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kDataWord0Address);
+  machine.stage_cpu_gpr(kTargetIndex, 0xaabbccddu);
 
   machine.write_rdram_u32_be(kLwlAddress, kLwlInstruction);
   machine.write_rdram_u32_be(kLwrAddress, kLwrInstruction);
@@ -627,9 +627,9 @@ void run_unaligned_store_word_demo(Machine& machine) {
       0x0005u);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kSwlAddress);
-  machine.write_cpu_gpr(kBaseIndex, kDataWord0Address);
-  machine.write_cpu_gpr(kSourceIndex, 0xa1b2c3d4u);
+  machine.stage_cpu_pc(kSwlAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kDataWord0Address);
+  machine.stage_cpu_gpr(kSourceIndex, 0xa1b2c3d4u);
 
   machine.write_rdram_u32_be(kSwlAddress, kSwlInstruction);
   machine.write_rdram_u32_be(kSwrAddress, kSwrInstruction);
@@ -815,9 +815,9 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
       << "fn64 bootstrap partial-word lane matrix demo: LWL/LWR/SWL/SWR local byte lanes\n";
 
   for (const PartialLoadLaneCase& test_case : kLoadCases) {
-    machine.write_cpu_pc(kInstructionAddress);
-    machine.write_cpu_gpr(kBaseIndex, kDataWordAddress);
-    machine.write_cpu_gpr(kLoadTargetIndex, kInitialLoadTarget);
+    machine.stage_cpu_pc(kInstructionAddress);
+    machine.stage_cpu_gpr(kBaseIndex, kDataWordAddress);
+    machine.stage_cpu_gpr(kLoadTargetIndex, kInitialLoadTarget);
     machine.write_rdram_u32_be(kInstructionAddress, test_case.instruction);
     machine.write_rdram_u32_be(kDataWordAddress, kLoadMemoryWord);
 
@@ -845,9 +845,9 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
   }
 
   for (const PartialStoreLaneCase& test_case : kStoreCases) {
-    machine.write_cpu_pc(kInstructionAddress);
-    machine.write_cpu_gpr(kBaseIndex, kDataWordAddress);
-    machine.write_cpu_gpr(kStoreSourceIndex, kStoreSource);
+    machine.stage_cpu_pc(kInstructionAddress);
+    machine.stage_cpu_gpr(kBaseIndex, kDataWordAddress);
+    machine.stage_cpu_gpr(kStoreSourceIndex, kStoreSource);
     machine.write_rdram_u32_be(kInstructionAddress, test_case.instruction);
     machine.write_rdram_u32_be(kDataWordAddress, kInitialStoreMemoryWord);
 
@@ -898,10 +898,10 @@ void run_aligned_word_load_store_demo(Machine& machine) {
       kOffset);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kSwAddress);
-  machine.write_cpu_gpr(kBaseIndex, kDataBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0x89abcdefu);
-  machine.write_cpu_gpr(kTargetIndex, 0x00000000u);
+  machine.stage_cpu_pc(kSwAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kDataBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0x89abcdefu);
+  machine.stage_cpu_gpr(kTargetIndex, 0x00000000u);
 
   machine.write_rdram_u32_be(kSwAddress, kSwInstruction);
   machine.write_rdram_u32_be(kLwAddress, kLwInstruction);
@@ -976,14 +976,14 @@ void run_word_alignment_guard_demo(Machine& machine) {
   machine.write_rdram_u32_be(kSwAddress, kSwInstruction);
   machine.write_rdram_u32_be(kLwAddress, kLwInstruction);
 
-  machine.write_cpu_gpr(kBaseIndex, kDataBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0xdeadbeefu);
-  machine.write_cpu_gpr(kTargetIndex, 0x01234567u);
+  machine.stage_cpu_gpr(kBaseIndex, kDataBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0xdeadbeefu);
+  machine.stage_cpu_gpr(kTargetIndex, 0x01234567u);
   machine.write_rdram_u32_be(kDataBaseAddress, 0x11223344u);
 
   std::cout << "fn64 bootstrap aligned word guard demo: explicit local SW/LW natural-alignment failure\n";
 
-  machine.write_cpu_pc(kSwAddress);
+  machine.stage_cpu_pc(kSwAddress);
 
   std::cout << "before SW misaligned step:\n";
   print_control_flow_state(machine);
@@ -1013,8 +1013,8 @@ void run_word_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("word alignment guard demo SW changed memory on fault");
   }
 
-  machine.write_cpu_pc(kLwAddress);
-  machine.write_cpu_gpr(kTargetIndex, 0x01234567u);
+  machine.stage_cpu_pc(kLwAddress);
+  machine.stage_cpu_gpr(kTargetIndex, 0x01234567u);
 
   std::cout << "before LW misaligned step:\n";
   print_control_flow_state(machine);
@@ -1073,11 +1073,11 @@ void run_byte_load_store_demo(Machine& machine) {
       kOffset);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kSbAddress);
-  machine.write_cpu_gpr(kBaseIndex, kDataBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0x12345680u);
-  machine.write_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
-  machine.write_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
+  machine.stage_cpu_pc(kSbAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kDataBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0x12345680u);
+  machine.stage_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
+  machine.stage_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
 
   machine.write_rdram_u32_be(kSbAddress, kSbInstruction);
   machine.write_rdram_u32_be(kLbAddress, kLbInstruction);
@@ -1166,11 +1166,11 @@ void run_halfword_load_store_demo(Machine& machine) {
       kOffset);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kShAddress);
-  machine.write_cpu_gpr(kBaseIndex, kDataBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0xabcd8001u);
-  machine.write_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
-  machine.write_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
+  machine.stage_cpu_pc(kShAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kDataBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0xabcd8001u);
+  machine.stage_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
+  machine.stage_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
 
   machine.write_rdram_u32_be(kShAddress, kShInstruction);
   machine.write_rdram_u32_be(kLhAddress, kLhInstruction);
@@ -1262,15 +1262,15 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
   machine.write_rdram_u32_be(kLhAddress, kLhInstruction);
   machine.write_rdram_u32_be(kLhuAddress, kLhuInstruction);
 
-  machine.write_cpu_gpr(kBaseIndex, kDataBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0xabcd8001u);
-  machine.write_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
-  machine.write_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
+  machine.stage_cpu_gpr(kBaseIndex, kDataBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0xabcd8001u);
+  machine.stage_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
+  machine.stage_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
   machine.write_rdram_u32_be(kDataBaseAddress, 0x11223344u);
 
   std::cout << "fn64 bootstrap halfword guard demo: explicit local SH/LH/LHU natural-alignment failure\n";
 
-  machine.write_cpu_pc(kShAddress);
+  machine.stage_cpu_pc(kShAddress);
 
   std::cout << "before SH misaligned step:\n";
   print_control_flow_state(machine);
@@ -1300,8 +1300,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("halfword alignment guard demo SH changed memory on fault");
   }
 
-  machine.write_cpu_pc(kLhAddress);
-  machine.write_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
+  machine.stage_cpu_pc(kLhAddress);
+  machine.stage_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
 
   std::cout << "before LH misaligned step:\n";
   print_control_flow_state(machine);
@@ -1330,8 +1330,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("halfword alignment guard demo LH changed target register on fault");
   }
 
-  machine.write_cpu_pc(kLhuAddress);
-  machine.write_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
+  machine.stage_cpu_pc(kLhuAddress);
+  machine.stage_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
 
   std::cout << "before LHU misaligned step:\n";
   print_control_flow_state(machine);
@@ -1384,10 +1384,10 @@ void run_negative_word_load_store_demo(Machine& machine) {
       kNegativeOffset);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kSwAddress);
-  machine.write_cpu_gpr(kBaseIndex, kBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0x76543210u);
-  machine.write_cpu_gpr(kTargetIndex, 0x00000000u);
+  machine.stage_cpu_pc(kSwAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0x76543210u);
+  machine.stage_cpu_gpr(kTargetIndex, 0x00000000u);
 
   machine.write_rdram_u32_be(kSwAddress, kSwInstruction);
   machine.write_rdram_u32_be(kLwAddress, kLwInstruction);
@@ -1474,11 +1474,11 @@ void run_negative_byte_load_store_demo(Machine& machine) {
       kNegativeOffset);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kSbAddress);
-  machine.write_cpu_gpr(kBaseIndex, kBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0x12345680u);
-  machine.write_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
-  machine.write_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
+  machine.stage_cpu_pc(kSbAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0x12345680u);
+  machine.stage_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
+  machine.stage_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
 
   machine.write_rdram_u32_be(kSbAddress, kSbInstruction);
   machine.write_rdram_u32_be(kLbAddress, kLbInstruction);
@@ -1571,11 +1571,11 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
       kNegativeOffset);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kShAddress);
-  machine.write_cpu_gpr(kBaseIndex, kBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0xabcd8001u);
-  machine.write_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
-  machine.write_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
+  machine.stage_cpu_pc(kShAddress);
+  machine.stage_cpu_gpr(kBaseIndex, kBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0xabcd8001u);
+  machine.stage_cpu_gpr(kSignedTargetIndex, 0xaaaaaaaau);
+  machine.stage_cpu_gpr(kUnsignedTargetIndex, 0xbbbbbbbbu);
 
   machine.write_rdram_u32_be(kShAddress, kShInstruction);
   machine.write_rdram_u32_be(kLhAddress, kLhInstruction);
@@ -1659,13 +1659,13 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
 
   machine.write_rdram_u32_be(kLwlAddress, kLwlInstruction);
   machine.write_rdram_u32_be(kLwrAddress, kLwrInstruction);
-  machine.write_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
-  machine.write_cpu_gpr(kTargetIndex, kTargetSentinel);
+  machine.stage_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
 
   std::cout
       << "fn64 bootstrap failed partial-load no-ghost demo: LWL/LWR faults do not write target GPR or advance control state\n";
 
-  machine.write_cpu_pc(kLwlAddress);
+  machine.stage_cpu_pc(kLwlAddress);
 
   std::cout << "before LWL out-of-window step:\n";
   print_control_flow_state(machine);
@@ -1694,8 +1694,8 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
     throw std::runtime_error("failed partial-load no-ghost demo LWL changed target GPR on fault");
   }
 
-  machine.write_cpu_pc(kLwrAddress);
-  machine.write_cpu_gpr(kTargetIndex, kTargetSentinel);
+  machine.stage_cpu_pc(kLwrAddress);
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
 
   std::cout << "before LWR out-of-window step:\n";
   print_control_flow_state(machine);
@@ -1751,13 +1751,13 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   machine.write_rdram_u32_be(kSwrAddress, kSwrInstruction);
   machine.write_rdram_u32_be(kLowSentinelAddress, kLowSentinel);
   machine.write_rdram_u32_be(kTailSentinelAddress, kTailSentinel);
-  machine.write_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
-  machine.write_cpu_gpr(kSourceIndex, 0xa1b2c3d4u);
+  machine.stage_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
+  machine.stage_cpu_gpr(kSourceIndex, 0xa1b2c3d4u);
 
   std::cout
       << "fn64 bootstrap failed partial-store no-ghost demo: SWL/SWR faults do not mutate RDRAM or advance control state\n";
 
-  machine.write_cpu_pc(kSwlAddress);
+  machine.stage_cpu_pc(kSwlAddress);
 
   std::cout << "before SWL out-of-window step:\n";
   print_control_flow_state(machine);
@@ -1790,7 +1790,7 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
     throw std::runtime_error("failed partial-store no-ghost demo SWL changed RDRAM on fault");
   }
 
-  machine.write_cpu_pc(kSwrAddress);
+  machine.stage_cpu_pc(kSwrAddress);
 
   std::cout << "before SWR out-of-window step:\n";
   print_control_flow_state(machine);
@@ -1849,14 +1849,14 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
   machine.write_rdram_u32_be(kSbAddress, kSbInstruction);
   machine.write_rdram_u32_be(kLbAddress, kLbInstruction);
 
-  machine.write_cpu_gpr(kBaseIndex, kBaseAddress);
-  machine.write_cpu_gpr(kSourceIndex, 0x00000080u);
-  machine.write_cpu_gpr(kTargetIndex, 0x89abcdefu);
+  machine.stage_cpu_gpr(kBaseIndex, kBaseAddress);
+  machine.stage_cpu_gpr(kSourceIndex, 0x00000080u);
+  machine.stage_cpu_gpr(kTargetIndex, 0x89abcdefu);
   machine.write_rdram_u32_be(kSentinelAddress, 0x11223344u);
 
   std::cout << "fn64 bootstrap negative-offset guard demo: explicit local out-of-range rollback on signed immediate address formation\n";
 
-  machine.write_cpu_pc(kSbAddress);
+  machine.stage_cpu_pc(kSbAddress);
 
   std::cout << "before SB out-of-range step:\n";
   print_control_flow_state(machine);
@@ -1887,8 +1887,8 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
     throw std::runtime_error("negative-offset guard demo SB changed memory on fault");
   }
 
-  machine.write_cpu_pc(kLbAddress);
-  machine.write_cpu_gpr(kTargetIndex, 0x89abcdefu);
+  machine.stage_cpu_pc(kLbAddress);
+  machine.stage_cpu_gpr(kTargetIndex, 0x89abcdefu);
 
   std::cout << "before LB out-of-range step:\n";
   print_control_flow_state(machine);

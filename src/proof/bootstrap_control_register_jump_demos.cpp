@@ -20,10 +20,10 @@ void run_jr_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74a1u);
 
-  machine.write_cpu_pc(kJrAddress);
-  machine.write_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(31, 0);
+  machine.stage_cpu_pc(kJrAddress);
+  machine.stage_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(31, 0);
 
   machine.write_rdram_u32_be(kJrAddress, kJrInstruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
@@ -88,10 +88,10 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74c1u);
 
-  machine.write_cpu_pc(kJalrAddress);
-  machine.write_cpu_gpr(kAliasedRegisterIndex, kMisalignedTargetAddress);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kTargetMarkerIndex, 0);
+  machine.stage_cpu_pc(kJalrAddress);
+  machine.stage_cpu_gpr(kAliasedRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
   machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
@@ -161,10 +161,10 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74d1u);
 
-  machine.write_cpu_pc(kJalrAddress);
-  machine.write_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kLinkIndex, kInitialLinkValue);
+  machine.stage_cpu_pc(kJalrAddress);
+  machine.stage_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kLinkIndex, kInitialLinkValue);
 
   machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
@@ -246,10 +246,10 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, 0xd1a2u);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kLoadTargetAddress);
-  machine.write_cpu_gpr(kAliasedRegisterIndex, 0);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kTargetMarkerIndex, 0);
+  machine.stage_cpu_pc(kLoadTargetAddress);
+  machine.stage_cpu_gpr(kAliasedRegisterIndex, 0);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
   machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
   machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
@@ -387,12 +387,12 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   constexpr std::uint32_t kTargetInstruction = encode_ori(6, 0, 0x6666);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kLoadTargetAddress);
-  machine.write_cpu_gpr(4, 0);
-  machine.write_cpu_gpr(5, 0);
-  machine.write_cpu_gpr(6, 0);
-  machine.write_cpu_gpr(7, 0);
-  machine.write_cpu_gpr(31, 0);
+  machine.stage_cpu_pc(kLoadTargetAddress);
+  machine.stage_cpu_gpr(4, 0);
+  machine.stage_cpu_gpr(5, 0);
+  machine.stage_cpu_gpr(6, 0);
+  machine.stage_cpu_gpr(7, 0);
+  machine.stage_cpu_gpr(31, 0);
 
   machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
   machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
@@ -488,11 +488,11 @@ void run_jalr_rd31_demo(Machine& machine) {
   constexpr std::uint32_t kTargetInstruction = encode_ori(9, 0, 0x9999);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kLoadTargetAddress);
-  machine.write_cpu_gpr(4, 0);
-  machine.write_cpu_gpr(8, 0);
-  machine.write_cpu_gpr(9, 0);
-  machine.write_cpu_gpr(31, 0);
+  machine.stage_cpu_pc(kLoadTargetAddress);
+  machine.stage_cpu_gpr(4, 0);
+  machine.stage_cpu_gpr(8, 0);
+  machine.stage_cpu_gpr(9, 0);
+  machine.stage_cpu_gpr(31, 0);
 
   machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
   machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
@@ -548,10 +548,10 @@ void run_jalr_rd0_demo(Machine& machine) {
   constexpr std::uint32_t kTargetInstruction = encode_ori(12, 0, 0xdcba);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kLoadTargetAddress);
-  machine.write_cpu_gpr(10, 0);
-  machine.write_cpu_gpr(11, 0);
-  machine.write_cpu_gpr(12, 0);
+  machine.stage_cpu_pc(kLoadTargetAddress);
+  machine.stage_cpu_gpr(10, 0);
+  machine.stage_cpu_gpr(11, 0);
+  machine.stage_cpu_gpr(12, 0);
 
   machine.write_rdram_u32_be(kLoadTargetAddress, kLoadTargetInstruction);
   machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
@@ -609,11 +609,11 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74b1u);
 
-  machine.write_cpu_pc(kJalrAddress);
-  machine.write_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kLinkIndex, 0);
-  machine.write_cpu_gpr(31, 0);
+  machine.stage_cpu_pc(kJalrAddress);
+  machine.stage_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kLinkIndex, 0);
+  machine.stage_cpu_gpr(31, 0);
 
   machine.write_rdram_u32_be(kJalrAddress, kJalrInstruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);

@@ -31,10 +31,10 @@ void run_jump_demo(
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, target_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kJumpAddress);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kTargetMarkerIndex, 0);
-  machine.write_cpu_gpr(kLinkIndex, 0);
+  machine.stage_cpu_pc(kJumpAddress);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
+  machine.stage_cpu_gpr(kLinkIndex, 0);
 
   machine.write_rdram_u32_be(kJumpAddress, jump_instruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
@@ -162,11 +162,11 @@ void run_jr_demo(Machine& machine) {
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, 0x7322u);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kJrAddress);
-  machine.write_cpu_gpr(kTargetRegisterIndex, kTargetAddress);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kTargetMarkerIndex, 0);
-  machine.write_cpu_gpr(kLinkIndex, 0);
+  machine.stage_cpu_pc(kJrAddress);
+  machine.stage_cpu_gpr(kTargetRegisterIndex, kTargetAddress);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
+  machine.stage_cpu_gpr(kLinkIndex, 0);
 
   machine.write_rdram_u32_be(kJrAddress, kJrInstruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);

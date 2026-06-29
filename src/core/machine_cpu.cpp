@@ -252,6 +252,26 @@ std::uint32_t Machine::read_cpu_gpr(std::size_t index) const {
   return cpu_gprs_[index];
 }
 
+void Machine::stage_cpu_pc(std::uint32_t value) {
+  write_cpu_pc(value);
+}
+
+void Machine::stage_cpu_next_pc(std::uint32_t value) {
+  write_cpu_next_pc(value);
+}
+
+void Machine::stage_cpu_hi(std::uint32_t value) {
+  write_cpu_hi(value);
+}
+
+void Machine::stage_cpu_lo(std::uint32_t value) {
+  write_cpu_lo(value);
+}
+
+void Machine::stage_cpu_gpr(std::size_t index, std::uint32_t value) {
+  write_cpu_gpr(index, value);
+}
+
 void Machine::write_cpu_pc(std::uint32_t value) {
   cpu_pc_ = value;
   cpu_next_pc_ = sequential_instruction_address(value);

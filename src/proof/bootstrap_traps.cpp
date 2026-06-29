@@ -16,8 +16,8 @@ void run_break_stop_demo(Machine& machine) {
   constexpr std::uint32_t kSetupInstruction = encode_ori(13, 0, 0x1234);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kSetupAddress);
-  machine.write_cpu_gpr(13, 0);
+  machine.stage_cpu_pc(kSetupAddress);
+  machine.stage_cpu_gpr(13, 0);
 
   machine.write_rdram_u32_be(kSetupAddress, kSetupInstruction);
   machine.write_rdram_u32_be(kBreakAddress, kBreakInstruction);
@@ -63,9 +63,9 @@ void run_sync_noop_demo(Machine& machine) {
   constexpr std::uint32_t kAfterSyncInstruction = encode_ori(15, 0, 0x2468);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kSetupAddress);
-  machine.write_cpu_gpr(14, 0);
-  machine.write_cpu_gpr(15, 0);
+  machine.stage_cpu_pc(kSetupAddress);
+  machine.stage_cpu_gpr(14, 0);
+  machine.stage_cpu_gpr(15, 0);
 
   machine.write_rdram_u32_be(kSetupAddress, kSetupInstruction);
   machine.write_rdram_u32_be(kSyncAddress, kSyncInstruction);
@@ -142,9 +142,9 @@ void run_syscall_stop_demo(Machine& machine) {
   constexpr std::uint32_t kSyscallInstruction = encode_syscall();
   constexpr std::uint32_t kAfterSyscallInstruction = encode_ori(17, 0, 0x7171);
 
-  machine.write_cpu_pc(kSetupAddress);
-  machine.write_cpu_gpr(16, 0);
-  machine.write_cpu_gpr(17, 0);
+  machine.stage_cpu_pc(kSetupAddress);
+  machine.stage_cpu_gpr(16, 0);
+  machine.stage_cpu_gpr(17, 0);
 
   machine.write_rdram_u32_be(kSetupAddress, kSetupInstruction);
   machine.write_rdram_u32_be(kSyscallAddress, kSyscallInstruction);
@@ -218,10 +218,10 @@ void run_special_register_trap_demo(
       static_cast<std::uint8_t>(kMarkerIndex), 0, fallthrough_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kTrapAddress);
-  machine.write_cpu_gpr(kRsIndex, rs_value);
-  machine.write_cpu_gpr(kRtIndex, rt_value);
-  machine.write_cpu_gpr(kMarkerIndex, 0);
+  machine.stage_cpu_pc(kTrapAddress);
+  machine.stage_cpu_gpr(kRsIndex, rs_value);
+  machine.stage_cpu_gpr(kRtIndex, rt_value);
+  machine.stage_cpu_gpr(kMarkerIndex, 0);
 
   machine.write_rdram_u32_be(kTrapAddress, trap_instruction);
   machine.write_rdram_u32_be(kAfterTrapAddress, kAfterTrapInstruction);
@@ -378,9 +378,9 @@ void run_regimm_immediate_trap_demo(
       static_cast<std::uint8_t>(kMarkerIndex), 0, fallthrough_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kTrapAddress);
-  machine.write_cpu_gpr(kRsIndex, rs_value);
-  machine.write_cpu_gpr(kMarkerIndex, 0);
+  machine.stage_cpu_pc(kTrapAddress);
+  machine.stage_cpu_gpr(kRsIndex, rs_value);
+  machine.stage_cpu_gpr(kMarkerIndex, 0);
 
   machine.write_rdram_u32_be(kTrapAddress, trap_instruction);
   machine.write_rdram_u32_be(kAfterTrapAddress, kAfterTrapInstruction);

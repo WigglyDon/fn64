@@ -40,12 +40,12 @@ void run_branch_likely_demo(
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, target_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kBranchAddress);
-  machine.write_cpu_gpr(kRsIndex, rs_value);
-  machine.write_cpu_gpr(kRtIndex, rt_value);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kFallthroughMarkerIndex, 0);
-  machine.write_cpu_gpr(kTargetMarkerIndex, 0);
+  machine.stage_cpu_pc(kBranchAddress);
+  machine.stage_cpu_gpr(kRsIndex, rs_value);
+  machine.stage_cpu_gpr(kRtIndex, rt_value);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kFallthroughMarkerIndex, 0);
+  machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
   machine.write_rdram_u32_be(kBranchAddress, branch_instruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
@@ -224,12 +224,12 @@ void run_branch_likely_link_demo(
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, target_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kBranchAddress);
-  machine.write_cpu_gpr(kLinkIndex, initial_link_value);
-  machine.write_cpu_gpr(rs_index, rs_value);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kFallthroughMarkerIndex, 0);
-  machine.write_cpu_gpr(kTargetMarkerIndex, 0);
+  machine.stage_cpu_pc(kBranchAddress);
+  machine.stage_cpu_gpr(kLinkIndex, initial_link_value);
+  machine.stage_cpu_gpr(rs_index, rs_value);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kFallthroughMarkerIndex, 0);
+  machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
   machine.write_rdram_u32_be(kBranchAddress, branch_instruction);
   machine.write_rdram_u32_be(kDelaySlotAddress, kDelaySlotInstruction);
@@ -405,12 +405,12 @@ void run_backward_branch_likely_demo(
       static_cast<std::uint8_t>(kFallthroughMarkerIndex), 0, fallthrough_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.write_cpu_pc(kBranchAddress);
-  machine.write_cpu_gpr(kRsIndex, rs_value);
-  machine.write_cpu_gpr(kRtIndex, rt_value);
-  machine.write_cpu_gpr(kDelaySlotMarkerIndex, 0);
-  machine.write_cpu_gpr(kFallthroughMarkerIndex, 0);
-  machine.write_cpu_gpr(kTargetMarkerIndex, 0);
+  machine.stage_cpu_pc(kBranchAddress);
+  machine.stage_cpu_gpr(kRsIndex, rs_value);
+  machine.stage_cpu_gpr(kRtIndex, rt_value);
+  machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
+  machine.stage_cpu_gpr(kFallthroughMarkerIndex, 0);
+  machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
   machine.write_rdram_u32_be(kTargetAddress, kTargetInstruction);
   machine.write_rdram_u32_be(kTargetSentinelAddress, kBreakInstruction);
