@@ -29,7 +29,7 @@ bool detect_rom_source_layout(
     std::string& error
 ) {
   if (raw_bytes.size() < 4) {
-    error = "file is too small to contain an N64 ROM header";
+    error = "ROM image is too small to contain an N64 ROM header";
     return false;
   }
 
@@ -157,12 +157,12 @@ bool normalize_rom_image(
   error.clear();
 
   if (raw_bytes.size() < kRomHeaderSize) {
-    error = "file is too small to contain a complete 0x40-byte N64 ROM header";
+    error = "ROM image is too small to contain a complete 0x40-byte N64 ROM header";
     return false;
   }
 
   if ((raw_bytes.size() % 4) != 0) {
-    error = "ROM size is not a multiple of 4 bytes";
+    error = "ROM image size is not a multiple of 4 bytes";
     return false;
   }
 
