@@ -115,6 +115,207 @@ std::vector<std::uint8_t> make_bootstrap_cartridge_staging_rom(
   return rom;
 }
 
+std::vector<std::uint8_t> make_synthetic_normalized_rom_proof_image() {
+  constexpr std::size_t kRomSize = 0x60;
+
+  std::vector<std::uint8_t> rom(kRomSize, 0);
+  write_be_u32(rom, 0x00, 0x80371240u);
+  write_be_u32(rom, 0x04, 0x12345678u);
+  write_be_u32(rom, 0x08, 0x80246000u);
+  write_be_u32(rom, 0x0c, 0x00400000u);
+  write_be_u32(rom, 0x10, 0x89abcdefu);
+  write_be_u32(rom, 0x14, 0x01234567u);
+
+  const std::string image_name = "FN64 ROM PROOF";
+  for (std::size_t i = 0; i < image_name.size(); ++i) {
+    rom[0x20 + i] = static_cast<std::uint8_t>(image_name[i]);
+  }
+
+  rom[0x3c] = static_cast<std::uint8_t>('F');
+  rom[0x3d] = static_cast<std::uint8_t>('R');
+  rom[0x3e] = 0x45u;
+  rom[0x3f] = 0x07u;
+
+  for (std::size_t offset = 0x40; offset < rom.size(); ++offset) {
+    rom[offset] = static_cast<std::uint8_t>((offset * 3u + 0x11u) & 0xffu);
+  }
+
+  return rom;
+}
+
+std::vector<std::uint8_t> encode_synthetic_rom_source_layout(
+    std::vector<std::uint8_t> normalized_bytes,
+    RomSourceLayout layout) {
+  switch (layout) {
+    case RomSourceLayout::kBigEndian:
+      return normalized_bytes;
+
+    case RomSourceLayout::kByteSwapped16:
+      for (std::size_t i = 0; i < normalized_bytes.size(); i += 2) {
+        std::swap(normalized_bytes[i], normalized_bytes[i + 1]);
+      }
+      return normalized_bytes;
+
+    case RomSourceLayout::kLittleEndian32:
+      for (std::size_t i = 0; i < normalized_bytes.size(); i += 4) {
+        std::swap(normalized_bytes[i], normalized_bytes[i + 3]);
+        std::swap(normalized_bytes[i + 1], normalized_bytes[i + 2]);
+      }
+      return normalized_bytes;
+  }
+
+  return normalized_bytes;
+}
+
+void require_synthetic_rom_metadata_matches(
+    const RomMetadata& metadata,
+    const char* label) {
+  if (metadata.header_magic != 0x80371240u) {
+    throw std::runtime_error(std::string(label) + " header magic mismatch");
+  }
+
+  if (metadata.clock_rate != 0x12345678u ||
+      metadata.entry_point != 0x80246000u ||
+      metadata.release_address != 0x00400000u ||
+      metadata.crc1 != 0x89abcdefu ||
+      metadata.crc2 != 0x01234567u) {
+    throw std::runtime_error(std::string(label) + " numeric metadata mismatch");
+  }
+
+  if (metadata.image_name != "FN64 ROM PROOF" ||
+      metadata.cartridge_id != "FR" ||
+      metadata.country_code != 0x45u ||
+      metadata.revision != 0x07u) {
+    throw std::runtime_error(std::string(label) + " text metadata mismatch");
+  }
+}
+
+void require_synthetic_cartridge_bytes_match(
+    const Cartridge& cartridge,
+    const std::vector<std::uint8_t>& normalized_bytes,
+    const char* label) {
+  const std::uint32_t offsets[] = {
+      0x00u,
+      0x01u,
+      0x02u,
+      0x03u,
+      0x10u,
+      0x13u,
+      0x20u,
+      0x2du,
+      0x3cu,
+      0x3fu,
+      0x40u,
+      0x41u,
+      0x4eu,
+      0x5fu,
+  };
+
+  for (const std::uint32_t offset : offsets) {
+    if (cartridge.read_u8(offset) != normalized_bytes[offset]) {
+      throw std::runtime_error(std::string(label) + " normalized byte mismatch");
+    }
+  }
+}
+
+void require_loaded_synthetic_rom(
+    const std::vector<std::uint8_t>& normalized_bytes,
+    RomSourceLayout source_layout,
+    const char* label) {
+  const std::vector<std::uint8_t> raw_bytes =
+      encode_synthetic_rom_source_layout(normalized_bytes, source_layout);
+
+  NormalizedRomImage normalized_image;
+  std::string error;
+  if (!normalize_rom_image(raw_bytes, normalized_image, error)) {
+    throw std::runtime_error(
+        std::string(label) + " normalize_rom_image failed: " + error);
+  }
+
+  if (normalized_image.source_layout != source_layout) {
+    throw std::runtime_error(std::string(label) + " detected unexpected source layout");
+  }
+
+  if (normalized_image.bytes != normalized_bytes) {
+    throw std::runtime_error(std::string(label) + " normalized bytes mismatch");
+  }
+
+  require_synthetic_rom_metadata_matches(normalized_image.metadata, label);
+
+  Cartridge cartridge;
+  if (!load_cartridge(raw_bytes, cartridge, error)) {
+    throw std::runtime_error(std::string(label) + " load_cartridge failed: " + error);
+  }
+
+  if (!error.empty()) {
+    throw std::runtime_error(std::string(label) + " left a stale load error");
+  }
+
+  if (cartridge.source_layout() != source_layout) {
+    throw std::runtime_error(std::string(label) + " cartridge source layout mismatch");
+  }
+
+  if (cartridge.size_bytes() != normalized_bytes.size()) {
+    throw std::runtime_error(std::string(label) + " cartridge size mismatch");
+  }
+
+  require_synthetic_rom_metadata_matches(cartridge.metadata(), label);
+  require_synthetic_cartridge_bytes_match(cartridge, normalized_bytes, label);
+
+  std::cout << "  " << label << " normalized "
+            << rom_source_layout_name(cartridge.source_layout()) << '\n';
+}
+
+void require_empty_big_endian_cartridge(const Cartridge& cartridge, const char* label) {
+  if (cartridge.source_layout() != RomSourceLayout::kBigEndian) {
+    throw std::runtime_error(std::string(label) + " did not reset source layout");
+  }
+
+  if (cartridge.size_bytes() != 0) {
+    throw std::runtime_error(std::string(label) + " did not reset to empty bytes");
+  }
+
+  const RomMetadata& metadata = cartridge.metadata();
+  if (metadata.header_magic != 0 ||
+      metadata.clock_rate != 0 ||
+      metadata.entry_point != 0 ||
+      metadata.release_address != 0 ||
+      metadata.crc1 != 0 ||
+      metadata.crc2 != 0 ||
+      !metadata.image_name.empty() ||
+      !metadata.cartridge_id.empty() ||
+      metadata.country_code != 0 ||
+      metadata.revision != 0) {
+    throw std::runtime_error(std::string(label) + " did not reset metadata");
+  }
+}
+
+void require_rejected_synthetic_rom(
+    const std::vector<std::uint8_t>& known_good_raw_bytes,
+    std::vector<std::uint8_t> rejected_raw_bytes,
+    const char* label,
+    const char* expected_error_substring) {
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(known_good_raw_bytes, cartridge, error)) {
+    throw std::runtime_error(
+        std::string(label) + " could not seed output cartridge: " + error);
+  }
+
+  error.clear();
+  if (load_cartridge(std::move(rejected_raw_bytes), cartridge, error)) {
+    throw std::runtime_error(std::string(label) + " unexpectedly loaded");
+  }
+
+  std::cout << "  " << label << " rejected: " << error << '\n';
+
+  if (error.find(expected_error_substring) == std::string::npos) {
+    throw std::runtime_error(std::string(label) + " returned unexpected error");
+  }
+
+  require_empty_big_endian_cartridge(cartridge, label);
+}
+
 void require_step_runtime_error_contains(
     Machine& machine,
     const char* label,
@@ -176,6 +377,56 @@ void require_stage_exception_contains(
   }
 
   throw std::runtime_error(std::string(label) + " did not throw exception");
+}
+
+void run_synthetic_rom_normalization_rejection_demo() {
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_rom_proof_image();
+  const std::vector<std::uint8_t> known_good_raw_bytes =
+      encode_synthetic_rom_source_layout(
+          normalized_bytes,
+          RomSourceLayout::kBigEndian);
+
+  std::cout
+      << "fn64 bootstrap synthetic ROM ingress demo: generated bytes only, no commercial ROM data\n";
+
+  require_loaded_synthetic_rom(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "synthetic_z64_big_endian");
+  require_loaded_synthetic_rom(
+      normalized_bytes,
+      RomSourceLayout::kByteSwapped16,
+      "synthetic_v64_byte_swapped16");
+  require_loaded_synthetic_rom(
+      normalized_bytes,
+      RomSourceLayout::kLittleEndian32,
+      "synthetic_n64_little_endian32");
+
+  require_rejected_synthetic_rom(
+      known_good_raw_bytes,
+      std::vector<std::uint8_t>{0x80u, 0x37u, 0x12u},
+      "synthetic_reject_too_small",
+      "too small");
+
+  std::vector<std::uint8_t> non_multiple_of_4 = known_good_raw_bytes;
+  non_multiple_of_4.push_back(0x55u);
+  require_rejected_synthetic_rom(
+      known_good_raw_bytes,
+      std::move(non_multiple_of_4),
+      "synthetic_reject_non_multiple_of_4",
+      "not a multiple of 4");
+
+  std::vector<std::uint8_t> unsupported_layout = known_good_raw_bytes;
+  unsupported_layout[0] = 0xdeu;
+  unsupported_layout[1] = 0xadu;
+  unsupported_layout[2] = 0xbeu;
+  unsupported_layout[3] = 0xefu;
+  require_rejected_synthetic_rom(
+      known_good_raw_bytes,
+      std::move(unsupported_layout),
+      "synthetic_reject_unsupported_header_layout",
+      "unsupported ROM header byte layout");
 }
 
 template <typename Action>
@@ -2222,6 +2473,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 }  // namespace
 
 void run_data_demos(Machine& machine) {
+  run_synthetic_rom_normalization_rejection_demo();
   run_cartridge_staging_demo();
   run_cartridge_staging_preflight_demo();
   run_public_machine_stage_inspect_guard_demo();
