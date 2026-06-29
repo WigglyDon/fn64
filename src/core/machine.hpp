@@ -25,11 +25,6 @@ public:
   const Cartridge& cartridge() const;
   std::size_t rdram_size_bytes() const noexcept;
 
-  static bool translate_cpu_rdram_address(
-      std::uint32_t cpu_address,
-      std::size_t width,
-      std::uint32_t& out_rdram_address) noexcept;
-
   std::uint32_t inspect_rdram_u32_be(std::uint32_t address) const;
 
   void stage_rdram_u32_be(std::uint32_t address, std::uint32_t value);
@@ -230,6 +225,11 @@ private:
   void write_cpu_memory_u8(std::uint32_t cpu_address, std::uint8_t value);
   void write_cpu_memory_u16_be(std::uint32_t cpu_address, std::uint16_t value);
   void write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value);
+
+  static bool translate_cpu_rdram_address(
+      std::uint32_t cpu_address,
+      std::size_t width,
+      std::uint32_t& out_rdram_address) noexcept;
 
   std::uint32_t cpu_hi() const;
   std::uint32_t cpu_lo() const;

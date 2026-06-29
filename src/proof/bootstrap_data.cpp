@@ -178,38 +178,138 @@ void require_stage_exception_contains(
   throw std::runtime_error(std::string(label) + " did not throw exception");
 }
 
-void require_cpu_rdram_translation(
-    const char* label,
-    std::uint32_t cpu_address,
-    std::size_t width,
-    std::uint32_t expected_rdram_address) {
-  std::uint32_t translated = 0xffffffffu;
-  if (!Machine::translate_cpu_rdram_address(cpu_address, width, translated)) {
-    throw std::runtime_error(std::string(label) + " did not translate");
+struct CpuRdramWordAccessCase {
+  const char* label;
+  std::uint32_t instruction_cpu_address;
+  std::uint32_t instruction_rdram_address;
+  std::uint32_t data_cpu_address;
+  std::uint32_t data_rdram_address;
+  std::uint32_t data_word;
+};
+
+void run_cpu_rdram_load_case(
+    Machine& machine,
+    const CpuRdramWordAccessCase& test_case) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kTargetIndex = 12;
+
+  const std::uint32_t kLwInstruction = encode_lw(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const std::uint32_t kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(test_case.instruction_cpu_address);
+  machine.stage_cpu_gpr(kBaseIndex, test_case.data_cpu_address);
+  machine.stage_cpu_gpr(kTargetIndex, 0);
+
+  machine.stage_rdram_u32_be(test_case.instruction_rdram_address, kLwInstruction);
+  machine.stage_rdram_u32_be(test_case.instruction_rdram_address + 4u, kBreakInstruction);
+  machine.stage_rdram_u32_be(test_case.data_rdram_address, test_case.data_word);
+
+  std::cout << "  load case: " << test_case.label << '\n';
+  print_control_flow_state(machine);
+  print_hex32("    instruction_cpu_address", test_case.instruction_cpu_address);
+  print_hex32("    instruction_rdram_address", test_case.instruction_rdram_address);
+  print_hex32("    data_cpu_address", test_case.data_cpu_address);
+  print_hex32("    data_rdram_address", test_case.data_rdram_address);
+  print_rdram_word(machine, "    staged_data_word", test_case.data_rdram_address);
+
+  require_stepped(machine.step_cpu_instruction(), test_case.label);
+
+  print_control_flow_state(machine);
+  print_hex64("    gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != test_case.instruction_cpu_address + 4u) {
+    throw std::runtime_error(std::string(test_case.label) + " did not advance to BREAK");
   }
 
-  std::cout << "  " << label << '\n';
-  print_hex32("    cpu_address", cpu_address);
-  print_hex64("    width", width);
-  print_hex32("    rdram_address", translated);
-
-  if (translated != expected_rdram_address) {
-    throw std::runtime_error(std::string(label) + " translated to the wrong RDRAM offset");
+  if (machine.inspect_cpu_gpr(kTargetIndex) != test_case.data_word) {
+    throw std::runtime_error(std::string(test_case.label) + " loaded the wrong word");
   }
+
+  require_stopped(machine.step_cpu_instruction(), test_case.label);
 }
 
-void require_cpu_rdram_translation_failure(
-    const char* label,
-    std::uint32_t cpu_address,
-    std::size_t width) {
-  std::uint32_t translated = 0xffffffffu;
-  if (Machine::translate_cpu_rdram_address(cpu_address, width, translated)) {
-    throw std::runtime_error(std::string(label) + " unexpectedly translated");
+void run_cpu_rdram_store_case(
+    Machine& machine,
+    const CpuRdramWordAccessCase& test_case) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSourceIndex = 13;
+  constexpr std::uint32_t kInitialDataWord = 0x01020304u;
+
+  const std::uint32_t kSwInstruction = encode_sw(
+      static_cast<std::uint8_t>(kSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const std::uint32_t kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(test_case.instruction_cpu_address);
+  machine.stage_cpu_gpr(kBaseIndex, test_case.data_cpu_address);
+  machine.stage_cpu_gpr(kSourceIndex, test_case.data_word);
+
+  machine.stage_rdram_u32_be(test_case.instruction_rdram_address, kSwInstruction);
+  machine.stage_rdram_u32_be(test_case.instruction_rdram_address + 4u, kBreakInstruction);
+  machine.stage_rdram_u32_be(test_case.data_rdram_address, kInitialDataWord);
+
+  std::cout << "  store case: " << test_case.label << '\n';
+  print_control_flow_state(machine);
+  print_hex32("    instruction_cpu_address", test_case.instruction_cpu_address);
+  print_hex32("    instruction_rdram_address", test_case.instruction_rdram_address);
+  print_hex32("    data_cpu_address", test_case.data_cpu_address);
+  print_hex32("    data_rdram_address", test_case.data_rdram_address);
+  print_hex64("    gpr[13]", machine.inspect_cpu_gpr(kSourceIndex));
+  print_rdram_word(machine, "    initial_data_word", test_case.data_rdram_address);
+
+  require_stepped(machine.step_cpu_instruction(), test_case.label);
+
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "    stored_data_word", test_case.data_rdram_address);
+
+  if (machine.cpu_pc() != test_case.instruction_cpu_address + 4u) {
+    throw std::runtime_error(std::string(test_case.label) + " did not advance to BREAK");
   }
 
-  std::cout << "  " << label << " rejected\n";
-  print_hex32("    cpu_address", cpu_address);
-  print_hex64("    width", width);
+  if (machine.inspect_rdram_u32_be(test_case.data_rdram_address) != test_case.data_word) {
+    throw std::runtime_error(std::string(test_case.label) + " stored the wrong word");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), test_case.label);
+}
+
+void run_kseg1_base_fetch_case(
+    Machine& machine,
+    const char* label,
+    std::uint32_t kseg1_base) {
+  constexpr std::uint32_t kOriInstruction = 0x34081234u;
+  const std::uint32_t kBreakInstruction = encode_break();
+
+  machine.stage_rdram_u32_be(0x00000000u, kOriInstruction);
+  machine.stage_rdram_u32_be(0x00000004u, kBreakInstruction);
+  machine.stage_cpu_pc(kseg1_base);
+  machine.stage_cpu_next_pc(kseg1_base + 4u);
+  machine.stage_cpu_gpr(8, 0);
+
+  std::cout << "  fetch case: " << label << '\n';
+  print_hex32("    pc", kseg1_base);
+  print_hex32("    instruction_rdram_address", 0x00000000u);
+  print_hex32("    staged_word", kOriInstruction);
+
+  require_stepped(machine.step_cpu_instruction(), label);
+
+  print_control_flow_state(machine);
+  print_hex64("    gpr[8]", machine.inspect_cpu_gpr(8));
+
+  if (machine.cpu_pc() != kseg1_base + 4u ||
+      machine.cpu_next_pc() != kseg1_base + 8u) {
+    throw std::runtime_error(std::string(label) + " did not step through KSEG1");
+  }
+
+  if (machine.inspect_cpu_gpr(8) != 0x00001234u) {
+    throw std::runtime_error(std::string(label) + " did not execute through KSEG1");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), label);
 }
 
 void run_cartridge_staging_demo() {
@@ -362,92 +462,77 @@ void run_cartridge_staging_preflight_demo() {
 }
 
 void run_cpu_rdram_translation_demo(Machine& machine) {
-  constexpr std::size_t kRdramSizeBytes = 0x00400000u;
-  constexpr std::uint32_t kLastWordRdramAddress = 0x003ffffcu;
   constexpr std::uint32_t kKseg0RdramBase = 0x80000000u;
   constexpr std::uint32_t kKseg1RdramBase = 0xa0000000u;
-  constexpr std::uint32_t kFetchWord = 0x34081234u;
 
   std::cout
-      << "fn64 bootstrap CPU RDRAM translation demo: physical/KSEG0/KSEG1 windows and rejection stay explicit\n";
+      << "fn64 bootstrap CPU RDRAM translation demo: physical/KSEG0/KSEG1 behavior stays step-visible\n";
 
-  require_cpu_rdram_translation(
-      "physical_zero_word",
-      0x00000000u,
-      4,
-      0x00000000u);
-  require_cpu_rdram_translation(
-      "physical_tail_word",
-      kLastWordRdramAddress,
-      4,
-      kLastWordRdramAddress);
-  require_cpu_rdram_translation(
-      "kseg0_zero_word",
-      kKseg0RdramBase,
-      4,
-      0x00000000u);
-  require_cpu_rdram_translation(
-      "kseg0_tail_word",
-      kKseg0RdramBase + kLastWordRdramAddress,
-      4,
-      kLastWordRdramAddress);
-  require_cpu_rdram_translation(
-      "kseg1_zero_word",
-      kKseg1RdramBase,
-      4,
-      0x00000000u);
-  require_cpu_rdram_translation(
-      "kseg1_tail_word",
-      kKseg1RdramBase + kLastWordRdramAddress,
-      4,
-      kLastWordRdramAddress);
+  run_kseg1_base_fetch_case(
+      machine,
+      "kseg1_base_fetch_executes_rdram_zero",
+      kKseg1RdramBase);
 
-  require_cpu_rdram_translation_failure(
-      "zero_width",
-      0x00000000u,
-      0);
-  require_cpu_rdram_translation_failure(
-      "wider_than_rdram",
-      0x00000000u,
-      kRdramSizeBytes + 1u);
-  require_cpu_rdram_translation_failure(
-      "physical_word_crosses_tail",
-      0x003ffffdu,
-      4);
-  require_cpu_rdram_translation_failure(
-      "physical_past_rdram",
-      0x00400000u,
-      4);
-  require_cpu_rdram_translation_failure(
-      "kseg0_past_rdram",
-      0x80400000u,
-      4);
-  require_cpu_rdram_translation_failure(
-      "kseg1_past_rdram",
-      0xa0400000u,
-      4);
+  const CpuRdramWordAccessCase load_cases[] = {
+      {
+          "physical_fetch_physical_load",
+          0x00000700u,
+          0x00000700u,
+          0x00000740u,
+          0x00000740u,
+          0x10203040u,
+      },
+      {
+          "kseg0_fetch_kseg0_load",
+          kKseg0RdramBase + 0x00000708u,
+          0x00000708u,
+          kKseg0RdramBase + 0x00000744u,
+          0x00000744u,
+          0x50607080u,
+      },
+      {
+          "kseg1_fetch_kseg1_load",
+          kKseg1RdramBase + 0x00000710u,
+          0x00000710u,
+          kKseg1RdramBase + 0x00000748u,
+          0x00000748u,
+          0xcafef00du,
+      },
+  };
 
-  machine.stage_rdram_u32_be(0x00000000u, kFetchWord);
-  machine.stage_cpu_pc(kKseg1RdramBase);
-  machine.stage_cpu_next_pc(kKseg1RdramBase + 4u);
-  machine.stage_cpu_gpr(8, 0);
-
-  std::cout << "  kseg1_step_fetch\n";
-  print_hex32("    pc", kKseg1RdramBase);
-  print_hex32("    staged_word", kFetchWord);
-
-  require_stepped(machine.step_cpu_instruction(), "kseg1_translation_demo_ori");
-
-  print_control_flow_state(machine);
-  print_hex64("    gpr[8]", machine.inspect_cpu_gpr(8));
-
-  if (machine.cpu_pc() != kKseg1RdramBase + 4u ||
-      machine.cpu_next_pc() != kKseg1RdramBase + 8u) {
-    throw std::runtime_error("CPU RDRAM translation demo did not step through KSEG1");
+  for (const CpuRdramWordAccessCase& test_case : load_cases) {
+    run_cpu_rdram_load_case(machine, test_case);
   }
 
-  if (machine.inspect_cpu_gpr(8) != 0x00001234u) {
-    throw std::runtime_error("CPU RDRAM translation demo did not execute through KSEG1");
+  const CpuRdramWordAccessCase store_cases[] = {
+      {
+          "physical_fetch_physical_store",
+          0x00000720u,
+          0x00000720u,
+          0x00000760u,
+          0x00000760u,
+          0x89abcdefu,
+      },
+      {
+          "kseg0_fetch_kseg0_store",
+          kKseg0RdramBase + 0x00000728u,
+          0x00000728u,
+          kKseg0RdramBase + 0x00000764u,
+          0x00000764u,
+          0xa1b2c3d4u,
+      },
+      {
+          "kseg1_fetch_kseg1_store",
+          kKseg1RdramBase + 0x00000730u,
+          0x00000730u,
+          kKseg1RdramBase + 0x00000768u,
+          0x00000768u,
+          0x0badf00du,
+      },
+  };
+
+  for (const CpuRdramWordAccessCase& test_case : store_cases) {
+    run_cpu_rdram_store_case(machine, test_case);
   }
 }
 
@@ -470,20 +555,6 @@ void run_cpu_rdram_alias_demo(Machine& machine) {
       0x0000u);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  std::uint32_t translated_fetch = 0;
-  std::uint32_t translated_data = 0;
-  if (!Machine::translate_cpu_rdram_address(kLwCpuAddress, 4, translated_fetch)) {
-    throw std::runtime_error("CPU RDRAM alias demo could not translate KSEG0 fetch");
-  }
-
-  if (!Machine::translate_cpu_rdram_address(kDataCpuAddress, 4, translated_data)) {
-    throw std::runtime_error("CPU RDRAM alias demo could not translate KSEG1 data");
-  }
-
-  if (translated_fetch != kLwRdramAddress || translated_data != kDataRdramAddress) {
-    throw std::runtime_error("CPU RDRAM alias demo translated to the wrong RDRAM offset");
-  }
-
   machine.stage_cpu_pc(kLwCpuAddress);
   machine.stage_cpu_gpr(kBaseIndex, kDataCpuAddress);
   machine.stage_cpu_gpr(kTargetIndex, 0x00000000u);
@@ -496,9 +567,9 @@ void run_cpu_rdram_alias_demo(Machine& machine) {
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
   print_hex32("  kseg0_fetch_pc", kLwCpuAddress);
-  print_hex32("  translated_fetch_rdram", translated_fetch);
+  print_hex32("  expected_fetch_rdram", kLwRdramAddress);
   print_hex32("  kseg1_data_address", kDataCpuAddress);
-  print_hex32("  translated_data_rdram", translated_data);
+  print_hex32("  expected_data_rdram", kDataRdramAddress);
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
   print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x00000740]", kDataRdramAddress);
