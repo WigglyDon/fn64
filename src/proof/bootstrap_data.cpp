@@ -85,6 +85,15 @@ void write_be_u32(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uin
   bytes[offset + 3] = static_cast<std::uint8_t>(value & 0xffu);
 }
 
+std::uint32_t read_synthetic_be_u32(
+    const std::vector<std::uint8_t>& bytes,
+    std::size_t offset) {
+  return (static_cast<std::uint32_t>(bytes[offset]) << 24) |
+         (static_cast<std::uint32_t>(bytes[offset + 1]) << 16) |
+         (static_cast<std::uint32_t>(bytes[offset + 2]) << 8) |
+         static_cast<std::uint32_t>(bytes[offset + 3]);
+}
+
 std::vector<std::uint8_t> make_bootstrap_cartridge_staging_rom(
     std::uint32_t first_instruction,
     std::uint32_t second_instruction) {
@@ -187,6 +196,24 @@ void require_synthetic_rom_metadata_matches(
       metadata.country_code != 0x45u ||
       metadata.revision != 0x07u) {
     throw std::runtime_error(std::string(label) + " text metadata mismatch");
+  }
+}
+
+void require_rom_metadata_equal(
+    const RomMetadata& actual,
+    const RomMetadata& expected,
+    const char* label) {
+  if (actual.header_magic != expected.header_magic ||
+      actual.clock_rate != expected.clock_rate ||
+      actual.entry_point != expected.entry_point ||
+      actual.release_address != expected.release_address ||
+      actual.crc1 != expected.crc1 ||
+      actual.crc2 != expected.crc2 ||
+      actual.image_name != expected.image_name ||
+      actual.cartridge_id != expected.cartridge_id ||
+      actual.country_code != expected.country_code ||
+      actual.revision != expected.revision) {
+    throw std::runtime_error(std::string(label) + " metadata mismatch");
   }
 }
 
@@ -389,6 +416,168 @@ void run_synthetic_cartridge_read_guard_demo() {
 
   throw std::runtime_error(
       "synthetic cartridge read_u8 guard did not reject size offset");
+}
+
+std::uint32_t middle_rdram_word_address(const Machine& machine) {
+  return static_cast<std::uint32_t>(
+      (machine.rdram_size_bytes() / 2u) & ~static_cast<std::size_t>(3u));
+}
+
+std::uint32_t tail_rdram_word_address(const Machine& machine) {
+  return static_cast<std::uint32_t>(machine.rdram_size_bytes() - 4u);
+}
+
+void require_machine_cartridge_matches_source(
+    const Machine& machine,
+    const Cartridge& source_cartridge,
+    const std::vector<std::uint8_t>& normalized_bytes,
+    const char* label) {
+  const Cartridge& observed_cartridge = machine.cartridge();
+
+  if (observed_cartridge.source_layout() != source_cartridge.source_layout()) {
+    throw std::runtime_error(std::string(label) + " source layout mismatch");
+  }
+
+  if (observed_cartridge.size_bytes() != source_cartridge.size_bytes() ||
+      observed_cartridge.size_bytes() != normalized_bytes.size()) {
+    throw std::runtime_error(std::string(label) + " size mismatch");
+  }
+
+  require_rom_metadata_equal(
+      observed_cartridge.metadata(),
+      source_cartridge.metadata(),
+      label);
+  require_synthetic_rom_metadata_matches(observed_cartridge.metadata(), label);
+  require_synthetic_cartridge_bytes_match(observed_cartridge, normalized_bytes, label);
+}
+
+void require_blank_machine_power_on_state(const Machine& machine, const char* label) {
+  constexpr std::size_t kExpectedRdramSizeBytes = 4u * 1024u * 1024u;
+
+  if (!machine.powered_on()) {
+    throw std::runtime_error(std::string(label) + " is not powered on");
+  }
+
+  if (machine.rdram_size_bytes() != kExpectedRdramSizeBytes) {
+    throw std::runtime_error(std::string(label) + " RDRAM size mismatch");
+  }
+
+  if (machine.cpu_pc() != Machine::kBlankInitialCpuPc ||
+      machine.cpu_next_pc() != Machine::kBlankInitialCpuNextPc) {
+    throw std::runtime_error(std::string(label) + " initial PC mismatch");
+  }
+
+  if (machine.inspect_cpu_hi() != 0 || machine.inspect_cpu_lo() != 0) {
+    throw std::runtime_error(std::string(label) + " initial HI/LO mismatch");
+  }
+
+  const std::size_t gpr_indices[] = {0, 1, 8, 31};
+  for (const std::size_t index : gpr_indices) {
+    if (machine.inspect_cpu_gpr(index) != 0) {
+      throw std::runtime_error(std::string(label) + " initial GPR mismatch");
+    }
+  }
+
+  if (machine.inspect_rdram_u32_be(0x00000000u) != 0 ||
+      machine.inspect_rdram_u32_be(middle_rdram_word_address(machine)) != 0 ||
+      machine.inspect_rdram_u32_be(tail_rdram_word_address(machine)) != 0) {
+    throw std::runtime_error(std::string(label) + " initial RDRAM mismatch");
+  }
+}
+
+void run_machine_construction_isolation_demo() {
+  constexpr std::uint32_t kLowRdramValue = 0x11223344u;
+  constexpr std::uint32_t kMiddleRdramValue = 0xaabbccddu;
+  constexpr std::uint32_t kStagePc = 0x00001000u;
+  constexpr std::uint32_t kStageNextPc = 0x00001008u;
+  constexpr std::uint32_t kStageHi = 0x13572468u;
+  constexpr std::uint32_t kStageLo = 0x24681357u;
+  constexpr std::uint32_t kStageGpr8 = 0x01020304u;
+  constexpr std::uint32_t kStageGpr31 = 0x55667788u;
+  constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
+
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_rom_proof_image();
+  const std::vector<std::uint8_t> raw_bytes =
+      encode_synthetic_rom_source_layout(
+          normalized_bytes,
+          RomSourceLayout::kBigEndian);
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(raw_bytes, cartridge, error)) {
+    throw std::runtime_error(
+        "Machine construction demo could not load generated ROM: " + error);
+  }
+
+  std::cout
+      << "fn64 bootstrap Machine construction demo: blank construction state and instance isolation\n";
+
+  auto constructed_machine = std::make_unique<Machine>(cartridge);
+  require_machine_cartridge_matches_source(
+      *constructed_machine,
+      cartridge,
+      normalized_bytes,
+      "machine_construction_cartridge_observation");
+  require_blank_machine_power_on_state(
+      *constructed_machine,
+      "machine_construction_blank_power_on_state");
+
+  auto machine_a = std::make_unique<Machine>(cartridge);
+  auto machine_b = std::make_unique<Machine>(cartridge);
+  require_blank_machine_power_on_state(*machine_a, "machine_a_initial_state");
+  require_blank_machine_power_on_state(*machine_b, "machine_b_initial_state");
+
+  const std::uint32_t kMiddleRdramAddress = middle_rdram_word_address(*machine_a);
+  const std::uint32_t kTailRdramAddress = tail_rdram_word_address(*machine_a);
+  const std::uint32_t kExpectedStagedCartridgeWord =
+      read_synthetic_be_u32(normalized_bytes, kProgramCartridgeOffset);
+
+  machine_a->stage_cpu_pc(kStagePc);
+  machine_a->stage_cpu_next_pc(kStageNextPc);
+  machine_a->stage_cpu_hi(kStageHi);
+  machine_a->stage_cpu_lo(kStageLo);
+  machine_a->stage_cpu_gpr(8, kStageGpr8);
+  machine_a->stage_cpu_gpr(31, kStageGpr31);
+  machine_a->stage_rdram_u32_be(0x00000000u, kLowRdramValue);
+  machine_a->stage_rdram_u32_be(kMiddleRdramAddress, kMiddleRdramValue);
+  machine_a->stage_cartridge_bytes_to_rdram(
+      kProgramCartridgeOffset,
+      kTailRdramAddress,
+      4);
+
+  print_control_flow_state(*machine_a);
+  print_hex32("  machine_a_hi", machine_a->inspect_cpu_hi());
+  print_hex32("  machine_a_lo", machine_a->inspect_cpu_lo());
+  print_hex64("  machine_a_gpr[8]", machine_a->inspect_cpu_gpr(8));
+  print_hex64("  machine_a_gpr[31]", machine_a->inspect_cpu_gpr(31));
+  print_rdram_word(*machine_a, "  machine_a_rdram[0x00000000]", 0x00000000u);
+  print_rdram_word(*machine_a, "  machine_a_rdram_middle", kMiddleRdramAddress);
+  print_rdram_word(*machine_a, "  machine_a_rdram_tail", kTailRdramAddress);
+
+  if (machine_a->cpu_pc() != kStagePc ||
+      machine_a->cpu_next_pc() != kStageNextPc ||
+      machine_a->inspect_cpu_hi() != kStageHi ||
+      machine_a->inspect_cpu_lo() != kStageLo ||
+      machine_a->inspect_cpu_gpr(8) != kStageGpr8 ||
+      machine_a->inspect_cpu_gpr(31) != kStageGpr31) {
+    throw std::runtime_error("machine instance isolation demo did not stage CPU state");
+  }
+
+  if (machine_a->inspect_rdram_u32_be(0x00000000u) != kLowRdramValue ||
+      machine_a->inspect_rdram_u32_be(kMiddleRdramAddress) != kMiddleRdramValue ||
+      machine_a->inspect_rdram_u32_be(kTailRdramAddress) != kExpectedStagedCartridgeWord) {
+    throw std::runtime_error("machine instance isolation demo did not stage RDRAM state");
+  }
+
+  require_blank_machine_power_on_state(
+      *machine_b,
+      "machine_b_after_machine_a_staging");
+  require_machine_cartridge_matches_source(
+      *machine_b,
+      cartridge,
+      normalized_bytes,
+      "machine_b_cartridge_after_machine_a_staging");
 }
 
 void require_step_runtime_error_contains(
@@ -2550,6 +2739,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 void run_data_demos(Machine& machine) {
   run_synthetic_rom_normalization_rejection_demo();
   run_synthetic_cartridge_read_guard_demo();
+  run_machine_construction_isolation_demo();
   run_cartridge_staging_demo();
   run_cartridge_staging_preflight_demo();
   run_public_machine_stage_inspect_guard_demo();
