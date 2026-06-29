@@ -30,7 +30,7 @@ public:
       std::size_t width,
       std::uint32_t& out_rdram_address) noexcept;
 
-  std::uint32_t read_rdram_u32_be(std::uint32_t address) const;
+  std::uint32_t inspect_rdram_u32_be(std::uint32_t address) const;
 
   void stage_rdram_u32_be(std::uint32_t address, std::uint32_t value);
 
@@ -212,6 +212,7 @@ private:
 
   std::uint8_t read_rdram_u8(std::uint32_t address) const;
   std::uint16_t read_rdram_u16_be(std::uint32_t address) const;
+  std::uint32_t read_rdram_u32_be(std::uint32_t address) const;
 
   void write_rdram_u8(std::uint32_t address, std::uint8_t value);
   void write_rdram_u16_be(std::uint32_t address, std::uint16_t value);

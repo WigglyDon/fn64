@@ -85,7 +85,7 @@ void run_fetch_failure_no_ghost_case(
     throw std::runtime_error(std::string(label) + " changed HI/LO on fetch failure");
   }
 
-  if (machine.read_rdram_u32_be(kRdramSentinelAddress) != kRdramSentinelValue) {
+  if (machine.inspect_rdram_u32_be(kRdramSentinelAddress) != kRdramSentinelValue) {
     throw std::runtime_error(std::string(label) + " changed RDRAM on fetch failure");
   }
 }
@@ -187,12 +187,12 @@ void run_unsupported_identity_demo(
         std::string("unsupported demo changed HI/LO state: ") + label);
   }
 
-  if (machine.read_rdram_u32_be(kRdramSentinelAddress) != kRdramSentinelValue) {
+  if (machine.inspect_rdram_u32_be(kRdramSentinelAddress) != kRdramSentinelValue) {
     throw std::runtime_error(
         std::string("unsupported demo changed RDRAM sentinel: ") + label);
   }
 
-  if (machine.read_rdram_u32_be(unsupported_address) != unsupported_instruction) {
+  if (machine.inspect_rdram_u32_be(unsupported_address) != unsupported_instruction) {
     throw std::runtime_error(
         std::string("unsupported demo did not preserve the staged unsupported instruction: ") + label);
   }

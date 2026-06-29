@@ -25,7 +25,7 @@ void print_control_flow_state(const Machine& machine) {
 }
 
 void print_rdram_word(const Machine& machine, const char* label, std::uint32_t address) {
-  print_hex32(label, machine.read_rdram_u32_be(address));
+  print_hex32(label, machine.inspect_rdram_u32_be(address));
 }
 
 void require_stepped(Machine::CpuInstructionStepResult result, const std::string& label) {

@@ -246,11 +246,11 @@ void run_cartridge_staging_demo() {
   print_rdram_word(*staged_machine, "  staged_rdram[0x00000800]", kProgramRdramAddress);
   print_rdram_word(*staged_machine, "  staged_rdram[0x00000804]", kProgramRdramAddress + 4u);
 
-  if (staged_machine->read_rdram_u32_be(kProgramRdramAddress) != kOriInstruction) {
+  if (staged_machine->inspect_rdram_u32_be(kProgramRdramAddress) != kOriInstruction) {
     throw std::runtime_error("cartridge staging demo did not copy ORI bytes into RDRAM");
   }
 
-  if (staged_machine->read_rdram_u32_be(kProgramRdramAddress + 4u) != kBreakInstruction) {
+  if (staged_machine->inspect_rdram_u32_be(kProgramRdramAddress + 4u) != kBreakInstruction) {
     throw std::runtime_error("cartridge staging demo did not copy BREAK bytes into RDRAM");
   }
 
@@ -309,11 +309,11 @@ void run_cartridge_staging_preflight_demo() {
       "  successful_staged_rdram[0x00000824]",
       kSourceFailureRdramAddress + 4u);
 
-  if (preflight_machine->read_rdram_u32_be(kSourceFailureRdramAddress) != kOriInstruction) {
+  if (preflight_machine->inspect_rdram_u32_be(kSourceFailureRdramAddress) != kOriInstruction) {
     throw std::runtime_error("cartridge staging preflight demo did not preserve success copy");
   }
 
-  if (preflight_machine->read_rdram_u32_be(kSourceFailureRdramAddress + 4u) !=
+  if (preflight_machine->inspect_rdram_u32_be(kSourceFailureRdramAddress + 4u) !=
       kBreakInstruction) {
     throw std::runtime_error("cartridge staging preflight demo did not preserve success tail copy");
   }
@@ -332,7 +332,7 @@ void run_cartridge_staging_preflight_demo() {
       "  source_failure_rdram[0x00000820]",
       kSourceFailureRdramAddress);
 
-  if (preflight_machine->read_rdram_u32_be(kSourceFailureRdramAddress) !=
+  if (preflight_machine->inspect_rdram_u32_be(kSourceFailureRdramAddress) !=
       kSourceFailureSentinel) {
     throw std::runtime_error(
         "cartridge staging source preflight changed RDRAM before failing");
@@ -354,7 +354,7 @@ void run_cartridge_staging_preflight_demo() {
       "  destination_failure_rdram_tail",
       kDestinationFailureSentinelAddress);
 
-  if (preflight_machine->read_rdram_u32_be(kDestinationFailureSentinelAddress) !=
+  if (preflight_machine->inspect_rdram_u32_be(kDestinationFailureSentinelAddress) !=
       kDestinationFailureSentinel) {
     throw std::runtime_error(
         "cartridge staging destination preflight changed RDRAM before failing");
@@ -661,11 +661,11 @@ void run_unaligned_store_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned store demo did not advance to SWR");
   }
 
-  if (machine.read_rdram_u32_be(kDataWord0Address) != 0x1122a1b2u) {
+  if (machine.inspect_rdram_u32_be(kDataWord0Address) != 0x1122a1b2u) {
     throw std::runtime_error("unaligned store demo SWL shaping was wrong");
   }
 
-  if (machine.read_rdram_u32_be(kDataWord1Address) != 0x55667788u) {
+  if (machine.inspect_rdram_u32_be(kDataWord1Address) != 0x55667788u) {
     throw std::runtime_error("unaligned store demo SWL touched the wrong aligned word");
   }
 
@@ -685,15 +685,15 @@ void run_unaligned_store_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned store demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_rdram_u32_be(kDataWord0Address) != 0x1122a1b2u) {
+  if (machine.inspect_rdram_u32_be(kDataWord0Address) != 0x1122a1b2u) {
     throw std::runtime_error("unaligned store demo SWR unexpectedly changed the left aligned word");
   }
 
-  if (machine.read_rdram_u32_be(kDataWord1Address) != 0xc3d47788u) {
+  if (machine.inspect_rdram_u32_be(kDataWord1Address) != 0xc3d47788u) {
     throw std::runtime_error("unaligned store demo SWR shaping was wrong");
   }
 
-  if (machine.read_rdram_u32_be(kMergedWordAddress) != 0xa1b2c3d4u) {
+  if (machine.inspect_rdram_u32_be(kMergedWordAddress) != 0xa1b2c3d4u) {
     throw std::runtime_error("unaligned store demo SWL/SWR pair did not reconstruct the unaligned word");
   }
 
@@ -867,7 +867,7 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
           test_case.label);
     }
 
-    if (machine.read_rdram_u32_be(kDataWordAddress) != test_case.expected_memory_word) {
+    if (machine.inspect_rdram_u32_be(kDataWordAddress) != test_case.expected_memory_word) {
       throw std::runtime_error(
           std::string("partial-word lane matrix demo memory word was wrong for ") +
           test_case.label);
@@ -930,7 +930,7 @@ void run_aligned_word_load_store_demo(Machine& machine) {
     throw std::runtime_error("aligned word demo did not advance to LW");
   }
 
-  if (machine.read_rdram_u32_be(kEffectiveAddress) != 0x89abcdefu) {
+  if (machine.inspect_rdram_u32_be(kEffectiveAddress) != 0x89abcdefu) {
     throw std::runtime_error("aligned word demo SW store result was wrong");
   }
 
@@ -1009,7 +1009,7 @@ void run_word_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("word alignment guard demo SW changed next_pc on fault");
   }
 
-  if (machine.read_rdram_u32_be(kDataBaseAddress) != 0x11223344u) {
+  if (machine.inspect_rdram_u32_be(kDataBaseAddress) != 0x11223344u) {
     throw std::runtime_error("word alignment guard demo SW changed memory on fault");
   }
 
@@ -1103,7 +1103,7 @@ void run_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("byte demo did not advance to LB");
   }
 
-  if (machine.read_rdram_u32_be(kDataBaseAddress) != 0x11803344u) {
+  if (machine.inspect_rdram_u32_be(kDataBaseAddress) != 0x11803344u) {
     throw std::runtime_error("byte demo SB shaping was wrong");
   }
 
@@ -1196,7 +1196,7 @@ void run_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("halfword demo did not advance to LH");
   }
 
-  if (machine.read_rdram_u32_be(kDataBaseAddress) != 0x11228001u) {
+  if (machine.inspect_rdram_u32_be(kDataBaseAddress) != 0x11228001u) {
     throw std::runtime_error("halfword demo SH shaping was wrong");
   }
 
@@ -1296,7 +1296,7 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("halfword alignment guard demo SH changed next_pc on fault");
   }
 
-  if (machine.read_rdram_u32_be(kDataBaseAddress) != 0x11223344u) {
+  if (machine.inspect_rdram_u32_be(kDataBaseAddress) != 0x11223344u) {
     throw std::runtime_error("halfword alignment guard demo SH changed memory on fault");
   }
 
@@ -1418,11 +1418,11 @@ void run_negative_word_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset word demo did not advance to LW");
   }
 
-  if (machine.read_rdram_u32_be(kEffectiveAddress) != 0x76543210u) {
+  if (machine.inspect_rdram_u32_be(kEffectiveAddress) != 0x76543210u) {
     throw std::runtime_error("negative-offset word demo SW store result was wrong");
   }
 
-  if (machine.read_rdram_u32_be(kBaseAddress) != 0x55667788u) {
+  if (machine.inspect_rdram_u32_be(kBaseAddress) != 0x55667788u) {
     throw std::runtime_error("negative-offset word demo touched the base word unexpectedly");
   }
 
@@ -1506,7 +1506,7 @@ void run_negative_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset byte demo did not advance to LB");
   }
 
-  if (machine.read_rdram_u32_be(kDataWordAddress) != 0x11803344u) {
+  if (machine.inspect_rdram_u32_be(kDataWordAddress) != 0x11803344u) {
     throw std::runtime_error("negative-offset byte demo SB shaping was wrong");
   }
 
@@ -1603,7 +1603,7 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset halfword demo did not advance to LH");
   }
 
-  if (machine.read_rdram_u32_be(kDataWordAddress) != 0x11228001u) {
+  if (machine.inspect_rdram_u32_be(kDataWordAddress) != 0x11228001u) {
     throw std::runtime_error("negative-offset halfword demo SH shaping was wrong");
   }
 
@@ -1785,8 +1785,8 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
     throw std::runtime_error("failed partial-store no-ghost demo SWL changed next_pc on fault");
   }
 
-  if (machine.read_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
-      machine.read_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
+  if (machine.inspect_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
+      machine.inspect_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
     throw std::runtime_error("failed partial-store no-ghost demo SWL changed RDRAM on fault");
   }
 
@@ -1818,8 +1818,8 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
     throw std::runtime_error("failed partial-store no-ghost demo SWR changed next_pc on fault");
   }
 
-  if (machine.read_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
-      machine.read_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
+  if (machine.inspect_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
+      machine.inspect_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
     throw std::runtime_error("failed partial-store no-ghost demo SWR changed RDRAM on fault");
   }
 }
@@ -1883,7 +1883,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
     throw std::runtime_error("negative-offset guard demo SB changed next_pc on fault");
   }
 
-  if (machine.read_rdram_u32_be(kSentinelAddress) != 0x11223344u) {
+  if (machine.inspect_rdram_u32_be(kSentinelAddress) != 0x11223344u) {
     throw std::runtime_error("negative-offset guard demo SB changed memory on fault");
   }
 

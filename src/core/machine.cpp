@@ -154,6 +154,10 @@ std::uint16_t Machine::read_rdram_u16_be(std::uint32_t address) const {
       static_cast<std::uint16_t>(rdram_[address + 1]));
 }
 
+std::uint32_t Machine::inspect_rdram_u32_be(std::uint32_t address) const {
+  return read_rdram_u32_be(address);
+}
+
 std::uint32_t Machine::read_rdram_u32_be(std::uint32_t address) const {
   if (address > rdram_.size() - 4) {
     fail_rdram_access(address, 4);
