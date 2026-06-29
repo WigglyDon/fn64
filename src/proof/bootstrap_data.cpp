@@ -178,6 +178,82 @@ void require_stage_exception_contains(
   throw std::runtime_error(std::string(label) + " did not throw exception");
 }
 
+template <typename Action>
+void require_public_guard_out_of_range_contains(
+    const char* label,
+    const char* expected_substring,
+    Action action) {
+  try {
+    action();
+  } catch (const std::out_of_range& e) {
+    std::cout << "  " << label << " threw: " << e.what() << '\n';
+
+    if (std::string(e.what()).find(expected_substring) == std::string::npos) {
+      throw std::runtime_error(
+          std::string(label) + " threw unexpected out_of_range text");
+    }
+
+    return;
+  } catch (const std::exception& e) {
+    throw std::runtime_error(
+        std::string(label) + " threw unexpected exception type: " + e.what());
+  }
+
+  throw std::runtime_error(std::string(label) + " did not throw out_of_range");
+}
+
+struct PublicGuardState {
+  std::uint32_t pc = 0;
+  std::uint32_t next_pc = 0;
+  std::uint32_t hi = 0;
+  std::uint32_t lo = 0;
+  std::uint32_t gpr4 = 0;
+  std::uint32_t gpr31 = 0;
+  std::uint32_t rdram_low = 0;
+  std::uint32_t rdram_tail = 0;
+};
+
+PublicGuardState capture_public_guard_state(
+    const Machine& machine,
+    std::uint32_t low_rdram_address,
+    std::uint32_t tail_rdram_address) {
+  return PublicGuardState{
+      machine.cpu_pc(),
+      machine.cpu_next_pc(),
+      machine.inspect_cpu_hi(),
+      machine.inspect_cpu_lo(),
+      machine.inspect_cpu_gpr(4),
+      machine.inspect_cpu_gpr(31),
+      machine.inspect_rdram_u32_be(low_rdram_address),
+      machine.inspect_rdram_u32_be(tail_rdram_address)};
+}
+
+void require_public_guard_state_unchanged(
+    const Machine& machine,
+    const PublicGuardState& expected,
+    std::uint32_t low_rdram_address,
+    std::uint32_t tail_rdram_address,
+    const char* label) {
+  const PublicGuardState actual =
+      capture_public_guard_state(machine, low_rdram_address, tail_rdram_address);
+
+  if (actual.pc != expected.pc || actual.next_pc != expected.next_pc) {
+    throw std::runtime_error(std::string(label) + " changed pc/next_pc");
+  }
+
+  if (actual.hi != expected.hi || actual.lo != expected.lo) {
+    throw std::runtime_error(std::string(label) + " changed HI/LO");
+  }
+
+  if (actual.gpr4 != expected.gpr4 || actual.gpr31 != expected.gpr31) {
+    throw std::runtime_error(std::string(label) + " changed selected GPR state");
+  }
+
+  if (actual.rdram_low != expected.rdram_low || actual.rdram_tail != expected.rdram_tail) {
+    throw std::runtime_error(std::string(label) + " changed RDRAM sentinels");
+  }
+}
+
 struct CpuRdramWordAccessCase {
   const char* label;
   std::uint32_t instruction_cpu_address;
@@ -459,6 +535,159 @@ void run_cartridge_staging_preflight_demo() {
     throw std::runtime_error(
         "cartridge staging destination preflight changed RDRAM before failing");
   }
+}
+
+void run_public_machine_stage_inspect_guard_demo() {
+  constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
+  constexpr std::uint32_t kSourceSpanOverflowOffset = 0xfffffffcu;
+  constexpr std::uint32_t kDestinationSpanOverflowAddress = 0xfffffffcu;
+  constexpr std::uint32_t kSpanOverflowByteCount = 8u;
+  constexpr std::uint32_t kPc = 0x000009c0u;
+  constexpr std::uint32_t kNextPc = 0x000009c4u;
+  constexpr std::uint32_t kHi = 0x13572468u;
+  constexpr std::uint32_t kLo = 0x24681357u;
+  constexpr std::uint32_t kGpr4 = 0xaabbccddu;
+  constexpr std::uint32_t kGpr31 = 0x11223344u;
+  constexpr std::uint32_t kLowRdramAddress = 0x00000980u;
+  constexpr std::uint32_t kLowRdramSentinel = 0xfeedc0deu;
+  constexpr std::uint32_t kTailRdramSentinel = 0x55aa33ccu;
+
+  const std::uint32_t kOriInstruction = encode_ori(8, 0, 0x1234u);
+  const std::uint32_t kBreakInstruction = encode_break();
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(
+          make_bootstrap_cartridge_staging_rom(kOriInstruction, kBreakInstruction),
+          cartridge,
+          error)) {
+    throw std::runtime_error(
+        "public Machine guard demo could not load generated ROM: " + error);
+  }
+
+  auto guard_machine = std::make_unique<Machine>(std::move(cartridge));
+  const std::uint32_t kTailRdramAddress =
+      static_cast<std::uint32_t>(guard_machine->rdram_size_bytes() - 4);
+  const std::uint32_t kInvalidRdramWordAddress =
+      static_cast<std::uint32_t>(guard_machine->rdram_size_bytes() - 2);
+
+  guard_machine->stage_cpu_pc(kPc);
+  guard_machine->stage_cpu_next_pc(kNextPc);
+  guard_machine->stage_cpu_hi(kHi);
+  guard_machine->stage_cpu_lo(kLo);
+  guard_machine->stage_cpu_gpr(4, kGpr4);
+  guard_machine->stage_cpu_gpr(31, kGpr31);
+  guard_machine->stage_rdram_u32_be(kLowRdramAddress, kLowRdramSentinel);
+  guard_machine->stage_rdram_u32_be(kTailRdramAddress, kTailRdramSentinel);
+
+  const PublicGuardState expected =
+      capture_public_guard_state(*guard_machine, kLowRdramAddress, kTailRdramAddress);
+
+  std::cout
+      << "fn64 bootstrap public Machine guard demo: invalid public stage/inspect inputs leave state unchanged\n";
+  print_control_flow_state(*guard_machine);
+  print_hex32("  hi", guard_machine->inspect_cpu_hi());
+  print_hex32("  lo", guard_machine->inspect_cpu_lo());
+  print_hex64("  gpr[4]", guard_machine->inspect_cpu_gpr(4));
+  print_hex64("  gpr[31]", guard_machine->inspect_cpu_gpr(31));
+  print_rdram_word(*guard_machine, "  rdram[0x00000980]", kLowRdramAddress);
+  print_rdram_word(*guard_machine, "  rdram_tail", kTailRdramAddress);
+
+  require_public_guard_out_of_range_contains(
+      "public_guard_stage_cpu_gpr_index",
+      "CPU GPR index out of range",
+      [&guard_machine]() { guard_machine->stage_cpu_gpr(32, 0x01020304u); });
+  require_public_guard_state_unchanged(
+      *guard_machine,
+      expected,
+      kLowRdramAddress,
+      kTailRdramAddress,
+      "public_guard_stage_cpu_gpr_index");
+
+  require_public_guard_out_of_range_contains(
+      "public_guard_inspect_cpu_gpr_index",
+      "CPU GPR index out of range",
+      [&guard_machine]() {
+        static_cast<void>(guard_machine->inspect_cpu_gpr(32));
+      });
+  require_public_guard_state_unchanged(
+      *guard_machine,
+      expected,
+      kLowRdramAddress,
+      kTailRdramAddress,
+      "public_guard_inspect_cpu_gpr_index");
+
+  require_public_guard_out_of_range_contains(
+      "public_guard_stage_rdram_u32_be_range",
+      "RDRAM access out of range",
+      [&guard_machine, kInvalidRdramWordAddress]() {
+        guard_machine->stage_rdram_u32_be(kInvalidRdramWordAddress, 0x01020304u);
+      });
+  require_public_guard_state_unchanged(
+      *guard_machine,
+      expected,
+      kLowRdramAddress,
+      kTailRdramAddress,
+      "public_guard_stage_rdram_u32_be_range");
+
+  require_public_guard_out_of_range_contains(
+      "public_guard_inspect_rdram_u32_be_range",
+      "RDRAM access out of range",
+      [&guard_machine, kInvalidRdramWordAddress]() {
+        static_cast<void>(guard_machine->inspect_rdram_u32_be(kInvalidRdramWordAddress));
+      });
+  require_public_guard_state_unchanged(
+      *guard_machine,
+      expected,
+      kLowRdramAddress,
+      kTailRdramAddress,
+      "public_guard_inspect_rdram_u32_be_range");
+
+  require_public_guard_out_of_range_contains(
+      "public_guard_cartridge_source_span_overflow",
+      "cartridge staging span overflows 32-bit address space: cartridge source",
+      [&guard_machine, kSourceSpanOverflowOffset, kLowRdramAddress, kSpanOverflowByteCount]() {
+        guard_machine->stage_cartridge_bytes_to_rdram(
+            kSourceSpanOverflowOffset,
+            kLowRdramAddress,
+            kSpanOverflowByteCount);
+      });
+  require_public_guard_state_unchanged(
+      *guard_machine,
+      expected,
+      kLowRdramAddress,
+      kTailRdramAddress,
+      "public_guard_cartridge_source_span_overflow");
+
+  require_public_guard_out_of_range_contains(
+      "public_guard_cartridge_destination_span_overflow",
+      "cartridge staging span overflows 32-bit address space: RDRAM destination",
+      [&guard_machine,
+       kProgramCartridgeOffset,
+       kDestinationSpanOverflowAddress,
+       kSpanOverflowByteCount]() {
+        guard_machine->stage_cartridge_bytes_to_rdram(
+            kProgramCartridgeOffset,
+            kDestinationSpanOverflowAddress,
+            kSpanOverflowByteCount);
+      });
+  require_public_guard_state_unchanged(
+      *guard_machine,
+      expected,
+      kLowRdramAddress,
+      kTailRdramAddress,
+      "public_guard_cartridge_destination_span_overflow");
+
+  guard_machine->stage_cartridge_bytes_to_rdram(
+      kSourceSpanOverflowOffset,
+      kDestinationSpanOverflowAddress,
+      0);
+  require_public_guard_state_unchanged(
+      *guard_machine,
+      expected,
+      kLowRdramAddress,
+      kTailRdramAddress,
+      "public_guard_cartridge_zero_count_noop");
 }
 
 void run_cpu_rdram_translation_demo(Machine& machine) {
@@ -1995,6 +2224,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 void run_data_demos(Machine& machine) {
   run_cartridge_staging_demo();
   run_cartridge_staging_preflight_demo();
+  run_public_machine_stage_inspect_guard_demo();
   run_cpu_rdram_translation_demo(machine);
   run_cpu_rdram_alias_demo(machine);
   run_unaligned_load_word_demo(machine);
