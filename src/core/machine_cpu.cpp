@@ -232,6 +232,18 @@ std::uint32_t Machine::cpu_next_pc() const {
   return cpu_next_pc_;
 }
 
+std::uint32_t Machine::inspect_cpu_hi() const {
+  return cpu_hi();
+}
+
+std::uint32_t Machine::inspect_cpu_lo() const {
+  return cpu_lo();
+}
+
+std::uint32_t Machine::inspect_cpu_gpr(std::size_t index) const {
+  return read_cpu_gpr(index);
+}
+
 std::uint32_t Machine::cpu_hi() const {
   return cpu_hi_;
 }

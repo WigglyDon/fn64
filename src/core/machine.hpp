@@ -41,9 +41,9 @@ public:
 
   std::uint32_t cpu_pc() const;
   std::uint32_t cpu_next_pc() const;
-  std::uint32_t cpu_hi() const;
-  std::uint32_t cpu_lo() const;
-  std::uint32_t read_cpu_gpr(std::size_t index) const;
+  std::uint32_t inspect_cpu_hi() const;
+  std::uint32_t inspect_cpu_lo() const;
+  std::uint32_t inspect_cpu_gpr(std::size_t index) const;
 
   void stage_cpu_pc(std::uint32_t value);
   void stage_cpu_next_pc(std::uint32_t value);
@@ -230,6 +230,10 @@ private:
   void write_cpu_memory_u8(std::uint32_t cpu_address, std::uint8_t value);
   void write_cpu_memory_u16_be(std::uint32_t cpu_address, std::uint16_t value);
   void write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value);
+
+  std::uint32_t cpu_hi() const;
+  std::uint32_t cpu_lo() const;
+  std::uint32_t read_cpu_gpr(std::size_t index) const;
 
   void write_cpu_pc(std::uint32_t value);
   void write_cpu_next_pc(std::uint32_t value);

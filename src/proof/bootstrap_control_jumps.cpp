@@ -44,9 +44,9 @@ void run_jump_demo(
   std::cout << "fn64 bootstrap jump demo: " << label << '\n';
   std::cout << "before jump step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   const std::uint32_t jump_raw = jump_instruction;
 
@@ -56,9 +56,9 @@ void run_jump_demo(
 
   std::cout << "after jump step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kDelaySlotAddress) {
     throw std::runtime_error(
@@ -70,14 +70,14 @@ void run_jump_demo(
         std::string("jump demo did not schedule the target: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("jump demo changed marker registers too early: ") + label);
   }
 
   const std::uint32_t expected_link = expect_link ? kLinkReturnAddress : 0u;
-  if (machine.read_cpu_gpr(kLinkIndex) != expected_link) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
     throw std::runtime_error(
         std::string("jump demo wrote the wrong link value: ") + label);
   }
@@ -86,9 +86,9 @@ void run_jump_demo(
 
   std::cout << "after delay-slot step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kTargetAddress) {
     throw std::runtime_error(
@@ -100,18 +100,18 @@ void run_jump_demo(
         std::string("jump demo did not preserve sequential next_pc at the target: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) !=
       static_cast<std::uint32_t>(delay_slot_marker)) {
     throw std::runtime_error(
         std::string("jump demo did not execute the delay slot: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("jump demo executed the target too early: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kLinkIndex) != expected_link) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
     throw std::runtime_error(
         std::string("jump demo changed the link register after the delay slot: ") + label);
   }
@@ -120,22 +120,22 @@ void run_jump_demo(
 
   std::cout << "after target step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kSentinelAddress) {
     throw std::runtime_error(
         std::string("jump demo did not advance to the sentinel after the target: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kTargetMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kTargetMarkerIndex) !=
       static_cast<std::uint32_t>(target_marker)) {
     throw std::runtime_error(
         std::string("jump demo did not execute the target instruction: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kLinkIndex) != expected_link) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
     throw std::runtime_error(
         std::string("jump demo changed the link register after the target: ") + label);
   }
@@ -176,10 +176,10 @@ void run_jr_demo(Machine& machine) {
   std::cout << "fn64 bootstrap jump demo: special_jr explicit register target\n";
   std::cout << "before jump step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kTargetRegisterIndex));
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kTargetRegisterIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   const std::uint32_t jr_raw = kJrInstruction;
 
@@ -189,9 +189,9 @@ void run_jr_demo(Machine& machine) {
 
   std::cout << "after jump step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kDelaySlotAddress) {
     throw std::runtime_error("jr demo did not move into the delay slot");
@@ -201,12 +201,12 @@ void run_jr_demo(Machine& machine) {
     throw std::runtime_error("jr demo did not schedule the register target");
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error("jr demo changed marker registers too early");
   }
 
-  if (machine.read_cpu_gpr(kLinkIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != 0) {
     throw std::runtime_error("jr demo unexpectedly changed the link register");
   }
 
@@ -214,9 +214,9 @@ void run_jr_demo(Machine& machine) {
 
   std::cout << "after delay-slot step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kTargetAddress) {
     throw std::runtime_error("jr demo did not hand off to the target after the delay slot");
@@ -226,11 +226,11 @@ void run_jr_demo(Machine& machine) {
     throw std::runtime_error("jr demo did not preserve sequential next_pc at the target");
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) != 0x00007321u) {
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) != 0x00007321u) {
     throw std::runtime_error("jr demo did not execute the delay slot");
   }
 
-  if (machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error("jr demo executed the target too early");
   }
 
@@ -238,19 +238,19 @@ void run_jr_demo(Machine& machine) {
 
   std::cout << "after target step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kSentinelAddress) {
     throw std::runtime_error("jr demo did not advance to the sentinel after the target");
   }
 
-  if (machine.read_cpu_gpr(kTargetMarkerIndex) != 0x00007322u) {
+  if (machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0x00007322u) {
     throw std::runtime_error("jr demo did not execute the target instruction");
   }
 
-  if (machine.read_cpu_gpr(kLinkIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != 0) {
     throw std::runtime_error("jr demo unexpectedly changed the link register");
   }
 

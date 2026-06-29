@@ -256,11 +256,11 @@ void run_cartridge_staging_demo() {
 
   require_stepped(staged_machine->step_cpu_instruction(), "cartridge_staging_demo_ori");
 
-  if (staged_machine->read_cpu_gpr(kTargetRegister) != kImmediate) {
+  if (staged_machine->inspect_cpu_gpr(kTargetRegister) != kImmediate) {
     throw std::runtime_error("cartridge staging demo ORI did not execute from staged bytes");
   }
 
-  print_hex64("  gpr[8]", staged_machine->read_cpu_gpr(kTargetRegister));
+  print_hex64("  gpr[8]", staged_machine->inspect_cpu_gpr(kTargetRegister));
 
   require_stopped(staged_machine->step_cpu_instruction(), "cartridge_staging_demo_break");
 }
@@ -439,14 +439,14 @@ void run_cpu_rdram_translation_demo(Machine& machine) {
   require_stepped(machine.step_cpu_instruction(), "kseg1_translation_demo_ori");
 
   print_control_flow_state(machine);
-  print_hex64("    gpr[8]", machine.read_cpu_gpr(8));
+  print_hex64("    gpr[8]", machine.inspect_cpu_gpr(8));
 
   if (machine.cpu_pc() != kKseg1RdramBase + 4u ||
       machine.cpu_next_pc() != kKseg1RdramBase + 8u) {
     throw std::runtime_error("CPU RDRAM translation demo did not step through KSEG1");
   }
 
-  if (machine.read_cpu_gpr(8) != 0x00001234u) {
+  if (machine.inspect_cpu_gpr(8) != 0x00001234u) {
     throw std::runtime_error("CPU RDRAM translation demo did not execute through KSEG1");
   }
 }
@@ -499,8 +499,8 @@ void run_cpu_rdram_alias_demo(Machine& machine) {
   print_hex32("  translated_fetch_rdram", translated_fetch);
   print_hex32("  kseg1_data_address", kDataCpuAddress);
   print_hex32("  translated_data_rdram", translated_data);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x00000740]", kDataRdramAddress);
 
   const std::uint32_t lw_raw = kLwInstruction;
@@ -511,13 +511,13 @@ void run_cpu_rdram_alias_demo(Machine& machine) {
 
   std::cout << "after step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
 
   if (machine.cpu_pc() != kBreakCpuAddress) {
     throw std::runtime_error("CPU RDRAM alias demo did not advance to KSEG0 BREAK");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != kDataWord) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kDataWord) {
     throw std::runtime_error("CPU RDRAM alias demo LW did not read through KSEG1");
   }
 
@@ -560,8 +560,8 @@ void run_unaligned_load_word_demo(Machine& machine) {
   std::cout << "fn64 bootstrap unaligned load demo: explicit local LWL/LWR merge\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[9]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x00000410]", kDataWord0Address);
   print_rdram_word(machine, "  rdram[0x00000414]", kDataWord1Address);
 
@@ -573,13 +573,13 @@ void run_unaligned_load_word_demo(Machine& machine) {
 
   std::cout << "after step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[9]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kTargetIndex));
 
   if (machine.cpu_pc() != kLwrAddress) {
     throw std::runtime_error("unaligned load demo did not advance to LWR");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != 0x3040ccddu) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x3040ccddu) {
     throw std::runtime_error("unaligned load demo LWL merge result was wrong");
   }
 
@@ -591,14 +591,14 @@ void run_unaligned_load_word_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[9]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x00000412]", kMergedWordAddress);
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("unaligned load demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != 0x30405060u) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x30405060u) {
     throw std::runtime_error("unaligned load demo LWL/LWR pair did not produce merged word");
   }
 
@@ -641,8 +641,8 @@ void run_unaligned_store_word_demo(Machine& machine) {
   std::cout << "fn64 bootstrap unaligned store demo: explicit local SWL/SWR shaping\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[10]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[10]", machine.inspect_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000430]", kDataWord0Address);
   print_rdram_word(machine, "  rdram[0x00000434]", kDataWord1Address);
 
@@ -823,12 +823,12 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
 
     std::cout << "load lane row: " << test_case.label << '\n';
     print_control_flow_state(machine);
-    print_hex64("  gpr[16]", machine.read_cpu_gpr(kLoadTargetIndex));
+    print_hex64("  gpr[16]", machine.inspect_cpu_gpr(kLoadTargetIndex));
     print_rdram_word(machine, "  rdram[0x00000640]", kDataWordAddress);
 
     require_stepped(machine.step_cpu_instruction(), test_case.label);
 
-    print_hex64("  actual_gpr[16]", machine.read_cpu_gpr(kLoadTargetIndex));
+    print_hex64("  actual_gpr[16]", machine.inspect_cpu_gpr(kLoadTargetIndex));
     print_hex32("  expected_gpr[16]", test_case.expected_gpr);
 
     if (machine.cpu_pc() != kAfterInstructionAddress) {
@@ -837,7 +837,7 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
           test_case.label);
     }
 
-    if (machine.read_cpu_gpr(kLoadTargetIndex) != test_case.expected_gpr) {
+    if (machine.inspect_cpu_gpr(kLoadTargetIndex) != test_case.expected_gpr) {
       throw std::runtime_error(
           std::string("partial-word lane matrix demo result was wrong for ") +
           test_case.label);
@@ -853,7 +853,7 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
 
     std::cout << "store lane row: " << test_case.label << '\n';
     print_control_flow_state(machine);
-    print_hex64("  gpr[17]", machine.read_cpu_gpr(kStoreSourceIndex));
+    print_hex64("  gpr[17]", machine.inspect_cpu_gpr(kStoreSourceIndex));
     print_rdram_word(machine, "  rdram[0x00000640]", kDataWordAddress);
 
     require_stepped(machine.step_cpu_instruction(), test_case.label);
@@ -913,9 +913,9 @@ void run_aligned_word_load_store_demo(Machine& machine) {
   std::cout << "fn64 bootstrap aligned word demo: explicit local SW/LW base+immediate\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[11]", machine.read_cpu_gpr(kSourceIndex));
-  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x00000450]", kDataBaseAddress);
   print_rdram_word(machine, "  rdram[0x00000454]", kEffectiveAddress);
 
@@ -938,14 +938,14 @@ void run_aligned_word_load_store_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x00000454]", kEffectiveAddress);
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("aligned word demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != 0x89abcdefu) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x89abcdefu) {
     throw std::runtime_error("aligned word demo LW load result was wrong");
   }
 
@@ -987,8 +987,8 @@ void run_word_alignment_guard_demo(Machine& machine) {
 
   std::cout << "before SW misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[11]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kSourceIndex));
   print_hex32("  sw_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x00000470]", kDataBaseAddress);
 
@@ -1018,8 +1018,8 @@ void run_word_alignment_guard_demo(Machine& machine) {
 
   std::cout << "before LW misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
   print_hex32("  lw_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x00000470]", kDataBaseAddress);
 
@@ -1030,7 +1030,7 @@ void run_word_alignment_guard_demo(Machine& machine) {
 
   std::cout << "after LW misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[12]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
 
   if (machine.cpu_pc() != kLwAddress) {
     throw std::runtime_error("word alignment guard demo LW changed PC on fault");
@@ -1040,7 +1040,7 @@ void run_word_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("word alignment guard demo LW changed next_pc on fault");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != 0x01234567u) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x01234567u) {
     throw std::runtime_error("word alignment guard demo LW changed target register on fault");
   }
 }
@@ -1089,8 +1089,8 @@ void run_byte_load_store_demo(Machine& machine) {
   std::cout << "fn64 bootstrap byte demo: explicit local SB/LB/LBU shaping and extension\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[13]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000490]", kDataBaseAddress);
 
   require_stepped(machine.step_cpu_instruction(), "byte_demo_sb");
@@ -1111,13 +1111,13 @@ void run_byte_load_store_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[14]", machine.read_cpu_gpr(kSignedTargetIndex));
+  print_hex64("  gpr[14]", machine.inspect_cpu_gpr(kSignedTargetIndex));
 
   if (machine.cpu_pc() != kLbuAddress) {
     throw std::runtime_error("byte demo did not advance to LBU");
   }
 
-  if (machine.read_cpu_gpr(kSignedTargetIndex) != 0xffffff80u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffffff80u) {
     throw std::runtime_error("byte demo LB sign-extension result was wrong");
   }
 
@@ -1125,13 +1125,13 @@ void run_byte_load_store_demo(Machine& machine) {
 
   std::cout << "after step 3:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[15]", machine.read_cpu_gpr(kUnsignedTargetIndex));
+  print_hex64("  gpr[15]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("byte demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(kUnsignedTargetIndex) != 0x00000080u) {
+  if (machine.inspect_cpu_gpr(kUnsignedTargetIndex) != 0x00000080u) {
     throw std::runtime_error("byte demo LBU zero-extension result was wrong");
   }
 
@@ -1182,8 +1182,8 @@ void run_halfword_load_store_demo(Machine& machine) {
   std::cout << "fn64 bootstrap halfword demo: explicit local SH/LH/LHU shaping and extension\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[16]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[16]", machine.inspect_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x000004b0]", kDataBaseAddress);
 
   require_stepped(machine.step_cpu_instruction(), "halfword_demo_sh");
@@ -1204,13 +1204,13 @@ void run_halfword_load_store_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[17]", machine.read_cpu_gpr(kSignedTargetIndex));
+  print_hex64("  gpr[17]", machine.inspect_cpu_gpr(kSignedTargetIndex));
 
   if (machine.cpu_pc() != kLhuAddress) {
     throw std::runtime_error("halfword demo did not advance to LHU");
   }
 
-  if (machine.read_cpu_gpr(kSignedTargetIndex) != 0xffff8001u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffff8001u) {
     throw std::runtime_error("halfword demo LH sign-extension result was wrong");
   }
 
@@ -1218,13 +1218,13 @@ void run_halfword_load_store_demo(Machine& machine) {
 
   std::cout << "after step 3:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[18]", machine.read_cpu_gpr(kUnsignedTargetIndex));
+  print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("halfword demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(kUnsignedTargetIndex) != 0x00008001u) {
+  if (machine.inspect_cpu_gpr(kUnsignedTargetIndex) != 0x00008001u) {
     throw std::runtime_error("halfword demo LHU zero-extension result was wrong");
   }
 
@@ -1274,8 +1274,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
 
   std::cout << "before SH misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[16]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[16]", machine.inspect_cpu_gpr(kSourceIndex));
   print_hex32("  sh_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x000004d0]", kDataBaseAddress);
 
@@ -1305,8 +1305,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
 
   std::cout << "before LH misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[17]", machine.read_cpu_gpr(kSignedTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[17]", machine.inspect_cpu_gpr(kSignedTargetIndex));
   print_hex32("  lh_effective_address", kMisalignedAddress);
 
   require_step_runtime_error_contains(
@@ -1316,7 +1316,7 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
 
   std::cout << "after LH misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[17]", machine.read_cpu_gpr(kSignedTargetIndex));
+  print_hex64("  gpr[17]", machine.inspect_cpu_gpr(kSignedTargetIndex));
 
   if (machine.cpu_pc() != kLhAddress) {
     throw std::runtime_error("halfword alignment guard demo LH changed PC on fault");
@@ -1326,7 +1326,7 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("halfword alignment guard demo LH changed next_pc on fault");
   }
 
-  if (machine.read_cpu_gpr(kSignedTargetIndex) != 0xaaaaaaaau) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xaaaaaaaau) {
     throw std::runtime_error("halfword alignment guard demo LH changed target register on fault");
   }
 
@@ -1335,8 +1335,8 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
 
   std::cout << "before LHU misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[18]", machine.read_cpu_gpr(kUnsignedTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
   print_hex32("  lhu_effective_address", kMisalignedAddress);
 
   require_step_runtime_error_contains(
@@ -1346,7 +1346,7 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
 
   std::cout << "after LHU misaligned step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[18]", machine.read_cpu_gpr(kUnsignedTargetIndex));
+  print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
 
   if (machine.cpu_pc() != kLhuAddress) {
     throw std::runtime_error("halfword alignment guard demo LHU changed PC on fault");
@@ -1356,7 +1356,7 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
     throw std::runtime_error("halfword alignment guard demo LHU changed next_pc on fault");
   }
 
-  if (machine.read_cpu_gpr(kUnsignedTargetIndex) != 0xbbbbbbbbu) {
+  if (machine.inspect_cpu_gpr(kUnsignedTargetIndex) != 0xbbbbbbbbu) {
     throw std::runtime_error("halfword alignment guard demo LHU changed target register on fault");
   }
 }
@@ -1399,11 +1399,11 @@ void run_negative_word_load_store_demo(Machine& machine) {
   std::cout << "fn64 bootstrap negative-offset word demo: explicit local SW/LW signed immediate address formation\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
   print_hex32("  sw_immediate_raw", kNegativeOffset);
   print_hex32("  sw_effective_address", kEffectiveAddress);
-  print_hex64("  gpr[19]", machine.read_cpu_gpr(kSourceIndex));
-  print_hex64("  gpr[20]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[19]", machine.inspect_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[20]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x000004f0]", kEffectiveAddress);
   print_rdram_word(machine, "  rdram[0x000004f4]", kBaseAddress);
 
@@ -1430,14 +1430,14 @@ void run_negative_word_load_store_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[20]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[20]", machine.inspect_cpu_gpr(kTargetIndex));
   print_rdram_word(machine, "  rdram[0x000004f0]", kEffectiveAddress);
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("negative-offset word demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != 0x76543210u) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x76543210u) {
     throw std::runtime_error("negative-offset word demo LW load result was wrong");
   }
 
@@ -1490,10 +1490,10 @@ void run_negative_byte_load_store_demo(Machine& machine) {
   std::cout << "fn64 bootstrap negative-offset byte demo: explicit local SB/LB/LBU signed immediate address formation\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
   print_hex32("  sb_immediate_raw", kNegativeOffset);
   print_hex32("  sb_effective_address", kEffectiveAddress);
-  print_hex64("  gpr[21]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[21]", machine.inspect_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000510]", kDataWordAddress);
 
   require_stepped(machine.step_cpu_instruction(), "negative_byte_demo_sb");
@@ -1514,13 +1514,13 @@ void run_negative_byte_load_store_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[22]", machine.read_cpu_gpr(kSignedTargetIndex));
+  print_hex64("  gpr[22]", machine.inspect_cpu_gpr(kSignedTargetIndex));
 
   if (machine.cpu_pc() != kLbuAddress) {
     throw std::runtime_error("negative-offset byte demo did not advance to LBU");
   }
 
-  if (machine.read_cpu_gpr(kSignedTargetIndex) != 0xffffff80u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffffff80u) {
     throw std::runtime_error("negative-offset byte demo LB sign-extension result was wrong");
   }
 
@@ -1528,13 +1528,13 @@ void run_negative_byte_load_store_demo(Machine& machine) {
 
   std::cout << "after step 3:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[23]", machine.read_cpu_gpr(kUnsignedTargetIndex));
+  print_hex64("  gpr[23]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("negative-offset byte demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(kUnsignedTargetIndex) != 0x00000080u) {
+  if (machine.inspect_cpu_gpr(kUnsignedTargetIndex) != 0x00000080u) {
     throw std::runtime_error("negative-offset byte demo LBU zero-extension result was wrong");
   }
 
@@ -1587,10 +1587,10 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
   std::cout << "fn64 bootstrap negative-offset halfword demo: explicit local SH/LH/LHU signed immediate address formation\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
   print_hex32("  sh_immediate_raw", kNegativeOffset);
   print_hex32("  sh_effective_address", kEffectiveAddress);
-  print_hex64("  gpr[24]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[24]", machine.inspect_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000530]", kDataWordAddress);
 
   require_stepped(machine.step_cpu_instruction(), "negative_halfword_demo_sh");
@@ -1611,13 +1611,13 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[25]", machine.read_cpu_gpr(kSignedTargetIndex));
+  print_hex64("  gpr[25]", machine.inspect_cpu_gpr(kSignedTargetIndex));
 
   if (machine.cpu_pc() != kLhuAddress) {
     throw std::runtime_error("negative-offset halfword demo did not advance to LHU");
   }
 
-  if (machine.read_cpu_gpr(kSignedTargetIndex) != 0xffff8001u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffff8001u) {
     throw std::runtime_error("negative-offset halfword demo LH sign-extension result was wrong");
   }
 
@@ -1625,13 +1625,13 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
 
   std::cout << "after step 3:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[26]", machine.read_cpu_gpr(kUnsignedTargetIndex));
+  print_hex64("  gpr[26]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("negative-offset halfword demo did not advance to BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(kUnsignedTargetIndex) != 0x00008001u) {
+  if (machine.inspect_cpu_gpr(kUnsignedTargetIndex) != 0x00008001u) {
     throw std::runtime_error("negative-offset halfword demo LHU zero-extension result was wrong");
   }
 
@@ -1669,8 +1669,8 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
 
   std::cout << "before LWL out-of-window step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[30]", machine.inspect_cpu_gpr(kTargetIndex));
   print_hex32("  lwl_effective_address", kInvalidKseg1Address);
 
   require_step_exception_contains(
@@ -1680,7 +1680,7 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
 
   std::cout << "after LWL out-of-window step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[30]", machine.inspect_cpu_gpr(kTargetIndex));
 
   if (machine.cpu_pc() != kLwlAddress) {
     throw std::runtime_error("failed partial-load no-ghost demo LWL changed PC on fault");
@@ -1690,7 +1690,7 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
     throw std::runtime_error("failed partial-load no-ghost demo LWL changed next_pc on fault");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel) {
     throw std::runtime_error("failed partial-load no-ghost demo LWL changed target GPR on fault");
   }
 
@@ -1699,8 +1699,8 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
 
   std::cout << "before LWR out-of-window step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[30]", machine.inspect_cpu_gpr(kTargetIndex));
   print_hex32("  lwr_effective_address", kInvalidKseg1Address);
 
   require_step_exception_contains(
@@ -1710,7 +1710,7 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
 
   std::cout << "after LWR out-of-window step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[30]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[30]", machine.inspect_cpu_gpr(kTargetIndex));
 
   if (machine.cpu_pc() != kLwrAddress) {
     throw std::runtime_error("failed partial-load no-ghost demo LWR changed PC on fault");
@@ -1720,7 +1720,7 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
     throw std::runtime_error("failed partial-load no-ghost demo LWR changed next_pc on fault");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel) {
     throw std::runtime_error("failed partial-load no-ghost demo LWR changed target GPR on fault");
   }
 }
@@ -1761,8 +1761,8 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
 
   std::cout << "before SWL out-of-window step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[29]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[29]", machine.inspect_cpu_gpr(kSourceIndex));
   print_hex32("  swl_effective_address", kInvalidKseg1Address);
   print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
   print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
@@ -1794,8 +1794,8 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
 
   std::cout << "before SWR out-of-window step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
-  print_hex64("  gpr[29]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[29]", machine.inspect_cpu_gpr(kSourceIndex));
   print_hex32("  swr_effective_address", kInvalidKseg1Address);
   print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
   print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
@@ -1860,10 +1860,10 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 
   std::cout << "before SB out-of-range step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
   print_hex32("  sb_immediate_raw", kNegativeOffset);
   print_hex32("  sb_effective_address", kEffectiveAddress);
-  print_hex64("  gpr[27]", machine.read_cpu_gpr(kSourceIndex));
+  print_hex64("  gpr[27]", machine.inspect_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000550]", kSentinelAddress);
 
   require_step_exception_contains(
@@ -1892,10 +1892,10 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 
   std::cout << "before LB out-of-range step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
   print_hex32("  lb_immediate_raw", kNegativeOffset);
   print_hex32("  lb_effective_address", kEffectiveAddress);
-  print_hex64("  gpr[28]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
 
   require_step_exception_contains(
       machine,
@@ -1904,7 +1904,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 
   std::cout << "after LB out-of-range step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[28]", machine.read_cpu_gpr(kTargetIndex));
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
 
   if (machine.cpu_pc() != kLbAddress) {
     throw std::runtime_error("negative-offset guard demo LB changed PC on fault");
@@ -1914,7 +1914,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
     throw std::runtime_error("negative-offset guard demo LB changed next_pc on fault");
   }
 
-  if (machine.read_cpu_gpr(kTargetIndex) != 0x89abcdefu) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x89abcdefu) {
     throw std::runtime_error("negative-offset guard demo LB changed target register on fault");
   }
 }

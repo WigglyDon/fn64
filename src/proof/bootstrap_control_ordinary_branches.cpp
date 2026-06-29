@@ -60,12 +60,12 @@ void run_ordinary_branch_demo(
   std::cout << "fn64 bootstrap ordinary branch demo: " << label << '\n';
   std::cout << "before branch step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kRsIndex));
-  print_hex64("  gpr[5]", machine.read_cpu_gpr(kRtIndex));
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kRsIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kRtIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   const std::uint32_t branch_raw = branch_instruction;
 
@@ -75,10 +75,10 @@ void run_ordinary_branch_demo(
 
   std::cout << "after branch step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kDelaySlotAddress) {
     throw std::runtime_error(
@@ -92,15 +92,15 @@ void run_ordinary_branch_demo(
         std::string("ordinary branch demo scheduled the wrong next_pc: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("ordinary branch demo changed marker registers too early: ") + label);
   }
 
   const std::uint32_t expected_link = expect_link ? kLinkReturnAddress : 0u;
-  if (machine.read_cpu_gpr(kLinkIndex) != expected_link) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
     throw std::runtime_error(
         std::string("ordinary branch demo wrote the wrong link value: ") + label);
   }
@@ -109,10 +109,10 @@ void run_ordinary_branch_demo(
 
   std::cout << "after delay-slot step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   const std::uint32_t expected_post_delay_pc =
       expect_taken ? kTargetAddress : kFallthroughAddress;
@@ -129,20 +129,20 @@ void run_ordinary_branch_demo(
         std::string("ordinary branch demo preserved the wrong next_pc after the delay slot: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) !=
       static_cast<std::uint32_t>(delay_slot_marker)) {
     throw std::runtime_error(
         std::string("ordinary branch demo did not execute the delay slot: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kLinkIndex) != expected_link) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
     throw std::runtime_error(
         std::string("ordinary branch demo changed the link register after the delay slot: ") + label);
   }
 
   if (expect_taken) {
-    if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-        machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+    if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+        machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
       throw std::runtime_error(
           std::string("ordinary branch taken demo changed markers too early: ") + label);
     }
@@ -151,28 +151,28 @@ void run_ordinary_branch_demo(
 
     std::cout << "after target step:\n";
     print_control_flow_state(machine);
-    print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-    print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-    print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-    print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+    print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+    print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+    print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+    print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
     if (machine.cpu_pc() != kTakenSentinelAddress) {
       throw std::runtime_error(
           std::string("ordinary branch taken demo did not advance to the taken sentinel: ") + label);
     }
 
-    if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0) {
+    if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0) {
       throw std::runtime_error(
           std::string("ordinary branch taken demo unexpectedly executed fallthrough: ") + label);
     }
 
-    if (machine.read_cpu_gpr(kTargetMarkerIndex) !=
+    if (machine.inspect_cpu_gpr(kTargetMarkerIndex) !=
         static_cast<std::uint32_t>(target_marker)) {
       throw std::runtime_error(
           std::string("ordinary branch taken demo did not execute the target instruction: ") + label);
     }
 
-    if (machine.read_cpu_gpr(kLinkIndex) != expected_link) {
+    if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
       throw std::runtime_error(
           std::string("ordinary branch taken demo changed the link register after the target: ") + label);
     }
@@ -181,8 +181,8 @@ void run_ordinary_branch_demo(
     return;
   }
 
-  if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("ordinary branch not-taken demo changed markers too early: ") + label);
   }
@@ -191,28 +191,28 @@ void run_ordinary_branch_demo(
 
   std::cout << "after fallthrough step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   if (machine.cpu_pc() != kNotTakenSentinelAddress) {
     throw std::runtime_error(
         std::string("ordinary branch not-taken demo did not advance to the not-taken sentinel: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kFallthroughMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) !=
       static_cast<std::uint32_t>(fallthrough_marker)) {
     throw std::runtime_error(
         std::string("ordinary branch not-taken demo did not execute fallthrough: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("ordinary branch not-taken demo unexpectedly executed the target: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kLinkIndex) != expected_link) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
     throw std::runtime_error(
         std::string("ordinary branch not-taken demo changed the link register after fallthrough: ") + label);
   }
@@ -267,10 +267,10 @@ void run_aliased_register_link_branch_demo(
   std::cout << "fn64 bootstrap aliased register-link branch demo: " << label << '\n';
   std::cout << "before branch step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kAliasedSourceAndLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
   const std::uint32_t branch_raw = branch_instruction;
 
@@ -292,10 +292,10 @@ void run_aliased_register_link_branch_demo(
 
   std::cout << "after branch step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kAliasedSourceAndLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
   if (machine.cpu_pc() != kDelaySlotAddress) {
     throw std::runtime_error(
@@ -309,39 +309,39 @@ void run_aliased_register_link_branch_demo(
         std::string("aliased register-link branch demo scheduled the wrong next_pc: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo wrote the wrong link value: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kAliasedSourceAndLinkIndex) == original_aliased_source_value) {
+  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) == original_aliased_source_value) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo did not overwrite the aliased register: ") +
         label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo changed marker registers too early: ") +
         label);
   }
 
   if (expect_taken) {
-    if (machine.cpu_next_pc() == machine.read_cpu_gpr(kAliasedSourceAndLinkIndex)) {
+    if (machine.cpu_next_pc() == machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex)) {
       throw std::runtime_error(
           std::string("aliased register-link branch taken demo scheduled the post-link value instead of the original source decision: ") +
           label);
     }
   } else {
-    if (machine.cpu_next_pc() != machine.read_cpu_gpr(kAliasedSourceAndLinkIndex)) {
+    if (machine.cpu_next_pc() != machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex)) {
       throw std::runtime_error(
           std::string("aliased register-link branch not-taken demo did not preserve fallthrough/link equivalence: ") +
           label);
     }
 
-    if (kTargetAddress == machine.read_cpu_gpr(kAliasedSourceAndLinkIndex)) {
+    if (kTargetAddress == machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex)) {
       throw std::runtime_error(
           std::string("aliased register-link branch not-taken demo chose a target indistinguishable from the link value: ") +
           label);
@@ -358,10 +358,10 @@ void run_aliased_register_link_branch_demo(
 
   std::cout << "after delay-slot step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kAliasedSourceAndLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
   const std::uint32_t expected_post_delay_pc =
       expect_taken ? kTargetAddress : kFallthroughAddress;
@@ -380,21 +380,21 @@ void run_aliased_register_link_branch_demo(
         label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) !=
       static_cast<std::uint32_t>(delay_slot_marker)) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo did not execute the delay slot: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo changed gpr[31] after the delay slot: ") +
         label);
   }
 
   if (expect_taken) {
-    if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-        machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+    if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+        machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
       throw std::runtime_error(
           std::string("aliased register-link branch taken demo changed markers too early after the delay slot: ") +
           label);
@@ -404,10 +404,10 @@ void run_aliased_register_link_branch_demo(
 
     std::cout << "after target step:\n";
     print_control_flow_state(machine);
-    print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-    print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-    print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-    print_hex64("  gpr[31]", machine.read_cpu_gpr(kAliasedSourceAndLinkIndex));
+    print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+    print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+    print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+    print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
     if (machine.cpu_pc() != kTakenSentinelAddress) {
       throw std::runtime_error(
@@ -415,20 +415,20 @@ void run_aliased_register_link_branch_demo(
           label);
     }
 
-    if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0) {
+    if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0) {
       throw std::runtime_error(
           std::string("aliased register-link branch taken demo unexpectedly executed fallthrough: ") +
           label);
     }
 
-    if (machine.read_cpu_gpr(kTargetMarkerIndex) !=
+    if (machine.inspect_cpu_gpr(kTargetMarkerIndex) !=
         static_cast<std::uint32_t>(target_marker)) {
       throw std::runtime_error(
           std::string("aliased register-link branch taken demo did not execute the target instruction: ") +
           label);
     }
 
-    if (machine.read_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+    if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
       throw std::runtime_error(
           std::string("aliased register-link branch taken demo changed gpr[31] after the target: ") +
           label);
@@ -438,8 +438,8 @@ void run_aliased_register_link_branch_demo(
     return;
   }
 
-  if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("aliased register-link branch not-taken demo changed markers too early after the delay slot: ") +
         label);
@@ -449,10 +449,10 @@ void run_aliased_register_link_branch_demo(
 
   std::cout << "after fallthrough step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kAliasedSourceAndLinkIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
   if (machine.cpu_pc() != kNotTakenSentinelAddress) {
     throw std::runtime_error(
@@ -460,20 +460,20 @@ void run_aliased_register_link_branch_demo(
         label);
   }
 
-  if (machine.read_cpu_gpr(kFallthroughMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) !=
       static_cast<std::uint32_t>(fallthrough_marker)) {
     throw std::runtime_error(
         std::string("aliased register-link branch not-taken demo did not execute fallthrough: ") +
         label);
   }
 
-  if (machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("aliased register-link branch not-taken demo unexpectedly executed the target: ") +
         label);
   }
 
-  if (machine.read_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
     throw std::runtime_error(
         std::string("aliased register-link branch not-taken demo changed gpr[31] after fallthrough: ") +
         label);
@@ -530,11 +530,11 @@ void run_backward_ordinary_branch_demo(
   std::cout << "fn64 bootstrap backward ordinary branch demo: " << label << '\n';
   std::cout << "before branch step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kRsIndex));
-  print_hex64("  gpr[5]", machine.read_cpu_gpr(kRtIndex));
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kRsIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kRtIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
   const std::uint32_t branch_raw = branch_instruction;
 
@@ -544,9 +544,9 @@ void run_backward_ordinary_branch_demo(
 
   std::cout << "after branch step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
   if (machine.cpu_pc() != kDelaySlotAddress) {
     throw std::runtime_error(
@@ -558,9 +558,9 @@ void run_backward_ordinary_branch_demo(
         std::string("backward ordinary branch demo did not schedule the backward target: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo changed marker registers too early: ") + label);
   }
@@ -569,9 +569,9 @@ void run_backward_ordinary_branch_demo(
 
   std::cout << "after delay-slot step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
   if (machine.cpu_pc() != kTargetAddress) {
     throw std::runtime_error(
@@ -583,14 +583,14 @@ void run_backward_ordinary_branch_demo(
         std::string("backward ordinary branch demo did not preserve sequential next_pc at the backward target: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kDelaySlotMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kDelaySlotMarkerIndex) !=
       static_cast<std::uint32_t>(delay_slot_marker)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not execute the delay slot: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
-      machine.read_cpu_gpr(kTargetMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0 ||
+      machine.inspect_cpu_gpr(kTargetMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo changed path markers too early after the delay slot: ") + label);
   }
@@ -599,9 +599,9 @@ void run_backward_ordinary_branch_demo(
 
   std::cout << "after backward target step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kDelaySlotMarkerIndex));
-  print_hex64("  gpr[7]", machine.read_cpu_gpr(kFallthroughMarkerIndex));
-  print_hex64("  gpr[8]", machine.read_cpu_gpr(kTargetMarkerIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
   if (machine.cpu_pc() != kTargetSentinelAddress) {
     throw std::runtime_error(
@@ -613,12 +613,12 @@ void run_backward_ordinary_branch_demo(
         std::string("backward ordinary branch demo did not preserve the current pc/next_pc model after the backward target: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kFallthroughMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kFallthroughMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo unexpectedly executed fallthrough: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kTargetMarkerIndex) !=
+  if (machine.inspect_cpu_gpr(kTargetMarkerIndex) !=
       static_cast<std::uint32_t>(target_marker)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not execute the backward target instruction: ") + label);

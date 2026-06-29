@@ -30,7 +30,7 @@ void run_break_stop_demo(Machine& machine) {
 
   std::cout << "after step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[13]", machine.read_cpu_gpr(13));
+  print_hex64("  gpr[13]", machine.inspect_cpu_gpr(13));
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("break demo did not advance to BREAK");
@@ -75,15 +75,15 @@ void run_sync_noop_demo(Machine& machine) {
   std::cout << "fn64 bootstrap sync demo: explicit local no-op\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[14]", machine.read_cpu_gpr(14));
-  print_hex64("  gpr[15]", machine.read_cpu_gpr(15));
+  print_hex64("  gpr[14]", machine.inspect_cpu_gpr(14));
+  print_hex64("  gpr[15]", machine.inspect_cpu_gpr(15));
 
   require_stepped(machine.step_cpu_instruction(), "sync_demo_setup");
 
   std::cout << "after step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[14]", machine.read_cpu_gpr(14));
-  print_hex64("  gpr[15]", machine.read_cpu_gpr(15));
+  print_hex64("  gpr[14]", machine.inspect_cpu_gpr(14));
+  print_hex64("  gpr[15]", machine.inspect_cpu_gpr(15));
 
   if (machine.cpu_pc() != kSyncAddress) {
     throw std::runtime_error("sync demo did not advance to SYNC");
@@ -99,18 +99,18 @@ void run_sync_noop_demo(Machine& machine) {
 
   std::cout << "after step 2:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[14]", machine.read_cpu_gpr(14));
-  print_hex64("  gpr[15]", machine.read_cpu_gpr(15));
+  print_hex64("  gpr[14]", machine.inspect_cpu_gpr(14));
+  print_hex64("  gpr[15]", machine.inspect_cpu_gpr(15));
 
   if (machine.cpu_pc() != kAfterSyncAddress) {
     throw std::runtime_error("sync demo did not advance past executed SYNC");
   }
 
-  if (machine.read_cpu_gpr(14) != 0x00001357u) {
+  if (machine.inspect_cpu_gpr(14) != 0x00001357u) {
     throw std::runtime_error("sync demo unexpectedly changed gpr[14]");
   }
 
-  if (machine.read_cpu_gpr(15) != 0) {
+  if (machine.inspect_cpu_gpr(15) != 0) {
     throw std::runtime_error("sync demo unexpectedly changed gpr[15]");
   }
 
@@ -118,14 +118,14 @@ void run_sync_noop_demo(Machine& machine) {
 
   std::cout << "after step 3:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[14]", machine.read_cpu_gpr(14));
-  print_hex64("  gpr[15]", machine.read_cpu_gpr(15));
+  print_hex64("  gpr[14]", machine.inspect_cpu_gpr(14));
+  print_hex64("  gpr[15]", machine.inspect_cpu_gpr(15));
 
   if (machine.cpu_pc() != kBreakAddress) {
     throw std::runtime_error("sync demo did not advance to the BREAK sentinel");
   }
 
-  if (machine.read_cpu_gpr(15) != 0x00002468u) {
+  if (machine.inspect_cpu_gpr(15) != 0x00002468u) {
     throw std::runtime_error("sync demo post-SYNC instruction did not execute");
   }
 
@@ -153,15 +153,15 @@ void run_syscall_stop_demo(Machine& machine) {
   std::cout << "fn64 bootstrap syscall demo: explicit local stop\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[16]", machine.read_cpu_gpr(16));
-  print_hex64("  gpr[17]", machine.read_cpu_gpr(17));
+  print_hex64("  gpr[16]", machine.inspect_cpu_gpr(16));
+  print_hex64("  gpr[17]", machine.inspect_cpu_gpr(17));
 
   require_stepped(machine.step_cpu_instruction(), "syscall_demo_setup");
 
   std::cout << "after step 1:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[16]", machine.read_cpu_gpr(16));
-  print_hex64("  gpr[17]", machine.read_cpu_gpr(17));
+  print_hex64("  gpr[16]", machine.inspect_cpu_gpr(16));
+  print_hex64("  gpr[17]", machine.inspect_cpu_gpr(17));
 
   if (machine.cpu_pc() != kSyscallAddress) {
     throw std::runtime_error("syscall demo did not advance to SYSCALL");
@@ -177,8 +177,8 @@ void run_syscall_stop_demo(Machine& machine) {
 
   std::cout << "after stop:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[16]", machine.read_cpu_gpr(16));
-  print_hex64("  gpr[17]", machine.read_cpu_gpr(17));
+  print_hex64("  gpr[16]", machine.inspect_cpu_gpr(16));
+  print_hex64("  gpr[17]", machine.inspect_cpu_gpr(17));
 
   if (machine.cpu_pc() != kAfterSyscallAddress) {
     throw std::runtime_error("syscall demo did not advance past the executed SYSCALL");
@@ -188,11 +188,11 @@ void run_syscall_stop_demo(Machine& machine) {
     throw std::runtime_error("syscall demo did not preserve sequential next_pc after stop");
   }
 
-  if (machine.read_cpu_gpr(16) != 0x00004242u) {
+  if (machine.inspect_cpu_gpr(16) != 0x00004242u) {
     throw std::runtime_error("syscall demo unexpectedly changed gpr[16]");
   }
 
-  if (machine.read_cpu_gpr(17) != 0) {
+  if (machine.inspect_cpu_gpr(17) != 0) {
     throw std::runtime_error("syscall demo unexpectedly executed the post-SYSCALL instruction");
   }
 }
@@ -230,9 +230,9 @@ void run_special_register_trap_demo(
   std::cout << "fn64 bootstrap trap demo: " << label << '\n';
   std::cout << "before trap step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kRsIndex));
-  print_hex64("  gpr[5]", machine.read_cpu_gpr(kRtIndex));
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kRsIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kRtIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
   const std::uint32_t trap_raw = trap_instruction;
 
@@ -245,7 +245,7 @@ void run_special_register_trap_demo(
 
     std::cout << "after stop:\n";
     print_control_flow_state(machine);
-    print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+    print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
     if (machine.cpu_pc() != kAfterTrapAddress) {
       throw std::runtime_error(std::string("trap demo stop advanced to the wrong pc: ") + label);
@@ -255,7 +255,7 @@ void run_special_register_trap_demo(
       throw std::runtime_error(std::string("trap demo stop advanced to the wrong next_pc: ") + label);
     }
 
-    if (machine.read_cpu_gpr(kMarkerIndex) != 0) {
+    if (machine.inspect_cpu_gpr(kMarkerIndex) != 0) {
       throw std::runtime_error(std::string("trap demo stop unexpectedly executed fallthrough: ") + label);
     }
 
@@ -266,7 +266,7 @@ void run_special_register_trap_demo(
 
   std::cout << "after trap step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
   if (machine.cpu_pc() != kAfterTrapAddress) {
     throw std::runtime_error(std::string("trap demo did not fall through to the next instruction: ") + label);
@@ -276,7 +276,7 @@ void run_special_register_trap_demo(
     throw std::runtime_error(std::string("trap demo did not preserve sequential next_pc on fallthrough: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kMarkerIndex) != 0) {
     throw std::runtime_error(std::string("trap demo unexpectedly touched the fallthrough marker early: ") + label);
   }
 
@@ -284,13 +284,13 @@ void run_special_register_trap_demo(
 
   std::cout << "after fallthrough step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
   if (machine.cpu_pc() != kSentinelAddress) {
     throw std::runtime_error(std::string("trap demo did not execute the fallthrough instruction: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kMarkerIndex) != static_cast<std::uint32_t>(fallthrough_marker)) {
+  if (machine.inspect_cpu_gpr(kMarkerIndex) != static_cast<std::uint32_t>(fallthrough_marker)) {
     throw std::runtime_error(std::string("trap demo wrote the wrong fallthrough marker: ") + label);
   }
 
@@ -389,8 +389,8 @@ void run_regimm_immediate_trap_demo(
   std::cout << "fn64 bootstrap regimm immediate trap demo: " << label << '\n';
   std::cout << "before trap step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kRsIndex));
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kRsIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
   const std::uint32_t trap_raw = trap_instruction;
 
@@ -403,7 +403,7 @@ void run_regimm_immediate_trap_demo(
 
     std::cout << "after stop:\n";
     print_control_flow_state(machine);
-    print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+    print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
     if (machine.cpu_pc() != kAfterTrapAddress) {
       throw std::runtime_error(
@@ -415,7 +415,7 @@ void run_regimm_immediate_trap_demo(
           std::string("regimm immediate trap demo stop advanced to the wrong next_pc: ") + label);
     }
 
-    if (machine.read_cpu_gpr(kMarkerIndex) != 0) {
+    if (machine.inspect_cpu_gpr(kMarkerIndex) != 0) {
       throw std::runtime_error(
           std::string("regimm immediate trap demo stop unexpectedly executed fallthrough: ") + label);
     }
@@ -427,7 +427,7 @@ void run_regimm_immediate_trap_demo(
 
   std::cout << "after trap step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
   if (machine.cpu_pc() != kAfterTrapAddress) {
     throw std::runtime_error(
@@ -439,7 +439,7 @@ void run_regimm_immediate_trap_demo(
         std::string("regimm immediate trap demo did not preserve sequential next_pc on fallthrough: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("regimm immediate trap demo unexpectedly touched the fallthrough marker early: ") + label);
   }
@@ -448,14 +448,14 @@ void run_regimm_immediate_trap_demo(
 
   std::cout << "after fallthrough step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[6]", machine.read_cpu_gpr(kMarkerIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
   if (machine.cpu_pc() != kSentinelAddress) {
     throw std::runtime_error(
         std::string("regimm immediate trap demo did not execute the fallthrough instruction: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kMarkerIndex) != static_cast<std::uint32_t>(fallthrough_marker)) {
+  if (machine.inspect_cpu_gpr(kMarkerIndex) != static_cast<std::uint32_t>(fallthrough_marker)) {
     throw std::runtime_error(
         std::string("regimm immediate trap demo wrote the wrong fallthrough marker: ") + label);
   }

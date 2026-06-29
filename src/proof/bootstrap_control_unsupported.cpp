@@ -37,11 +37,11 @@ void run_fetch_failure_no_ghost_case(
   std::cout << "fetch failure row: " << label << '\n';
   std::cout << "before failing step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kFirstGprIndex));
-  print_hex64("  gpr[5]", machine.read_cpu_gpr(kSecondGprIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkGprIndex));
-  print_hex32("  hi", machine.cpu_hi());
-  print_hex32("  lo", machine.cpu_lo());
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kFirstGprIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kSecondGprIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkGprIndex));
+  print_hex32("  hi", machine.inspect_cpu_hi());
+  print_hex32("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000900]", kRdramSentinelAddress);
 
   bool threw = false;
@@ -64,24 +64,24 @@ void run_fetch_failure_no_ghost_case(
 
   std::cout << "after failing step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[4]", machine.read_cpu_gpr(kFirstGprIndex));
-  print_hex64("  gpr[5]", machine.read_cpu_gpr(kSecondGprIndex));
-  print_hex64("  gpr[31]", machine.read_cpu_gpr(kLinkGprIndex));
-  print_hex32("  hi", machine.cpu_hi());
-  print_hex32("  lo", machine.cpu_lo());
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kFirstGprIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kSecondGprIndex));
+  print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkGprIndex));
+  print_hex32("  hi", machine.inspect_cpu_hi());
+  print_hex32("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000900]", kRdramSentinelAddress);
 
   if (machine.cpu_pc() != failing_pc || machine.cpu_next_pc() != preserved_next_pc) {
     throw std::runtime_error(std::string(label) + " changed pc/next_pc on fetch failure");
   }
 
-  if (machine.read_cpu_gpr(kFirstGprIndex) != kFirstGprValue ||
-      machine.read_cpu_gpr(kSecondGprIndex) != kSecondGprValue ||
-      machine.read_cpu_gpr(kLinkGprIndex) != kLinkGprValue) {
+  if (machine.inspect_cpu_gpr(kFirstGprIndex) != kFirstGprValue ||
+      machine.inspect_cpu_gpr(kSecondGprIndex) != kSecondGprValue ||
+      machine.inspect_cpu_gpr(kLinkGprIndex) != kLinkGprValue) {
     throw std::runtime_error(std::string(label) + " changed GPR state on fetch failure");
   }
 
-  if (machine.cpu_hi() != kHiValue || machine.cpu_lo() != kLoValue) {
+  if (machine.inspect_cpu_hi() != kHiValue || machine.inspect_cpu_lo() != kLoValue) {
     throw std::runtime_error(std::string(label) + " changed HI/LO on fetch failure");
   }
 
@@ -140,10 +140,10 @@ void run_unsupported_identity_demo(
   std::cout << "fn64 bootstrap unsupported demo: " << label << '\n';
   std::cout << "before step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[23]", machine.read_cpu_gpr(kPreservedRegisterIndex));
-  print_hex64("  gpr[24]", machine.read_cpu_gpr(kFollowingMarkerIndex));
-  print_hex32("  hi", machine.cpu_hi());
-  print_hex32("  lo", machine.cpu_lo());
+  print_hex64("  gpr[23]", machine.inspect_cpu_gpr(kPreservedRegisterIndex));
+  print_hex64("  gpr[24]", machine.inspect_cpu_gpr(kFollowingMarkerIndex));
+  print_hex32("  hi", machine.inspect_cpu_hi());
+  print_hex32("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
   const std::uint32_t raw = unsupported_instruction;
@@ -161,10 +161,10 @@ void run_unsupported_identity_demo(
 
   std::cout << "after step:\n";
   print_control_flow_state(machine);
-  print_hex64("  gpr[23]", machine.read_cpu_gpr(kPreservedRegisterIndex));
-  print_hex64("  gpr[24]", machine.read_cpu_gpr(kFollowingMarkerIndex));
-  print_hex32("  hi", machine.cpu_hi());
-  print_hex32("  lo", machine.cpu_lo());
+  print_hex64("  gpr[23]", machine.inspect_cpu_gpr(kPreservedRegisterIndex));
+  print_hex64("  gpr[24]", machine.inspect_cpu_gpr(kFollowingMarkerIndex));
+  print_hex32("  hi", machine.inspect_cpu_hi());
+  print_hex32("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
   if (machine.cpu_pc() != preserved_pc || machine.cpu_next_pc() != preserved_next_pc) {
@@ -172,17 +172,17 @@ void run_unsupported_identity_demo(
         std::string("unsupported demo did not preserve pc/next_pc rollback: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kPreservedRegisterIndex) != kPreservedRegisterValue) {
+  if (machine.inspect_cpu_gpr(kPreservedRegisterIndex) != kPreservedRegisterValue) {
     throw std::runtime_error(
         std::string("unsupported demo changed preserved register state: ") + label);
   }
 
-  if (machine.read_cpu_gpr(kFollowingMarkerIndex) != 0) {
+  if (machine.inspect_cpu_gpr(kFollowingMarkerIndex) != 0) {
     throw std::runtime_error(
         std::string("unsupported demo leaked follow-on instruction side effects: ") + label);
   }
 
-  if (machine.cpu_hi() != kHiValue || machine.cpu_lo() != kLoValue) {
+  if (machine.inspect_cpu_hi() != kHiValue || machine.inspect_cpu_lo() != kLoValue) {
     throw std::runtime_error(
         std::string("unsupported demo changed HI/LO state: ") + label);
   }
