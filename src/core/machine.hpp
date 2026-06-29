@@ -10,9 +10,17 @@ namespace fn64 {
 
 class Machine {
 public:
+  // Public CPU execution result for fn64's current local step policy.
+  // kStopped is a local stop condition, not N64 COP0 exception delivery.
+  // kUnsupported is a non-compatibility result for unknown or unsupported
+  // instructions; proof-backed unsupported paths roll back visible step state.
+  // Local core/precondition/fault failures throw standard C++ exceptions today.
   enum class CpuInstructionStepResult {
+    // A local instruction step completed and committed current pc/next_pc movement.
     kStepped,
+    // A local stop instruction/condition completed and committed step PC movement.
     kStopped,
+    // An unknown or unsupported instruction was reported without committing a step.
     kUnsupported,
   };
 
@@ -46,6 +54,10 @@ public:
   void stage_cpu_lo(std::uint32_t value);
   void stage_cpu_gpr(std::size_t index, std::uint32_t value);
 
+  // Public CPU execution creation point. A completed step commits this
+  // Machine's current pc/next_pc movement. Thrown faults are local fn64
+  // failures, not modeled N64 exception paths; no-ghost rollback is only
+  // claimed for paths covered by the proof suite.
   CpuInstructionStepResult step_cpu_instruction();
 
 private:

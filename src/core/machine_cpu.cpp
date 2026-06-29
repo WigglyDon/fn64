@@ -1190,12 +1190,16 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   try {
     execution_result = execute_cpu_instruction(identity, instruction);
   } catch (...) {
+    // Local execution faults surface as standard C++ exceptions today; restore
+    // public control-flow state before rethrowing from the step boundary.
     cpu_pc_ = current_pc;
     cpu_next_pc_ = current_next_pc;
     throw;
   }
 
   if (execution_result == CpuInstructionExecutionResult::kUnsupported) {
+    // Unsupported/unknown instructions are reported without committing the
+    // speculative pc/next_pc movement prepared for a normal local step.
     cpu_pc_ = current_pc;
     cpu_next_pc_ = current_next_pc;
     return CpuInstructionStepResult::kUnsupported;
