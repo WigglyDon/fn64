@@ -19,8 +19,6 @@ public:
   std::size_t size_bytes() const noexcept;
 
   std::uint8_t read_u8(std::uint32_t cart_addr) const;
-  std::uint16_t read_u16_be(std::uint32_t cart_addr) const;
-  std::uint32_t read_u32_be(std::uint32_t cart_addr) const;
 
 private:
   Cartridge(

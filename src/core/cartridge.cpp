@@ -55,26 +55,6 @@ std::uint8_t Cartridge::read_u8(std::uint32_t cart_addr) const {
   return image_[offset];
 }
 
-std::uint16_t Cartridge::read_u16_be(std::uint32_t cart_addr) const {
-  require_readable_range(image_.size(), cart_addr, 2);
-  const std::size_t offset = static_cast<std::size_t>(cart_addr);
-
-  return static_cast<std::uint16_t>(
-      (static_cast<std::uint16_t>(image_[offset]) << 8) |
-      static_cast<std::uint16_t>(image_[offset + 1])
-  );
-}
-
-std::uint32_t Cartridge::read_u32_be(std::uint32_t cart_addr) const {
-  require_readable_range(image_.size(), cart_addr, 4);
-  const std::size_t offset = static_cast<std::size_t>(cart_addr);
-
-  return (static_cast<std::uint32_t>(image_[offset]) << 24) |
-         (static_cast<std::uint32_t>(image_[offset + 1]) << 16) |
-         (static_cast<std::uint32_t>(image_[offset + 2]) << 8) |
-         static_cast<std::uint32_t>(image_[offset + 3]);
-}
-
 bool load_cartridge(
     std::vector<std::uint8_t> raw_bytes,
     Cartridge& out_cartridge,

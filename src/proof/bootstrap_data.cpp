@@ -316,6 +316,81 @@ void require_rejected_synthetic_rom(
   require_empty_big_endian_cartridge(cartridge, label);
 }
 
+void run_synthetic_cartridge_read_guard_demo() {
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_rom_proof_image();
+  const std::vector<std::uint8_t> raw_bytes =
+      encode_synthetic_rom_source_layout(
+          normalized_bytes,
+          RomSourceLayout::kBigEndian);
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(raw_bytes, cartridge, error)) {
+    throw std::runtime_error(
+        "synthetic cartridge read guard demo could not load generated ROM: " + error);
+  }
+
+  std::cout
+      << "fn64 bootstrap synthetic cartridge read guard demo: read_u8 success and out-of-range guard\n";
+
+  require_synthetic_cartridge_bytes_match(
+      cartridge,
+      normalized_bytes,
+      "synthetic_cartridge_read_u8_success");
+
+  const RomSourceLayout expected_layout = cartridge.source_layout();
+  const std::size_t expected_size = cartridge.size_bytes();
+  const RomMetadata expected_metadata = cartridge.metadata();
+
+  try {
+    static_cast<void>(cartridge.read_u8(static_cast<std::uint32_t>(expected_size)));
+  } catch (const std::out_of_range& e) {
+    std::cout << "  synthetic_cartridge_read_u8_out_of_range rejected: "
+              << e.what() << '\n';
+
+    if (std::string(e.what()).find("cartridge read out of range") ==
+        std::string::npos) {
+      throw std::runtime_error(
+          "synthetic cartridge read_u8 guard returned unexpected error");
+    }
+
+    if (cartridge.source_layout() != expected_layout ||
+        cartridge.size_bytes() != expected_size) {
+      throw std::runtime_error(
+          "synthetic cartridge read_u8 guard changed layout or size");
+    }
+
+    const RomMetadata& metadata = cartridge.metadata();
+    if (metadata.header_magic != expected_metadata.header_magic ||
+        metadata.clock_rate != expected_metadata.clock_rate ||
+        metadata.entry_point != expected_metadata.entry_point ||
+        metadata.release_address != expected_metadata.release_address ||
+        metadata.crc1 != expected_metadata.crc1 ||
+        metadata.crc2 != expected_metadata.crc2 ||
+        metadata.image_name != expected_metadata.image_name ||
+        metadata.cartridge_id != expected_metadata.cartridge_id ||
+        metadata.country_code != expected_metadata.country_code ||
+        metadata.revision != expected_metadata.revision) {
+      throw std::runtime_error(
+          "synthetic cartridge read_u8 guard changed metadata");
+    }
+
+    require_synthetic_cartridge_bytes_match(
+        cartridge,
+        normalized_bytes,
+        "synthetic_cartridge_read_u8_guard_preserved_bytes");
+    return;
+  } catch (const std::exception& e) {
+    throw std::runtime_error(
+        std::string("synthetic cartridge read_u8 guard threw unexpected type: ") +
+        e.what());
+  }
+
+  throw std::runtime_error(
+      "synthetic cartridge read_u8 guard did not reject size offset");
+}
+
 void require_step_runtime_error_contains(
     Machine& machine,
     const char* label,
@@ -2474,6 +2549,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 
 void run_data_demos(Machine& machine) {
   run_synthetic_rom_normalization_rejection_demo();
+  run_synthetic_cartridge_read_guard_demo();
   run_cartridge_staging_demo();
   run_cartridge_staging_preflight_demo();
   run_public_machine_stage_inspect_guard_demo();
