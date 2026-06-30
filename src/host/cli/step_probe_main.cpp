@@ -3,6 +3,7 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -83,6 +84,16 @@ constexpr std::uint32_t encode_break() {
   return 0x0000000du;
 }
 
+void write_u32_be(
+    std::vector<std::uint8_t>& bytes,
+    std::size_t offset,
+    std::uint32_t value) {
+  bytes[offset] = static_cast<std::uint8_t>((value >> 24) & 0xff);
+  bytes[offset + 1] = static_cast<std::uint8_t>((value >> 16) & 0xff);
+  bytes[offset + 2] = static_cast<std::uint8_t>((value >> 8) & 0xff);
+  bytes[offset + 3] = static_cast<std::uint8_t>(value & 0xff);
+}
+
 std::vector<std::uint8_t> make_synthetic_cartridge_bytes() {
   std::vector<std::uint8_t> bytes(0x40, 0);
   bytes[0x00] = 0x80;
@@ -100,6 +111,26 @@ std::vector<std::uint8_t> make_synthetic_cartridge_bytes() {
   }
 
   return bytes;
+}
+
+std::vector<std::uint8_t> make_synthetic_cartridge_program_bytes(
+    std::uint32_t first_instruction,
+    std::uint32_t second_instruction,
+    std::uint32_t program_cartridge_offset) {
+  std::vector<std::uint8_t> bytes = make_synthetic_cartridge_bytes();
+  bytes.resize(program_cartridge_offset + 8u, 0);
+  write_u32_be(bytes, program_cartridge_offset, first_instruction);
+  write_u32_be(bytes, program_cartridge_offset + 4u, second_instruction);
+  return bytes;
+}
+
+std::uint32_t read_cartridge_u32_be(
+    const fn64::Cartridge& cartridge,
+    std::uint32_t offset) {
+  return (static_cast<std::uint32_t>(cartridge.read_u8(offset)) << 24) |
+         (static_cast<std::uint32_t>(cartridge.read_u8(offset + 1u)) << 16) |
+         (static_cast<std::uint32_t>(cartridge.read_u8(offset + 2u)) << 8) |
+         static_cast<std::uint32_t>(cartridge.read_u8(offset + 3u));
 }
 
 const char* step_result_name(fn64::Machine::CpuInstructionStepResult result) {
@@ -167,6 +198,122 @@ void print_usage() {
   std::cerr << "usage: fn64_step_probe\n";
 }
 
+void run_synthetic_cartridge_staged_program() {
+  constexpr std::uint32_t kCpuRdramAliasBase = 0x80000000u;
+  constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
+  constexpr std::uint32_t kProgramRdramOffset = 0x00000000u;
+  constexpr std::uint32_t kProgramByteCount = 8u;
+  constexpr std::uint32_t kOriCpuAddress = kCpuRdramAliasBase + kProgramRdramOffset;
+  constexpr std::uint32_t kBreakCpuAddress = kCpuRdramAliasBase + 0x00000004u;
+  constexpr std::uint32_t kAfterBreakPc = kCpuRdramAliasBase + 0x00000008u;
+  constexpr std::uint32_t kAfterBreakNextPc = kCpuRdramAliasBase + 0x0000000cu;
+  constexpr std::uint8_t kTargetRegister = 9;
+  constexpr std::uint16_t kImmediate = 0x5a5au;
+
+  const std::uint32_t ori_instruction =
+      encode_ori(kTargetRegister, 0, kImmediate);
+  const std::uint32_t break_instruction = encode_break();
+
+  fn64::Cartridge cartridge;
+  std::string error;
+  if (!fn64::load_cartridge(
+          make_synthetic_cartridge_program_bytes(
+              ori_instruction,
+              break_instruction,
+              kProgramCartridgeOffset),
+          cartridge,
+          error)) {
+    throw std::runtime_error(
+        "could not create synthetic staged-program cartridge: " + error);
+  }
+
+  auto machine = std::make_unique<fn64::Machine>(std::move(cartridge));
+
+  std::cout
+      << "\nscenario 2: synthetic cartridge bytes staged into Machine RDRAM\n"
+      << "  cartridge source layout: "
+      << fn64::rom_source_layout_name(machine->cartridge().source_layout()) << '\n'
+      << "  cartridge size: " << machine->cartridge().size_bytes() << " bytes\n"
+      << "  program cartridge offset: " << hex_u32(kProgramCartridgeOffset) << '\n'
+      << "  program physical RDRAM offset: " << hex_u32(kProgramRdramOffset) << '\n'
+      << "  fetch CPU alias pc: " << hex_u32(kOriCpuAddress) << '\n'
+      << "  cartridge word[0x00000040]: "
+      << hex_u32(read_cartridge_u32_be(machine->cartridge(), kProgramCartridgeOffset)) << '\n'
+      << "  cartridge word[0x00000044]: "
+      << hex_u32(read_cartridge_u32_be(machine->cartridge(), kProgramCartridgeOffset + 4u))
+      << '\n';
+
+  machine->stage_cartridge_bytes_to_rdram(
+      kProgramCartridgeOffset,
+      kProgramRdramOffset,
+      kProgramByteCount);
+  machine->stage_cpu_pc(kOriCpuAddress);
+
+  std::cout
+      << "  staged rdram[0x00000000]: "
+      << hex_u32(machine->inspect_rdram_u32_be(kProgramRdramOffset)) << '\n'
+      << "  staged rdram[0x00000004]: "
+      << hex_u32(machine->inspect_rdram_u32_be(kProgramRdramOffset + 4u)) << '\n';
+
+  require_equal(
+      "cartridge staged ORI word",
+      machine->inspect_rdram_u32_be(kProgramRdramOffset),
+      ori_instruction);
+  require_equal(
+      "cartridge staged BREAK word",
+      machine->inspect_rdram_u32_be(kProgramRdramOffset + 4u),
+      break_instruction);
+
+  print_machine_state("before cartridge-staged step 1", *machine);
+  print_fetch_view(
+      "cartridge-staged step 1 fetch view",
+      *machine,
+      kProgramRdramOffset);
+
+  const fn64::Machine::CpuInstructionStepResult first_result =
+      machine->step_cpu_instruction();
+  std::cout
+      << "cartridge-staged step 1 result: "
+      << step_result_name(first_result) << '\n'
+      << "  gpr[9]: " << hex_u32(machine->inspect_cpu_gpr(kTargetRegister)) << '\n';
+
+  require_step_result(
+      "cartridge-staged step 1",
+      first_result,
+      fn64::Machine::CpuInstructionStepResult::kStepped);
+  require_equal("cartridge-staged step 1 pc", machine->cpu_pc(), kBreakCpuAddress);
+  require_equal(
+      "cartridge-staged step 1 gpr[9]",
+      machine->inspect_cpu_gpr(kTargetRegister),
+      kImmediate);
+
+  print_fetch_view(
+      "cartridge-staged step 2 fetch view",
+      *machine,
+      kProgramRdramOffset + 4u);
+
+  const fn64::Machine::CpuInstructionStepResult second_result =
+      machine->step_cpu_instruction();
+  std::cout
+      << "cartridge-staged step 2 result: "
+      << step_result_name(second_result) << '\n'
+      << "  gpr[9]: " << hex_u32(machine->inspect_cpu_gpr(kTargetRegister)) << '\n';
+
+  require_step_result(
+      "cartridge-staged step 2",
+      second_result,
+      fn64::Machine::CpuInstructionStepResult::kStopped);
+  require_equal("cartridge-staged step 2 pc", machine->cpu_pc(), kAfterBreakPc);
+  require_equal(
+      "cartridge-staged step 2 next pc",
+      machine->cpu_next_pc(),
+      kAfterBreakNextPc);
+  require_equal(
+      "cartridge-staged step 2 gpr[9]",
+      machine->inspect_cpu_gpr(kTargetRegister),
+      kImmediate);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -182,7 +329,8 @@ int main(int argc, char** argv) {
         << "fn64 synthetic no-window Machine step probe\n"
         << "  no ROM path loaded\n"
         << "  synthetic cartridge bytes generated in memory only\n"
-        << "  no cartridge bytes staged\n"
+        << "  scenario 1 stages synthetic instructions directly into RDRAM\n"
+        << "  scenario 2 explicitly stages synthetic cartridge bytes into RDRAM\n"
         << "  no cartridge execution mapping\n"
         << "  no boot/PIF/BIOS behavior\n"
         << "  no SDL/window runtime\n";
@@ -255,7 +403,8 @@ int main(int argc, char** argv) {
     machine.stage_rdram_u32_be(kWordDataRdramOffset, kInitialWordDataWord);
 
     std::cout
-        << "\nstaged synthetic RDRAM instructions and CPU aliases\n"
+        << "\nscenario 1: direct synthetic RDRAM instructions and CPU aliases\n"
+        << "  no cartridge bytes staged in this scenario\n"
         << "  fetch CPU alias base: " << hex_u32(kCpuRdramAliasBase) << '\n'
         << "  word data CPU address: " << hex_u32(kWordDataCpuAddress) << '\n'
         << "  word data RDRAM offset staged/inspected: "
@@ -494,6 +643,8 @@ int main(int argc, char** argv) {
         << "final word data rdram[0x00000104]: "
         << hex_u32(machine.inspect_rdram_u32_be(kWordDataRdramOffset)) << '\n'
         << "final lbu gpr[8]: " << hex_u32(machine.inspect_cpu_gpr(8)) << '\n';
+
+    run_synthetic_cartridge_staged_program();
 
     std::cout << "\nprobe result: PASS\n";
     return 0;
