@@ -8,6 +8,23 @@
 namespace fn64::bootstrap_detail {
 namespace {
 
+void require_signed_overflow_fault(
+    const MachineFault& fault,
+    const char* label,
+    const char* expected_operation) {
+  if (fault.kind() != MachineFaultKind::kSignedArithmeticOverflow) {
+    throw std::runtime_error(std::string(label) + " threw unexpected MachineFault kind");
+  }
+
+  if (fault.operation() != expected_operation) {
+    throw std::runtime_error(std::string(label) + " threw unexpected MachineFault operation");
+  }
+
+  if (fault.access_size() != 0) {
+    throw std::runtime_error(std::string(label) + " threw unexpected MachineFault access size");
+  }
+}
+
 void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   constexpr std::size_t kAddiSourceIndex = 4;
   constexpr std::size_t kAddiResultIndex = 5;
@@ -189,8 +206,9 @@ void run_add_positive_overflow_demo(Machine& machine) {
 
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& exception) {
-    std::cout << "  exception = " << exception.what() << '\n';
+  } catch (const MachineFault& fault) {
+    std::cout << "  exception = " << fault.what() << '\n';
+    require_signed_overflow_fault(fault, "add positive overflow demo", "ADD");
     std::cout << "after failing step:\n";
     print_control_flow_state(machine);
     print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kResultIndex));
@@ -248,8 +266,9 @@ void run_sub_negative_overflow_demo(Machine& machine) {
 
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& exception) {
-    std::cout << "  exception = " << exception.what() << '\n';
+  } catch (const MachineFault& fault) {
+    std::cout << "  exception = " << fault.what() << '\n';
+    require_signed_overflow_fault(fault, "sub negative overflow demo", "SUB");
     std::cout << "after failing step:\n";
     print_control_flow_state(machine);
     print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kResultIndex));
@@ -302,8 +321,9 @@ void run_addi_positive_overflow_demo(Machine& machine) {
 
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& exception) {
-    std::cout << "  exception = " << exception.what() << '\n';
+  } catch (const MachineFault& fault) {
+    std::cout << "  exception = " << fault.what() << '\n';
+    require_signed_overflow_fault(fault, "addi positive overflow demo", "ADDI");
     std::cout << "after failing step:\n";
     print_control_flow_state(machine);
     print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kResultIndex));
@@ -356,8 +376,9 @@ void run_addi_negative_overflow_demo(Machine& machine) {
 
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& exception) {
-    std::cout << "  exception = " << exception.what() << '\n';
+  } catch (const MachineFault& fault) {
+    std::cout << "  exception = " << fault.what() << '\n';
+    require_signed_overflow_fault(fault, "addi negative overflow demo", "ADDI");
     std::cout << "after failing step:\n";
     print_control_flow_state(machine);
     print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kResultIndex));

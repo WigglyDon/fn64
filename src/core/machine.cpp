@@ -70,6 +70,34 @@ void require_stage_span_inside_buffer(
 
 }  // namespace
 
+MachineFault::MachineFault(
+    MachineFaultKind kind,
+    std::string operation,
+    std::uint32_t cpu_address,
+    std::size_t access_size,
+    std::string message)
+    : std::runtime_error(std::move(message)),
+      kind_(kind),
+      operation_(std::move(operation)),
+      cpu_address_(cpu_address),
+      access_size_(access_size) {}
+
+MachineFaultKind MachineFault::kind() const noexcept {
+  return kind_;
+}
+
+const std::string& MachineFault::operation() const noexcept {
+  return operation_;
+}
+
+std::uint32_t MachineFault::cpu_address() const noexcept {
+  return cpu_address_;
+}
+
+std::size_t MachineFault::access_size() const noexcept {
+  return access_size_;
+}
+
 Machine::Machine(Cartridge cartridge)
     : cartridge_(std::move(cartridge)) {
   reset_to_blank_rdram_power_on_state();

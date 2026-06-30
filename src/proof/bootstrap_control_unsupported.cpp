@@ -13,7 +13,8 @@ void run_fetch_failure_no_ghost_case(
     const char* label,
     std::uint32_t failing_pc,
     std::uint32_t preserved_next_pc,
-    const char* expected_error_text) {
+    MachineFaultKind expected_kind,
+    std::size_t expected_access_size) {
   constexpr std::size_t kFirstGprIndex = 4;
   constexpr std::size_t kSecondGprIndex = 5;
   constexpr std::size_t kLinkGprIndex = 31;
@@ -45,21 +46,24 @@ void run_fetch_failure_no_ghost_case(
   print_rdram_word(machine, "  rdram[0x00000900]", kRdramSentinelAddress);
 
   bool threw = false;
-  std::string error_text;
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& error) {
+  } catch (const MachineFault& error) {
     threw = true;
-    error_text = error.what();
-    std::cout << "  " << label << " threw: " << error_text << '\n';
+    std::cout << "  " << label << " threw: " << error.what() << '\n';
+    if (error.kind() != expected_kind) {
+      throw std::runtime_error(std::string(label) + " threw unexpected MachineFault kind");
+    }
+    if (error.access_size() != expected_access_size) {
+      throw std::runtime_error(std::string(label) + " threw unexpected MachineFault access size");
+    }
+  } catch (const std::exception& error) {
+    throw std::runtime_error(
+        std::string(label) + " threw unexpected exception type: " + error.what());
   }
 
   if (!threw) {
     throw std::runtime_error(std::string(label) + " expected step_cpu_instruction to throw");
-  }
-
-  if (error_text.find(expected_error_text) == std::string::npos) {
-    throw std::runtime_error(std::string(label) + " threw unexpected text");
   }
 
   std::cout << "after failing step:\n";
@@ -99,14 +103,16 @@ void run_fetch_failure_no_ghost_demo(Machine& machine) {
       "misaligned_pc_fetch",
       0x00000902u,
       0x00000980u,
-      "Unaligned CPU instruction fetch at PC");
+      MachineFaultKind::kUnalignedInstructionFetch,
+      4);
 
   run_fetch_failure_no_ghost_case(
       machine,
       "out_of_window_pc_fetch",
       0x00400000u,
       0x00000990u,
-      "CPU instruction fetch");
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
 }
 
 void run_unsupported_identity_demo(

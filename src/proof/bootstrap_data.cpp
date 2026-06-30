@@ -580,44 +580,37 @@ void run_machine_construction_isolation_demo() {
       "machine_b_cartridge_after_machine_a_staging");
 }
 
-void require_step_runtime_error_contains(
-    Machine& machine,
+void require_machine_fault(
+    const MachineFault& fault,
     const char* label,
-    const char* expected_substring) {
-  try {
-    static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::runtime_error& e) {
-    std::cout << "  " << label << " threw: " << e.what() << '\n';
-
-    if (std::string(e.what()).find(expected_substring) == std::string::npos) {
-      throw std::runtime_error(
-          std::string(label) + " threw unexpected runtime_error text");
-    }
-
-    return;
+    MachineFaultKind expected_kind,
+    std::size_t expected_access_size) {
+  if (fault.kind() != expected_kind) {
+    throw std::runtime_error(std::string(label) + " threw unexpected MachineFault kind");
   }
 
-  throw std::runtime_error(std::string(label) + " did not throw runtime_error");
+  if (fault.access_size() != expected_access_size) {
+    throw std::runtime_error(std::string(label) + " threw unexpected MachineFault access size");
+  }
 }
 
-void require_step_exception_contains(
+void require_step_machine_fault(
     Machine& machine,
     const char* label,
-    const char* expected_substring) {
+    MachineFaultKind expected_kind,
+    std::size_t expected_access_size) {
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& e) {
-    std::cout << "  " << label << " threw: " << e.what() << '\n';
-
-    if (std::string(e.what()).find(expected_substring) == std::string::npos) {
-      throw std::runtime_error(
-          std::string(label) + " threw unexpected exception text");
-    }
-
+  } catch (const MachineFault& fault) {
+    std::cout << "  " << label << " threw: " << fault.what() << '\n';
+    require_machine_fault(fault, label, expected_kind, expected_access_size);
     return;
+  } catch (const std::exception& e) {
+    throw std::runtime_error(
+        std::string(label) + " threw unexpected exception type: " + e.what());
   }
 
-  throw std::runtime_error(std::string(label) + " did not throw exception");
+  throw std::runtime_error(std::string(label) + " did not throw MachineFault");
 }
 
 void require_stage_exception_contains(
@@ -923,8 +916,13 @@ void run_low_cpu_fetch_rejection_case(Machine& machine) {
 
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& exception) {
-    std::cout << "    rejected: " << exception.what() << '\n';
+  } catch (const MachineFault& fault) {
+    std::cout << "    rejected: " << fault.what() << '\n';
+    require_machine_fault(
+        fault,
+        "low_cpu_fetch_rejected",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
     if (machine.cpu_pc() != kLowCpuPc ||
         machine.cpu_next_pc() != kLowCpuNextPc ||
         machine.inspect_cpu_gpr(8) != 0 ||
@@ -932,6 +930,10 @@ void run_low_cpu_fetch_rejection_case(Machine& machine) {
       throw std::runtime_error("low CPU fetch rejection changed visible machine state");
     }
     return;
+  } catch (const std::exception& exception) {
+    throw std::runtime_error(
+        std::string("low CPU fetch rejection threw unexpected exception type: ") +
+        exception.what());
   }
 
   throw std::runtime_error("low CPU fetch unexpectedly executed");
@@ -961,8 +963,13 @@ void run_low_cpu_data_load_rejection_case(Machine& machine) {
 
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& exception) {
-    std::cout << "    rejected: " << exception.what() << '\n';
+  } catch (const MachineFault& fault) {
+    std::cout << "    rejected: " << fault.what() << '\n';
+    require_machine_fault(
+        fault,
+        "low_cpu_lw_data_address_rejected",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
     if (machine.cpu_pc() != kLwCpuAddress ||
         machine.cpu_next_pc() != kLwCpuAddress + 4u ||
         machine.inspect_cpu_gpr(kTargetIndex) != 0 ||
@@ -970,6 +977,10 @@ void run_low_cpu_data_load_rejection_case(Machine& machine) {
       throw std::runtime_error("low CPU LW data rejection changed visible machine state");
     }
     return;
+  } catch (const std::exception& exception) {
+    throw std::runtime_error(
+        std::string("low CPU LW data rejection threw unexpected exception type: ") +
+        exception.what());
   }
 
   throw std::runtime_error("low CPU LW data address unexpectedly loaded");
@@ -1000,14 +1011,23 @@ void run_low_cpu_data_store_rejection_case(Machine& machine) {
 
   try {
     static_cast<void>(machine.step_cpu_instruction());
-  } catch (const std::exception& exception) {
-    std::cout << "    rejected: " << exception.what() << '\n';
+  } catch (const MachineFault& fault) {
+    std::cout << "    rejected: " << fault.what() << '\n';
+    require_machine_fault(
+        fault,
+        "low_cpu_sw_data_address_rejected",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
     if (machine.cpu_pc() != kSwCpuAddress ||
         machine.cpu_next_pc() != kSwCpuAddress + 4u ||
         machine.inspect_rdram_u32_be(kLowDataCpuAddress) != kInitialDataWord) {
       throw std::runtime_error("low CPU SW data rejection changed visible machine state");
     }
     return;
+  } catch (const std::exception& exception) {
+    throw std::runtime_error(
+        std::string("low CPU SW data rejection threw unexpected exception type: ") +
+        exception.what());
   }
 
   throw std::runtime_error("low CPU SW data address unexpectedly stored");
@@ -1904,10 +1924,11 @@ void run_word_alignment_guard_demo(Machine& machine) {
   print_hex32("  sw_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x00000470]", kDataBaseAddress);
 
-  require_step_runtime_error_contains(
+  require_step_machine_fault(
       machine,
       "word_alignment_demo_sw",
-      "requires naturally aligned word address");
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      4);
 
   std::cout << "after SW misaligned step:\n";
   print_control_flow_state(machine);
@@ -1935,10 +1956,11 @@ void run_word_alignment_guard_demo(Machine& machine) {
   print_hex32("  lw_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x00000470]", kDataBaseAddress);
 
-  require_step_runtime_error_contains(
+  require_step_machine_fault(
       machine,
       "word_alignment_demo_lw",
-      "requires naturally aligned word address");
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      4);
 
   std::cout << "after LW misaligned step:\n";
   print_control_flow_state(machine);
@@ -2191,10 +2213,11 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
   print_hex32("  sh_effective_address", kMisalignedAddress);
   print_rdram_word(machine, "  rdram[0x000004d0]", kDataBaseAddress);
 
-  require_step_runtime_error_contains(
+  require_step_machine_fault(
       machine,
       "halfword_alignment_demo_sh",
-      "requires naturally aligned halfword address");
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      2);
 
   std::cout << "after SH misaligned step:\n";
   print_control_flow_state(machine);
@@ -2221,10 +2244,11 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
   print_hex64("  gpr[17]", machine.inspect_cpu_gpr(kSignedTargetIndex));
   print_hex32("  lh_effective_address", kMisalignedAddress);
 
-  require_step_runtime_error_contains(
+  require_step_machine_fault(
       machine,
       "halfword_alignment_demo_lh",
-      "requires naturally aligned halfword address");
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      2);
 
   std::cout << "after LH misaligned step:\n";
   print_control_flow_state(machine);
@@ -2251,10 +2275,11 @@ void run_halfword_alignment_guard_demo(Machine& machine) {
   print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
   print_hex32("  lhu_effective_address", kMisalignedAddress);
 
-  require_step_runtime_error_contains(
+  require_step_machine_fault(
       machine,
       "halfword_alignment_demo_lhu",
-      "requires naturally aligned halfword address");
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      2);
 
   std::cout << "after LHU misaligned step:\n";
   print_control_flow_state(machine);
@@ -2585,10 +2610,11 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
   print_hex64("  gpr[30]", machine.inspect_cpu_gpr(kTargetIndex));
   print_hex32("  lwl_effective_address", kInvalidKseg1Address);
 
-  require_step_exception_contains(
+  require_step_machine_fault(
       machine,
       "failed_partial_load_demo_lwl",
-      "RDRAM access out of range");
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
 
   std::cout << "after LWL out-of-window step:\n";
   print_control_flow_state(machine);
@@ -2615,10 +2641,11 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
   print_hex64("  gpr[30]", machine.inspect_cpu_gpr(kTargetIndex));
   print_hex32("  lwr_effective_address", kInvalidKseg1Address);
 
-  require_step_exception_contains(
+  require_step_machine_fault(
       machine,
       "failed_partial_load_demo_lwr",
-      "RDRAM access out of range");
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
 
   std::cout << "after LWR out-of-window step:\n";
   print_control_flow_state(machine);
@@ -2679,10 +2706,11 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
   print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
 
-  require_step_exception_contains(
+  require_step_machine_fault(
       machine,
       "failed_partial_store_demo_swl",
-      "RDRAM access out of range");
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
 
   std::cout << "after SWL out-of-window step:\n";
   print_control_flow_state(machine);
@@ -2712,10 +2740,11 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   print_rdram_word(machine, "  rdram[0x00000570]", kLowSentinelAddress);
   print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
 
-  require_step_exception_contains(
+  require_step_machine_fault(
       machine,
       "failed_partial_store_demo_swr",
-      "RDRAM access out of range");
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
 
   std::cout << "after SWR out-of-window step:\n";
   print_control_flow_state(machine);
@@ -2778,10 +2807,11 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
   print_hex64("  gpr[27]", machine.inspect_cpu_gpr(kSourceIndex));
   print_rdram_word(machine, "  rdram[0x00000550]", kSentinelAddress);
 
-  require_step_exception_contains(
+  require_step_machine_fault(
       machine,
       "negative_out_of_range_demo_sb",
-      "RDRAM access out of range");
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
 
   std::cout << "after SB out-of-range step:\n";
   print_control_flow_state(machine);
@@ -2809,10 +2839,11 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
   print_hex32("  lb_effective_address", kEffectiveAddress);
   print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
 
-  require_step_exception_contains(
+  require_step_machine_fault(
       machine,
       "negative_out_of_range_demo_lb",
-      "RDRAM access out of range");
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
 
   std::cout << "after LB out-of-range step:\n";
   print_control_flow_state(machine);

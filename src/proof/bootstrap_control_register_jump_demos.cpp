@@ -8,6 +8,18 @@
 namespace fn64::bootstrap_detail {
 namespace {
 
+void require_control_transfer_fault(
+    const MachineFault& fault,
+    const char* label) {
+  if (fault.kind() != MachineFaultKind::kUnalignedControlTransferTarget) {
+    throw std::runtime_error(std::string(label) + " threw unexpected MachineFault kind");
+  }
+
+  if (fault.access_size() != 4) {
+    throw std::runtime_error(std::string(label) + " threw unexpected MachineFault access size");
+  }
+}
+
 void run_jr_misaligned_target_demo(Machine& machine) {
   constexpr std::size_t kTargetRegisterIndex = 16;
   constexpr std::size_t kDelaySlotMarkerIndex = 17;
@@ -45,8 +57,9 @@ void run_jr_misaligned_target_demo(Machine& machine) {
   try {
     static_cast<void>(machine.step_cpu_instruction());
     throw std::runtime_error("jr misaligned demo expected step_cpu_instruction to throw");
-  } catch (const std::runtime_error& error) {
+  } catch (const MachineFault& error) {
     std::cout << "  jr_misaligned_step threw: " << error.what() << '\n';
+    require_control_transfer_fault(error, "jr_misaligned_step");
   }
 
   std::cout << "after failing step:\n";
@@ -114,8 +127,9 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
   try {
     static_cast<void>(machine.step_cpu_instruction());
     throw std::runtime_error("jalr rd == rs misaligned demo expected step_cpu_instruction to throw");
-  } catch (const std::runtime_error& error) {
+  } catch (const MachineFault& error) {
     std::cout << "  jalr_rd_equals_rs_misaligned_step threw: " << error.what() << '\n';
+    require_control_transfer_fault(error, "jalr_rd_equals_rs_misaligned_step");
   }
 
   std::cout << "after failing step:\n";
@@ -189,14 +203,9 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
   try {
     static_cast<void>(machine.step_cpu_instruction());
     throw std::runtime_error("jalr rd = 31 misaligned demo expected step_cpu_instruction to throw");
-  } catch (const std::runtime_error& error) {
+  } catch (const MachineFault& error) {
     std::cout << "  jalr_rd31_misaligned_step threw: " << error.what() << '\n';
-
-    if (std::string(error.what()).find(
-            "JALR requires naturally aligned control-transfer target") ==
-        std::string::npos) {
-      throw std::runtime_error("jalr rd = 31 misaligned demo threw unexpected text");
-    }
+    require_control_transfer_fault(error, "jalr_rd31_misaligned_step");
   }
 
   std::cout << "after failing step:\n";
@@ -643,8 +652,9 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
   try {
     static_cast<void>(machine.step_cpu_instruction());
     throw std::runtime_error("jalr misaligned demo expected step_cpu_instruction to throw");
-  } catch (const std::runtime_error& error) {
+  } catch (const MachineFault& error) {
     std::cout << "  jalr_misaligned_step threw: " << error.what() << '\n';
+    require_control_transfer_fault(error, "jalr_misaligned_step");
   }
 
   std::cout << "after failing step:\n";

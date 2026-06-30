@@ -3,10 +3,41 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 
 #include "cartridge.hpp"
 
 namespace fn64 {
+
+enum class MachineFaultKind {
+  kCpuRdramAddressRejected,
+  kUnalignedInstructionFetch,
+  kUnalignedCpuMemoryAccess,
+  kUnalignedControlTransferTarget,
+  kSignedArithmeticOverflow,
+};
+
+class MachineFault : public std::runtime_error {
+public:
+  MachineFault(
+      MachineFaultKind kind,
+      std::string operation,
+      std::uint32_t cpu_address,
+      std::size_t access_size,
+      std::string message);
+
+  MachineFaultKind kind() const noexcept;
+  const std::string& operation() const noexcept;
+  std::uint32_t cpu_address() const noexcept;
+  std::size_t access_size() const noexcept;
+
+private:
+  MachineFaultKind kind_;
+  std::string operation_;
+  std::uint32_t cpu_address_;
+  std::size_t access_size_;
+};
 
 class Machine {
 public:
@@ -14,7 +45,8 @@ public:
   // kStopped is a local stop condition, not N64 COP0 exception delivery.
   // kUnsupported is a non-compatibility result for unknown or unsupported
   // instructions; proof-backed unsupported paths roll back visible step state.
-  // Local core/precondition/fault failures throw standard C++ exceptions today.
+  // Local Machine step faults throw MachineFault; unrelated public API
+  // precondition failures may still use standard C++ exceptions.
   enum class CpuInstructionStepResult {
     // A local instruction step completed and committed current pc/next_pc movement.
     kStepped,
@@ -55,9 +87,9 @@ public:
   void stage_cpu_gpr(std::size_t index, std::uint32_t value);
 
   // Public CPU execution creation point. A completed step commits this
-  // Machine's current pc/next_pc movement. Thrown faults are local fn64
-  // failures, not modeled N64 exception paths; no-ghost rollback is only
-  // claimed for paths covered by the proof suite.
+  // Machine's current pc/next_pc movement. Thrown MachineFault values are
+  // local fn64 step faults, not modeled N64 exception paths; no-ghost rollback
+  // is only claimed for paths covered by the proof suite.
   CpuInstructionStepResult step_cpu_instruction();
 
 private:

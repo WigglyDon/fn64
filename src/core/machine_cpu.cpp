@@ -11,11 +11,15 @@ namespace {
     const char* operation,
     std::uint32_t cpu_address,
     std::size_t width) {
-  throw std::out_of_range(
+  throw MachineFault(
+      MachineFaultKind::kCpuRdramAddressRejected,
+      operation,
+      cpu_address,
+      width,
       std::string("RDRAM access out of range through CPU address: operation=") +
-      operation +
-      " address=" + std::to_string(cpu_address) +
-      " width=" + std::to_string(width));
+          operation +
+          " address=" + std::to_string(cpu_address) +
+          " width=" + std::to_string(width));
 }
 
 [[noreturn]] void fail_cpu_gpr_index(std::size_t index) {
@@ -23,34 +27,60 @@ namespace {
 }
 
 [[noreturn]] void fail_unaligned_instruction_fetch(std::uint32_t pc) {
-  throw std::runtime_error("Unaligned CPU instruction fetch at PC " + std::to_string(pc));
+  throw MachineFault(
+      MachineFaultKind::kUnalignedInstructionFetch,
+      "CPU instruction fetch",
+      pc,
+      4,
+      "Unaligned CPU instruction fetch at PC " + std::to_string(pc));
 }
 
 [[noreturn]] void fail_unaligned_halfword_memory_access(
     const char* operation,
     std::uint32_t address) {
-  throw std::runtime_error(
+  throw MachineFault(
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      operation,
+      address,
+      2,
       std::string(operation) +
-      " requires naturally aligned halfword address: " +
-      std::to_string(address));
+          " requires naturally aligned halfword address: " +
+          std::to_string(address));
 }
 
 [[noreturn]] void fail_unaligned_word_memory_access(
     const char* operation,
     std::uint32_t address) {
-  throw std::runtime_error(
+  throw MachineFault(
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      operation,
+      address,
+      4,
       std::string(operation) +
-      " requires naturally aligned word address: " +
-      std::to_string(address));
+          " requires naturally aligned word address: " +
+          std::to_string(address));
 }
 
 [[noreturn]] void fail_unaligned_control_transfer_target(
     const char* operation,
     std::uint32_t address) {
-  throw std::runtime_error(
+  throw MachineFault(
+      MachineFaultKind::kUnalignedControlTransferTarget,
+      operation,
+      address,
+      4,
       std::string(operation) +
-      " requires naturally aligned control-transfer target: " +
-      std::to_string(address));
+          " requires naturally aligned control-transfer target: " +
+          std::to_string(address));
+}
+
+[[noreturn]] void fail_signed_arithmetic_overflow(const char* operation) {
+  throw MachineFault(
+      MachineFaultKind::kSignedArithmeticOverflow,
+      operation,
+      0,
+      0,
+      std::string(operation) + " overflow");
 }
 
 std::uint8_t variable_shift_amount_u32(std::uint32_t value) {
@@ -842,7 +872,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::int64_t value = lhs + rhs;
 
       if (signed_i32_result_out_of_range(value)) {
-        throw std::runtime_error("ADD overflow");
+        fail_signed_arithmetic_overflow("ADD");
       }
 
       write_cpu_gpr(instruction.rd, u32_bits_from_i32_value(value));
@@ -864,7 +894,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::int64_t value = lhs - rhs;
 
       if (signed_i32_result_out_of_range(value)) {
-        throw std::runtime_error("SUB overflow");
+        fail_signed_arithmetic_overflow("SUB");
       }
 
       write_cpu_gpr(instruction.rd, u32_bits_from_i32_value(value));
@@ -928,7 +958,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::int64_t value = lhs + rhs;
 
       if (signed_i32_result_out_of_range(value)) {
-        throw std::runtime_error("ADDI overflow");
+        fail_signed_arithmetic_overflow("ADDI");
       }
 
       write_cpu_gpr(instruction.rt, u32_bits_from_i32_value(value));
@@ -1190,8 +1220,8 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   try {
     execution_result = execute_cpu_instruction(identity, instruction);
   } catch (...) {
-    // Local execution faults surface as standard C++ exceptions today; restore
-    // public control-flow state before rethrowing from the step boundary.
+    // Restore public control-flow state before rethrowing a local Machine
+    // fault or any other execution-time failure from the step boundary.
     cpu_pc_ = current_pc;
     cpu_next_pc_ = current_next_pc;
     throw;
