@@ -1207,6 +1207,16 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 }
 
 Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
+  // Step cadence: fetch uses the current pc. Ordinary execution commits
+  // pc = old next_pc and next_pc = old next_pc + 4. Control-flow execution
+  // runs while old pc is still current and writes the pending next_pc target,
+  // so the next step fetches the delay slot and the following step fetches the
+  // target. A not-taken branch-likely annuls the delay slot by committing
+  // pc = old next_pc + 4. Unsupported identities and execution-time faults
+  // restore old pc/next_pc; fetch faults happen before speculative mutation.
+  // kStopped uses the same committed pc/next_pc cadence as an executed
+  // instruction. Link instructions write during execute, with register-target
+  // links reading the target before any link writeback.
   const std::uint32_t current_pc = cpu_pc_;
   const std::uint32_t current_next_pc = cpu_next_pc_;
 
