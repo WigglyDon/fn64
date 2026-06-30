@@ -20,8 +20,8 @@ void run_jr_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74a1u);
 
-  machine.stage_cpu_pc(kJrAddress);
-  machine.stage_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kJrAddress));
+  machine.stage_cpu_gpr(kTargetRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(31, 0);
 
@@ -59,7 +59,8 @@ void run_jr_misaligned_target_demo(Machine& machine) {
     throw std::runtime_error("jr misaligned demo did not preserve pc/next_pc rollback");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetRegisterIndex) != kMisalignedTargetAddress) {
+  if (machine.inspect_cpu_gpr(kTargetRegisterIndex) !=
+      cpu_rdram_alias(kMisalignedTargetAddress)) {
     throw std::runtime_error("jr misaligned demo changed the target register");
   }
 
@@ -88,8 +89,8 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74c1u);
 
-  machine.stage_cpu_pc(kJalrAddress);
-  machine.stage_cpu_gpr(kAliasedRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kJalrAddress));
+  machine.stage_cpu_gpr(kAliasedRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
@@ -127,11 +128,13 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
     throw std::runtime_error("jalr rd == rs misaligned demo did not preserve pc/next_pc rollback");
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) != kMisalignedTargetAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) !=
+      cpu_rdram_alias(kMisalignedTargetAddress)) {
     throw std::runtime_error("jalr rd == rs misaligned demo changed the aliased target register");
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) == kExpectedLinkValue) {
+  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) ==
+      cpu_rdram_alias(kExpectedLinkValue)) {
     throw std::runtime_error("jalr rd == rs misaligned demo leaked the speculative link value");
   }
 
@@ -161,8 +164,8 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74d1u);
 
-  machine.stage_cpu_pc(kJalrAddress);
-  machine.stage_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kJalrAddress));
+  machine.stage_cpu_gpr(kTargetRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, kInitialLinkValue);
 
@@ -206,7 +209,8 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
     throw std::runtime_error("jalr rd = 31 misaligned demo did not preserve pc/next_pc rollback");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetRegisterIndex) != kMisalignedTargetAddress) {
+  if (machine.inspect_cpu_gpr(kTargetRegisterIndex) !=
+      cpu_rdram_alias(kMisalignedTargetAddress)) {
     throw std::runtime_error("jalr rd = 31 misaligned demo changed the target register");
   }
 
@@ -218,7 +222,7 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
     throw std::runtime_error("jalr rd = 31 misaligned demo changed the link register");
   }
 
-  if (machine.inspect_cpu_gpr(kLinkIndex) == kExpectedLinkValue) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) == cpu_rdram_alias(kExpectedLinkValue)) {
     throw std::runtime_error("jalr rd = 31 misaligned demo leaked the speculative link value");
   }
 }
@@ -235,8 +239,7 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
   constexpr std::uint32_t kTargetAddress = 0x000000d0u;
   constexpr std::uint32_t kSentinelAddress = 0x000000d4u;
 
-  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(
-      static_cast<std::uint8_t>(kAliasedRegisterIndex), 0, 0x00d0u);
+  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(0, 0, 0);
   constexpr std::uint32_t kJalrInstruction = encode_jalr(
       static_cast<std::uint8_t>(kAliasedRegisterIndex),
       static_cast<std::uint8_t>(kAliasedRegisterIndex));
@@ -246,8 +249,8 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, 0xd1a2u);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kLoadTargetAddress);
-  machine.stage_cpu_gpr(kAliasedRegisterIndex, 0);
+  machine.stage_cpu_pc(cpu_rdram_alias(kLoadTargetAddress));
+  machine.stage_cpu_gpr(kAliasedRegisterIndex, cpu_rdram_alias(kTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
 
@@ -259,7 +262,7 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
   machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jalr demo 4: rd == rs reads target before link overwrite\n";
-  std::cout << "  load_target_raw = 0x"
+  std::cout << "  prelude_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << kLoadTargetInstruction
             << std::dec << std::setfill(' ') << '\n';
   std::cout << "  jalr_raw = 0x"
@@ -272,13 +275,14 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
   print_hex64("  gpr[15]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
-  require_stepped(machine.step_cpu_instruction(), "jalr_demo4_load_target");
+  require_stepped(machine.step_cpu_instruction(), "jalr_demo4_prelude");
 
   std::cout << "after step 1:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kAliasedRegisterIndex));
 
-  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) != kTargetAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) !=
+      cpu_rdram_alias(kTargetAddress)) {
     throw std::runtime_error("jalr demo 4 failed to seed the aliased target register");
   }
 
@@ -294,15 +298,16 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
   print_hex64("  gpr[15]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
-  if (machine.cpu_pc() != kDelaySlotAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kDelaySlotAddress)) {
     throw std::runtime_error("jalr demo 4 did not move into the delay slot");
   }
 
-  if (machine.cpu_next_pc() != kTargetAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kTargetAddress)) {
     throw std::runtime_error("jalr demo 4 did not schedule the original register target");
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) !=
+      cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error("jalr demo 4 did not overwrite the aliased register with the link value");
   }
 
@@ -324,12 +329,12 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
   print_hex64("  gpr[15]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
-  if (machine.cpu_pc() != kTargetAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kTargetAddress)) {
     throw std::runtime_error(
         "jalr demo 4 delay slot did not hand off to the original register target");
   }
 
-  if (machine.cpu_next_pc() != kSentinelAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error("jalr demo 4 did not preserve sequential next_pc at the target");
   }
 
@@ -338,7 +343,8 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
         "jalr demo 4 handed off to the post-link register value instead of the original target");
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) !=
+      cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error("jalr demo 4 changed the aliased register after the delay slot");
   }
 
@@ -358,11 +364,12 @@ void run_jalr_rd_equals_rs_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.inspect_cpu_gpr(kDelaySlotMarkerIndex));
   print_hex64("  gpr[15]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
-  if (machine.cpu_pc() != kSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error("jalr demo 4 ended at the wrong sentinel");
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedRegisterIndex) !=
+      cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error("jalr demo 4 changed the aliased register after the target");
   }
 
@@ -381,14 +388,14 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   constexpr std::uint32_t kTargetAddress = 0x00000010u;
   constexpr std::uint32_t kSentinelAddress = 0x00000014u;
 
-  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(4, 0, 0x0010);
+  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(0, 0, 0);
   constexpr std::uint32_t kJalrInstruction = encode_jalr(7, 4);
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(5, 0, 0x5555);
   constexpr std::uint32_t kTargetInstruction = encode_ori(6, 0, 0x6666);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kLoadTargetAddress);
-  machine.stage_cpu_gpr(4, 0);
+  machine.stage_cpu_pc(cpu_rdram_alias(kLoadTargetAddress));
+  machine.stage_cpu_gpr(4, cpu_rdram_alias(kTargetAddress));
   machine.stage_cpu_gpr(5, 0);
   machine.stage_cpu_gpr(6, 0);
   machine.stage_cpu_gpr(7, 0);
@@ -402,7 +409,7 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   machine.stage_rdram_u32_be(kSentinelAddress, kBreakInstruction);
 
   std::cout << "fn64 bootstrap jalr demo 1: encoded rd link register\n";
-  std::cout << "  ori_target_raw = 0x"
+  std::cout << "  prelude_raw = 0x"
             << std::hex << std::setw(8) << std::setfill('0') << kLoadTargetInstruction
             << std::dec << std::setfill(' ') << '\n';
   std::cout << "  jalr_raw = 0x"
@@ -418,7 +425,7 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   print_hex64("  gpr[7]", machine.inspect_cpu_gpr(7));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(31));
 
-  require_stepped(machine.step_cpu_instruction(), "jalr_demo1_load_target");
+  require_stepped(machine.step_cpu_instruction(), "jalr_demo1_prelude");
   std::cout << "after step 1:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(4));
@@ -429,15 +436,15 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   print_hex64("  gpr[7]", machine.inspect_cpu_gpr(7));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(31));
 
-  if (machine.cpu_pc() != kDelaySlotAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kDelaySlotAddress)) {
     throw std::runtime_error("jalr demo 1 did not move into the delay slot");
   }
 
-  if (machine.cpu_next_pc() != kTargetAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kTargetAddress)) {
     throw std::runtime_error("jalr demo 1 did not schedule the register target");
   }
 
-  if (machine.inspect_cpu_gpr(7) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(7) != cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error("jalr demo 1 wrote the wrong link address");
   }
 
@@ -450,7 +457,7 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[5]", machine.inspect_cpu_gpr(5));
 
-  if (machine.cpu_pc() != kTargetAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kTargetAddress)) {
     throw std::runtime_error("jalr demo 1 delay slot did not hand off to the target");
   }
 
@@ -463,7 +470,7 @@ void run_jalr_encoded_rd_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(6));
 
-  if (machine.cpu_pc() != kSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error("jalr demo 1 ended at the wrong sentinel");
   }
 
@@ -482,14 +489,14 @@ void run_jalr_rd31_demo(Machine& machine) {
   constexpr std::uint32_t kTargetAddress = 0x00000050u;
   constexpr std::uint32_t kSentinelAddress = 0x00000054u;
 
-  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(4, 0, 0x0050);
+  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(0, 0, 0);
   constexpr std::uint32_t kJalrInstruction = encode_jalr(31, 4);
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(8, 0, 0x8888);
   constexpr std::uint32_t kTargetInstruction = encode_ori(9, 0, 0x9999);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kLoadTargetAddress);
-  machine.stage_cpu_gpr(4, 0);
+  machine.stage_cpu_pc(cpu_rdram_alias(kLoadTargetAddress));
+  machine.stage_cpu_gpr(4, cpu_rdram_alias(kTargetAddress));
   machine.stage_cpu_gpr(8, 0);
   machine.stage_cpu_gpr(9, 0);
   machine.stage_cpu_gpr(31, 0);
@@ -506,7 +513,7 @@ void run_jalr_rd31_demo(Machine& machine) {
             << std::hex << std::setw(8) << std::setfill('0') << kJalrInstruction
             << std::dec << std::setfill(' ') << '\n';
 
-  require_stepped(machine.step_cpu_instruction(), "jalr_demo2_load_target");
+  require_stepped(machine.step_cpu_instruction(), "jalr_demo2_prelude");
   require_stepped(machine.step_cpu_instruction(), "jalr_demo2_issue_jalr");
   require_stepped(machine.step_cpu_instruction(), "jalr_demo2_delay_slot");
   require_stepped(machine.step_cpu_instruction(), "jalr_demo2_target");
@@ -516,11 +523,11 @@ void run_jalr_rd31_demo(Machine& machine) {
   print_hex64("  gpr[9]", machine.inspect_cpu_gpr(9));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(31));
 
-  if (machine.cpu_pc() != kSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error("jalr demo 2 ended at the wrong sentinel");
   }
 
-  if (machine.inspect_cpu_gpr(31) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(31) != cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error("jalr demo 2 wrote the wrong return address into gpr[31]");
   }
 
@@ -542,14 +549,14 @@ void run_jalr_rd0_demo(Machine& machine) {
   constexpr std::uint32_t kTargetAddress = 0x00000090u;
   constexpr std::uint32_t kSentinelAddress = 0x00000094u;
 
-  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(10, 0, 0x0090);
+  constexpr std::uint32_t kLoadTargetInstruction = encode_ori(0, 0, 0);
   constexpr std::uint32_t kJalrInstruction = encode_jalr(0, 10);
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(11, 0, 0xabcd);
   constexpr std::uint32_t kTargetInstruction = encode_ori(12, 0, 0xdcba);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kLoadTargetAddress);
-  machine.stage_cpu_gpr(10, 0);
+  machine.stage_cpu_pc(cpu_rdram_alias(kLoadTargetAddress));
+  machine.stage_cpu_gpr(10, cpu_rdram_alias(kTargetAddress));
   machine.stage_cpu_gpr(11, 0);
   machine.stage_cpu_gpr(12, 0);
 
@@ -565,7 +572,7 @@ void run_jalr_rd0_demo(Machine& machine) {
             << std::hex << std::setw(8) << std::setfill('0') << kJalrInstruction
             << std::dec << std::setfill(' ') << '\n';
 
-  require_stepped(machine.step_cpu_instruction(), "jalr_demo3_load_target");
+  require_stepped(machine.step_cpu_instruction(), "jalr_demo3_prelude");
   require_stepped(machine.step_cpu_instruction(), "jalr_demo3_issue_jalr");
   require_stepped(machine.step_cpu_instruction(), "jalr_demo3_delay_slot");
   require_stepped(machine.step_cpu_instruction(), "jalr_demo3_target");
@@ -575,7 +582,7 @@ void run_jalr_rd0_demo(Machine& machine) {
   print_hex64("  gpr[11]", machine.inspect_cpu_gpr(11));
   print_hex64("  gpr[12]", machine.inspect_cpu_gpr(12));
 
-  if (machine.cpu_pc() != kSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error("jalr demo 3 ended at the wrong sentinel");
   }
 
@@ -609,8 +616,8 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
   constexpr std::uint32_t kDelaySlotInstruction = encode_ori(
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74b1u);
 
-  machine.stage_cpu_pc(kJalrAddress);
-  machine.stage_cpu_gpr(kTargetRegisterIndex, kMisalignedTargetAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kJalrAddress));
+  machine.stage_cpu_gpr(kTargetRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, 0);
   machine.stage_cpu_gpr(31, 0);
@@ -651,7 +658,8 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
     throw std::runtime_error("jalr misaligned demo did not preserve pc/next_pc rollback");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetRegisterIndex) != kMisalignedTargetAddress) {
+  if (machine.inspect_cpu_gpr(kTargetRegisterIndex) !=
+      cpu_rdram_alias(kMisalignedTargetAddress)) {
     throw std::runtime_error("jalr misaligned demo changed the target register");
   }
 
@@ -663,7 +671,7 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
     throw std::runtime_error("jalr misaligned demo leaked the link write through rollback");
   }
 
-  if (machine.inspect_cpu_gpr(kLinkIndex) == kExpectedLinkValue) {
+  if (machine.inspect_cpu_gpr(kLinkIndex) == cpu_rdram_alias(kExpectedLinkValue)) {
     throw std::runtime_error("jalr misaligned demo preserved the speculative link value");
   }
 

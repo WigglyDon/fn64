@@ -7,6 +7,22 @@
 
 namespace fn64::bootstrap_detail {
 
+constexpr std::uint32_t kSyntheticKseg0RdramBase = 0x80000000u;
+constexpr std::uint32_t kSyntheticKseg1RdramBase = 0xa0000000u;
+constexpr std::uint32_t kSyntheticDirectSegmentOffsetMask = 0x1fffffffu;
+
+constexpr std::uint32_t cpu_rdram_alias(std::uint32_t rdram_offset) {
+  return kSyntheticKseg0RdramBase + rdram_offset;
+}
+
+constexpr std::uint32_t cpu_rdram_uncached_alias(std::uint32_t rdram_offset) {
+  return kSyntheticKseg1RdramBase + rdram_offset;
+}
+
+constexpr std::uint32_t rdram_offset_from_cpu_address(std::uint32_t cpu_address) {
+  return cpu_address & kSyntheticDirectSegmentOffsetMask;
+}
+
 constexpr std::uint32_t encode_i_type(
     std::uint8_t opcode,
     std::uint8_t rs,

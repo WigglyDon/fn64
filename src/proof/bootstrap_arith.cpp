@@ -43,7 +43,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
       0xffffu);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kAddiAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kAddiAddress));
   machine.stage_cpu_gpr(kAddiSourceIndex, 0x00000001u);
   machine.stage_cpu_gpr(kAddiResultIndex, 0u);
   machine.stage_cpu_gpr(kAddiuSourceIndex, 0x00000010u);
@@ -83,7 +83,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kAddiResultIndex));
 
-  if (machine.cpu_pc() != kAddiuAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAddiuAddress)) {
     throw std::runtime_error("reg-immediate demo did not advance from ADDI to ADDIU");
   }
 
@@ -101,7 +101,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kAddiuResultIndex));
 
-  if (machine.cpu_pc() != kSltiAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSltiAddress)) {
     throw std::runtime_error("reg-immediate demo did not advance from ADDIU to SLTI");
   }
 
@@ -119,7 +119,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kSltiResultIndex));
 
-  if (machine.cpu_pc() != kSltiuAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSltiuAddress)) {
     throw std::runtime_error("reg-immediate demo did not advance from SLTI to SLTIU");
   }
 
@@ -137,7 +137,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kSltiuResultIndex));
 
-  if (machine.cpu_pc() != kBreakAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
     throw std::runtime_error("reg-immediate demo did not advance from SLTIU to BREAK");
   }
 
@@ -150,7 +150,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   std::cout << "after stop:\n";
   print_control_flow_state(machine);
 
-  if (machine.cpu_pc() != kAfterBreakAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
     throw std::runtime_error("reg-immediate demo did not advance past executed BREAK");
   }
 }
@@ -169,7 +169,7 @@ void run_add_positive_overflow_demo(Machine& machine) {
       0,
       0x20);
 
-  machine.stage_cpu_pc(kAddAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kAddAddress));
   machine.stage_cpu_gpr(kLhsIndex, 0x7fffffffu);
   machine.stage_cpu_gpr(kRhsIndex, 0x00000001u);
   machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
@@ -195,11 +195,11 @@ void run_add_positive_overflow_demo(Machine& machine) {
     print_control_flow_state(machine);
     print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kResultIndex));
 
-    if (machine.cpu_pc() != kAddAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kAddAddress)) {
       throw std::runtime_error("add positive overflow demo did not restore pc after throw");
     }
 
-    if (machine.cpu_next_pc() != kAfterAddAddress) {
+    if (machine.cpu_next_pc() != cpu_rdram_alias(kAfterAddAddress)) {
       throw std::runtime_error("add positive overflow demo did not restore next_pc after throw");
     }
 
@@ -228,7 +228,7 @@ void run_sub_negative_overflow_demo(Machine& machine) {
       0,
       0x22);
 
-  machine.stage_cpu_pc(kSubAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kSubAddress));
   machine.stage_cpu_gpr(kLhsIndex, 0x80000000u);
   machine.stage_cpu_gpr(kRhsIndex, 0x00000001u);
   machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
@@ -254,11 +254,11 @@ void run_sub_negative_overflow_demo(Machine& machine) {
     print_control_flow_state(machine);
     print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kResultIndex));
 
-    if (machine.cpu_pc() != kSubAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kSubAddress)) {
       throw std::runtime_error("sub negative overflow demo did not restore pc after throw");
     }
 
-    if (machine.cpu_next_pc() != kAfterSubAddress) {
+    if (machine.cpu_next_pc() != cpu_rdram_alias(kAfterSubAddress)) {
       throw std::runtime_error("sub negative overflow demo did not restore next_pc after throw");
     }
 
@@ -284,7 +284,7 @@ void run_addi_positive_overflow_demo(Machine& machine) {
       static_cast<std::uint8_t>(kSourceIndex),
       0x0001u);
 
-  machine.stage_cpu_pc(kAddiAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kAddiAddress));
   machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
   machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
 
@@ -308,11 +308,11 @@ void run_addi_positive_overflow_demo(Machine& machine) {
     print_control_flow_state(machine);
     print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kResultIndex));
 
-    if (machine.cpu_pc() != kAddiAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kAddiAddress)) {
       throw std::runtime_error("addi positive overflow demo did not restore pc after throw");
     }
 
-    if (machine.cpu_next_pc() != kAfterAddiAddress) {
+    if (machine.cpu_next_pc() != cpu_rdram_alias(kAfterAddiAddress)) {
       throw std::runtime_error("addi positive overflow demo did not restore next_pc after throw");
     }
 
@@ -338,7 +338,7 @@ void run_addi_negative_overflow_demo(Machine& machine) {
       static_cast<std::uint8_t>(kSourceIndex),
       0xffffu);
 
-  machine.stage_cpu_pc(kAddiAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kAddiAddress));
   machine.stage_cpu_gpr(kSourceIndex, 0x80000000u);
   machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
 
@@ -362,11 +362,11 @@ void run_addi_negative_overflow_demo(Machine& machine) {
     print_control_flow_state(machine);
     print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kResultIndex));
 
-    if (machine.cpu_pc() != kAddiAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kAddiAddress)) {
       throw std::runtime_error("addi negative overflow demo did not restore pc after throw");
     }
 
-    if (machine.cpu_next_pc() != kAfterAddiAddress) {
+    if (machine.cpu_next_pc() != cpu_rdram_alias(kAfterAddiAddress)) {
       throw std::runtime_error("addi negative overflow demo did not restore next_pc after throw");
     }
 
@@ -428,7 +428,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
       static_cast<std::uint8_t>(kOneIndex));
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kLuiAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kLuiAddress));
   machine.stage_cpu_gpr(kValueIndex, 0);
   machine.stage_cpu_gpr(kAndResultIndex, 0);
   machine.stage_cpu_gpr(kXorResultIndex, 0);
@@ -466,7 +466,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kValueIndex));
 
-  if (machine.cpu_pc() != kOriAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kOriAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance from LUI to ORI");
   }
 
@@ -484,7 +484,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kValueIndex));
 
-  if (machine.cpu_pc() != kAndiAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAndiAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance from ORI to ANDI");
   }
 
@@ -502,7 +502,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kAndResultIndex));
 
-  if (machine.cpu_pc() != kXoriAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kXoriAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance from ANDI to XORI");
   }
 
@@ -520,7 +520,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kXorResultIndex));
 
-  if (machine.cpu_pc() != kMaxLuiAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kMaxLuiAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance from XORI to second LUI");
   }
 
@@ -538,7 +538,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[10]", machine.inspect_cpu_gpr(kMaxIndex));
 
-  if (machine.cpu_pc() != kMaxOriAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kMaxOriAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance from second LUI to second ORI");
   }
 
@@ -556,7 +556,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[10]", machine.inspect_cpu_gpr(kMaxIndex));
 
-  if (machine.cpu_pc() != kOneOriAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kOneOriAddress)) {
     throw std::runtime_error(
         "logic/immediate demo did not advance from second ORI to one-building ORI");
   }
@@ -575,7 +575,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kOneIndex));
 
-  if (machine.cpu_pc() != kSltuAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSltuAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance from one-building ORI to SLTU");
   }
 
@@ -595,7 +595,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kOneIndex));
   print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kCompareResultIndex));
 
-  if (machine.cpu_pc() != kBreakAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance from SLTU to BREAK");
   }
 
@@ -608,7 +608,7 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
   std::cout << "after stop:\n";
   print_control_flow_state(machine);
 
-  if (machine.cpu_pc() != kAfterBreakAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance past executed BREAK");
   }
 }
@@ -625,8 +625,8 @@ void run_cpu_local_single_ori_step_demo(Machine& machine) {
       kSourceIndex,
       0x00ffu);
 
-  machine.stage_cpu_pc(kPc);
-  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_pc(cpu_rdram_alias(kPc));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
   machine.stage_cpu_gpr(kSourceIndex, kSourceValue);
   machine.stage_cpu_gpr(kZeroIndex, 0xffffffffu);
   machine.stage_rdram_u32_be(kPc, kInstruction);
@@ -647,11 +647,11 @@ void run_cpu_local_single_ori_step_demo(Machine& machine) {
   print_hex64("  gpr[0]", machine.inspect_cpu_gpr(kZeroIndex));
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kSourceIndex));
 
-  if (machine.cpu_pc() != kNextPc) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kNextPc)) {
     throw std::runtime_error("CPU step demo did not advance pc after ORI");
   }
 
-  if (machine.cpu_next_pc() != kNextPc + 4u) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kNextPc + 4u)) {
     throw std::runtime_error("CPU step demo did not advance next_pc after ORI");
   }
 
@@ -676,8 +676,8 @@ void run_cpu_local_addiu_aliased_source_target_step_demo(Machine& machine) {
       kAliasedIndex,
       0xffffu);
 
-  machine.stage_cpu_pc(kPc);
-  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_pc(cpu_rdram_alias(kPc));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
   machine.stage_cpu_gpr(kAliasedIndex, kOriginalValue);
   machine.stage_rdram_u32_be(kPc, kInstruction);
 
@@ -696,11 +696,11 @@ void run_cpu_local_addiu_aliased_source_target_step_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kAliasedIndex));
 
-  if (machine.cpu_pc() != kNextPc) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kNextPc)) {
     throw std::runtime_error("CPU step aliased ADDIU demo did not advance pc");
   }
 
-  if (machine.cpu_next_pc() != kNextPc + 4u) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kNextPc + 4u)) {
     throw std::runtime_error(
         "CPU step aliased ADDIU demo did not advance next_pc");
   }
@@ -723,8 +723,8 @@ void run_cpu_local_sltiu_aliased_source_target_step_demo(Machine& machine) {
       kAliasedIndex,
       0x0001u);
 
-  machine.stage_cpu_pc(kPc);
-  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_pc(cpu_rdram_alias(kPc));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
   machine.stage_cpu_gpr(kAliasedIndex, kOriginalValue);
   machine.stage_rdram_u32_be(kPc, kInstruction);
 
@@ -743,11 +743,11 @@ void run_cpu_local_sltiu_aliased_source_target_step_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kAliasedIndex));
 
-  if (machine.cpu_pc() != kNextPc) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kNextPc)) {
     throw std::runtime_error("CPU step aliased SLTIU demo did not advance pc");
   }
 
-  if (machine.cpu_next_pc() != kNextPc + 4u) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kNextPc + 4u)) {
     throw std::runtime_error(
         "CPU step aliased SLTIU demo did not advance next_pc");
   }
@@ -763,7 +763,7 @@ void step_hilo_instruction(
     std::uint32_t instruction,
     const char* label) {
   const std::uint32_t instruction_address = machine.cpu_pc();
-  machine.stage_rdram_u32_be(instruction_address, instruction);
+  machine.stage_rdram_u32_be(rdram_offset_from_cpu_address(instruction_address), instruction);
 
   const std::uint32_t raw = instruction;
 
@@ -799,8 +799,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   constexpr std::uint32_t kDivuZeroHi = 0x0badc0deu;
   constexpr std::uint32_t kDivuZeroLo = 0x00c0ffeeu;
 
-  machine.stage_cpu_pc(kPc);
-  machine.stage_cpu_next_pc(kNextPc);
+  machine.stage_cpu_pc(cpu_rdram_alias(kPc));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
   machine.stage_cpu_gpr(kHiSourceIndex, kMthiValue);
   machine.stage_cpu_gpr(kLoSourceIndex, kMtloValue);
   machine.stage_cpu_gpr(kHiReadIndex, 0);
@@ -938,11 +938,11 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   constexpr std::uint32_t kExpectedFinalPc = kPc + (kSteppedInstructionCount * 4u);
   constexpr std::uint32_t kExpectedFinalNextPc = kExpectedFinalPc + 4u;
 
-  if (machine.cpu_pc() != kExpectedFinalPc) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kExpectedFinalPc)) {
     throw std::runtime_error("HI/LO demo did not advance pc through the step sequence");
   }
 
-  if (machine.cpu_next_pc() != kExpectedFinalNextPc) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kExpectedFinalNextPc)) {
     throw std::runtime_error("HI/LO demo did not advance next_pc through the step sequence");
   }
 }

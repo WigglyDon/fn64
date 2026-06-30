@@ -127,7 +127,7 @@ void run_unsupported_identity_demo(
   const std::uint32_t kFollowingInstruction = encode_ori(
       static_cast<std::uint8_t>(kFollowingMarkerIndex), 0, following_marker);
 
-  machine.stage_cpu_pc(unsupported_address);
+  machine.stage_cpu_pc(cpu_rdram_alias(unsupported_address));
   machine.stage_cpu_gpr(kPreservedRegisterIndex, kPreservedRegisterValue);
   machine.stage_cpu_gpr(kFollowingMarkerIndex, 0);
   machine.stage_cpu_hi(kHiValue);

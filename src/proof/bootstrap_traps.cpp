@@ -16,7 +16,7 @@ void run_break_stop_demo(Machine& machine) {
   constexpr std::uint32_t kSetupInstruction = encode_ori(13, 0, 0x1234);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kSetupAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kSetupAddress));
   machine.stage_cpu_gpr(13, 0);
 
   machine.stage_rdram_u32_be(kSetupAddress, kSetupInstruction);
@@ -32,7 +32,7 @@ void run_break_stop_demo(Machine& machine) {
   print_control_flow_state(machine);
   print_hex64("  gpr[13]", machine.inspect_cpu_gpr(13));
 
-  if (machine.cpu_pc() != kBreakAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
     throw std::runtime_error("break demo did not advance to BREAK");
   }
 
@@ -47,7 +47,7 @@ void run_break_stop_demo(Machine& machine) {
   std::cout << "after stop:\n";
   print_control_flow_state(machine);
 
-  if (machine.cpu_pc() != kAfterBreakAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
     throw std::runtime_error("break demo did not advance past the executed BREAK");
   }
 }
@@ -63,7 +63,7 @@ void run_sync_noop_demo(Machine& machine) {
   constexpr std::uint32_t kAfterSyncInstruction = encode_ori(15, 0, 0x2468);
   constexpr std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kSetupAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kSetupAddress));
   machine.stage_cpu_gpr(14, 0);
   machine.stage_cpu_gpr(15, 0);
 
@@ -85,7 +85,7 @@ void run_sync_noop_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.inspect_cpu_gpr(14));
   print_hex64("  gpr[15]", machine.inspect_cpu_gpr(15));
 
-  if (machine.cpu_pc() != kSyncAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSyncAddress)) {
     throw std::runtime_error("sync demo did not advance to SYNC");
   }
 
@@ -102,7 +102,7 @@ void run_sync_noop_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.inspect_cpu_gpr(14));
   print_hex64("  gpr[15]", machine.inspect_cpu_gpr(15));
 
-  if (machine.cpu_pc() != kAfterSyncAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterSyncAddress)) {
     throw std::runtime_error("sync demo did not advance past executed SYNC");
   }
 
@@ -121,7 +121,7 @@ void run_sync_noop_demo(Machine& machine) {
   print_hex64("  gpr[14]", machine.inspect_cpu_gpr(14));
   print_hex64("  gpr[15]", machine.inspect_cpu_gpr(15));
 
-  if (machine.cpu_pc() != kBreakAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
     throw std::runtime_error("sync demo did not advance to the BREAK sentinel");
   }
 
@@ -142,7 +142,7 @@ void run_syscall_stop_demo(Machine& machine) {
   constexpr std::uint32_t kSyscallInstruction = encode_syscall();
   constexpr std::uint32_t kAfterSyscallInstruction = encode_ori(17, 0, 0x7171);
 
-  machine.stage_cpu_pc(kSetupAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kSetupAddress));
   machine.stage_cpu_gpr(16, 0);
   machine.stage_cpu_gpr(17, 0);
 
@@ -163,7 +163,7 @@ void run_syscall_stop_demo(Machine& machine) {
   print_hex64("  gpr[16]", machine.inspect_cpu_gpr(16));
   print_hex64("  gpr[17]", machine.inspect_cpu_gpr(17));
 
-  if (machine.cpu_pc() != kSyscallAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSyscallAddress)) {
     throw std::runtime_error("syscall demo did not advance to SYSCALL");
   }
 
@@ -180,11 +180,11 @@ void run_syscall_stop_demo(Machine& machine) {
   print_hex64("  gpr[16]", machine.inspect_cpu_gpr(16));
   print_hex64("  gpr[17]", machine.inspect_cpu_gpr(17));
 
-  if (machine.cpu_pc() != kAfterSyscallAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterSyscallAddress)) {
     throw std::runtime_error("syscall demo did not advance past the executed SYSCALL");
   }
 
-  if (machine.cpu_next_pc() != kAfterAfterSyscallAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kAfterAfterSyscallAddress)) {
     throw std::runtime_error("syscall demo did not preserve sequential next_pc after stop");
   }
 
@@ -218,7 +218,7 @@ void run_special_register_trap_demo(
       static_cast<std::uint8_t>(kMarkerIndex), 0, fallthrough_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kTrapAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kTrapAddress));
   machine.stage_cpu_gpr(kRsIndex, rs_value);
   machine.stage_cpu_gpr(kRtIndex, rt_value);
   machine.stage_cpu_gpr(kMarkerIndex, 0);
@@ -247,11 +247,11 @@ void run_special_register_trap_demo(
     print_control_flow_state(machine);
     print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
-    if (machine.cpu_pc() != kAfterTrapAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kAfterTrapAddress)) {
       throw std::runtime_error(std::string("trap demo stop advanced to the wrong pc: ") + label);
     }
 
-    if (machine.cpu_next_pc() != kSentinelAddress) {
+    if (machine.cpu_next_pc() != cpu_rdram_alias(kSentinelAddress)) {
       throw std::runtime_error(std::string("trap demo stop advanced to the wrong next_pc: ") + label);
     }
 
@@ -268,11 +268,11 @@ void run_special_register_trap_demo(
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
-  if (machine.cpu_pc() != kAfterTrapAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterTrapAddress)) {
     throw std::runtime_error(std::string("trap demo did not fall through to the next instruction: ") + label);
   }
 
-  if (machine.cpu_next_pc() != kSentinelAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error(std::string("trap demo did not preserve sequential next_pc on fallthrough: ") + label);
   }
 
@@ -286,7 +286,7 @@ void run_special_register_trap_demo(
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
-  if (machine.cpu_pc() != kSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error(std::string("trap demo did not execute the fallthrough instruction: ") + label);
   }
 
@@ -378,7 +378,7 @@ void run_regimm_immediate_trap_demo(
       static_cast<std::uint8_t>(kMarkerIndex), 0, fallthrough_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kTrapAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kTrapAddress));
   machine.stage_cpu_gpr(kRsIndex, rs_value);
   machine.stage_cpu_gpr(kMarkerIndex, 0);
 
@@ -405,12 +405,12 @@ void run_regimm_immediate_trap_demo(
     print_control_flow_state(machine);
     print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
-    if (machine.cpu_pc() != kAfterTrapAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kAfterTrapAddress)) {
       throw std::runtime_error(
           std::string("regimm immediate trap demo stop advanced to the wrong pc: ") + label);
     }
 
-    if (machine.cpu_next_pc() != kSentinelAddress) {
+    if (machine.cpu_next_pc() != cpu_rdram_alias(kSentinelAddress)) {
       throw std::runtime_error(
           std::string("regimm immediate trap demo stop advanced to the wrong next_pc: ") + label);
     }
@@ -429,12 +429,12 @@ void run_regimm_immediate_trap_demo(
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
-  if (machine.cpu_pc() != kAfterTrapAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterTrapAddress)) {
     throw std::runtime_error(
         std::string("regimm immediate trap demo did not fall through to the next instruction: ") + label);
   }
 
-  if (machine.cpu_next_pc() != kSentinelAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error(
         std::string("regimm immediate trap demo did not preserve sequential next_pc on fallthrough: ") + label);
   }
@@ -450,7 +450,7 @@ void run_regimm_immediate_trap_demo(
   print_control_flow_state(machine);
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kMarkerIndex));
 
-  if (machine.cpu_pc() != kSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kSentinelAddress)) {
     throw std::runtime_error(
         std::string("regimm immediate trap demo did not execute the fallthrough instruction: ") + label);
   }

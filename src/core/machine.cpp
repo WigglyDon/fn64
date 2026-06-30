@@ -105,35 +105,25 @@ bool Machine::translate_cpu_rdram_address(
     return false;
   }
 
-  const std::size_t last_offset = kRdramSizeBytes - width;
-
-  if (static_cast<std::size_t>(cpu_address) <= last_offset) {
-    out_rdram_address = cpu_address;
-    return true;
-  }
-
+  constexpr std::uint32_t kDirectSegmentMask = 0xe0000000u;
+  constexpr std::uint32_t kDirectSegmentOffsetMask = 0x1fffffffu;
   constexpr std::uint32_t kKseg0RdramBase = 0x80000000u;
   constexpr std::uint32_t kKseg1RdramBase = 0xa0000000u;
 
-  if (cpu_address >= kKseg0RdramBase) {
-    const std::size_t offset =
-        static_cast<std::size_t>(cpu_address - kKseg0RdramBase);
-    if (offset <= last_offset) {
-      out_rdram_address = static_cast<std::uint32_t>(offset);
-      return true;
-    }
+  const std::uint32_t direct_segment = cpu_address & kDirectSegmentMask;
+  if (direct_segment != kKseg0RdramBase && direct_segment != kKseg1RdramBase) {
+    return false;
   }
 
-  if (cpu_address >= kKseg1RdramBase) {
-    const std::size_t offset =
-        static_cast<std::size_t>(cpu_address - kKseg1RdramBase);
-    if (offset <= last_offset) {
-      out_rdram_address = static_cast<std::uint32_t>(offset);
-      return true;
-    }
+  const std::size_t offset =
+      static_cast<std::size_t>(cpu_address & kDirectSegmentOffsetMask);
+  const std::size_t last_offset = kRdramSizeBytes - width;
+  if (offset > last_offset) {
+    return false;
   }
 
-  return false;
+  out_rdram_address = static_cast<std::uint32_t>(offset);
+  return true;
 }
 
 std::uint8_t Machine::read_rdram_u8(std::uint32_t address) const {

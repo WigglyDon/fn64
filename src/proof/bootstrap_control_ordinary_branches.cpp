@@ -42,7 +42,7 @@ void run_ordinary_branch_demo(
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, target_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kBranchAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
   machine.stage_cpu_gpr(kRsIndex, rs_value);
   machine.stage_cpu_gpr(kRtIndex, rt_value);
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
@@ -80,13 +80,13 @@ void run_ordinary_branch_demo(
   print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
-  if (machine.cpu_pc() != kDelaySlotAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kDelaySlotAddress)) {
     throw std::runtime_error(
         std::string("ordinary branch demo did not move into the delay slot: ") + label);
   }
 
   const std::uint32_t expected_post_branch_next_pc =
-      expect_taken ? kTargetAddress : kFallthroughAddress;
+      cpu_rdram_alias(expect_taken ? kTargetAddress : kFallthroughAddress);
   if (machine.cpu_next_pc() != expected_post_branch_next_pc) {
     throw std::runtime_error(
         std::string("ordinary branch demo scheduled the wrong next_pc: ") + label);
@@ -99,7 +99,8 @@ void run_ordinary_branch_demo(
         std::string("ordinary branch demo changed marker registers too early: ") + label);
   }
 
-  const std::uint32_t expected_link = expect_link ? kLinkReturnAddress : 0u;
+  const std::uint32_t expected_link =
+      expect_link ? cpu_rdram_alias(kLinkReturnAddress) : 0u;
   if (machine.inspect_cpu_gpr(kLinkIndex) != expected_link) {
     throw std::runtime_error(
         std::string("ordinary branch demo wrote the wrong link value: ") + label);
@@ -115,9 +116,9 @@ void run_ordinary_branch_demo(
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
   const std::uint32_t expected_post_delay_pc =
-      expect_taken ? kTargetAddress : kFallthroughAddress;
+      cpu_rdram_alias(expect_taken ? kTargetAddress : kFallthroughAddress);
   const std::uint32_t expected_post_delay_next_pc =
-      expect_taken ? kTakenSentinelAddress : kNotTakenSentinelAddress;
+      cpu_rdram_alias(expect_taken ? kTakenSentinelAddress : kNotTakenSentinelAddress);
 
   if (machine.cpu_pc() != expected_post_delay_pc) {
     throw std::runtime_error(
@@ -156,7 +157,7 @@ void run_ordinary_branch_demo(
     print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
     print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
-    if (machine.cpu_pc() != kTakenSentinelAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kTakenSentinelAddress)) {
       throw std::runtime_error(
           std::string("ordinary branch taken demo did not advance to the taken sentinel: ") + label);
     }
@@ -196,7 +197,7 @@ void run_ordinary_branch_demo(
   print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkIndex));
 
-  if (machine.cpu_pc() != kNotTakenSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kNotTakenSentinelAddress)) {
     throw std::runtime_error(
         std::string("ordinary branch not-taken demo did not advance to the not-taken sentinel: ") + label);
   }
@@ -251,7 +252,7 @@ void run_aliased_register_link_branch_demo(
       static_cast<std::uint8_t>(kTargetMarkerIndex), 0, target_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kBranchAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
   machine.stage_cpu_gpr(kAliasedSourceAndLinkIndex, original_aliased_source_value);
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kFallthroughMarkerIndex, 0);
@@ -282,12 +283,6 @@ void run_aliased_register_link_branch_demo(
         label);
   }
 
-  if ((kLinkReturnAddress & 0x80000000u) != 0) {
-    throw std::runtime_error(
-        std::string("aliased register-link branch demo expected a non-negative link value: ") +
-        label);
-  }
-
   require_stepped(machine.step_cpu_instruction(), std::string(label) + "_branch");
 
   std::cout << "after branch step:\n";
@@ -297,19 +292,20 @@ void run_aliased_register_link_branch_demo(
   print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
-  if (machine.cpu_pc() != kDelaySlotAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kDelaySlotAddress)) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo did not move into the delay slot: ") + label);
   }
 
   const std::uint32_t expected_post_branch_next_pc =
-      expect_taken ? kTargetAddress : kFallthroughAddress;
+      cpu_rdram_alias(expect_taken ? kTargetAddress : kFallthroughAddress);
   if (machine.cpu_next_pc() != expected_post_branch_next_pc) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo scheduled the wrong next_pc: ") + label);
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) !=
+      cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo wrote the wrong link value: ") + label);
   }
@@ -341,13 +337,14 @@ void run_aliased_register_link_branch_demo(
           label);
     }
 
-    if (kTargetAddress == machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex)) {
+    if (cpu_rdram_alias(kTargetAddress) ==
+        machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex)) {
       throw std::runtime_error(
           std::string("aliased register-link branch not-taken demo chose a target indistinguishable from the link value: ") +
           label);
     }
 
-    if (machine.cpu_next_pc() == kTargetAddress) {
+    if (machine.cpu_next_pc() == cpu_rdram_alias(kTargetAddress)) {
       throw std::runtime_error(
           std::string("aliased register-link branch not-taken demo scheduled the target from the post-link value: ") +
           label);
@@ -364,9 +361,9 @@ void run_aliased_register_link_branch_demo(
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
   const std::uint32_t expected_post_delay_pc =
-      expect_taken ? kTargetAddress : kFallthroughAddress;
+      cpu_rdram_alias(expect_taken ? kTargetAddress : kFallthroughAddress);
   const std::uint32_t expected_post_delay_next_pc =
-      expect_taken ? kTakenSentinelAddress : kNotTakenSentinelAddress;
+      cpu_rdram_alias(expect_taken ? kTakenSentinelAddress : kNotTakenSentinelAddress);
 
   if (machine.cpu_pc() != expected_post_delay_pc) {
     throw std::runtime_error(
@@ -386,7 +383,8 @@ void run_aliased_register_link_branch_demo(
         std::string("aliased register-link branch demo did not execute the delay slot: ") + label);
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) !=
+      cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error(
         std::string("aliased register-link branch demo changed gpr[31] after the delay slot: ") +
         label);
@@ -409,7 +407,7 @@ void run_aliased_register_link_branch_demo(
     print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
     print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
-    if (machine.cpu_pc() != kTakenSentinelAddress) {
+    if (machine.cpu_pc() != cpu_rdram_alias(kTakenSentinelAddress)) {
       throw std::runtime_error(
           std::string("aliased register-link branch taken demo did not advance to the taken sentinel: ") +
           label);
@@ -428,7 +426,8 @@ void run_aliased_register_link_branch_demo(
           label);
     }
 
-    if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+    if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) !=
+        cpu_rdram_alias(kLinkReturnAddress)) {
       throw std::runtime_error(
           std::string("aliased register-link branch taken demo changed gpr[31] after the target: ") +
           label);
@@ -454,7 +453,7 @@ void run_aliased_register_link_branch_demo(
   print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex));
 
-  if (machine.cpu_pc() != kNotTakenSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kNotTakenSentinelAddress)) {
     throw std::runtime_error(
         std::string("aliased register-link branch not-taken demo did not advance to the not-taken sentinel: ") +
         label);
@@ -473,7 +472,8 @@ void run_aliased_register_link_branch_demo(
         label);
   }
 
-  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) != kLinkReturnAddress) {
+  if (machine.inspect_cpu_gpr(kAliasedSourceAndLinkIndex) !=
+      cpu_rdram_alias(kLinkReturnAddress)) {
     throw std::runtime_error(
         std::string("aliased register-link branch not-taken demo changed gpr[31] after fallthrough: ") +
         label);
@@ -513,7 +513,7 @@ void run_backward_ordinary_branch_demo(
       static_cast<std::uint8_t>(kFallthroughMarkerIndex), 0, fallthrough_marker);
   const std::uint32_t kBreakInstruction = encode_break();
 
-  machine.stage_cpu_pc(kBranchAddress);
+  machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
   machine.stage_cpu_gpr(kRsIndex, rs_value);
   machine.stage_cpu_gpr(kRtIndex, rt_value);
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
@@ -548,12 +548,12 @@ void run_backward_ordinary_branch_demo(
   print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
   print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
-  if (machine.cpu_pc() != kDelaySlotAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kDelaySlotAddress)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not move into the delay slot: ") + label);
   }
 
-  if (machine.cpu_next_pc() != kTargetAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kTargetAddress)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not schedule the backward target: ") + label);
   }
@@ -573,12 +573,12 @@ void run_backward_ordinary_branch_demo(
   print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
   print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
-  if (machine.cpu_pc() != kTargetAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kTargetAddress)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not hand off to the backward target: ") + label);
   }
 
-  if (machine.cpu_next_pc() != kTargetSentinelAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kTargetSentinelAddress)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not preserve sequential next_pc at the backward target: ") + label);
   }
@@ -603,12 +603,12 @@ void run_backward_ordinary_branch_demo(
   print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kFallthroughMarkerIndex));
   print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kTargetMarkerIndex));
 
-  if (machine.cpu_pc() != kTargetSentinelAddress) {
+  if (machine.cpu_pc() != cpu_rdram_alias(kTargetSentinelAddress)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not advance to the backward sentinel: ") + label);
   }
 
-  if (machine.cpu_next_pc() != kBranchAddress) {
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kBranchAddress)) {
     throw std::runtime_error(
         std::string("backward ordinary branch demo did not preserve the current pc/next_pc model after the backward target: ") + label);
   }
