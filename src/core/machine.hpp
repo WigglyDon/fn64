@@ -66,6 +66,16 @@ public:
   static constexpr std::uint32_t kBlankInitialCpuPc = 0x00000000u;
   static constexpr std::uint32_t kBlankInitialCpuNextPc = 0x00000004u;
 
+  // Construction owns the Cartridge and creates fn64's current local blank
+  // powered-on state: zeroed RDRAM, zeroed CPU registers, and the blank
+  // pc/next_pc values above. This is not N64 reset, PIF/BIOS boot, or
+  // cartridge execution. powered_on() is an informational local construction
+  // state today; there is no public power-off transition, and kStopped does
+  // not power the Machine off.
+  // Public stage_* APIs are explicit synthetic mutation points for proof and
+  // no-window hosts. stage_cartridge_bytes_to_rdram copies normalized
+  // Cartridge bytes into physical RDRAM offsets; it does not map or execute
+  // cartridge memory.
   bool powered_on() const;
   const Cartridge& cartridge() const;
   std::size_t rdram_size_bytes() const noexcept;
