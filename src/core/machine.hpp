@@ -41,6 +41,11 @@ private:
 
 class Machine {
 public:
+  // Current CPU scope: fn64 models a local 32-bit integer subset. GPRs,
+  // HI/LO, pc/next_pc, and CPU addresses are std::uint32_t, including the
+  // direct KSEG0/KSEG1 RDRAM alias form. This is not the full N64 VR4300
+  // 64-bit integer model.
+
   // Public CPU execution result for fn64's current local step policy.
   // kStopped is a local stop condition, not N64 COP0 exception delivery.
   // kUnsupported is a non-compatibility result for unknown or unsupported
@@ -106,6 +111,8 @@ private:
     std::uint32_t jump_target = 0;
   };
 
+  // D/MIPS64-style identities are decoded so the step path can report them as
+  // unsupported; recognition here does not imply 64-bit execution support.
   enum class CpuInstructionIdentity {
     kUnknownPrimary,
     kSpecialUnknown,
