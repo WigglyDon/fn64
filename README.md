@@ -27,6 +27,10 @@ fn64_inspect path/to/game.z64
 
 Loads a cartridge, prints the normalized ROM metadata and initial machine state, then exits without opening an SDL window.
 
+fn64_step_probe
+
+Runs a synthetic no-window Machine step probe. It loads no ROM path, stages no cartridge bytes, and does not imply boot, cartridge execution, or game compatibility.
+
 fn64 path/to/game.z64
 
 Loads a cartridge, prints the normalized ROM metadata, and opens the session window.

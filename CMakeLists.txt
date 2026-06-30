@@ -39,6 +39,12 @@ add_executable(fn64_inspect
 
 target_link_libraries(fn64_inspect PRIVATE fn64_core)
 
+add_executable(fn64_step_probe
+  src/host/cli/step_probe_main.cpp
+)
+
+target_link_libraries(fn64_step_probe PRIVATE fn64_core)
+
 add_executable(fn64_selftest
   src/proof/selftest_main.cpp
 )
@@ -63,6 +69,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(fn64_core PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(fn64_proof PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(fn64_inspect PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(fn64_step_probe PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(fn64_selftest PRIVATE -Wall -Wextra -Wpedantic)
   if (TARGET fn64)
     target_compile_options(fn64 PRIVATE -Wall -Wextra -Wpedantic)
