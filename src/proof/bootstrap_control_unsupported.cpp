@@ -213,10 +213,12 @@ void run_unsupported_instruction_demos(Machine& machine) {
   constexpr std::uint32_t kSpecialUnknownUnsupportedInstruction = 0x00000001u;
   constexpr std::uint32_t kRegimmUnknownUnsupportedInstruction = 0x04040000u;
   constexpr std::uint32_t kUnknownPrimaryUnsupportedInstruction = 0xcc000000u;
-  constexpr CpuInstructionWord kLdlUnsupportedInstruction = encode_ldl(6, 4, 0x0000u);
-  constexpr CpuInstructionWord kLdrUnsupportedInstruction = encode_ldr(6, 4, 0x0000u);
-  constexpr CpuInstructionWord kSdlUnsupportedInstruction = encode_sdl(6, 4, 0x0000u);
-  constexpr CpuInstructionWord kSdrUnsupportedInstruction = encode_sdr(6, 4, 0x0000u);
+  constexpr CpuInstructionWord kLlUnsupportedInstruction = encode_i_type(0x30, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kLldUnsupportedInstruction = encode_i_type(0x34, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kLdc1UnsupportedInstruction = encode_i_type(0x35, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kScUnsupportedInstruction = encode_i_type(0x38, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kScdUnsupportedInstruction = encode_i_type(0x3c, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kSdc1UnsupportedInstruction = encode_i_type(0x3d, 6, 4, 0x0000u);
 
   run_unsupported_identity_demo(
       machine,
@@ -248,31 +250,45 @@ void run_unsupported_instruction_demos(Machine& machine) {
 
   run_unsupported_identity_demo(
       machine,
-      "LDL remains unsupported with rollback intact",
+      "LL remains unsupported with rollback intact",
       0x00000740u,
-      kLdlUnsupportedInstruction,
+      kLlUnsupportedInstruction,
       0x7641u);
 
   run_unsupported_identity_demo(
       machine,
-      "LDR remains unsupported with rollback intact",
+      "LLD remains unsupported with rollback intact",
       0x00000750u,
-      kLdrUnsupportedInstruction,
+      kLldUnsupportedInstruction,
       0x7651u);
 
   run_unsupported_identity_demo(
       machine,
-      "SDL remains unsupported with rollback intact",
+      "LDC1 remains unsupported with rollback intact",
       0x00000760u,
-      kSdlUnsupportedInstruction,
+      kLdc1UnsupportedInstruction,
       0x7661u);
 
   run_unsupported_identity_demo(
       machine,
-      "SDR remains unsupported with rollback intact",
+      "SC remains unsupported with rollback intact",
       0x00000770u,
-      kSdrUnsupportedInstruction,
+      kScUnsupportedInstruction,
       0x7671u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "SCD remains unsupported with rollback intact",
+      0x00000780u,
+      kScdUnsupportedInstruction,
+      0x7681u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "SDC1 remains unsupported with rollback intact",
+      0x00000790u,
+      kSdc1UnsupportedInstruction,
+      0x7691u);
 }
 
 }  // namespace fn64::bootstrap_detail

@@ -389,6 +389,11 @@ std::uint8_t u32_byte_be(std::uint32_t value, std::size_t byte_index) {
   return static_cast<std::uint8_t>((value >> shift) & 0xffu);
 }
 
+std::uint8_t cpu_value_byte_be(CpuRegisterValue value, std::size_t byte_index) {
+  const std::size_t shift = (7u - byte_index) * 8u;
+  return static_cast<std::uint8_t>((value >> shift) & 0xffu);
+}
+
 std::uint32_t replace_u32_byte_be(
     std::uint32_t value,
     std::size_t byte_index,
@@ -397,6 +402,17 @@ std::uint32_t replace_u32_byte_be(
   const std::uint32_t clear_mask = ~(0xffu << shift);
   return (value & clear_mask) |
          (static_cast<std::uint32_t>(byte_value) << shift);
+}
+
+CpuRegisterValue replace_cpu_value_byte_be(
+    CpuRegisterValue value,
+    std::size_t byte_index,
+    std::uint8_t byte_value) {
+  const std::size_t shift = (7u - byte_index) * 8u;
+  const CpuRegisterValue clear_mask =
+      ~(static_cast<CpuRegisterValue>(0xffu) << shift);
+  return (value & clear_mask) |
+         (static_cast<CpuRegisterValue>(byte_value) << shift);
 }
 
 }  // namespace
@@ -1560,6 +1576,45 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kLdl: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+      const std::uint32_t byte_offset = effective_address & 0x7u;
+      const std::uint32_t byte_count = 8u - byte_offset;
+
+      CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
+      for (std::uint32_t i = 0; i < byte_count; ++i) {
+        const std::uint8_t memory_byte = read_cpu_memory_u8(effective_address + i);
+        value = replace_cpu_value_byte_be(value, static_cast<std::size_t>(i), memory_byte);
+      }
+
+      write_cpu_gpr_value(instruction.rt, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kLdr: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+      const CpuAddress aligned_address = effective_address & ~0x7u;
+      const std::uint32_t byte_offset = effective_address & 0x7u;
+      const std::uint32_t byte_count = byte_offset + 1u;
+      const std::uint32_t first_register_byte = 8u - byte_count;
+
+      CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
+      for (std::uint32_t i = 0; i < byte_count; ++i) {
+        const std::uint8_t memory_byte = read_cpu_memory_u8(aligned_address + i);
+        value = replace_cpu_value_byte_be(
+            value,
+            static_cast<std::size_t>(first_register_byte + i),
+            memory_byte);
+      }
+
+      write_cpu_gpr_value(instruction.rt, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kLd: {
       const CpuAddress effective_address =
           read_cpu_gpr_word(instruction.rs) +
@@ -1650,6 +1705,50 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         write_cpu_memory_u8(
             aligned_address + i,
             u32_byte_be(value, static_cast<std::size_t>(first_register_byte + i)));
+      }
+
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSdl: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+      const std::uint32_t byte_offset = effective_address & 0x7u;
+      const std::uint32_t byte_count = 8u - byte_offset;
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
+
+      for (std::uint32_t i = 0; i < byte_count; ++i) {
+        static_cast<void>(read_cpu_memory_u8(effective_address + i));
+      }
+
+      for (std::uint32_t i = 0; i < byte_count; ++i) {
+        write_cpu_memory_u8(
+            effective_address + i,
+            cpu_value_byte_be(value, static_cast<std::size_t>(i)));
+      }
+
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSdr: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+      const CpuAddress aligned_address = effective_address & ~0x7u;
+      const std::uint32_t byte_offset = effective_address & 0x7u;
+      const std::uint32_t byte_count = byte_offset + 1u;
+      const std::uint32_t first_register_byte = 8u - byte_count;
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
+
+      for (std::uint32_t i = 0; i < byte_count; ++i) {
+        static_cast<void>(read_cpu_memory_u8(aligned_address + i));
+      }
+
+      for (std::uint32_t i = 0; i < byte_count; ++i) {
+        write_cpu_memory_u8(
+            aligned_address + i,
+            cpu_value_byte_be(value, static_cast<std::size_t>(first_register_byte + i)));
       }
 
       return CpuInstructionExecutionResult::kExecuted;

@@ -312,8 +312,8 @@ private:
   // current MIPS64-shaped writeback policy: arithmetic/shift/LUI/signed loads
   // sign-extend, unsigned loads zero-extend, comparisons write full 0/1
   // values, word MULT/DIV results sign-extend each HI/LO word, D MULT/DIV
-  // results write full 64-bit HI/LO halves, and partial-word loads have a named
-  // local 64-bit storage policy.
+  // results write full 64-bit HI/LO halves, and partial-word/doubleword loads
+  // have named local 64-bit storage policies.
   CpuRegisterValue read_cpu_gpr_value(std::size_t index) const;
   std::uint32_t read_cpu_gpr_word(std::size_t index) const;
 

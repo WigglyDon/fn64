@@ -1872,6 +1872,243 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
   }
 }
 
+struct PartialDoublewordLoadLaneCase {
+  const char* label;
+  CpuInstructionWord instruction;
+  CpuRegisterValue expected_gpr;
+};
+
+struct PartialDoublewordStoreLaneCase {
+  const char* label;
+  CpuInstructionWord instruction;
+  RdramOffset expected_word0_address;
+  std::uint32_t expected_word0;
+  RdramOffset expected_word1_address;
+  std::uint32_t expected_word1;
+};
+
+void stage_doubleword_partial_pattern(Machine& machine, RdramOffset address) {
+  machine.stage_rdram_u32_be(address, 0x00010203u);
+  machine.stage_rdram_u32_be(address + 4u, 0x04050607u);
+  machine.stage_rdram_u32_be(address + 8u, 0x08090a0bu);
+  machine.stage_rdram_u32_be(address + 12u, 0x0c0d0e0fu);
+}
+
+void run_partial_doubleword_lane_demo(Machine& machine) {
+  constexpr std::uint8_t kBaseIndex = 4;
+  constexpr std::uint8_t kLoadTargetIndex = 18;
+  constexpr std::uint8_t kStoreSourceIndex = 19;
+
+  constexpr CpuAddress kInstructionAddress = 0x00000b00u;
+  constexpr CpuAddress kPairLdlAddress = 0x00000b10u;
+  constexpr CpuAddress kPairLdrAddress = 0x00000b14u;
+  constexpr CpuAddress kReverseLdrAddress = 0x00000b20u;
+  constexpr CpuAddress kReverseLdlAddress = 0x00000b24u;
+  constexpr CpuAddress kStorePairSdlAddress = 0x00000b30u;
+  constexpr CpuAddress kStorePairSdrAddress = 0x00000b34u;
+  constexpr CpuAddress kStoreReverseSdrAddress = 0x00000b40u;
+  constexpr CpuAddress kStoreReverseSdlAddress = 0x00000b44u;
+  constexpr CpuAddress kAfterInstructionAddress = kInstructionAddress + 4u;
+
+  constexpr RdramOffset kLoadDataAddress = 0x00000900u;
+  constexpr RdramOffset kStoreDataAddress = 0x00000920u;
+  constexpr CpuRegisterValue kInitialLoadTarget = 0xaabbccddeeff1122ull;
+  constexpr CpuRegisterValue kStoreSource = 0x1122334455667788ull;
+  constexpr CpuRegisterValue kExpectedPair = 0x0203040506070809ull;
+
+  const PartialDoublewordLoadLaneCase kLoadCases[] = {
+      {
+          "LDL offset 2",
+          encode_ldl(kLoadTargetIndex, kBaseIndex, 0x0002u),
+          0x0203040506071122ull,
+      },
+      {
+          "LDR offset 9",
+          encode_ldr(kLoadTargetIndex, kBaseIndex, 0x0009u),
+          0xaabbccddeeff0809ull,
+      },
+      {
+          "LDL offset 0 full",
+          encode_ldl(kLoadTargetIndex, kBaseIndex, 0x0000u),
+          0x0001020304050607ull,
+      },
+      {
+          "LDR offset 7 full",
+          encode_ldr(kLoadTargetIndex, kBaseIndex, 0x0007u),
+          0x0001020304050607ull,
+      },
+  };
+
+  const PartialDoublewordStoreLaneCase kStoreCases[] = {
+      {
+          "SDL offset 2",
+          encode_sdl(kStoreSourceIndex, kBaseIndex, 0x0002u),
+          kStoreDataAddress,
+          0xaabb1122u,
+          kStoreDataAddress + 4u,
+          0x33445566u,
+      },
+      {
+          "SDR offset 9",
+          encode_sdr(kStoreSourceIndex, kBaseIndex, 0x0009u),
+          kStoreDataAddress + 8u,
+          0x77884455u,
+          kStoreDataAddress,
+          0xaabbccddu,
+      },
+  };
+
+  std::cout
+      << "fn64 bootstrap partial-doubleword lane demo: LDL/LDR/SDL/SDR deterministic 64-bit byte-lane policy\n";
+
+  for (const PartialDoublewordLoadLaneCase& test_case : kLoadCases) {
+    machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kLoadDataAddress));
+    machine.stage_cpu_gpr(kLoadTargetIndex, kInitialLoadTarget);
+    machine.stage_rdram_u32_be(kInstructionAddress, test_case.instruction);
+    stage_doubleword_partial_pattern(machine, kLoadDataAddress);
+
+    std::cout << "load lane row: " << test_case.label << '\n';
+    print_control_flow_state(machine);
+    print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kLoadTargetIndex));
+    print_rdram_word(machine, "  rdram[0x00000900]", kLoadDataAddress);
+    print_rdram_word(machine, "  rdram[0x00000904]", kLoadDataAddress + 4u);
+    print_rdram_word(machine, "  rdram[0x00000908]", kLoadDataAddress + 8u);
+
+    require_stepped(machine.step_cpu_instruction(), test_case.label);
+
+    print_hex64("  actual_gpr[18]", machine.inspect_cpu_gpr(kLoadTargetIndex));
+    print_hex64("  expected_gpr[18]", test_case.expected_gpr);
+
+    if (machine.cpu_pc() != cpu_rdram_alias(kAfterInstructionAddress)) {
+      throw std::runtime_error(
+          std::string("partial-doubleword lane demo did not advance after ") +
+          test_case.label);
+    }
+
+    if (machine.inspect_cpu_gpr(kLoadTargetIndex) != test_case.expected_gpr) {
+      throw std::runtime_error(
+          std::string("partial-doubleword lane demo result was wrong for ") +
+          test_case.label);
+    }
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kPairLdlAddress));
+  machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kLoadDataAddress));
+  machine.stage_cpu_gpr(kLoadTargetIndex, kInitialLoadTarget);
+  machine.stage_rdram_u32_be(kPairLdlAddress, encode_ldl(kLoadTargetIndex, kBaseIndex, 0x0002u));
+  machine.stage_rdram_u32_be(kPairLdrAddress, encode_ldr(kLoadTargetIndex, kBaseIndex, 0x0009u));
+  stage_doubleword_partial_pattern(machine, kLoadDataAddress);
+
+  std::cout << "load complementary pair: LDL offset 2 then LDR offset 9\n";
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_ldl_then_ldr_ldl");
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_ldl_then_ldr_ldr");
+  print_hex64("  pair_gpr[18]", machine.inspect_cpu_gpr(kLoadTargetIndex));
+
+  if (machine.inspect_cpu_gpr(kLoadTargetIndex) != kExpectedPair) {
+    throw std::runtime_error("partial-doubleword demo LDL/LDR pair result was wrong");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kReverseLdrAddress));
+  machine.stage_cpu_gpr(kLoadTargetIndex, kInitialLoadTarget);
+  machine.stage_rdram_u32_be(kReverseLdrAddress, encode_ldr(kLoadTargetIndex, kBaseIndex, 0x0009u));
+  machine.stage_rdram_u32_be(kReverseLdlAddress, encode_ldl(kLoadTargetIndex, kBaseIndex, 0x0002u));
+
+  std::cout << "load complementary pair: LDR offset 9 then LDL offset 2\n";
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_ldr_then_ldl_ldr");
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_ldr_then_ldl_ldl");
+  print_hex64("  reverse_pair_gpr[18]", machine.inspect_cpu_gpr(kLoadTargetIndex));
+
+  if (machine.inspect_cpu_gpr(kLoadTargetIndex) != kExpectedPair) {
+    throw std::runtime_error("partial-doubleword demo LDR/LDL pair result was wrong");
+  }
+
+  for (const PartialDoublewordStoreLaneCase& test_case : kStoreCases) {
+    machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kStoreDataAddress));
+    machine.stage_cpu_gpr(kStoreSourceIndex, kStoreSource);
+    machine.stage_rdram_u32_be(kInstructionAddress, test_case.instruction);
+    machine.stage_rdram_u32_be(kStoreDataAddress, 0xaabbccddu);
+    machine.stage_rdram_u32_be(kStoreDataAddress + 4u, 0xeeff0011u);
+    machine.stage_rdram_u32_be(kStoreDataAddress + 8u, 0x22334455u);
+
+    std::cout << "store lane row: " << test_case.label << '\n';
+    print_control_flow_state(machine);
+    print_hex64("  gpr[19]", machine.inspect_cpu_gpr(kStoreSourceIndex));
+    print_rdram_word(machine, "  rdram[0x00000920]", kStoreDataAddress);
+    print_rdram_word(machine, "  rdram[0x00000924]", kStoreDataAddress + 4u);
+    print_rdram_word(machine, "  rdram[0x00000928]", kStoreDataAddress + 8u);
+
+    require_stepped(machine.step_cpu_instruction(), test_case.label);
+
+    print_rdram_word(machine, "  actual_word0", test_case.expected_word0_address);
+    print_hex32("  expected_word0", test_case.expected_word0);
+    print_rdram_word(machine, "  actual_word1", test_case.expected_word1_address);
+    print_hex32("  expected_word1", test_case.expected_word1);
+
+    if (machine.cpu_pc() != cpu_rdram_alias(kAfterInstructionAddress)) {
+      throw std::runtime_error(
+          std::string("partial-doubleword lane demo did not advance after ") +
+          test_case.label);
+    }
+
+    if (machine.inspect_rdram_u32_be(test_case.expected_word0_address) !=
+            test_case.expected_word0 ||
+        machine.inspect_rdram_u32_be(test_case.expected_word1_address) !=
+            test_case.expected_word1) {
+      throw std::runtime_error(
+          std::string("partial-doubleword lane demo memory was wrong for ") +
+          test_case.label);
+    }
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kStorePairSdlAddress));
+  machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kStoreDataAddress));
+  machine.stage_cpu_gpr(kStoreSourceIndex, kStoreSource);
+  machine.stage_rdram_u32_be(
+      kStorePairSdlAddress,
+      encode_sdl(kStoreSourceIndex, kBaseIndex, 0x0002u));
+  machine.stage_rdram_u32_be(
+      kStorePairSdrAddress,
+      encode_sdr(kStoreSourceIndex, kBaseIndex, 0x0009u));
+  machine.stage_rdram_u32_be(kStoreDataAddress, 0x00000000u);
+  machine.stage_rdram_u32_be(kStoreDataAddress + 4u, 0x00000000u);
+  machine.stage_rdram_u32_be(kStoreDataAddress + 8u, 0x00000000u);
+
+  std::cout << "store complementary pair: SDL offset 2 then SDR offset 9\n";
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_sdl_then_sdr_sdl");
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_sdl_then_sdr_sdr");
+  print_rdram_word(machine, "  pair_rdram[0x00000922]", kStoreDataAddress + 2u);
+  print_rdram_word(machine, "  pair_rdram[0x00000926]", kStoreDataAddress + 6u);
+
+  if (machine.inspect_rdram_u32_be(kStoreDataAddress + 2u) != 0x11223344u ||
+      machine.inspect_rdram_u32_be(kStoreDataAddress + 6u) != 0x55667788u) {
+    throw std::runtime_error("partial-doubleword demo SDL/SDR pair did not store full value");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kStoreReverseSdrAddress));
+  machine.stage_rdram_u32_be(
+      kStoreReverseSdrAddress,
+      encode_sdr(kStoreSourceIndex, kBaseIndex, 0x0009u));
+  machine.stage_rdram_u32_be(
+      kStoreReverseSdlAddress,
+      encode_sdl(kStoreSourceIndex, kBaseIndex, 0x0002u));
+  machine.stage_rdram_u32_be(kStoreDataAddress, 0x00000000u);
+  machine.stage_rdram_u32_be(kStoreDataAddress + 4u, 0x00000000u);
+  machine.stage_rdram_u32_be(kStoreDataAddress + 8u, 0x00000000u);
+
+  std::cout << "store complementary pair: SDR offset 9 then SDL offset 2\n";
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_sdr_then_sdl_sdr");
+  require_stepped(machine.step_cpu_instruction(), "partial_doubleword_demo_sdr_then_sdl_sdl");
+  print_rdram_word(machine, "  reverse_pair_rdram[0x00000922]", kStoreDataAddress + 2u);
+  print_rdram_word(machine, "  reverse_pair_rdram[0x00000926]", kStoreDataAddress + 6u);
+
+  if (machine.inspect_rdram_u32_be(kStoreDataAddress + 2u) != 0x11223344u ||
+      machine.inspect_rdram_u32_be(kStoreDataAddress + 6u) != 0x55667788u) {
+    throw std::runtime_error("partial-doubleword demo SDR/SDL pair did not store full value");
+  }
+}
+
 void run_aligned_word_load_store_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 11;
@@ -3166,6 +3403,192 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   }
 }
 
+void run_failed_partial_doubleword_no_ghost_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kTargetIndex = 28;
+  constexpr std::size_t kSourceIndex = 29;
+
+  constexpr CpuAddress kLdlAddress = 0x000002d0u;
+  constexpr CpuAddress kLdrAddress = 0x000002d4u;
+  constexpr CpuAddress kSdlAddress = 0x000002d8u;
+  constexpr CpuAddress kSdrAddress = 0x000002dcu;
+
+  constexpr CpuAddress kInvalidKseg1Address = 0xa0400000u;
+  constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+  constexpr CpuRegisterValue kSourceValue = 0xaabbccddeeff0011ull;
+  constexpr RdramOffset kLowSentinelAddress = 0x00000960u;
+  constexpr RdramOffset kTailSentinelAddress = 0x003ffffcu;
+  constexpr std::uint32_t kLowSentinel = 0x10203040u;
+  constexpr std::uint32_t kTailSentinel = 0x50607080u;
+
+  const CpuInstructionWord kLdlInstruction = encode_ldl(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const CpuInstructionWord kLdrInstruction = encode_ldr(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const CpuInstructionWord kSdlInstruction = encode_sdl(
+      static_cast<std::uint8_t>(kSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const CpuInstructionWord kSdrInstruction = encode_sdr(
+      static_cast<std::uint8_t>(kSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+
+  machine.stage_rdram_u32_be(kLdlAddress, kLdlInstruction);
+  machine.stage_rdram_u32_be(kLdrAddress, kLdrInstruction);
+  machine.stage_rdram_u32_be(kSdlAddress, kSdlInstruction);
+  machine.stage_rdram_u32_be(kSdrAddress, kSdrInstruction);
+  machine.stage_rdram_u32_be(kLowSentinelAddress, kLowSentinel);
+  machine.stage_rdram_u32_be(kTailSentinelAddress, kTailSentinel);
+  machine.stage_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+  machine.stage_cpu_gpr(kSourceIndex, kSourceValue);
+
+  std::cout
+      << "fn64 bootstrap failed partial-doubleword no-ghost demo: LDL/LDR/SDL/SDR faults preserve visible state\n";
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLdlAddress));
+
+  std::cout << "before LDL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+  print_hex32("  ldl_effective_address", kInvalidKseg1Address);
+
+  require_step_machine_fault(
+      machine,
+      "failed_partial_doubleword_demo_ldl",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
+
+  std::cout << "after LDL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLdlAddress)) {
+    throw std::runtime_error("failed partial-doubleword no-ghost demo LDL changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kLdlAddress + 4u)) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo LDL changed next_pc on fault");
+  }
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo LDL changed target GPR on fault");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLdrAddress));
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+  std::cout << "before LDR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+  print_hex32("  ldr_effective_address", kInvalidKseg1Address);
+
+  require_step_machine_fault(
+      machine,
+      "failed_partial_doubleword_demo_ldr",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
+
+  std::cout << "after LDR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLdrAddress)) {
+    throw std::runtime_error("failed partial-doubleword no-ghost demo LDR changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kLdrAddress + 4u)) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo LDR changed next_pc on fault");
+  }
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo LDR changed target GPR on fault");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kSdlAddress));
+
+  std::cout << "before SDL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[29]", machine.inspect_cpu_gpr(kSourceIndex));
+  print_hex32("  sdl_effective_address", kInvalidKseg1Address);
+  print_rdram_word(machine, "  rdram[0x00000960]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  require_step_machine_fault(
+      machine,
+      "failed_partial_doubleword_demo_sdl",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
+
+  std::cout << "after SDL out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "  rdram[0x00000960]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kSdlAddress)) {
+    throw std::runtime_error("failed partial-doubleword no-ghost demo SDL changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kSdlAddress + 4u)) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo SDL changed next_pc on fault");
+  }
+
+  if (machine.inspect_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
+      machine.inspect_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo SDL changed RDRAM on fault");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kSdrAddress));
+
+  std::cout << "before SDR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[29]", machine.inspect_cpu_gpr(kSourceIndex));
+  print_hex32("  sdr_effective_address", kInvalidKseg1Address);
+  print_rdram_word(machine, "  rdram[0x00000960]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  require_step_machine_fault(
+      machine,
+      "failed_partial_doubleword_demo_sdr",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      1);
+
+  std::cout << "after SDR out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "  rdram[0x00000960]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress);
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kSdrAddress)) {
+    throw std::runtime_error("failed partial-doubleword no-ghost demo SDR changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kSdrAddress + 4u)) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo SDR changed next_pc on fault");
+  }
+
+  if (machine.inspect_rdram_u32_be(kLowSentinelAddress) != kLowSentinel ||
+      machine.inspect_rdram_u32_be(kTailSentinelAddress) != kTailSentinel) {
+    throw std::runtime_error(
+        "failed partial-doubleword no-ghost demo SDR changed RDRAM on fault");
+  }
+}
+
 void run_failed_unsigned_word_load_no_ghost_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kTargetIndex = 28;
@@ -3453,6 +3876,7 @@ void run_data_demos(Machine& machine) {
   run_unaligned_load_word_demo(machine);
   run_unaligned_store_word_demo(machine);
   run_partial_word_lane_matrix_demo(machine);
+  run_partial_doubleword_lane_demo(machine);
   run_aligned_word_load_store_demo(machine);
   run_unsigned_word_load_demo(machine);
   run_aligned_doubleword_load_store_demo(machine);
@@ -3466,6 +3890,7 @@ void run_data_demos(Machine& machine) {
   run_negative_halfword_load_store_demo(machine);
   run_failed_partial_load_no_ghost_demo(machine);
   run_failed_partial_store_no_ghost_demo(machine);
+  run_failed_partial_doubleword_no_ghost_demo(machine);
   run_failed_unsigned_word_load_no_ghost_demo(machine);
   run_failed_doubleword_no_ghost_demo(machine);
   run_negative_out_of_range_guard_demo(machine);
