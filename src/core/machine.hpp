@@ -19,6 +19,7 @@ using CartridgeOffset = std::uint32_t;
 
 enum class MachineFaultKind {
   kCpuRdramAddressRejected,
+  kUnsupportedCpuDataAccess,
   kUnalignedInstructionFetch,
   kUnalignedCpuMemoryAccess,
   kUnalignedControlTransferTarget,
@@ -140,17 +141,20 @@ private:
   };
 
   // Private CPU data access dispatch seam. It names the current
-  // CpuAddress -> CpuPhysicalAddress -> target split without adding a bus,
-  // full memory map, MMIO/device region, or cartridge mapping. RDRAM remains
-  // the only supported CPU data target today.
+  // CpuAddress -> CpuPhysicalAddress -> target split without adding a bus or
+  // full memory map. RDRAM and a minimal local PI MMIO subset are the only CPU
+  // data targets today; instruction fetch remains RDRAM-only, and cartridge
+  // bytes are not CPU-addressable.
   enum class CpuDataTargetKind {
     kRdram,
+    kPi,
   };
 
   struct CpuDataTarget {
     CpuDataTargetKind kind = CpuDataTargetKind::kRdram;
     CpuPhysicalAddress physical_address = 0;
     RdramOffset rdram_offset = 0;
+    std::uint32_t pi_register_offset = 0;
   };
 
   // D/MIPS64-style identities are decoded so the step path can either execute
@@ -300,6 +304,12 @@ private:
 
   static constexpr std::size_t kRdramSizeBytes = 4 * 1024 * 1024;
   static constexpr std::size_t kCpuGprCount = 32;
+  static constexpr CpuPhysicalAddress kPiPhysicalBase = 0x04600000u;
+  static constexpr std::uint32_t kPiRegisterWindowSize = 0x20u;
+  static constexpr std::uint32_t kPiDramAddressRegisterOffset = 0x00u;
+  static constexpr std::uint32_t kPiCartAddressRegisterOffset = 0x04u;
+  static constexpr std::uint32_t kPiCartToRdramLengthRegisterOffset = 0x0cu;
+  static constexpr std::uint32_t kPiStatusRegisterOffset = 0x10u;
 
   void reset_to_blank_rdram_power_on_state();
 
@@ -325,8 +335,8 @@ private:
   // spans belonging to Machine-owned RDRAM and converts them to RdramOffset.
   // Every other CPU range remains a local MachineFault. This is not a bus,
   // full memory map, TLB translation, cartridge ROM mapping, or device/MMIO
-  // dispatch. Future addressable owners need a new boundary before being
-  // connected.
+  // dispatch; the separate CPU data target resolver owns the tiny PI MMIO
+  // subset that has been earned for data loads/stores.
   static RdramOffset require_cpu_rdram_address(
       const char* operation,
       CpuAddress cpu_address,
@@ -357,6 +367,18 @@ private:
       CpuPhysicalAddress physical_address,
       std::size_t width,
       RdramOffset& out_rdram_address) noexcept;
+  static bool translate_cpu_physical_pi_register_address(
+      CpuPhysicalAddress physical_address,
+      std::uint32_t& out_register_offset) noexcept;
+
+  std::uint32_t read_pi_register_u32(
+      CpuPhysicalAddress physical_address,
+      CpuAddress cpu_address) const;
+  void write_pi_register_u32(
+      CpuPhysicalAddress physical_address,
+      CpuAddress cpu_address,
+      std::uint32_t value);
+  void perform_pi_cart_to_rdram_dma(std::uint32_t length_register_value);
 
   CpuRegisterValue cpu_hi() const;
   CpuRegisterValue cpu_lo() const;
@@ -401,6 +423,10 @@ private:
   bool powered_on_ = false;
   std::array<std::uint8_t, kRdramSizeBytes> rdram_{};
   CpuRdramReservation cpu_rdram_reservation_{};
+  RdramOffset pi_dram_address_ = 0;
+  CartridgeOffset pi_cart_address_ = 0;
+  std::uint32_t pi_cart_to_rdram_length_ = 0;
+  std::uint32_t pi_status_ = 0;
 
   CpuAddress cpu_pc_ = kBlankInitialCpuPc;
   CpuAddress cpu_next_pc_ = kBlankInitialCpuNextPc;

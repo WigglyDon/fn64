@@ -29,7 +29,7 @@ Loads a cartridge, prints the normalized ROM metadata and initial machine state,
 
 fn64_step_probe
 
-Runs a synthetic no-window Machine step probe. It loads no ROM path, stages no cartridge bytes, and does not imply boot, cartridge execution, or game compatibility.
+Runs a synthetic no-window Machine step probe. It loads no ROM path, uses generated synthetic bytes only, and does not imply boot, cartridge execution, or game compatibility.
 
 fn64 path/to/game.z64
 
@@ -46,7 +46,8 @@ The current machine state is intentionally plain:
 - RDRAM exists
 - CPU pc / next_pc exist
 - the reset model is an explicit blank RDRAM power-on state, not N64 reset/PIF boot
-- CPU fetch/load/store currently use only KSEG0/KSEG1-style direct RDRAM aliases
+- CPU instruction fetch currently uses only KSEG0/KSEG1-style direct RDRAM aliases
+- CPU data load/store currently reaches direct RDRAM plus a minimal local PI MMIO subset
 - cartridge execution mapping is not wired yet
 
 This keeps ROM loading honest without pretending the cartridge is executing.
@@ -59,8 +60,8 @@ The CPU now reaches RDRAM through a tiny machine-local translation rule:
 
 Raw physical RDRAM offsets are staging/inspection addresses, not CPU addresses.
 
-This is not a bus, general memory map, TLB translation, cartridge ROM mapping, or device/MMIO dispatch.
-It is the smallest earned address truth needed before cartridge or boot execution work.
+This is not a bus, general memory map, TLB translation, or cartridge ROM mapping.
+The only current non-RDRAM data target is a tiny local PI MMIO subset; it is not timing, interrupts, boot, or compatibility.
 
 ## Blank reset state
 
@@ -87,6 +88,12 @@ It is not N64 boot.
 The `fn64_selftest` proof path proves the seam by loading a tiny generated ROM, staging two cartridge instructions into RDRAM, setting the CPU PC to the staged KSEG0 address, and stepping ORI then BREAK.
 
 Normal ROM launch does not stage or execute cartridge bytes automatically.
+
+## Minimal PI MMIO subset
+
+The current CPU data path recognizes a tiny local PI register window for aligned 32-bit loads and stores. Writing the local cartridge-to-RDRAM length register immediately copies normalized Cartridge bytes into physical RDRAM.
+
+This is not PI timing, DMA scheduling, MI interrupts, boot, cartridge CPU mapping, or game compatibility.
 
 ## No-window ROM inspection
 

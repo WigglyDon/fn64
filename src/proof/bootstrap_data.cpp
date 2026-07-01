@@ -4169,6 +4169,366 @@ void require_gpr_equals(
   }
 }
 
+constexpr CpuAddress kSyntheticPiMmioCpuBase = 0xa4600000u;
+constexpr std::uint16_t kPiDramRegisterOffset = 0x0000u;
+constexpr std::uint16_t kPiCartRegisterOffset = 0x0004u;
+constexpr std::uint16_t kPiCartToRdramLengthRegisterOffset = 0x000cu;
+constexpr std::uint16_t kPiStatusRegisterOffset = 0x0010u;
+constexpr std::uint16_t kPiUnknownRegisterOffset = 0x0014u;
+
+std::unique_ptr<Machine> make_pi_dma_proof_machine() {
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(make_synthetic_normalized_rom_proof_image(), cartridge, error)) {
+    throw std::runtime_error("PI DMA proof could not load synthetic cartridge: " + error);
+  }
+
+  return std::make_unique<Machine>(std::move(cartridge));
+}
+
+void require_step_out_of_range(Machine& machine, const char* label) {
+  try {
+    static_cast<void>(machine.step_cpu_instruction());
+  } catch (const std::out_of_range& e) {
+    std::cout << "  " << label << " threw: " << e.what() << '\n';
+    return;
+  } catch (const std::exception& e) {
+    throw std::runtime_error(
+        std::string(label) + " threw unexpected exception type: " + e.what());
+  }
+
+  throw std::runtime_error(std::string(label) + " did not throw out_of_range");
+}
+
+void stage_pi_sw_instruction(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::uint8_t source_register,
+    std::uint8_t base_register,
+    std::uint16_t pi_register_offset) {
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_sw(source_register, base_register, pi_register_offset));
+}
+
+void stage_pi_lw_instruction(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::uint8_t target_register,
+    std::uint8_t base_register,
+    std::uint16_t pi_register_offset) {
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_lw(target_register, base_register, pi_register_offset));
+}
+
+void run_pi_mmio_dma_success_demo() {
+  std::cout << "fn64 bootstrap PI MMIO demo: local immediate cartridge-to-RDRAM DMA subset\n";
+
+  auto machine_storage = make_pi_dma_proof_machine();
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kPiBaseIndex = 4;
+  constexpr std::size_t kValueIndex = 5;
+  constexpr std::size_t kDramReadIndex = 6;
+  constexpr std::size_t kCartReadIndex = 7;
+  constexpr std::size_t kLengthReadIndex = 8;
+  constexpr std::size_t kStatusReadIndex = 9;
+  constexpr RdramOffset kSwDramAddress = 0x00001100u;
+  constexpr RdramOffset kSwCartAddress = 0x00001104u;
+  constexpr RdramOffset kSwLengthAddress = 0x00001108u;
+  constexpr RdramOffset kLwDramAddress = 0x0000110cu;
+  constexpr RdramOffset kLwCartAddress = 0x00001110u;
+  constexpr RdramOffset kLwLengthAddress = 0x00001114u;
+  constexpr RdramOffset kLwStatusAddress = 0x00001118u;
+  constexpr RdramOffset kDmaDestination = 0x00001200u;
+  constexpr CartridgeOffset kCartridgeSource = 0x00000040u;
+  constexpr std::uint32_t kLengthRegisterValue = 7u;
+
+  stage_pi_sw_instruction(machine, kSwDramAddress, kValueIndex, kPiBaseIndex, kPiDramRegisterOffset);
+  stage_pi_sw_instruction(machine, kSwCartAddress, kValueIndex, kPiBaseIndex, kPiCartRegisterOffset);
+  stage_pi_sw_instruction(machine, kSwLengthAddress, kValueIndex, kPiBaseIndex, kPiCartToRdramLengthRegisterOffset);
+  stage_pi_lw_instruction(machine, kLwDramAddress, kDramReadIndex, kPiBaseIndex, kPiDramRegisterOffset);
+  stage_pi_lw_instruction(machine, kLwCartAddress, kCartReadIndex, kPiBaseIndex, kPiCartRegisterOffset);
+  stage_pi_lw_instruction(machine, kLwLengthAddress, kLengthReadIndex, kPiBaseIndex, kPiCartToRdramLengthRegisterOffset);
+  stage_pi_lw_instruction(machine, kLwStatusAddress, kStatusReadIndex, kPiBaseIndex, kPiStatusRegisterOffset);
+  machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+
+  machine.stage_cpu_gpr(kValueIndex, kDmaDestination);
+  step_at(machine, kSwDramAddress, "pi_mmio_success_demo_sw_dram");
+  machine.stage_cpu_gpr(kValueIndex, kCartridgeSource);
+  step_at(machine, kSwCartAddress, "pi_mmio_success_demo_sw_cart");
+  machine.stage_cpu_gpr(kValueIndex, kLengthRegisterValue);
+  step_at(machine, kSwLengthAddress, "pi_mmio_success_demo_sw_length");
+
+  require_rdram_word_equals(machine, kDmaDestination, 0xd1d4d7dau, "pi_mmio_success_demo_dma_high");
+  require_rdram_word_equals(machine, kDmaDestination + 4u, 0xdde0e3e6u, "pi_mmio_success_demo_dma_low");
+
+  step_at(machine, kLwDramAddress, "pi_mmio_success_demo_lw_dram");
+  step_at(machine, kLwCartAddress, "pi_mmio_success_demo_lw_cart");
+  step_at(machine, kLwLengthAddress, "pi_mmio_success_demo_lw_length");
+  step_at(machine, kLwStatusAddress, "pi_mmio_success_demo_lw_status");
+
+  require_gpr_equals(machine, kDramReadIndex, kDmaDestination, "pi_mmio_success_demo_lw_dram");
+  require_gpr_equals(machine, kCartReadIndex, kCartridgeSource, "pi_mmio_success_demo_lw_cart");
+  require_gpr_equals(machine, kLengthReadIndex, kLengthRegisterValue, "pi_mmio_success_demo_lw_length");
+  require_gpr_equals(machine, kStatusReadIndex, 0, "pi_mmio_success_demo_lw_status");
+}
+
+void run_pi_dma_reservation_demo() {
+  std::cout << "fn64 bootstrap PI MMIO demo: DMA writes interact with local LL/SC reservations\n";
+
+  {
+    auto machine_storage = make_pi_dma_proof_machine();
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kPiBaseIndex = 4;
+    constexpr std::size_t kValueIndex = 5;
+    constexpr std::size_t kLlTargetIndex = 6;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00001140u;
+    constexpr RdramOffset kSwDramAddress = 0x00001144u;
+    constexpr RdramOffset kSwCartAddress = 0x00001148u;
+    constexpr RdramOffset kSwLengthAddress = 0x0000114cu;
+    constexpr RdramOffset kScAddress = 0x00001150u;
+    constexpr RdramOffset kDataAddress = 0x00001240u;
+
+    machine.stage_rdram_u32_be(kLlAddress, encode_ll(kLlTargetIndex, kPiBaseIndex, 0));
+    stage_pi_sw_instruction(machine, kSwDramAddress, kValueIndex, kPiBaseIndex, kPiDramRegisterOffset);
+    stage_pi_sw_instruction(machine, kSwCartAddress, kValueIndex, kPiBaseIndex, kPiCartRegisterOffset);
+    stage_pi_sw_instruction(machine, kSwLengthAddress, kValueIndex, kPiBaseIndex, kPiCartToRdramLengthRegisterOffset);
+    machine.stage_rdram_u32_be(kScAddress, encode_sc(kScSourceIndex, kPiBaseIndex, 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+
+    machine.stage_cpu_gpr(kPiBaseIndex, cpu_rdram_alias(kDataAddress));
+    step_at(machine, kLlAddress, "pi_dma_reservation_demo_ll");
+
+    machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+    machine.stage_cpu_gpr(kValueIndex, kDataAddress);
+    step_at(machine, kSwDramAddress, "pi_dma_reservation_demo_sw_dram");
+    machine.stage_cpu_gpr(kValueIndex, 0x40u);
+    step_at(machine, kSwCartAddress, "pi_dma_reservation_demo_sw_cart");
+    machine.stage_cpu_gpr(kValueIndex, 3u);
+    step_at(machine, kSwLengthAddress, "pi_dma_reservation_demo_sw_length");
+
+    machine.stage_cpu_gpr(kPiBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+    step_at(machine, kScAddress, "pi_dma_reservation_demo_overlap_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 0, "pi_dma_reservation_demo_overlap_sc");
+    require_rdram_word_equals(machine, kDataAddress, 0xd1d4d7dau, "pi_dma_reservation_demo_overlap_sc");
+  }
+
+  {
+    auto machine_storage = make_pi_dma_proof_machine();
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kPiBaseIndex = 8;
+    constexpr std::size_t kValueIndex = 5;
+    constexpr std::size_t kLlTargetIndex = 6;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00001180u;
+    constexpr RdramOffset kSwDramAddress = 0x00001184u;
+    constexpr RdramOffset kSwCartAddress = 0x00001188u;
+    constexpr RdramOffset kSwLengthAddress = 0x0000118cu;
+    constexpr RdramOffset kScAddress = 0x00001190u;
+    constexpr RdramOffset kReservedAddress = 0x00001280u;
+    constexpr RdramOffset kDmaAddress = 0x000012c0u;
+
+    machine.stage_rdram_u32_be(kLlAddress, encode_ll(kLlTargetIndex, kBaseIndex, 0));
+    stage_pi_sw_instruction(machine, kSwDramAddress, kValueIndex, kPiBaseIndex, kPiDramRegisterOffset);
+    stage_pi_sw_instruction(machine, kSwCartAddress, kValueIndex, kPiBaseIndex, kPiCartRegisterOffset);
+    stage_pi_sw_instruction(machine, kSwLengthAddress, kValueIndex, kPiBaseIndex, kPiCartToRdramLengthRegisterOffset);
+    machine.stage_rdram_u32_be(kScAddress, encode_sc(kScSourceIndex, kBaseIndex, 0));
+    machine.stage_rdram_u32_be(kReservedAddress, 0x11112222u);
+    machine.stage_rdram_u32_be(kDmaAddress, 0x33334444u);
+
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kReservedAddress));
+    machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+    step_at(machine, kLlAddress, "pi_dma_reservation_demo_non_overlap_ll");
+
+    machine.stage_cpu_gpr(kValueIndex, kDmaAddress);
+    step_at(machine, kSwDramAddress, "pi_dma_reservation_demo_non_overlap_sw_dram");
+    machine.stage_cpu_gpr(kValueIndex, 0x40u);
+    step_at(machine, kSwCartAddress, "pi_dma_reservation_demo_non_overlap_sw_cart");
+    machine.stage_cpu_gpr(kValueIndex, 3u);
+    step_at(machine, kSwLengthAddress, "pi_dma_reservation_demo_non_overlap_sw_length");
+
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+    step_at(machine, kScAddress, "pi_dma_reservation_demo_non_overlap_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 1, "pi_dma_reservation_demo_non_overlap_sc");
+    require_rdram_word_equals(machine, kReservedAddress, 0xaabbccddu, "pi_dma_reservation_demo_non_overlap_sc");
+    require_rdram_word_equals(machine, kDmaAddress, 0xd1d4d7dau, "pi_dma_reservation_demo_non_overlap_sc");
+  }
+}
+
+void run_pi_dma_failure_demo() {
+  std::cout << "fn64 bootstrap PI MMIO demo: failed DMA preflight leaves RDRAM and reservation untouched\n";
+
+  const auto require_failed_dma_preserves_reservation =
+      [](const char* label,
+         RdramOffset dma_destination,
+         CartridgeOffset cartridge_source,
+         std::uint32_t length_register_value) {
+        auto machine_storage = make_pi_dma_proof_machine();
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kBaseIndex = 4;
+        constexpr std::size_t kPiBaseIndex = 8;
+        constexpr std::size_t kValueIndex = 5;
+        constexpr std::size_t kLlTargetIndex = 6;
+        constexpr std::size_t kScSourceIndex = 7;
+        constexpr RdramOffset kLlAddress = 0x000011c0u;
+        constexpr RdramOffset kSwDramAddress = 0x000011c4u;
+        constexpr RdramOffset kSwCartAddress = 0x000011c8u;
+        constexpr RdramOffset kSwLengthAddress = 0x000011ccu;
+        constexpr RdramOffset kScAddress = 0x000011d0u;
+        constexpr RdramOffset kReservedAddress = 0x00001300u;
+        constexpr RdramOffset kSentinelAddress = 0x00001340u;
+
+        machine.stage_rdram_u32_be(kLlAddress, encode_ll(kLlTargetIndex, kBaseIndex, 0));
+        stage_pi_sw_instruction(machine, kSwDramAddress, kValueIndex, kPiBaseIndex, kPiDramRegisterOffset);
+        stage_pi_sw_instruction(machine, kSwCartAddress, kValueIndex, kPiBaseIndex, kPiCartRegisterOffset);
+        stage_pi_sw_instruction(machine, kSwLengthAddress, kValueIndex, kPiBaseIndex, kPiCartToRdramLengthRegisterOffset);
+        machine.stage_rdram_u32_be(kScAddress, encode_sc(kScSourceIndex, kBaseIndex, 0));
+        machine.stage_rdram_u32_be(kReservedAddress, 0x11112222u);
+        machine.stage_rdram_u32_be(kSentinelAddress, 0x55667788u);
+
+        machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kReservedAddress));
+        machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+        step_at(machine, kLlAddress, label);
+
+        machine.stage_cpu_gpr(kValueIndex, dma_destination);
+        step_at(machine, kSwDramAddress, label);
+        machine.stage_cpu_gpr(kValueIndex, cartridge_source);
+        step_at(machine, kSwCartAddress, label);
+        machine.stage_cpu_gpr(kValueIndex, length_register_value);
+        machine.stage_cpu_pc(cpu_rdram_alias(kSwLengthAddress));
+        require_step_out_of_range(machine, label);
+
+        require_rdram_word_equals(machine, kSentinelAddress, 0x55667788u, label);
+        machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+        step_at(machine, kScAddress, label);
+        require_gpr_equals(machine, kScSourceIndex, 1, label);
+        require_rdram_word_equals(machine, kReservedAddress, 0xaabbccddu, label);
+      };
+
+  require_failed_dma_preserves_reservation(
+      "pi_dma_failure_demo_source_out_of_range",
+      0x00001380u,
+      0x0000005cu,
+      7u);
+  require_failed_dma_preserves_reservation(
+      "pi_dma_failure_demo_destination_out_of_range",
+      0x003ffffcu,
+      0x00000040u,
+      7u);
+  require_failed_dma_preserves_reservation(
+      "pi_dma_failure_demo_destination_span_overflow",
+      0xfffffffcu,
+      0x00000040u,
+      7u);
+  require_failed_dma_preserves_reservation(
+      "pi_dma_failure_demo_length_overflow",
+      0x00001380u,
+      0x00000040u,
+      0xffffffffu);
+}
+
+void run_pi_mmio_fault_demo() {
+  std::cout << "fn64 bootstrap PI MMIO demo: unsupported PI widths and fetch stay local faults\n";
+
+  const auto require_pi_machine_fault =
+      [](const char* label,
+         CpuInstructionWord instruction,
+         CpuAddress base_value,
+         MachineFaultKind expected_kind,
+         std::size_t expected_access_size) {
+        auto machine_storage = make_pi_dma_proof_machine();
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kBaseIndex = 4;
+        constexpr std::size_t kSourceIndex = 5;
+        constexpr std::size_t kTargetIndex = 6;
+        constexpr RdramOffset kInstructionAddress = 0x00001200u;
+        constexpr RdramOffset kSentinelAddress = 0x000013c0u;
+        constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+        constexpr std::uint32_t kRdramSentinel = 0xaabbccddu;
+
+        machine.stage_rdram_u32_be(kInstructionAddress, instruction);
+        machine.stage_rdram_u32_be(kSentinelAddress, kRdramSentinel);
+        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+        machine.stage_cpu_gpr(kBaseIndex, base_value);
+        machine.stage_cpu_gpr(kSourceIndex, 0x0102030405060708ull);
+        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+        require_step_machine_fault(machine, label, expected_kind, expected_access_size);
+
+        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
+            machine.cpu_next_pc() != cpu_rdram_alias(kInstructionAddress + 4u)) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
+        }
+
+        require_gpr_equals(machine, kTargetIndex, kTargetSentinel, label);
+        require_rdram_word_equals(machine, kSentinelAddress, kRdramSentinel, label);
+      };
+
+  require_pi_machine_fault(
+      "pi_mmio_fault_demo_sb_unsupported_width",
+      encode_sb(5, 4, kPiDramRegisterOffset),
+      kSyntheticPiMmioCpuBase,
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      1);
+  require_pi_machine_fault(
+      "pi_mmio_fault_demo_ld_unsupported_width",
+      encode_ld(6, 4, kPiDramRegisterOffset),
+      kSyntheticPiMmioCpuBase,
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      8);
+  require_pi_machine_fault(
+      "pi_mmio_fault_demo_unknown_register",
+      encode_lw(6, 4, kPiUnknownRegisterOffset),
+      kSyntheticPiMmioCpuBase,
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_pi_machine_fault(
+      "pi_mmio_fault_demo_unaligned_sw",
+      encode_sw(5, 4, 2),
+      kSyntheticPiMmioCpuBase,
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      4);
+  require_pi_machine_fault(
+      "pi_mmio_fault_demo_ll_rejected",
+      encode_ll(6, 4, kPiDramRegisterOffset),
+      kSyntheticPiMmioCpuBase,
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_pi_machine_fault(
+      "pi_mmio_fault_demo_sc_rejected",
+      encode_sc(5, 4, kPiDramRegisterOffset),
+      kSyntheticPiMmioCpuBase,
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_pi_machine_fault(
+      "pi_mmio_fault_demo_cartridge_range_not_mapped",
+      encode_lw(6, 4, 0),
+      0xb0000040u,
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+
+  {
+    auto machine_storage = make_pi_dma_proof_machine();
+    Machine& machine = *machine_storage;
+    constexpr RdramOffset kSentinelAddress = 0x000013e0u;
+    machine.stage_cpu_pc(kSyntheticPiMmioCpuBase);
+    machine.stage_rdram_u32_be(kSentinelAddress, 0x12345678u);
+    require_step_machine_fault(
+        machine,
+        "pi_mmio_fault_demo_fetch_rejected",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    require_rdram_word_equals(machine, kSentinelAddress, 0x12345678u, "pi_mmio_fault_demo_fetch_rejected");
+  }
+}
+
 void run_load_link_store_conditional_success_demo() {
   std::cout << "fn64 bootstrap LL/SC demo: local single-Machine RDRAM reservation success paths\n";
 
@@ -5115,6 +5475,10 @@ void run_data_demos(Machine& machine) {
   run_public_staging_reservation_demo();
   run_store_conditional_register_order_demo();
   run_load_link_store_conditional_fault_demo();
+  run_pi_mmio_dma_success_demo();
+  run_pi_dma_reservation_demo();
+  run_pi_dma_failure_demo();
+  run_pi_mmio_fault_demo();
   run_negative_out_of_range_guard_demo(machine);
 }
 

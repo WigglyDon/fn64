@@ -107,6 +107,10 @@ void Machine::reset_to_blank_rdram_power_on_state() {
   powered_on_ = true;
   rdram_.fill(0);
   clear_cpu_rdram_reservation();
+  pi_dram_address_ = 0;
+  pi_cart_address_ = 0;
+  pi_cart_to_rdram_length_ = 0;
+  pi_status_ = 0;
   cpu_pc_ = kBlankInitialCpuPc;
   cpu_next_pc_ = kBlankInitialCpuNextPc;
   cpu_hi_ = 0;
@@ -174,6 +178,22 @@ bool Machine::translate_cpu_physical_rdram_address(
   }
 
   out_rdram_address = static_cast<RdramOffset>(physical_address);
+  return true;
+}
+
+bool Machine::translate_cpu_physical_pi_register_address(
+    CpuPhysicalAddress physical_address,
+    std::uint32_t& out_register_offset) noexcept {
+  if (physical_address < kPiPhysicalBase) {
+    return false;
+  }
+
+  const std::uint32_t register_offset = physical_address - kPiPhysicalBase;
+  if (register_offset >= kPiRegisterWindowSize) {
+    return false;
+  }
+
+  out_register_offset = register_offset;
   return true;
 }
 

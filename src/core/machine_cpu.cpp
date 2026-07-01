@@ -22,6 +22,27 @@ namespace {
           " width=" + std::to_string(width));
 }
 
+[[noreturn]] void fail_unsupported_cpu_data_access(
+    const char* operation,
+    CpuAddress cpu_address,
+    std::size_t width) {
+  throw MachineFault(
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      operation,
+      cpu_address,
+      width,
+      std::string("Unsupported CPU data access: operation=") +
+          operation +
+          " address=" + std::to_string(cpu_address) +
+          " width=" + std::to_string(width));
+}
+
+[[noreturn]] void fail_pi_dma_length_overflow(std::uint32_t length_register_value) {
+  throw std::out_of_range(
+      "PI cartridge-to-RDRAM DMA length overflows 32-bit byte count: register=" +
+      std::to_string(length_register_value));
+}
+
 [[noreturn]] void fail_cpu_gpr_index(std::size_t index) {
   throw std::out_of_range("CPU GPR index out of range: " + std::to_string(index));
 }
@@ -444,10 +465,90 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
         CpuDataTargetKind::kRdram,
         physical_address,
         rdram_address,
+        0,
+    };
+  }
+
+  std::uint32_t pi_register_offset = 0;
+  if (translate_cpu_physical_pi_register_address(physical_address, pi_register_offset)) {
+    return CpuDataTarget{
+        CpuDataTargetKind::kPi,
+        physical_address,
+        0,
+        pi_register_offset,
     };
   }
 
   fail_cpu_rdram_address(operation, cpu_address, width);
+}
+
+std::uint32_t Machine::read_pi_register_u32(
+    CpuPhysicalAddress physical_address,
+    CpuAddress cpu_address) const {
+  const std::uint32_t register_offset = physical_address - kPiPhysicalBase;
+  switch (register_offset) {
+    case kPiDramAddressRegisterOffset:
+      return pi_dram_address_;
+
+    case kPiCartAddressRegisterOffset:
+      return pi_cart_address_;
+
+    case kPiCartToRdramLengthRegisterOffset:
+      return pi_cart_to_rdram_length_;
+
+    case kPiStatusRegisterOffset:
+      return pi_status_;
+
+    default:
+      fail_unsupported_cpu_data_access("PI word read", cpu_address, 4);
+  }
+}
+
+void Machine::write_pi_register_u32(
+    CpuPhysicalAddress physical_address,
+    CpuAddress cpu_address,
+    std::uint32_t value) {
+  const std::uint32_t register_offset = physical_address - kPiPhysicalBase;
+  switch (register_offset) {
+    case kPiDramAddressRegisterOffset:
+      pi_dram_address_ = static_cast<RdramOffset>(value);
+      return;
+
+    case kPiCartAddressRegisterOffset:
+      pi_cart_address_ = static_cast<CartridgeOffset>(value);
+      return;
+
+    case kPiCartToRdramLengthRegisterOffset:
+      perform_pi_cart_to_rdram_dma(value);
+      pi_cart_to_rdram_length_ = value;
+      pi_status_ = 0;
+      return;
+
+    case kPiStatusRegisterOffset:
+      // Local immediate-complete PI subset: status remains idle/no-error.
+      pi_status_ = 0;
+      return;
+
+    default:
+      fail_unsupported_cpu_data_access("PI word write", cpu_address, 4);
+  }
+}
+
+void Machine::perform_pi_cart_to_rdram_dma(std::uint32_t length_register_value) {
+  const std::uint64_t transfer_count =
+      static_cast<std::uint64_t>(length_register_value) + 1ull;
+  if (transfer_count > 0xffffffffull) {
+    fail_pi_dma_length_overflow(length_register_value);
+  }
+
+  // Local PI subset: the cart register is a normalized CartridgeOffset, the
+  // DRAM register is a physical RdramOffset, and the trigger copies exactly
+  // length+1 bytes immediately. Timing, block rounding, interrupts, cart CPU
+  // mapping, and boot behavior are not modeled here.
+  stage_cartridge_bytes_to_rdram(
+      pi_cart_address_,
+      pi_dram_address_,
+      static_cast<std::uint32_t>(transfer_count));
 }
 
 std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
@@ -455,6 +556,9 @@ std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u8(target.rdram_offset);
+
+    case CpuDataTargetKind::kPi:
+      fail_unsupported_cpu_data_access("PI byte read", cpu_address, 1);
   }
 
   throw std::logic_error("unknown CPU byte read target");
@@ -465,6 +569,9 @@ std::uint16_t Machine::read_cpu_memory_u16_be(CpuAddress cpu_address) const {
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u16_be(target.rdram_offset);
+
+    case CpuDataTargetKind::kPi:
+      fail_unsupported_cpu_data_access("PI halfword read", cpu_address, 2);
   }
 
   throw std::logic_error("unknown CPU halfword read target");
@@ -475,6 +582,9 @@ std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u32_be(target.rdram_offset);
+
+    case CpuDataTargetKind::kPi:
+      return read_pi_register_u32(target.physical_address, cpu_address);
   }
 
   throw std::logic_error("unknown CPU word read target");
@@ -485,6 +595,9 @@ CpuRegisterValue Machine::read_cpu_memory_u64_be(CpuAddress cpu_address) const {
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u64_be(target.rdram_offset);
+
+    case CpuDataTargetKind::kPi:
+      fail_unsupported_cpu_data_access("PI doubleword read", cpu_address, 8);
   }
 
   throw std::logic_error("unknown CPU doubleword read target");
@@ -496,6 +609,9 @@ void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u8(target.rdram_offset, value);
       return;
+
+    case CpuDataTargetKind::kPi:
+      fail_unsupported_cpu_data_access("PI byte write", cpu_address, 1);
   }
 
   throw std::logic_error("unknown CPU byte write target");
@@ -507,6 +623,9 @@ void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t valu
     case CpuDataTargetKind::kRdram:
       write_rdram_u16_be(target.rdram_offset, value);
       return;
+
+    case CpuDataTargetKind::kPi:
+      fail_unsupported_cpu_data_access("PI halfword write", cpu_address, 2);
   }
 
   throw std::logic_error("unknown CPU halfword write target");
@@ -517,6 +636,10 @@ void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t valu
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u32_be(target.rdram_offset, value);
+      return;
+
+    case CpuDataTargetKind::kPi:
+      write_pi_register_u32(target.physical_address, cpu_address, value);
       return;
   }
 
@@ -529,6 +652,9 @@ void Machine::write_cpu_memory_u64_be(CpuAddress cpu_address, CpuRegisterValue v
     case CpuDataTargetKind::kRdram:
       write_rdram_u64_be(target.rdram_offset, value);
       return;
+
+    case CpuDataTargetKind::kPi:
+      fail_unsupported_cpu_data_access("PI doubleword write", cpu_address, 8);
   }
 
   throw std::logic_error("unknown CPU doubleword write target");
@@ -1620,6 +1746,9 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           set_cpu_rdram_reservation(target.rdram_offset, 4);
           return CpuInstructionExecutionResult::kExecuted;
         }
+
+        case CpuDataTargetKind::kPi:
+          fail_unsupported_cpu_data_access("LL", effective_address, 4);
       }
 
       throw std::logic_error("unknown LL data target");
@@ -1740,6 +1869,9 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           set_cpu_rdram_reservation(target.rdram_offset, 8);
           return CpuInstructionExecutionResult::kExecuted;
         }
+
+        case CpuDataTargetKind::kPi:
+          fail_unsupported_cpu_data_access("LLD", effective_address, 8);
       }
 
       throw std::logic_error("unknown LLD data target");
@@ -1828,6 +1960,9 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
           return CpuInstructionExecutionResult::kExecuted;
         }
+
+        case CpuDataTargetKind::kPi:
+          fail_unsupported_cpu_data_access("SC", effective_address, 4);
       }
 
       throw std::logic_error("unknown SC data target");
@@ -1937,6 +2072,9 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
           return CpuInstructionExecutionResult::kExecuted;
         }
+
+        case CpuDataTargetKind::kPi:
+          fail_unsupported_cpu_data_access("SCD", effective_address, 8);
       }
 
       throw std::logic_error("unknown SCD data target");
