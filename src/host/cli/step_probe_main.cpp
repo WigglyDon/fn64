@@ -22,6 +22,13 @@ std::string hex_u32(std::uint32_t value) {
   return stream.str();
 }
 
+std::string hex_u64(std::uint64_t value) {
+  std::ostringstream stream;
+  stream << "0x" << std::uppercase << std::hex << std::setw(16)
+         << std::setfill('0') << value;
+  return stream.str();
+}
+
 constexpr fn64::CpuInstructionWord encode_ori(
     std::uint8_t rt,
     std::uint8_t rs,
@@ -151,11 +158,11 @@ void print_machine_state(const char* label, const fn64::Machine& machine) {
       << label << '\n'
       << "  pc: " << hex_u32(machine.cpu_pc()) << '\n'
       << "  next pc: " << hex_u32(machine.cpu_next_pc()) << '\n'
-      << "  gpr[4]: " << hex_u32(machine.inspect_cpu_gpr(4)) << '\n'
-      << "  gpr[5]: " << hex_u32(machine.inspect_cpu_gpr(5)) << '\n'
-      << "  gpr[6]: " << hex_u32(machine.inspect_cpu_gpr(6)) << '\n'
-      << "  gpr[7]: " << hex_u32(machine.inspect_cpu_gpr(7)) << '\n'
-      << "  gpr[8]: " << hex_u32(machine.inspect_cpu_gpr(8)) << '\n';
+      << "  gpr[4]: " << hex_u64(machine.inspect_cpu_gpr(4)) << '\n'
+      << "  gpr[5]: " << hex_u64(machine.inspect_cpu_gpr(5)) << '\n'
+      << "  gpr[6]: " << hex_u64(machine.inspect_cpu_gpr(6)) << '\n'
+      << "  gpr[7]: " << hex_u64(machine.inspect_cpu_gpr(7)) << '\n'
+      << "  gpr[8]: " << hex_u64(machine.inspect_cpu_gpr(8)) << '\n';
 }
 
 void print_fetch_view(
@@ -179,6 +186,18 @@ void require_equal(
         std::string(label) +
         " expected " + hex_u32(expected) +
         " but observed " + hex_u32(observed));
+  }
+}
+
+void require_cpu_value_equal(
+    const char* label,
+    fn64::CpuRegisterValue observed,
+    fn64::CpuRegisterValue expected) {
+  if (observed != expected) {
+    throw std::runtime_error(
+        std::string(label) +
+        " expected " + hex_u64(expected) +
+        " but observed " + hex_u64(observed));
   }
 }
 
@@ -275,14 +294,14 @@ void run_synthetic_cartridge_staged_program() {
   std::cout
       << "cartridge-staged step 1 result: "
       << step_result_name(first_result) << '\n'
-      << "  gpr[9]: " << hex_u32(machine->inspect_cpu_gpr(kTargetRegister)) << '\n';
+      << "  gpr[9]: " << hex_u64(machine->inspect_cpu_gpr(kTargetRegister)) << '\n';
 
   require_step_result(
       "cartridge-staged step 1",
       first_result,
       fn64::Machine::CpuInstructionStepResult::kStepped);
   require_equal("cartridge-staged step 1 pc", machine->cpu_pc(), kBreakCpuAddress);
-  require_equal(
+  require_cpu_value_equal(
       "cartridge-staged step 1 gpr[9]",
       machine->inspect_cpu_gpr(kTargetRegister),
       kImmediate);
@@ -297,7 +316,7 @@ void run_synthetic_cartridge_staged_program() {
   std::cout
       << "cartridge-staged step 2 result: "
       << step_result_name(second_result) << '\n'
-      << "  gpr[9]: " << hex_u32(machine->inspect_cpu_gpr(kTargetRegister)) << '\n';
+      << "  gpr[9]: " << hex_u64(machine->inspect_cpu_gpr(kTargetRegister)) << '\n';
 
   require_step_result(
       "cartridge-staged step 2",
@@ -308,7 +327,7 @@ void run_synthetic_cartridge_staged_program() {
       "cartridge-staged step 2 next pc",
       machine->cpu_next_pc(),
       kAfterBreakNextPc);
-  require_equal(
+  require_cpu_value_equal(
       "cartridge-staged step 2 gpr[9]",
       machine->inspect_cpu_gpr(kTargetRegister),
       kImmediate);
@@ -379,6 +398,7 @@ int main(int argc, char** argv) {
     constexpr fn64::CpuRegisterValue kExpectedGpr5 = 0x00001234u;
     constexpr fn64::CpuRegisterValue kExpectedGpr7 = 0x000000abu;
     constexpr fn64::CpuRegisterValue kExpectedGpr8 = 0x000000abu;
+    constexpr fn64::CpuRegisterValue kHighRegisterSentinel = 0x13579bdf2468ace0ull;
     constexpr std::uint32_t kExpectedByteDataWord = 0x0000ab00u;
 
     const fn64::CpuInstructionWord lui_instruction = encode_lui(6, 0x8000u);
@@ -401,6 +421,7 @@ int main(int argc, char** argv) {
     machine.stage_rdram_u32_be(kBreakRdramOffset, break_instruction);
     machine.stage_rdram_u32_be(kByteDataRdramOffset, kInitialByteDataWord);
     machine.stage_rdram_u32_be(kWordDataRdramOffset, kInitialWordDataWord);
+    machine.stage_cpu_gpr(10, kHighRegisterSentinel);
 
     std::cout
         << "\nscenario 1: direct synthetic RDRAM instructions and CPU aliases\n"
@@ -425,7 +446,14 @@ int main(int argc, char** argv) {
         << "  byte data rdram[0x00000100] before steps: "
         << hex_u32(machine.inspect_rdram_u32_be(kByteDataRdramOffset)) << '\n'
         << "  word data rdram[0x00000104] before steps: "
-        << hex_u32(machine.inspect_rdram_u32_be(kWordDataRdramOffset)) << '\n';
+        << hex_u32(machine.inspect_rdram_u32_be(kWordDataRdramOffset)) << '\n'
+        << "  staged high-bit gpr[10]: "
+        << hex_u64(machine.inspect_cpu_gpr(10)) << '\n';
+
+    require_cpu_value_equal(
+        "staged high-bit gpr[10]",
+        machine.inspect_cpu_gpr(10),
+        kHighRegisterSentinel);
 
     print_machine_state("\nbefore step 1", machine);
     print_fetch_view("step 1 fetch view", machine, kLuiRdramOffset);
@@ -441,11 +469,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStepped);
     require_equal("step 1 pc", machine.cpu_pc(), kOriCpuAddress);
     require_equal("step 1 next pc", machine.cpu_next_pc(), kSwCpuAddress);
-    require_equal("step 1 gpr[4]", machine.inspect_cpu_gpr(4), 0);
-    require_equal("step 1 gpr[5]", machine.inspect_cpu_gpr(5), 0);
-    require_equal("step 1 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 1 gpr[7]", machine.inspect_cpu_gpr(7), 0);
-    require_equal("step 1 gpr[8]", machine.inspect_cpu_gpr(8), 0);
+    require_cpu_value_equal("step 1 gpr[4]", machine.inspect_cpu_gpr(4), 0);
+    require_cpu_value_equal("step 1 gpr[5]", machine.inspect_cpu_gpr(5), 0);
+    require_cpu_value_equal("step 1 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 1 gpr[7]", machine.inspect_cpu_gpr(7), 0);
+    require_cpu_value_equal("step 1 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
         "step 1 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -467,11 +495,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStepped);
     require_equal("step 2 pc", machine.cpu_pc(), kSwCpuAddress);
     require_equal("step 2 next pc", machine.cpu_next_pc(), kLwCpuAddress);
-    require_equal("step 2 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
-    require_equal("step 2 gpr[5]", machine.inspect_cpu_gpr(5), 0);
-    require_equal("step 2 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 2 gpr[7]", machine.inspect_cpu_gpr(7), 0);
-    require_equal("step 2 gpr[8]", machine.inspect_cpu_gpr(8), 0);
+    require_cpu_value_equal("step 2 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
+    require_cpu_value_equal("step 2 gpr[5]", machine.inspect_cpu_gpr(5), 0);
+    require_cpu_value_equal("step 2 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 2 gpr[7]", machine.inspect_cpu_gpr(7), 0);
+    require_cpu_value_equal("step 2 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
         "step 2 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -493,11 +521,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStepped);
     require_equal("step 3 pc", machine.cpu_pc(), kLwCpuAddress);
     require_equal("step 3 next pc", machine.cpu_next_pc(), kByteOriCpuAddress);
-    require_equal("step 3 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
-    require_equal("step 3 gpr[5]", machine.inspect_cpu_gpr(5), 0);
-    require_equal("step 3 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 3 gpr[7]", machine.inspect_cpu_gpr(7), 0);
-    require_equal("step 3 gpr[8]", machine.inspect_cpu_gpr(8), 0);
+    require_cpu_value_equal("step 3 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
+    require_cpu_value_equal("step 3 gpr[5]", machine.inspect_cpu_gpr(5), 0);
+    require_cpu_value_equal("step 3 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 3 gpr[7]", machine.inspect_cpu_gpr(7), 0);
+    require_cpu_value_equal("step 3 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
         "step 3 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -519,11 +547,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStepped);
     require_equal("step 4 pc", machine.cpu_pc(), kByteOriCpuAddress);
     require_equal("step 4 next pc", machine.cpu_next_pc(), kSbCpuAddress);
-    require_equal("step 4 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
-    require_equal("step 4 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_equal("step 4 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 4 gpr[7]", machine.inspect_cpu_gpr(7), 0);
-    require_equal("step 4 gpr[8]", machine.inspect_cpu_gpr(8), 0);
+    require_cpu_value_equal("step 4 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
+    require_cpu_value_equal("step 4 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
+    require_cpu_value_equal("step 4 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 4 gpr[7]", machine.inspect_cpu_gpr(7), 0);
+    require_cpu_value_equal("step 4 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
         "step 4 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -545,11 +573,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStepped);
     require_equal("step 5 pc", machine.cpu_pc(), kSbCpuAddress);
     require_equal("step 5 next pc", machine.cpu_next_pc(), kLbuCpuAddress);
-    require_equal("step 5 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
-    require_equal("step 5 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_equal("step 5 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 5 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
-    require_equal("step 5 gpr[8]", machine.inspect_cpu_gpr(8), 0);
+    require_cpu_value_equal("step 5 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
+    require_cpu_value_equal("step 5 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
+    require_cpu_value_equal("step 5 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 5 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
+    require_cpu_value_equal("step 5 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
         "step 5 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -571,11 +599,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStepped);
     require_equal("step 6 pc", machine.cpu_pc(), kLbuCpuAddress);
     require_equal("step 6 next pc", machine.cpu_next_pc(), kBreakCpuAddress);
-    require_equal("step 6 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
-    require_equal("step 6 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_equal("step 6 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 6 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
-    require_equal("step 6 gpr[8]", machine.inspect_cpu_gpr(8), 0);
+    require_cpu_value_equal("step 6 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
+    require_cpu_value_equal("step 6 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
+    require_cpu_value_equal("step 6 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 6 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
+    require_cpu_value_equal("step 6 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
         "step 6 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -597,11 +625,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStepped);
     require_equal("step 7 pc", machine.cpu_pc(), kBreakCpuAddress);
     require_equal("step 7 next pc", machine.cpu_next_pc(), kAfterBreakPc);
-    require_equal("step 7 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
-    require_equal("step 7 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_equal("step 7 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 7 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
-    require_equal("step 7 gpr[8]", machine.inspect_cpu_gpr(8), kExpectedGpr8);
+    require_cpu_value_equal("step 7 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
+    require_cpu_value_equal("step 7 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
+    require_cpu_value_equal("step 7 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 7 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
+    require_cpu_value_equal("step 7 gpr[8]", machine.inspect_cpu_gpr(8), kExpectedGpr8);
     require_equal(
         "step 7 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -623,11 +651,11 @@ int main(int argc, char** argv) {
         fn64::Machine::CpuInstructionStepResult::kStopped);
     require_equal("step 8 pc", machine.cpu_pc(), kAfterBreakPc);
     require_equal("step 8 next pc", machine.cpu_next_pc(), kAfterBreakNextPc);
-    require_equal("step 8 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
-    require_equal("step 8 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_equal("step 8 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
-    require_equal("step 8 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
-    require_equal("step 8 gpr[8]", machine.inspect_cpu_gpr(8), kExpectedGpr8);
+    require_cpu_value_equal("step 8 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
+    require_cpu_value_equal("step 8 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
+    require_cpu_value_equal("step 8 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 8 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
+    require_cpu_value_equal("step 8 gpr[8]", machine.inspect_cpu_gpr(8), kExpectedGpr8);
     require_equal(
         "step 8 byte data word",
         machine.inspect_rdram_u32_be(kByteDataRdramOffset),
@@ -642,7 +670,13 @@ int main(int argc, char** argv) {
         << hex_u32(machine.inspect_rdram_u32_be(kByteDataRdramOffset)) << '\n'
         << "final word data rdram[0x00000104]: "
         << hex_u32(machine.inspect_rdram_u32_be(kWordDataRdramOffset)) << '\n'
-        << "final lbu gpr[8]: " << hex_u32(machine.inspect_cpu_gpr(8)) << '\n';
+        << "final lbu gpr[8]: " << hex_u64(machine.inspect_cpu_gpr(8)) << '\n'
+        << "preserved high-bit gpr[10]: " << hex_u64(machine.inspect_cpu_gpr(10)) << '\n';
+
+    require_cpu_value_equal(
+        "preserved high-bit gpr[10]",
+        machine.inspect_cpu_gpr(10),
+        kHighRegisterSentinel);
 
     run_synthetic_cartridge_staged_program();
 

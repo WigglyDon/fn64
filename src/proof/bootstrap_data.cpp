@@ -547,8 +547,8 @@ void run_machine_construction_isolation_demo() {
       4);
 
   print_control_flow_state(*machine_a);
-  print_hex32("  machine_a_hi", machine_a->inspect_cpu_hi());
-  print_hex32("  machine_a_lo", machine_a->inspect_cpu_lo());
+  print_hex64("  machine_a_hi", machine_a->inspect_cpu_hi());
+  print_hex64("  machine_a_lo", machine_a->inspect_cpu_lo());
   print_hex64("  machine_a_gpr[8]", machine_a->inspect_cpu_gpr(8));
   print_hex64("  machine_a_gpr[31]", machine_a->inspect_cpu_gpr(31));
   print_rdram_word(*machine_a, "  machine_a_rdram[0x00000000]", 0x00000000u);
@@ -711,12 +711,12 @@ void require_public_guard_out_of_range_contains(
 }
 
 struct PublicGuardState {
-  std::uint32_t pc = 0;
-  std::uint32_t next_pc = 0;
-  std::uint32_t hi = 0;
-  std::uint32_t lo = 0;
-  std::uint32_t gpr4 = 0;
-  std::uint32_t gpr31 = 0;
+  CpuAddress pc = 0;
+  CpuAddress next_pc = 0;
+  CpuRegisterValue hi = 0;
+  CpuRegisterValue lo = 0;
+  CpuRegisterValue gpr4 = 0;
+  CpuRegisterValue gpr31 = 0;
   std::uint32_t rdram_low = 0;
   std::uint32_t rdram_tail = 0;
 };
@@ -1231,8 +1231,8 @@ void run_public_machine_stage_inspect_guard_demo() {
   std::cout
       << "fn64 bootstrap public Machine guard demo: invalid public stage/inspect inputs leave state unchanged\n";
   print_control_flow_state(*guard_machine);
-  print_hex32("  hi", guard_machine->inspect_cpu_hi());
-  print_hex32("  lo", guard_machine->inspect_cpu_lo());
+  print_hex64("  hi", guard_machine->inspect_cpu_hi());
+  print_hex64("  lo", guard_machine->inspect_cpu_lo());
   print_hex64("  gpr[4]", guard_machine->inspect_cpu_gpr(4));
   print_hex64("  gpr[31]", guard_machine->inspect_cpu_gpr(31));
   print_rdram_word(*guard_machine, "  rdram[0x00000980]", kLowRdramAddress);

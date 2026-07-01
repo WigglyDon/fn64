@@ -794,6 +794,127 @@ void step_hilo_instruction(
   require_stepped(machine.step_cpu_instruction(), std::string("hilo_step_") + label);
 }
 
+void run_cpu_register_value_width_demo(Machine& machine) {
+  constexpr CpuAddress kPc = 0x000006f0u;
+  constexpr CpuAddress kNextPc = 0x000006f4u;
+
+  constexpr std::uint8_t kHighSourceIndex = 12;
+  constexpr std::uint8_t kWordResultIndex = 13;
+  constexpr std::uint8_t kHiSourceIndex = 14;
+  constexpr std::uint8_t kLoSourceIndex = 15;
+  constexpr std::uint8_t kHiReadIndex = 16;
+  constexpr std::uint8_t kLoReadIndex = 17;
+
+  constexpr CpuRegisterValue kHighSourceValue = 0x12345678000012abull;
+  constexpr CpuRegisterValue kInitialWordResultValue = 0xfedcba9800000000ull;
+  constexpr CpuRegisterValue kHiValue = 0x0123456789abcdefull;
+  constexpr CpuRegisterValue kLoValue = 0xfedcba9876543210ull;
+  constexpr CpuRegisterValue kMthiValue = 0x0badf00d12345678ull;
+  constexpr CpuRegisterValue kMtloValue = 0xc001d00d87654321ull;
+  constexpr CpuRegisterValue kZeroAttempt = 0xffffffffffffffffull;
+
+  constexpr std::uint32_t kExpectedWordResult = 0x000012ffu;
+  constexpr CpuInstructionWord kOriInstruction = encode_ori(
+      kWordResultIndex,
+      kHighSourceIndex,
+      0x00ffu);
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kPc));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
+  machine.stage_cpu_gpr(0, kZeroAttempt);
+  machine.stage_cpu_gpr(kHighSourceIndex, kHighSourceValue);
+  machine.stage_cpu_gpr(kWordResultIndex, kInitialWordResultValue);
+  machine.stage_cpu_gpr(kHiSourceIndex, kMthiValue);
+  machine.stage_cpu_gpr(kLoSourceIndex, kMtloValue);
+  machine.stage_cpu_gpr(kHiReadIndex, 0);
+  machine.stage_cpu_gpr(kLoReadIndex, 0);
+  machine.stage_cpu_hi(kHiValue);
+  machine.stage_cpu_lo(kLoValue);
+
+  std::cout
+      << "fn64 bootstrap CPU register value width demo: 64-bit storage with local 32-bit word execution\n";
+  std::cout << "before step sequence:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[0]", machine.inspect_cpu_gpr(0));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kHighSourceIndex));
+  print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kWordResultIndex));
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
+
+  if (machine.inspect_cpu_gpr(0) != 0) {
+    throw std::runtime_error("CPU register width demo did not keep gpr[0] at full zero");
+  }
+
+  if (machine.inspect_cpu_gpr(kHighSourceIndex) != kHighSourceValue ||
+      machine.inspect_cpu_hi() != kHiValue ||
+      machine.inspect_cpu_lo() != kLoValue) {
+    throw std::runtime_error("CPU register width demo did not preserve staged 64-bit values");
+  }
+
+  step_hilo_instruction(
+      machine,
+      encode_special(0, 0, kHiReadIndex, 0, 0x10),
+      "MFHI 64-bit value");
+  step_hilo_instruction(
+      machine,
+      encode_special(0, 0, kLoReadIndex, 0, 0x12),
+      "MFLO 64-bit value");
+
+  if (machine.inspect_cpu_gpr(kHiReadIndex) != kHiValue ||
+      machine.inspect_cpu_gpr(kLoReadIndex) != kLoValue) {
+    throw std::runtime_error("CPU register width demo did not move full HI/LO values into GPRs");
+  }
+
+  step_hilo_instruction(
+      machine,
+      encode_special(kHiSourceIndex, 0, 0, 0, 0x11),
+      "MTHI 64-bit value");
+  step_hilo_instruction(
+      machine,
+      encode_special(kLoSourceIndex, 0, 0, 0, 0x13),
+      "MTLO 64-bit value");
+
+  if (machine.inspect_cpu_hi() != kMthiValue || machine.inspect_cpu_lo() != kMtloValue) {
+    throw std::runtime_error("CPU register width demo did not move full GPR values into HI/LO");
+  }
+
+  machine.stage_rdram_u32_be(
+      rdram_offset_from_cpu_address(machine.cpu_pc()),
+      kOriInstruction);
+
+  print_hex32("  ori_raw", kOriInstruction);
+
+  require_stepped(machine.step_cpu_instruction(), "register_value_width_demo_ori");
+
+  std::cout << "after step sequence:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kHighSourceIndex));
+  print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kWordResultIndex));
+  print_hex64("  gpr[16]", machine.inspect_cpu_gpr(kHiReadIndex));
+  print_hex64("  gpr[17]", machine.inspect_cpu_gpr(kLoReadIndex));
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
+
+  if (machine.inspect_cpu_gpr(kHighSourceIndex) != kHighSourceValue) {
+    throw std::runtime_error("CPU register width demo changed the 64-bit word source register");
+  }
+
+  if (machine.inspect_cpu_gpr(kWordResultIndex) !=
+      static_cast<CpuRegisterValue>(kExpectedWordResult)) {
+    throw std::runtime_error(
+        "CPU register width demo did not zero-extend the 32-bit ORI word result");
+  }
+
+  constexpr std::uint32_t kSteppedInstructionCount = 5u;
+  constexpr CpuAddress kExpectedFinalPc = kPc + (kSteppedInstructionCount * 4u);
+  constexpr CpuAddress kExpectedFinalNextPc = kExpectedFinalPc + 4u;
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kExpectedFinalPc) ||
+      machine.cpu_next_pc() != cpu_rdram_alias(kExpectedFinalNextPc)) {
+    throw std::runtime_error("CPU register width demo did not advance through the step sequence");
+  }
+}
+
 void run_hilo_arithmetic_demo(Machine& machine) {
   constexpr std::uint32_t kPc = 0x000006b0u;
   constexpr std::uint32_t kNextPc = 0x000006b4u;
@@ -831,8 +952,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   std::cout << "fn64 bootstrap HI/LO arithmetic demo: Machine-owned HI/LO state transitions\n";
   std::cout << "before step sequence:\n";
   print_control_flow_state(machine);
-  print_hex32("  hi", machine.inspect_cpu_hi());
-  print_hex32("  lo", machine.inspect_cpu_lo());
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
   print_hex64("  gpr[0]", machine.inspect_cpu_gpr(0));
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kHiSourceIndex));
   print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kLoSourceIndex));
@@ -949,8 +1070,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
 
   std::cout << "after step sequence:\n";
   print_control_flow_state(machine);
-  print_hex32("  hi", machine.inspect_cpu_hi());
-  print_hex32("  lo", machine.inspect_cpu_lo());
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
   print_hex64("  gpr[0]", machine.inspect_cpu_gpr(0));
   print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kHiReadIndex));
   print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kLoReadIndex));
@@ -980,6 +1101,7 @@ void run_arithmetic_demos(Machine& machine) {
   run_addi_positive_overflow_demo(machine);
   run_addi_negative_overflow_demo(machine);
   run_logic_immediate_unsigned_compare_demo(machine);
+  run_cpu_register_value_width_demo(machine);
   run_hilo_arithmetic_demo(machine);
 }
 

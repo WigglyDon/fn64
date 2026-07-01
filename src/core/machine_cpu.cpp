@@ -348,6 +348,8 @@ void Machine::write_cpu_gpr_value(std::size_t index, CpuRegisterValue value) {
 }
 
 void Machine::write_cpu_gpr_word_result(std::size_t index, std::uint32_t value) {
+  // Current local word policy: preserve the 32-bit result bits as a
+  // zero-extended CpuRegisterValue. This is not VR4300 word sign-extension.
   write_cpu_gpr_value(index, static_cast<CpuRegisterValue>(value));
 }
 

@@ -10,7 +10,7 @@
 
 namespace fn64 {
 
-using CpuRegisterValue = std::uint32_t;
+using CpuRegisterValue = std::uint64_t;
 using CpuAddress = std::uint32_t;
 using CpuInstructionWord = std::uint32_t;
 using RdramOffset = std::uint32_t;
@@ -47,12 +47,12 @@ private:
 
 class Machine {
 public:
-  // Current CPU scope: fn64 models a local 32-bit integer subset. The aliases
-  // above deliberately distinguish current register values, CPU addresses,
-  // instruction words, physical RDRAM offsets, and cartridge byte offsets even
-  // though each is backed by std::uint32_t today. CPU addresses include the
-  // direct KSEG0/KSEG1 RDRAM alias form. This is not the full N64 VR4300
-  // 64-bit integer model.
+  // Current CPU scope: fn64 owns 64-bit integer register storage, but executed
+  // instructions still model a local 32-bit word subset. CPU addresses,
+  // instruction words, physical RDRAM offsets, and cartridge byte offsets are
+  // deliberately separate 32-bit domains. CPU addresses include the direct
+  // KSEG0/KSEG1 RDRAM alias form. This is not the full N64 VR4300 64-bit
+  // execution model.
 
   // Public CPU execution result for fn64's current local step policy.
   // kStopped is a local stop condition, not N64 COP0 exception delivery.
@@ -302,10 +302,10 @@ private:
 
   CpuRegisterValue cpu_hi() const;
   CpuRegisterValue cpu_lo() const;
-  // Full-value helpers touch the current GPR storage/staging surface. Word
-  // helpers are the current local 32-bit instruction operand/result seam; a
-  // future CpuRegisterValue widening should make extension/narrowing choices
-  // here instead of accidentally widening every executed word operation.
+  // Full-value helpers touch the GPR storage/staging surface. Word helpers are
+  // the current local 32-bit instruction operand/result seam; word-result
+  // writeback zero-extends into CpuRegisterValue today instead of accidentally
+  // claiming VR4300 word sign-extension semantics.
   CpuRegisterValue read_cpu_gpr_value(std::size_t index) const;
   std::uint32_t read_cpu_gpr_word(std::size_t index) const;
 

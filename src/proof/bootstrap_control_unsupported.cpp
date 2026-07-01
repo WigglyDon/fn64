@@ -41,8 +41,8 @@ void run_fetch_failure_no_ghost_case(
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kFirstGprIndex));
   print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kSecondGprIndex));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkGprIndex));
-  print_hex32("  hi", machine.inspect_cpu_hi());
-  print_hex32("  lo", machine.inspect_cpu_lo());
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000900]", kRdramSentinelAddress);
 
   bool threw = false;
@@ -71,8 +71,8 @@ void run_fetch_failure_no_ghost_case(
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kFirstGprIndex));
   print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kSecondGprIndex));
   print_hex64("  gpr[31]", machine.inspect_cpu_gpr(kLinkGprIndex));
-  print_hex32("  hi", machine.inspect_cpu_hi());
-  print_hex32("  lo", machine.inspect_cpu_lo());
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000900]", kRdramSentinelAddress);
 
   if (machine.cpu_pc() != failing_pc || machine.cpu_next_pc() != preserved_next_pc) {
@@ -148,8 +148,8 @@ void run_unsupported_identity_demo(
   print_control_flow_state(machine);
   print_hex64("  gpr[23]", machine.inspect_cpu_gpr(kPreservedRegisterIndex));
   print_hex64("  gpr[24]", machine.inspect_cpu_gpr(kFollowingMarkerIndex));
-  print_hex32("  hi", machine.inspect_cpu_hi());
-  print_hex32("  lo", machine.inspect_cpu_lo());
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
   const std::uint32_t raw = unsupported_instruction;
@@ -169,8 +169,8 @@ void run_unsupported_identity_demo(
   print_control_flow_state(machine);
   print_hex64("  gpr[23]", machine.inspect_cpu_gpr(kPreservedRegisterIndex));
   print_hex64("  gpr[24]", machine.inspect_cpu_gpr(kFollowingMarkerIndex));
-  print_hex32("  hi", machine.inspect_cpu_hi());
-  print_hex32("  lo", machine.inspect_cpu_lo());
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
   print_rdram_word(machine, "  rdram[0x00000940]", kRdramSentinelAddress);
 
   if (machine.cpu_pc() != preserved_pc || machine.cpu_next_pc() != preserved_next_pc) {
