@@ -140,6 +140,10 @@ private:
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
+  // COP0/COP1/COP2/COP3, CACHE, and coprocessor memory identities are coarse
+  // unsupported decode boundaries today. fn64 does not subdecode or execute
+  // coprocessor operations, model cache state/ops/coherence, or deliver COP0
+  // exceptions from these identities.
   enum class CpuInstructionIdentity {
     kUnknownPrimary,
     kSpecialUnknown,
