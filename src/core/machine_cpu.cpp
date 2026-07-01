@@ -293,6 +293,70 @@ std::uint32_t high_u32(std::uint64_t value) {
   return static_cast<std::uint32_t>(value >> 32);
 }
 
+struct DoubleCpuRegisterValueBits {
+  CpuRegisterValue hi = 0;
+  CpuRegisterValue lo = 0;
+};
+
+bool cpu_value_is_negative(CpuRegisterValue value) {
+  return (value & 0x8000000000000000ull) != 0;
+}
+
+CpuRegisterValue negate_cpu_value_bits(CpuRegisterValue value) {
+  return (~value) + 1ull;
+}
+
+DoubleCpuRegisterValueBits negate_double_cpu_value_bits(
+    DoubleCpuRegisterValueBits value) {
+  const CpuRegisterValue lo = (~value.lo) + 1ull;
+  const CpuRegisterValue carry = (lo == 0) ? 1ull : 0ull;
+  return DoubleCpuRegisterValueBits{(~value.hi) + carry, lo};
+}
+
+DoubleCpuRegisterValueBits multiply_u64_to_u128_bits(
+    CpuRegisterValue lhs,
+    CpuRegisterValue rhs) {
+  constexpr CpuRegisterValue kWordMask = 0xffffffffull;
+
+  const CpuRegisterValue lhs_lo = lhs & kWordMask;
+  const CpuRegisterValue lhs_hi = lhs >> 32;
+  const CpuRegisterValue rhs_lo = rhs & kWordMask;
+  const CpuRegisterValue rhs_hi = rhs >> 32;
+
+  const CpuRegisterValue p0 = lhs_lo * rhs_lo;
+  const CpuRegisterValue p1 = lhs_lo * rhs_hi;
+  const CpuRegisterValue p2 = lhs_hi * rhs_lo;
+  const CpuRegisterValue p3 = lhs_hi * rhs_hi;
+
+  const CpuRegisterValue middle =
+      (p0 >> 32) + (p1 & kWordMask) + (p2 & kWordMask);
+  const CpuRegisterValue lo = (p0 & kWordMask) | (middle << 32);
+  const CpuRegisterValue hi = p3 + (p1 >> 32) + (p2 >> 32) + (middle >> 32);
+  return DoubleCpuRegisterValueBits{hi, lo};
+}
+
+DoubleCpuRegisterValueBits multiply_i64_to_i128_bits(
+    CpuRegisterValue lhs,
+    CpuRegisterValue rhs) {
+  const bool result_is_negative = cpu_value_is_negative(lhs) != cpu_value_is_negative(rhs);
+  const CpuRegisterValue lhs_magnitude =
+      cpu_value_is_negative(lhs) ? negate_cpu_value_bits(lhs) : lhs;
+  const CpuRegisterValue rhs_magnitude =
+      cpu_value_is_negative(rhs) ? negate_cpu_value_bits(rhs) : rhs;
+
+  DoubleCpuRegisterValueBits product =
+      multiply_u64_to_u128_bits(lhs_magnitude, rhs_magnitude);
+  if (result_is_negative) {
+    product = negate_double_cpu_value_bits(product);
+  }
+
+  return product;
+}
+
+bool signed_cpu_division_overflows(CpuRegisterValue dividend, CpuRegisterValue divisor) {
+  return dividend == 0x8000000000000000ull && divisor == 0xffffffffffffffffull;
+}
+
 CpuAddress sequential_instruction_address(CpuAddress address) {
   return address + 4u;
 }
@@ -886,6 +950,54 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t dividend = read_cpu_gpr_word(instruction.rs);
       write_cpu_lo_word_sign_extended_result(dividend / divisor);
       write_cpu_hi_word_sign_extended_result(dividend % divisor);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDmult: {
+      const DoubleCpuRegisterValueBits product =
+          multiply_i64_to_i128_bits(
+              read_cpu_gpr_value(instruction.rs),
+              read_cpu_gpr_value(instruction.rt));
+      write_cpu_hi(product.hi);
+      write_cpu_lo(product.lo);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDmultu: {
+      const DoubleCpuRegisterValueBits product =
+          multiply_u64_to_u128_bits(
+              read_cpu_gpr_value(instruction.rs),
+              read_cpu_gpr_value(instruction.rt));
+      write_cpu_hi(product.hi);
+      write_cpu_lo(product.lo);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDdiv: {
+      const CpuRegisterValue divisor_bits = read_cpu_gpr_value(instruction.rt);
+      const CpuRegisterValue dividend_bits = read_cpu_gpr_value(instruction.rs);
+      if (divisor_bits == 0 || signed_cpu_division_overflows(dividend_bits, divisor_bits)) {
+        return CpuInstructionExecutionResult::kExecuted;
+      }
+
+      const std::int64_t dividend = i64_from_cpu_value_bits(dividend_bits);
+      const std::int64_t divisor = i64_from_cpu_value_bits(divisor_bits);
+      const std::int64_t quotient = dividend / divisor;
+      const std::int64_t remainder = dividend % divisor;
+      write_cpu_lo(static_cast<CpuRegisterValue>(quotient));
+      write_cpu_hi(static_cast<CpuRegisterValue>(remainder));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDdivu: {
+      const CpuRegisterValue divisor = read_cpu_gpr_value(instruction.rt);
+      if (divisor == 0) {
+        return CpuInstructionExecutionResult::kExecuted;
+      }
+
+      const CpuRegisterValue dividend = read_cpu_gpr_value(instruction.rs);
+      write_cpu_lo(dividend / divisor);
+      write_cpu_hi(dividend % divisor);
       return CpuInstructionExecutionResult::kExecuted;
     }
 

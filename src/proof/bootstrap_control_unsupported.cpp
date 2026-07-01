@@ -213,10 +213,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
   constexpr std::uint32_t kSpecialUnknownUnsupportedInstruction = 0x00000001u;
   constexpr std::uint32_t kRegimmUnknownUnsupportedInstruction = 0x04040000u;
   constexpr std::uint32_t kUnknownPrimaryUnsupportedInstruction = 0xcc000000u;
-  constexpr CpuInstructionWord kDmultUnsupportedInstruction = encode_special(4, 5, 0, 0, 0x1c);
-  constexpr CpuInstructionWord kDmultuUnsupportedInstruction = encode_special(4, 5, 0, 0, 0x1d);
-  constexpr CpuInstructionWord kDdivUnsupportedInstruction = encode_special(4, 5, 0, 0, 0x1e);
-  constexpr CpuInstructionWord kDdivuUnsupportedInstruction = encode_special(4, 5, 0, 0, 0x1f);
   constexpr CpuInstructionWord kLdlUnsupportedInstruction = encode_ldl(6, 4, 0x0000u);
   constexpr CpuInstructionWord kLdrUnsupportedInstruction = encode_ldr(6, 4, 0x0000u);
   constexpr CpuInstructionWord kSdlUnsupportedInstruction = encode_sdl(6, 4, 0x0000u);
@@ -249,34 +245,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       0x000006f0u,
       kUnknownPrimaryUnsupportedInstruction,
       0x75f1u);
-
-  run_unsupported_identity_demo(
-      machine,
-      "DMULT remains unsupported with rollback intact",
-      0x00000700u,
-      kDmultUnsupportedInstruction,
-      0x7601u);
-
-  run_unsupported_identity_demo(
-      machine,
-      "DMULTU remains unsupported with rollback intact",
-      0x00000710u,
-      kDmultuUnsupportedInstruction,
-      0x7611u);
-
-  run_unsupported_identity_demo(
-      machine,
-      "DDIV remains unsupported with rollback intact",
-      0x00000720u,
-      kDdivUnsupportedInstruction,
-      0x7621u);
-
-  run_unsupported_identity_demo(
-      machine,
-      "DDIVU remains unsupported with rollback intact",
-      0x00000730u,
-      kDdivuUnsupportedInstruction,
-      0x7631u);
 
   run_unsupported_identity_demo(
       machine,

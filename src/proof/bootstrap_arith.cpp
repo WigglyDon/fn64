@@ -1859,6 +1859,181 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   }
 }
 
+void run_d_hilo_arithmetic_demo(Machine& machine) {
+  constexpr CpuAddress kPc = 0x00000a00u;
+  constexpr CpuAddress kNextPc = 0x00000a04u;
+
+  constexpr std::uint8_t kLhsIndex = 4;
+  constexpr std::uint8_t kRhsIndex = 5;
+  constexpr std::uint8_t kHiReadIndex = 6;
+  constexpr std::uint8_t kLoReadIndex = 7;
+
+  constexpr CpuRegisterValue kDmultPositiveLhs = 0x0000000100000000ull;
+  constexpr CpuRegisterValue kDmultPositiveRhs = 0x0000000200000003ull;
+  constexpr CpuRegisterValue kDmultPositiveExpectedHi = 0x0000000000000002ull;
+  constexpr CpuRegisterValue kDmultPositiveExpectedLo = 0x0000000300000000ull;
+  constexpr CpuRegisterValue kDmultNegativeExpectedHi = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kDmultNegativeExpectedLo = 0xfffffffffffffffeull;
+  constexpr CpuRegisterValue kDmultuExpectedHi = 0x0000000000000001ull;
+  constexpr CpuRegisterValue kDmultuExpectedLo = 0xfffffffffffffffeull;
+  constexpr CpuRegisterValue kDdivExpectedHi = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kDdivExpectedLo = 0xfffffffffffffffdull;
+  constexpr CpuRegisterValue kDdivuExpectedHi = 0x0000000000000001ull;
+  constexpr CpuRegisterValue kDdivuExpectedLo = 0x7fffffffffffffffull;
+  constexpr CpuRegisterValue kDdivZeroHi = 0x123456789abcdef0ull;
+  constexpr CpuRegisterValue kDdivZeroLo = 0x0fedcba987654321ull;
+  constexpr CpuRegisterValue kDdivuZeroHi = 0x0102030405060708ull;
+  constexpr CpuRegisterValue kDdivuZeroLo = 0x8877665544332211ull;
+  constexpr CpuRegisterValue kDdivOverflowHi = 0xa5a5a5a55a5a5a5aull;
+  constexpr CpuRegisterValue kDdivOverflowLo = 0x1122334455667788ull;
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kPc));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
+  machine.stage_cpu_gpr(kHiReadIndex, 0);
+  machine.stage_cpu_gpr(kLoReadIndex, 0);
+
+  std::cout
+      << "fn64 bootstrap D HI/LO arithmetic demo: DMULT/DMULTU/DDIV/DDIVU execute over full 64-bit values\n";
+  std::cout << "before step sequence:\n";
+  print_control_flow_state(machine);
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
+
+  machine.stage_cpu_gpr(kLhsIndex, kDmultPositiveLhs);
+  machine.stage_cpu_gpr(kRhsIndex, kDmultPositiveRhs);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1c),
+      "DMULT positive");
+
+  if (machine.inspect_cpu_hi() != kDmultPositiveExpectedHi ||
+      machine.inspect_cpu_lo() != kDmultPositiveExpectedLo) {
+    throw std::runtime_error("D HI/LO demo signed DMULT positive result was wrong");
+  }
+
+  machine.stage_cpu_gpr(kLhsIndex, 0xffffffffffffffffull);
+  machine.stage_cpu_gpr(kRhsIndex, 0x0000000000000002ull);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1c),
+      "DMULT negative");
+
+  if (machine.inspect_cpu_hi() != kDmultNegativeExpectedHi ||
+      machine.inspect_cpu_lo() != kDmultNegativeExpectedLo) {
+    throw std::runtime_error("D HI/LO demo signed DMULT negative result was wrong");
+  }
+
+  machine.stage_cpu_gpr(kLhsIndex, 0xffffffffffffffffull);
+  machine.stage_cpu_gpr(kRhsIndex, 0x0000000000000002ull);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1d),
+      "DMULTU");
+
+  if (machine.inspect_cpu_hi() != kDmultuExpectedHi ||
+      machine.inspect_cpu_lo() != kDmultuExpectedLo) {
+    throw std::runtime_error("D HI/LO demo unsigned DMULTU result was wrong");
+  }
+
+  step_hilo_instruction(
+      machine,
+      encode_special(0, 0, kHiReadIndex, 0, 0x10),
+      "MFHI after DMULTU");
+  step_hilo_instruction(
+      machine,
+      encode_special(0, 0, kLoReadIndex, 0, 0x12),
+      "MFLO after DMULTU");
+
+  if (machine.inspect_cpu_gpr(kHiReadIndex) != kDmultuExpectedHi ||
+      machine.inspect_cpu_gpr(kLoReadIndex) != kDmultuExpectedLo) {
+    throw std::runtime_error("D HI/LO demo MFHI/MFLO did not move full D product halves");
+  }
+
+  machine.stage_cpu_gpr(kLhsIndex, 0xfffffffffffffff9ull);
+  machine.stage_cpu_gpr(kRhsIndex, 0x0000000000000002ull);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1e),
+      "DDIV");
+
+  if (machine.inspect_cpu_hi() != kDdivExpectedHi ||
+      machine.inspect_cpu_lo() != kDdivExpectedLo) {
+    throw std::runtime_error("D HI/LO demo signed DDIV result was wrong");
+  }
+
+  machine.stage_cpu_gpr(kLhsIndex, 0xffffffffffffffffull);
+  machine.stage_cpu_gpr(kRhsIndex, 0x0000000000000002ull);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1f),
+      "DDIVU");
+
+  if (machine.inspect_cpu_hi() != kDdivuExpectedHi ||
+      machine.inspect_cpu_lo() != kDdivuExpectedLo) {
+    throw std::runtime_error("D HI/LO demo unsigned DDIVU result was wrong");
+  }
+
+  machine.stage_cpu_hi(kDdivZeroHi);
+  machine.stage_cpu_lo(kDdivZeroLo);
+  machine.stage_cpu_gpr(kLhsIndex, 0x8000000000000000ull);
+  machine.stage_cpu_gpr(kRhsIndex, 0);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1e),
+      "DDIV by zero");
+
+  if (machine.inspect_cpu_hi() != kDdivZeroHi || machine.inspect_cpu_lo() != kDdivZeroLo) {
+    throw std::runtime_error("D HI/LO demo DDIV by zero changed HI/LO");
+  }
+
+  machine.stage_cpu_hi(kDdivuZeroHi);
+  machine.stage_cpu_lo(kDdivuZeroLo);
+  machine.stage_cpu_gpr(kLhsIndex, 0xffffffffffffffffull);
+  machine.stage_cpu_gpr(kRhsIndex, 0);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1f),
+      "DDIVU by zero");
+
+  if (machine.inspect_cpu_hi() != kDdivuZeroHi ||
+      machine.inspect_cpu_lo() != kDdivuZeroLo) {
+    throw std::runtime_error("D HI/LO demo DDIVU by zero changed HI/LO");
+  }
+
+  machine.stage_cpu_hi(kDdivOverflowHi);
+  machine.stage_cpu_lo(kDdivOverflowLo);
+  machine.stage_cpu_gpr(kLhsIndex, 0x8000000000000000ull);
+  machine.stage_cpu_gpr(kRhsIndex, 0xffffffffffffffffull);
+  step_hilo_instruction(
+      machine,
+      encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1e),
+      "DDIV signed overflow edge");
+
+  if (machine.inspect_cpu_hi() != kDdivOverflowHi ||
+      machine.inspect_cpu_lo() != kDdivOverflowLo) {
+    throw std::runtime_error("D HI/LO demo DDIV signed overflow edge changed HI/LO");
+  }
+
+  std::cout << "after step sequence:\n";
+  print_control_flow_state(machine);
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kHiReadIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kLoReadIndex));
+
+  constexpr std::uint32_t kSteppedInstructionCount = 10u;
+  constexpr CpuAddress kExpectedFinalPc = kPc + (kSteppedInstructionCount * 4u);
+  constexpr CpuAddress kExpectedFinalNextPc = kExpectedFinalPc + 4u;
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kExpectedFinalPc)) {
+    throw std::runtime_error("D HI/LO demo did not advance pc through the step sequence");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kExpectedFinalNextPc)) {
+    throw std::runtime_error("D HI/LO demo did not advance next_pc through the step sequence");
+  }
+}
+
 }  // namespace
 
 void run_arithmetic_demos(Machine& machine) {
@@ -1877,6 +2052,7 @@ void run_arithmetic_demos(Machine& machine) {
   run_d_shift_demo(machine);
   run_cpu_register_value_width_demo(machine);
   run_hilo_arithmetic_demo(machine);
+  run_d_hilo_arithmetic_demo(machine);
 }
 
 }  // namespace fn64::bootstrap_detail
