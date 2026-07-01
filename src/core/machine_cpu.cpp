@@ -61,6 +61,19 @@ namespace {
           std::to_string(address));
 }
 
+[[noreturn]] void fail_unaligned_doubleword_memory_access(
+    const char* operation,
+    CpuAddress address) {
+  throw MachineFault(
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      operation,
+      address,
+      8,
+      std::string(operation) +
+          " requires naturally aligned doubleword address: " +
+          std::to_string(address));
+}
+
 [[noreturn]] void fail_unaligned_control_transfer_target(
     const char* operation,
     CpuAddress address) {
@@ -308,6 +321,10 @@ std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
   return read_rdram_u32_be(require_cpu_rdram_address("CPU word read", cpu_address, 4));
 }
 
+CpuRegisterValue Machine::read_cpu_memory_u64_be(CpuAddress cpu_address) const {
+  return read_rdram_u64_be(require_cpu_rdram_address("CPU doubleword read", cpu_address, 8));
+}
+
 void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
   write_rdram_u8(require_cpu_rdram_address("CPU byte write", cpu_address, 1), value);
 }
@@ -318,6 +335,10 @@ void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t valu
 
 void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t value) {
   write_rdram_u32_be(require_cpu_rdram_address("CPU word write", cpu_address, 4), value);
+}
+
+void Machine::write_cpu_memory_u64_be(CpuAddress cpu_address, CpuRegisterValue value) {
+  write_rdram_u64_be(require_cpu_rdram_address("CPU doubleword write", cpu_address, 8), value);
 }
 
 CpuAddress Machine::cpu_pc() const {
@@ -1343,6 +1364,19 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kLd: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+
+      if ((effective_address & 0x7u) != 0) {
+        fail_unaligned_doubleword_memory_access("LD", effective_address);
+      }
+
+      write_cpu_gpr_value(instruction.rt, read_cpu_memory_u64_be(effective_address));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kSb: {
       const std::uint32_t effective_address =
           read_cpu_gpr_word(instruction.rs) +
@@ -1422,6 +1456,19 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
             u32_byte_be(value, static_cast<std::size_t>(first_register_byte + i)));
       }
 
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSd: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+
+      if ((effective_address & 0x7u) != 0) {
+        fail_unaligned_doubleword_memory_access("SD", effective_address);
+      }
+
+      write_cpu_memory_u64_be(effective_address, read_cpu_gpr_value(instruction.rt));
       return CpuInstructionExecutionResult::kExecuted;
     }
 

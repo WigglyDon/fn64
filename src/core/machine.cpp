@@ -187,6 +187,21 @@ std::uint32_t Machine::read_rdram_u32_be(RdramOffset address) const {
          static_cast<std::uint32_t>(rdram_[address + 3]);
 }
 
+CpuRegisterValue Machine::read_rdram_u64_be(RdramOffset address) const {
+  if (address > rdram_.size() - 8) {
+    fail_rdram_access(address, 8);
+  }
+
+  return (static_cast<CpuRegisterValue>(rdram_[address]) << 56) |
+         (static_cast<CpuRegisterValue>(rdram_[address + 1]) << 48) |
+         (static_cast<CpuRegisterValue>(rdram_[address + 2]) << 40) |
+         (static_cast<CpuRegisterValue>(rdram_[address + 3]) << 32) |
+         (static_cast<CpuRegisterValue>(rdram_[address + 4]) << 24) |
+         (static_cast<CpuRegisterValue>(rdram_[address + 5]) << 16) |
+         (static_cast<CpuRegisterValue>(rdram_[address + 6]) << 8) |
+         static_cast<CpuRegisterValue>(rdram_[address + 7]);
+}
+
 void Machine::write_rdram_u8(RdramOffset address, std::uint8_t value) {
   if (address >= rdram_.size()) {
     fail_rdram_access(address, 1);
@@ -217,6 +232,21 @@ void Machine::write_rdram_u32_be(RdramOffset address, std::uint32_t value) {
   rdram_[address + 1] = static_cast<std::uint8_t>((value >> 16) & 0xff);
   rdram_[address + 2] = static_cast<std::uint8_t>((value >> 8) & 0xff);
   rdram_[address + 3] = static_cast<std::uint8_t>(value & 0xff);
+}
+
+void Machine::write_rdram_u64_be(RdramOffset address, CpuRegisterValue value) {
+  if (address > rdram_.size() - 8) {
+    fail_rdram_access(address, 8);
+  }
+
+  rdram_[address] = static_cast<std::uint8_t>((value >> 56) & 0xff);
+  rdram_[address + 1] = static_cast<std::uint8_t>((value >> 48) & 0xff);
+  rdram_[address + 2] = static_cast<std::uint8_t>((value >> 40) & 0xff);
+  rdram_[address + 3] = static_cast<std::uint8_t>((value >> 32) & 0xff);
+  rdram_[address + 4] = static_cast<std::uint8_t>((value >> 24) & 0xff);
+  rdram_[address + 5] = static_cast<std::uint8_t>((value >> 16) & 0xff);
+  rdram_[address + 6] = static_cast<std::uint8_t>((value >> 8) & 0xff);
+  rdram_[address + 7] = static_cast<std::uint8_t>(value & 0xff);
 }
 
 void Machine::stage_cartridge_bytes_to_rdram(

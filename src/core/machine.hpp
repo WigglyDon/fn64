@@ -48,7 +48,7 @@ private:
 class Machine {
 public:
   // Current CPU scope: fn64 owns 64-bit integer register storage and a tiny
-  // explicitly supported 64-bit D integer cluster; most executed instructions
+  // explicitly supported 64-bit D instruction cluster; most executed instructions
   // still model a local 32-bit word subset. CPU addresses, instruction words,
   // physical RDRAM offsets, and cartridge byte offsets are deliberately
   // separate 32-bit domains. CPU addresses include the direct KSEG0/KSEG1 RDRAM
@@ -278,10 +278,12 @@ private:
   std::uint8_t read_rdram_u8(RdramOffset address) const;
   std::uint16_t read_rdram_u16_be(RdramOffset address) const;
   std::uint32_t read_rdram_u32_be(RdramOffset address) const;
+  CpuRegisterValue read_rdram_u64_be(RdramOffset address) const;
 
   void write_rdram_u8(RdramOffset address, std::uint8_t value);
   void write_rdram_u16_be(RdramOffset address, std::uint16_t value);
   void write_rdram_u32_be(RdramOffset address, std::uint32_t value);
+  void write_rdram_u64_be(RdramOffset address, CpuRegisterValue value);
 
   static RdramOffset require_cpu_rdram_address(
       const char* operation,
@@ -291,10 +293,12 @@ private:
   std::uint8_t read_cpu_memory_u8(CpuAddress cpu_address) const;
   std::uint16_t read_cpu_memory_u16_be(CpuAddress cpu_address) const;
   std::uint32_t read_cpu_memory_u32_be(CpuAddress cpu_address) const;
+  CpuRegisterValue read_cpu_memory_u64_be(CpuAddress cpu_address) const;
 
   void write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value);
   void write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t value);
   void write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t value);
+  void write_cpu_memory_u64_be(CpuAddress cpu_address, CpuRegisterValue value);
 
   static bool translate_cpu_rdram_address(
       CpuAddress cpu_address,

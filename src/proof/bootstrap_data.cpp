@@ -1950,6 +1950,108 @@ void run_aligned_word_load_store_demo(Machine& machine) {
   require_stopped(machine.step_cpu_instruction(), "aligned_word_demo_break");
 }
 
+void run_aligned_doubleword_load_store_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kLoadTargetIndex = 5;
+  constexpr std::size_t kStoreSourceIndex = 6;
+
+  constexpr CpuAddress kLdAddress = 0x00000220u;
+  constexpr CpuAddress kSdAddress = 0x00000224u;
+  constexpr CpuAddress kLdZeroAddress = 0x00000228u;
+  constexpr CpuAddress kBreakAddress = 0x0000022cu;
+
+  constexpr RdramOffset kLoadDataAddress = 0x00000580u;
+  constexpr RdramOffset kStoreDataAddress = 0x00000588u;
+  constexpr std::uint16_t kLoadOffset = 0x0000u;
+  constexpr std::uint16_t kStoreOffset = 0x0008u;
+
+  constexpr CpuRegisterValue kLoadedValue = 0x1122334455667788ull;
+  constexpr CpuRegisterValue kStoredValue = 0xaabbccddeeff0011ull;
+  constexpr CpuRegisterValue kLoadTargetSentinel = 0x0102030405060708ull;
+
+  const CpuInstructionWord kLdInstruction = encode_ld(
+      static_cast<std::uint8_t>(kLoadTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      kLoadOffset);
+  const CpuInstructionWord kSdInstruction = encode_sd(
+      static_cast<std::uint8_t>(kStoreSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      kStoreOffset);
+  const CpuInstructionWord kLdZeroInstruction = encode_ld(
+      0,
+      static_cast<std::uint8_t>(kBaseIndex),
+      kStoreOffset);
+  const CpuInstructionWord kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLdAddress));
+  machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kLoadDataAddress));
+  machine.stage_cpu_gpr(kLoadTargetIndex, kLoadTargetSentinel);
+  machine.stage_cpu_gpr(kStoreSourceIndex, kStoredValue);
+  machine.stage_cpu_gpr(0, 0xffffffffffffffffull);
+
+  machine.stage_rdram_u32_be(kLdAddress, kLdInstruction);
+  machine.stage_rdram_u32_be(kSdAddress, kSdInstruction);
+  machine.stage_rdram_u32_be(kLdZeroAddress, kLdZeroInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
+
+  machine.stage_rdram_u32_be(kLoadDataAddress, 0x11223344u);
+  machine.stage_rdram_u32_be(kLoadDataAddress + 4u, 0x55667788u);
+  machine.stage_rdram_u32_be(kStoreDataAddress, 0x00000000u);
+  machine.stage_rdram_u32_be(kStoreDataAddress + 4u, 0x00000000u);
+
+  std::cout
+      << "fn64 bootstrap aligned doubleword demo: LD/SD use Machine-owned RDRAM bytes\n";
+  std::cout << "before step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kLoadTargetIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kStoreSourceIndex));
+  print_rdram_word(machine, "  rdram[0x00000580]", kLoadDataAddress);
+  print_rdram_word(machine, "  rdram[0x00000584]", kLoadDataAddress + 4u);
+
+  require_stepped(machine.step_cpu_instruction(), "aligned_doubleword_demo_ld");
+
+  std::cout << "after step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kLoadTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kSdAddress)) {
+    throw std::runtime_error("aligned doubleword demo did not advance to SD");
+  }
+
+  if (machine.inspect_cpu_gpr(kLoadTargetIndex) != kLoadedValue) {
+    throw std::runtime_error("aligned doubleword demo LD result was wrong");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "aligned_doubleword_demo_sd");
+
+  std::cout << "after step 2:\n";
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "  rdram[0x00000588]", kStoreDataAddress);
+  print_rdram_word(machine, "  rdram[0x0000058c]", kStoreDataAddress + 4u);
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLdZeroAddress)) {
+    throw std::runtime_error("aligned doubleword demo did not advance to LD $0");
+  }
+
+  if (machine.inspect_rdram_u32_be(kStoreDataAddress) != 0xaabbccddu ||
+      machine.inspect_rdram_u32_be(kStoreDataAddress + 4u) != 0xeeff0011u) {
+    throw std::runtime_error("aligned doubleword demo SD store result was wrong");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "aligned_doubleword_demo_ld_zero");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
+    throw std::runtime_error("aligned doubleword demo did not advance to BREAK sentinel");
+  }
+
+  if (machine.inspect_cpu_gpr(0) != 0) {
+    throw std::runtime_error("aligned doubleword demo LD wrote to gpr[0]");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), "aligned_doubleword_demo_break");
+}
+
 void run_word_alignment_guard_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 11;
@@ -2042,6 +2144,108 @@ void run_word_alignment_guard_demo(Machine& machine) {
 
   if (machine.inspect_cpu_gpr(kTargetIndex) != 0x01234567u) {
     throw std::runtime_error("word alignment guard demo LW changed target register on fault");
+  }
+}
+
+void run_doubleword_alignment_guard_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSourceIndex = 11;
+  constexpr std::size_t kTargetIndex = 12;
+
+  constexpr CpuAddress kSdAddress = 0x00000240u;
+  constexpr CpuAddress kLdAddress = 0x00000244u;
+
+  constexpr RdramOffset kDataBaseAddress = 0x00000580u;
+  constexpr std::uint16_t kMisalignedOffset = 0x0004u;
+  constexpr CpuAddress kMisalignedAddress =
+      cpu_rdram_alias(kDataBaseAddress) + kMisalignedOffset;
+
+  constexpr CpuRegisterValue kSourceValue = 0xaabbccddeeff0011ull;
+  constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+
+  const CpuInstructionWord kSdInstruction = encode_sd(
+      static_cast<std::uint8_t>(kSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      kMisalignedOffset);
+  const CpuInstructionWord kLdInstruction = encode_ld(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      kMisalignedOffset);
+
+  machine.stage_rdram_u32_be(kSdAddress, kSdInstruction);
+  machine.stage_rdram_u32_be(kLdAddress, kLdInstruction);
+  machine.stage_rdram_u32_be(kDataBaseAddress, 0x10203040u);
+  machine.stage_rdram_u32_be(kDataBaseAddress + 4u, 0x50607080u);
+  machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataBaseAddress));
+  machine.stage_cpu_gpr(kSourceIndex, kSourceValue);
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+  std::cout
+      << "fn64 bootstrap doubleword guard demo: LD/SD natural-alignment failure is local MachineFault\n";
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kSdAddress));
+
+  std::cout << "before SD misaligned step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kSourceIndex));
+  print_hex32("  sd_effective_address", kMisalignedAddress);
+  print_rdram_word(machine, "  rdram[0x00000580]", kDataBaseAddress);
+  print_rdram_word(machine, "  rdram[0x00000584]", kDataBaseAddress + 4u);
+
+  require_step_machine_fault(
+      machine,
+      "doubleword_alignment_demo_sd",
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      8);
+
+  std::cout << "after SD misaligned step:\n";
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "  rdram[0x00000580]", kDataBaseAddress);
+  print_rdram_word(machine, "  rdram[0x00000584]", kDataBaseAddress + 4u);
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kSdAddress)) {
+    throw std::runtime_error("doubleword alignment guard demo SD changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kSdAddress + 4u)) {
+    throw std::runtime_error("doubleword alignment guard demo SD changed next_pc on fault");
+  }
+
+  if (machine.inspect_rdram_u32_be(kDataBaseAddress) != 0x10203040u ||
+      machine.inspect_rdram_u32_be(kDataBaseAddress + 4u) != 0x50607080u) {
+    throw std::runtime_error("doubleword alignment guard demo SD changed memory on fault");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLdAddress));
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+  std::cout << "before LD misaligned step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
+  print_hex32("  ld_effective_address", kMisalignedAddress);
+
+  require_step_machine_fault(
+      machine,
+      "doubleword_alignment_demo_ld",
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      8);
+
+  std::cout << "after LD misaligned step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLdAddress)) {
+    throw std::runtime_error("doubleword alignment guard demo LD changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kLdAddress + 4u)) {
+    throw std::runtime_error("doubleword alignment guard demo LD changed next_pc on fault");
+  }
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+    throw std::runtime_error("doubleword alignment guard demo LD changed target register on fault");
   }
 }
 
@@ -2835,6 +3039,118 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   }
 }
 
+void run_failed_doubleword_no_ghost_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSourceIndex = 27;
+  constexpr std::size_t kTargetIndex = 28;
+
+  constexpr CpuAddress kSdAddress = 0x00000260u;
+  constexpr CpuAddress kLdAddress = 0x00000264u;
+
+  constexpr CpuAddress kInvalidKseg1Address = 0xa0400000u;
+  constexpr RdramOffset kLowSentinelAddress = 0x00000590u;
+  constexpr RdramOffset kTailSentinelAddress = 0x003ffff8u;
+  constexpr std::uint32_t kLowSentinelHigh = 0x11223344u;
+  constexpr std::uint32_t kLowSentinelLow = 0x55667788u;
+  constexpr std::uint32_t kTailSentinelHigh = 0x99aabbccu;
+  constexpr std::uint32_t kTailSentinelLow = 0xddeeff00u;
+  constexpr CpuRegisterValue kSourceValue = 0xaabbccddeeff0011ull;
+  constexpr CpuRegisterValue kTargetSentinel = 0x0102030405060708ull;
+
+  const CpuInstructionWord kSdInstruction = encode_sd(
+      static_cast<std::uint8_t>(kSourceIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+  const CpuInstructionWord kLdInstruction = encode_ld(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+
+  machine.stage_rdram_u32_be(kSdAddress, kSdInstruction);
+  machine.stage_rdram_u32_be(kLdAddress, kLdInstruction);
+  machine.stage_rdram_u32_be(kLowSentinelAddress, kLowSentinelHigh);
+  machine.stage_rdram_u32_be(kLowSentinelAddress + 4u, kLowSentinelLow);
+  machine.stage_rdram_u32_be(kTailSentinelAddress, kTailSentinelHigh);
+  machine.stage_rdram_u32_be(kTailSentinelAddress + 4u, kTailSentinelLow);
+  machine.stage_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
+  machine.stage_cpu_gpr(kSourceIndex, kSourceValue);
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+  std::cout
+      << "fn64 bootstrap failed doubleword no-ghost demo: LD/SD out-of-window faults do not mutate state\n";
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kSdAddress));
+
+  std::cout << "before SD out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[27]", machine.inspect_cpu_gpr(kSourceIndex));
+  print_hex32("  sd_effective_address", kInvalidKseg1Address);
+  print_rdram_word(machine, "  rdram[0x00000590]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x00000594]", kLowSentinelAddress + 4u);
+  print_rdram_word(machine, "  rdram[0x003ffff8]", kTailSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress + 4u);
+
+  require_step_machine_fault(
+      machine,
+      "failed_doubleword_demo_sd",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      8);
+
+  std::cout << "after SD out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_rdram_word(machine, "  rdram[0x00000590]", kLowSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x00000594]", kLowSentinelAddress + 4u);
+  print_rdram_word(machine, "  rdram[0x003ffff8]", kTailSentinelAddress);
+  print_rdram_word(machine, "  rdram[0x003ffffc]", kTailSentinelAddress + 4u);
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kSdAddress)) {
+    throw std::runtime_error("failed doubleword no-ghost demo SD changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kSdAddress + 4u)) {
+    throw std::runtime_error("failed doubleword no-ghost demo SD changed next_pc on fault");
+  }
+
+  if (machine.inspect_rdram_u32_be(kLowSentinelAddress) != kLowSentinelHigh ||
+      machine.inspect_rdram_u32_be(kLowSentinelAddress + 4u) != kLowSentinelLow ||
+      machine.inspect_rdram_u32_be(kTailSentinelAddress) != kTailSentinelHigh ||
+      machine.inspect_rdram_u32_be(kTailSentinelAddress + 4u) != kTailSentinelLow) {
+    throw std::runtime_error("failed doubleword no-ghost demo SD changed RDRAM on fault");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLdAddress));
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+  std::cout << "before LD out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+  print_hex32("  ld_effective_address", kInvalidKseg1Address);
+
+  require_step_machine_fault(
+      machine,
+      "failed_doubleword_demo_ld",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      8);
+
+  std::cout << "after LD out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLdAddress)) {
+    throw std::runtime_error("failed doubleword no-ghost demo LD changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kLdAddress + 4u)) {
+    throw std::runtime_error("failed doubleword no-ghost demo LD changed next_pc on fault");
+  }
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel) {
+    throw std::runtime_error("failed doubleword no-ghost demo LD changed target register");
+  }
+}
+
 void run_negative_out_of_range_guard_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 27;
@@ -2947,7 +3263,9 @@ void run_data_demos(Machine& machine) {
   run_unaligned_store_word_demo(machine);
   run_partial_word_lane_matrix_demo(machine);
   run_aligned_word_load_store_demo(machine);
+  run_aligned_doubleword_load_store_demo(machine);
   run_word_alignment_guard_demo(machine);
+  run_doubleword_alignment_guard_demo(machine);
   run_byte_load_store_demo(machine);
   run_halfword_load_store_demo(machine);
   run_halfword_alignment_guard_demo(machine);
@@ -2956,6 +3274,7 @@ void run_data_demos(Machine& machine) {
   run_negative_halfword_load_store_demo(machine);
   run_failed_partial_load_no_ghost_demo(machine);
   run_failed_partial_store_no_ghost_demo(machine);
+  run_failed_doubleword_no_ghost_demo(machine);
   run_negative_out_of_range_guard_demo(machine);
 }
 

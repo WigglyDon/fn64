@@ -216,6 +216,10 @@ void run_unsupported_instruction_demos(Machine& machine) {
   constexpr CpuInstructionWord kDaddUnsupportedInstruction = encode_special(4, 5, 6, 0, 0x2c);
   constexpr CpuInstructionWord kDaddiUnsupportedInstruction = encode_i_type(0x18, 4, 6, 0x0001u);
   constexpr CpuInstructionWord kDsubUnsupportedInstruction = encode_special(4, 5, 6, 0, 0x2e);
+  constexpr CpuInstructionWord kLdlUnsupportedInstruction = encode_ldl(6, 4, 0x0000u);
+  constexpr CpuInstructionWord kLdrUnsupportedInstruction = encode_ldr(6, 4, 0x0000u);
+  constexpr CpuInstructionWord kSdlUnsupportedInstruction = encode_sdl(6, 4, 0x0000u);
+  constexpr CpuInstructionWord kSdrUnsupportedInstruction = encode_sdr(6, 4, 0x0000u);
 
   run_unsupported_identity_demo(
       machine,
@@ -265,6 +269,34 @@ void run_unsupported_instruction_demos(Machine& machine) {
       0x00000720u,
       kDsubUnsupportedInstruction,
       0x7621u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "LDL remains unsupported with rollback intact",
+      0x00000730u,
+      kLdlUnsupportedInstruction,
+      0x7631u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "LDR remains unsupported with rollback intact",
+      0x00000740u,
+      kLdrUnsupportedInstruction,
+      0x7641u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "SDL remains unsupported with rollback intact",
+      0x00000750u,
+      kSdlUnsupportedInstruction,
+      0x7651u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "SDR remains unsupported with rollback intact",
+      0x00000760u,
+      kSdrUnsupportedInstruction,
+      0x7661u);
 }
 
 }  // namespace fn64::bootstrap_detail
