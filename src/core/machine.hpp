@@ -12,6 +12,7 @@ namespace fn64 {
 
 using CpuRegisterValue = std::uint64_t;
 using CpuAddress = std::uint32_t;
+using CpuPhysicalAddress = std::uint32_t;
 using CpuInstructionWord = std::uint32_t;
 using RdramOffset = std::uint32_t;
 using CartridgeOffset = std::uint32_t;
@@ -49,10 +50,11 @@ class Machine {
 public:
   // Current CPU scope: fn64 owns 64-bit integer register storage and a tiny
   // explicitly supported 64-bit D instruction cluster; most executed instructions
-  // still model a local 32-bit word subset. CPU addresses, instruction words,
-  // physical RDRAM offsets, and cartridge byte offsets are deliberately
-  // separate 32-bit domains. CPU addresses include the direct KSEG0/KSEG1 RDRAM
-  // alias form. This is not the full N64 VR4300 64-bit execution model.
+  // still model a local 32-bit word subset. CPU addresses, CPU physical
+  // addresses produced by direct aliases, instruction words, physical RDRAM
+  // offsets, and cartridge byte offsets are deliberately separate 32-bit
+  // domains. CPU addresses include the direct KSEG0/KSEG1 RDRAM alias form.
+  // This is not the full N64 VR4300 64-bit execution model.
 
   // Public CPU execution result for fn64's current local step policy.
   // kStopped is a local stop condition, not N64 COP0 exception delivery.
@@ -304,11 +306,13 @@ private:
       RdramOffset address,
       std::size_t width) noexcept;
 
-  // Current direct-RDRAM CPU address gate. Only KSEG0/KSEG1-style aliases
-  // translate to Machine-owned physical RDRAM offsets here; every other CPU
-  // range remains a local MachineFault. This is not a bus, full memory map,
-  // TLB translation, cartridge ROM mapping, or device/MMIO dispatch. Future
-  // addressable owners need a new boundary before being connected.
+  // Current direct-RDRAM CPU address gate. KSEG0/KSEG1-style CpuAddress values
+  // first translate to CpuPhysicalAddress; this gate accepts only physical
+  // spans belonging to Machine-owned RDRAM and converts them to RdramOffset.
+  // Every other CPU range remains a local MachineFault. This is not a bus,
+  // full memory map, TLB translation, cartridge ROM mapping, or device/MMIO
+  // dispatch. Future addressable owners need a new boundary before being
+  // connected.
   static RdramOffset require_cpu_rdram_address(
       const char* operation,
       CpuAddress cpu_address,
@@ -328,6 +332,9 @@ private:
       CpuAddress cpu_address,
       std::size_t width,
       RdramOffset& out_rdram_address) noexcept;
+  static bool translate_direct_cpu_physical_address(
+      CpuAddress cpu_address,
+      CpuPhysicalAddress& out_physical_address) noexcept;
 
   CpuRegisterValue cpu_hi() const;
   CpuRegisterValue cpu_lo() const;

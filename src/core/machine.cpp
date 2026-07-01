@@ -126,14 +126,9 @@ std::size_t Machine::rdram_size_bytes() const noexcept {
   return rdram_.size();
 }
 
-bool Machine::translate_cpu_rdram_address(
+bool Machine::translate_direct_cpu_physical_address(
     CpuAddress cpu_address,
-    std::size_t width,
-    RdramOffset& out_rdram_address) noexcept {
-  if (width == 0 || width > kRdramSizeBytes) {
-    return false;
-  }
-
+    CpuPhysicalAddress& out_physical_address) noexcept {
   constexpr CpuAddress kDirectSegmentMask = 0xe0000000u;
   constexpr CpuAddress kDirectSegmentOffsetMask = 0x1fffffffu;
   constexpr CpuAddress kKseg0RdramBase = 0x80000000u;
@@ -144,14 +139,31 @@ bool Machine::translate_cpu_rdram_address(
     return false;
   }
 
-  const std::size_t offset =
-      static_cast<std::size_t>(cpu_address & kDirectSegmentOffsetMask);
+  out_physical_address =
+      static_cast<CpuPhysicalAddress>(cpu_address & kDirectSegmentOffsetMask);
+  return true;
+}
+
+bool Machine::translate_cpu_rdram_address(
+    CpuAddress cpu_address,
+    std::size_t width,
+    RdramOffset& out_rdram_address) noexcept {
+  if (width == 0 || width > kRdramSizeBytes) {
+    return false;
+  }
+
+  CpuPhysicalAddress physical_address = 0;
+  if (!translate_direct_cpu_physical_address(cpu_address, physical_address)) {
+    return false;
+  }
+
+  const std::size_t offset = static_cast<std::size_t>(physical_address);
   const std::size_t last_offset = kRdramSizeBytes - width;
   if (offset > last_offset) {
     return false;
   }
 
-  out_rdram_address = static_cast<std::uint32_t>(offset);
+  out_rdram_address = static_cast<RdramOffset>(physical_address);
   return true;
 }
 
