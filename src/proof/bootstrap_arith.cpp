@@ -867,6 +867,230 @@ void run_d_integer_add_sub_demo(Machine& machine) {
   }
 }
 
+void run_d_shift_demo(Machine& machine) {
+  constexpr std::uint8_t kDsllSourceIndex = 4;
+  constexpr std::uint8_t kDsllResultIndex = 5;
+  constexpr std::uint8_t kDsrlSourceIndex = 6;
+  constexpr std::uint8_t kDsrlResultIndex = 7;
+  constexpr std::uint8_t kDsraSourceIndex = 8;
+  constexpr std::uint8_t kDsraResultIndex = 9;
+  constexpr std::uint8_t kDsll32SourceIndex = 10;
+  constexpr std::uint8_t kDsll32ResultIndex = 11;
+  constexpr std::uint8_t kDsrl32SourceIndex = 12;
+  constexpr std::uint8_t kDsrl32ResultIndex = 13;
+  constexpr std::uint8_t kDsra32SourceIndex = 14;
+  constexpr std::uint8_t kDsra32ResultIndex = 15;
+  constexpr std::uint8_t kVariableShiftIndex = 16;
+  constexpr std::uint8_t kDsllvSourceIndex = 17;
+  constexpr std::uint8_t kDsllvResultIndex = 18;
+  constexpr std::uint8_t kDsrlvSourceIndex = 19;
+  constexpr std::uint8_t kDsrlvResultIndex = 20;
+  constexpr std::uint8_t kDsravSourceIndex = 21;
+  constexpr std::uint8_t kDsravResultIndex = 22;
+  constexpr std::uint8_t kZeroSourceIndex = 23;
+
+  constexpr CpuAddress kDsllAddress = 0x00000750u;
+  constexpr CpuAddress kDsrlAddress = 0x00000754u;
+  constexpr CpuAddress kDsraAddress = 0x00000758u;
+  constexpr CpuAddress kDsll32Address = 0x0000075cu;
+  constexpr CpuAddress kDsrl32Address = 0x00000760u;
+  constexpr CpuAddress kDsra32Address = 0x00000764u;
+  constexpr CpuAddress kDsllvAddress = 0x00000768u;
+  constexpr CpuAddress kDsrlvAddress = 0x0000076cu;
+  constexpr CpuAddress kDsravAddress = 0x00000770u;
+  constexpr CpuAddress kZeroDsllAddress = 0x00000774u;
+  constexpr CpuAddress kBreakAddress = 0x00000778u;
+  constexpr CpuAddress kAfterBreakAddress = 0x0000077cu;
+
+  constexpr CpuRegisterValue kDsllSource = 0x0000000100000001ull;
+  constexpr CpuRegisterValue kDsllExpected = 0x0000001000000010ull;
+  constexpr CpuRegisterValue kDsrlSource = 0x8000000000000000ull;
+  constexpr CpuRegisterValue kDsrlExpected = 0x0800000000000000ull;
+  constexpr CpuRegisterValue kDsraSource = 0x8000000000000000ull;
+  constexpr CpuRegisterValue kDsraExpected = 0xf800000000000000ull;
+  constexpr CpuRegisterValue kDsll32Source = 0x0000000000000001ull;
+  constexpr CpuRegisterValue kDsll32Expected = 0x0000000100000000ull;
+  constexpr CpuRegisterValue kDsrl32Source = 0x8000000000000000ull;
+  constexpr CpuRegisterValue kDsrl32Expected = 0x0000000080000000ull;
+  constexpr CpuRegisterValue kDsra32Source = 0x8000000000000000ull;
+  constexpr CpuRegisterValue kDsra32Expected = 0xffffffff80000000ull;
+  constexpr CpuRegisterValue kVariableShiftValue = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kDsllvSource = 0x0000000000000001ull;
+  constexpr CpuRegisterValue kDsllvExpected = 0x8000000000000000ull;
+  constexpr CpuRegisterValue kDsrlvSource = 0x8000000000000000ull;
+  constexpr CpuRegisterValue kDsrlvExpected = 0x0000000000000001ull;
+  constexpr CpuRegisterValue kDsravSource = 0x8000000000000000ull;
+  constexpr CpuRegisterValue kDsravExpected = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kZeroAttempt = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kZeroSource = 0x1111111122222222ull;
+
+  constexpr CpuInstructionWord kDsllInstruction =
+      encode_dsll(kDsllResultIndex, kDsllSourceIndex, 4);
+  constexpr CpuInstructionWord kDsrlInstruction =
+      encode_dsrl(kDsrlResultIndex, kDsrlSourceIndex, 4);
+  constexpr CpuInstructionWord kDsraInstruction =
+      encode_dsra(kDsraResultIndex, kDsraSourceIndex, 4);
+  constexpr CpuInstructionWord kDsll32Instruction =
+      encode_dsll32(kDsll32ResultIndex, kDsll32SourceIndex, 0);
+  constexpr CpuInstructionWord kDsrl32Instruction =
+      encode_dsrl32(kDsrl32ResultIndex, kDsrl32SourceIndex, 0);
+  constexpr CpuInstructionWord kDsra32Instruction =
+      encode_dsra32(kDsra32ResultIndex, kDsra32SourceIndex, 0);
+  constexpr CpuInstructionWord kDsllvInstruction =
+      encode_dsllv(kDsllvResultIndex, kDsllvSourceIndex, kVariableShiftIndex);
+  constexpr CpuInstructionWord kDsrlvInstruction =
+      encode_dsrlv(kDsrlvResultIndex, kDsrlvSourceIndex, kVariableShiftIndex);
+  constexpr CpuInstructionWord kDsravInstruction =
+      encode_dsrav(kDsravResultIndex, kDsravSourceIndex, kVariableShiftIndex);
+  constexpr CpuInstructionWord kZeroDsllInstruction =
+      encode_dsll(0, kZeroSourceIndex, 4);
+  constexpr CpuInstructionWord kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kDsllAddress));
+  machine.stage_cpu_gpr(0, kZeroAttempt);
+  machine.stage_cpu_gpr(kDsllSourceIndex, kDsllSource);
+  machine.stage_cpu_gpr(kDsllResultIndex, 0);
+  machine.stage_cpu_gpr(kDsrlSourceIndex, kDsrlSource);
+  machine.stage_cpu_gpr(kDsrlResultIndex, 0);
+  machine.stage_cpu_gpr(kDsraSourceIndex, kDsraSource);
+  machine.stage_cpu_gpr(kDsraResultIndex, 0);
+  machine.stage_cpu_gpr(kDsll32SourceIndex, kDsll32Source);
+  machine.stage_cpu_gpr(kDsll32ResultIndex, 0);
+  machine.stage_cpu_gpr(kDsrl32SourceIndex, kDsrl32Source);
+  machine.stage_cpu_gpr(kDsrl32ResultIndex, 0);
+  machine.stage_cpu_gpr(kDsra32SourceIndex, kDsra32Source);
+  machine.stage_cpu_gpr(kDsra32ResultIndex, 0);
+  machine.stage_cpu_gpr(kVariableShiftIndex, kVariableShiftValue);
+  machine.stage_cpu_gpr(kDsllvSourceIndex, kDsllvSource);
+  machine.stage_cpu_gpr(kDsllvResultIndex, 0);
+  machine.stage_cpu_gpr(kDsrlvSourceIndex, kDsrlvSource);
+  machine.stage_cpu_gpr(kDsrlvResultIndex, 0);
+  machine.stage_cpu_gpr(kDsravSourceIndex, kDsravSource);
+  machine.stage_cpu_gpr(kDsravResultIndex, 0);
+  machine.stage_cpu_gpr(kZeroSourceIndex, kZeroSource);
+
+  machine.stage_rdram_u32_be(kDsllAddress, kDsllInstruction);
+  machine.stage_rdram_u32_be(kDsrlAddress, kDsrlInstruction);
+  machine.stage_rdram_u32_be(kDsraAddress, kDsraInstruction);
+  machine.stage_rdram_u32_be(kDsll32Address, kDsll32Instruction);
+  machine.stage_rdram_u32_be(kDsrl32Address, kDsrl32Instruction);
+  machine.stage_rdram_u32_be(kDsra32Address, kDsra32Instruction);
+  machine.stage_rdram_u32_be(kDsllvAddress, kDsllvInstruction);
+  machine.stage_rdram_u32_be(kDsrlvAddress, kDsrlvInstruction);
+  machine.stage_rdram_u32_be(kDsravAddress, kDsravInstruction);
+  machine.stage_rdram_u32_be(kZeroDsllAddress, kZeroDsllInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
+
+  std::cout
+      << "fn64 bootstrap D shift demo: DSLL/DSRL/DSRA cluster uses full 64-bit GPR values\n";
+  std::cout << "before step sequence:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kDsllSourceIndex));
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDsrlSourceIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kDsraSourceIndex));
+  print_hex64("  gpr[16]", machine.inspect_cpu_gpr(kVariableShiftIndex));
+
+  auto step_d_shift_instruction = [&machine](
+      CpuInstructionWord instruction,
+      const char* label,
+      CpuAddress expected_pc,
+      std::uint8_t result_index,
+      CpuRegisterValue expected_value) {
+    print_hex32("  instruction_raw", instruction);
+    std::cout << "  instruction_label = " << label << '\n';
+    require_stepped(machine.step_cpu_instruction(), std::string("d_shift_demo_") + label);
+
+    if (machine.cpu_pc() != cpu_rdram_alias(expected_pc)) {
+      throw std::runtime_error(
+          std::string("D shift demo advanced to the wrong PC after ") + label);
+    }
+
+    if (machine.inspect_cpu_gpr(result_index) != expected_value) {
+      throw std::runtime_error(
+          std::string("D shift demo produced the wrong result for ") + label);
+    }
+  };
+
+  step_d_shift_instruction(
+      kDsllInstruction,
+      "DSLL",
+      kDsrlAddress,
+      kDsllResultIndex,
+      kDsllExpected);
+  step_d_shift_instruction(
+      kDsrlInstruction,
+      "DSRL",
+      kDsraAddress,
+      kDsrlResultIndex,
+      kDsrlExpected);
+  step_d_shift_instruction(
+      kDsraInstruction,
+      "DSRA",
+      kDsll32Address,
+      kDsraResultIndex,
+      kDsraExpected);
+  step_d_shift_instruction(
+      kDsll32Instruction,
+      "DSLL32",
+      kDsrl32Address,
+      kDsll32ResultIndex,
+      kDsll32Expected);
+  step_d_shift_instruction(
+      kDsrl32Instruction,
+      "DSRL32",
+      kDsra32Address,
+      kDsrl32ResultIndex,
+      kDsrl32Expected);
+  step_d_shift_instruction(
+      kDsra32Instruction,
+      "DSRA32",
+      kDsllvAddress,
+      kDsra32ResultIndex,
+      kDsra32Expected);
+  step_d_shift_instruction(
+      kDsllvInstruction,
+      "DSLLV",
+      kDsrlvAddress,
+      kDsllvResultIndex,
+      kDsllvExpected);
+  step_d_shift_instruction(
+      kDsrlvInstruction,
+      "DSRLV",
+      kDsravAddress,
+      kDsrlvResultIndex,
+      kDsrlvExpected);
+  step_d_shift_instruction(
+      kDsravInstruction,
+      "DSRAV",
+      kZeroDsllAddress,
+      kDsravResultIndex,
+      kDsravExpected);
+  step_d_shift_instruction(
+      kZeroDsllInstruction,
+      "DSLL $0",
+      kBreakAddress,
+      0,
+      0);
+
+  require_stopped(machine.step_cpu_instruction(), "d_shift_demo_break");
+
+  std::cout << "after stop:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kDsllResultIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kDsrlResultIndex));
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kDsraResultIndex));
+  print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kDsll32ResultIndex));
+  print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kDsrl32ResultIndex));
+  print_hex64("  gpr[15]", machine.inspect_cpu_gpr(kDsra32ResultIndex));
+  print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kDsllvResultIndex));
+  print_hex64("  gpr[20]", machine.inspect_cpu_gpr(kDsrlvResultIndex));
+  print_hex64("  gpr[22]", machine.inspect_cpu_gpr(kDsravResultIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
+    throw std::runtime_error("D shift demo did not advance past BREAK");
+  }
+}
+
 void run_cpu_local_single_ori_step_demo(Machine& machine) {
   constexpr std::uint8_t kZeroIndex = 0;
   constexpr std::uint8_t kSourceIndex = 4;
@@ -1414,6 +1638,7 @@ void run_arithmetic_demos(Machine& machine) {
   run_logic_immediate_unsigned_compare_demo(machine);
   run_full_width_register_compare_demo(machine);
   run_d_integer_add_sub_demo(machine);
+  run_d_shift_demo(machine);
   run_cpu_register_value_width_demo(machine);
   run_hilo_arithmetic_demo(machine);
 }

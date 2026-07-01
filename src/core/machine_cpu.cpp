@@ -87,6 +87,10 @@ std::uint8_t variable_shift_amount_u32(std::uint32_t value) {
   return static_cast<std::uint8_t>(value & 0x1fu);
 }
 
+std::uint8_t variable_shift_amount_cpu_value(CpuRegisterValue value) {
+  return static_cast<std::uint8_t>(value & 0x3full);
+}
+
 std::uint32_t arithmetic_shift_right_u32(std::uint32_t value, std::uint8_t sa) {
   if (sa == 0) {
     return value;
@@ -98,6 +102,24 @@ std::uint32_t arithmetic_shift_right_u32(std::uint32_t value, std::uint8_t sa) {
   }
 
   const std::uint32_t fill_mask = 0xffffffffu << (32 - sa);
+  return shifted | fill_mask;
+}
+
+CpuRegisterValue arithmetic_shift_right_cpu_value(
+    CpuRegisterValue value,
+    std::uint8_t sa) {
+  if (sa == 0) {
+    return value;
+  }
+
+  constexpr CpuRegisterValue kSignBit = 0x8000000000000000ull;
+  const CpuRegisterValue shifted = value >> sa;
+  if ((value & kSignBit) == 0) {
+    return shifted;
+  }
+
+  const CpuRegisterValue fill_mask =
+      static_cast<CpuRegisterValue>(0xffffffffffffffffull) << (64u - sa);
   return shifted | fill_mask;
 }
 
@@ -644,6 +666,72 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t value =
           arithmetic_shift_right_u32(read_cpu_gpr_word(instruction.rt), sa);
       write_cpu_gpr_word_sign_extended_result(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsll: {
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt) << instruction.sa;
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsrl: {
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt) >> instruction.sa;
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsra: {
+      const CpuRegisterValue value =
+          arithmetic_shift_right_cpu_value(read_cpu_gpr_value(instruction.rt), instruction.sa);
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsll32: {
+      const std::uint8_t sa = static_cast<std::uint8_t>(instruction.sa + 32u);
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt) << sa;
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsrl32: {
+      const std::uint8_t sa = static_cast<std::uint8_t>(instruction.sa + 32u);
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt) >> sa;
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsra32: {
+      const std::uint8_t sa = static_cast<std::uint8_t>(instruction.sa + 32u);
+      const CpuRegisterValue value =
+          arithmetic_shift_right_cpu_value(read_cpu_gpr_value(instruction.rt), sa);
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsllv: {
+      const std::uint8_t sa =
+          variable_shift_amount_cpu_value(read_cpu_gpr_value(instruction.rs));
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt) << sa;
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsrlv: {
+      const std::uint8_t sa =
+          variable_shift_amount_cpu_value(read_cpu_gpr_value(instruction.rs));
+      const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt) >> sa;
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsrav: {
+      const std::uint8_t sa =
+          variable_shift_amount_cpu_value(read_cpu_gpr_value(instruction.rs));
+      const CpuRegisterValue value =
+          arithmetic_shift_right_cpu_value(read_cpu_gpr_value(instruction.rt), sa);
+      write_cpu_gpr_value(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 

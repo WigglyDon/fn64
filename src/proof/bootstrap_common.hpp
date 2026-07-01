@@ -332,6 +332,69 @@ constexpr CpuInstructionWord encode_dsubu(
   return encode_special(rs, rt, rd, 0, 0x2f);
 }
 
+constexpr CpuInstructionWord encode_dsll(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t sa) {
+  return encode_special(0, rt, rd, sa, 0x38);
+}
+
+constexpr CpuInstructionWord encode_dsrl(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t sa) {
+  return encode_special(0, rt, rd, sa, 0x3a);
+}
+
+constexpr CpuInstructionWord encode_dsra(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t sa) {
+  return encode_special(0, rt, rd, sa, 0x3b);
+}
+
+constexpr CpuInstructionWord encode_dsll32(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t sa) {
+  return encode_special(0, rt, rd, sa, 0x3c);
+}
+
+constexpr CpuInstructionWord encode_dsrl32(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t sa) {
+  return encode_special(0, rt, rd, sa, 0x3e);
+}
+
+constexpr CpuInstructionWord encode_dsra32(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t sa) {
+  return encode_special(0, rt, rd, sa, 0x3f);
+}
+
+constexpr CpuInstructionWord encode_dsllv(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t rs) {
+  return encode_special(rs, rt, rd, 0, 0x14);
+}
+
+constexpr CpuInstructionWord encode_dsrlv(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t rs) {
+  return encode_special(rs, rt, rd, 0, 0x16);
+}
+
+constexpr CpuInstructionWord encode_dsrav(
+    std::uint8_t rd,
+    std::uint8_t rt,
+    std::uint8_t rs) {
+  return encode_special(rs, rt, rd, 0, 0x17);
+}
+
 constexpr CpuInstructionWord encode_special_register_trap(
     std::uint8_t rs,
     std::uint8_t rt,
