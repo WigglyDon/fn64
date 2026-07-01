@@ -304,6 +304,11 @@ private:
       RdramOffset address,
       std::size_t width) noexcept;
 
+  // Current direct-RDRAM CPU address gate. Only KSEG0/KSEG1-style aliases
+  // translate to Machine-owned physical RDRAM offsets here; every other CPU
+  // range remains a local MachineFault. This is not a bus, full memory map,
+  // TLB translation, cartridge ROM mapping, or device/MMIO dispatch. Future
+  // addressable owners need a new boundary before being connected.
   static RdramOffset require_cpu_rdram_address(
       const char* operation,
       CpuAddress cpu_address,
