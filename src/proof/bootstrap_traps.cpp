@@ -199,13 +199,13 @@ void run_syscall_stop_demo(Machine& machine) {
 
 void run_special_register_trap_demo(
     Machine& machine,
-    const char* label,
-    std::uint32_t base_address,
-    std::uint32_t trap_instruction,
-    std::uint32_t rs_value,
-    std::uint32_t rt_value,
-    bool expect_taken,
-    std::uint16_t fallthrough_marker) {
+	    const char* label,
+	    std::uint32_t base_address,
+	    std::uint32_t trap_instruction,
+	    CpuRegisterValue rs_value,
+	    CpuRegisterValue rt_value,
+	    bool expect_taken,
+	    std::uint16_t fallthrough_marker) {
   constexpr std::size_t kRsIndex = 4;
   constexpr std::size_t kRtIndex = 5;
   constexpr std::size_t kMarkerIndex = 6;
@@ -300,73 +300,73 @@ void run_special_register_trap_demo(
 void run_special_register_trap_demos(Machine& machine) {
   run_special_register_trap_demo(
       machine,
-      "special_tge not taken signed compare",
-      0x00000140u,
-      encode_special_register_trap(4, 5, 0x30),
-      0xffffffffu,
-      0x00000001u,
-      false,
+	      "special_tge not taken signed compare",
+	      0x00000140u,
+	      encode_special_register_trap(4, 5, 0x30),
+	      0xffffffffffffffffull,
+	      0x00000001u,
+	      false,
       0x7001u);
 
   run_special_register_trap_demo(
       machine,
-      "special_tgeu taken unsigned compare",
-      0x00000160u,
-      encode_special_register_trap(4, 5, 0x31),
-      0xffffffffu,
-      0x00000001u,
-      true,
+	      "special_tgeu taken unsigned compare",
+	      0x00000160u,
+	      encode_special_register_trap(4, 5, 0x31),
+	      0xffffffffffffffffull,
+	      0x00000001u,
+	      true,
       0x7002u);
 
   run_special_register_trap_demo(
       machine,
-      "special_tlt taken signed compare",
-      0x00000180u,
-      encode_special_register_trap(4, 5, 0x32),
-      0xffffffffu,
-      0x00000001u,
-      true,
+	      "special_tlt taken full-width signed compare",
+	      0x00000180u,
+	      encode_special_register_trap(4, 5, 0x32),
+	      0x8000000000000000ull,
+	      0x00000000u,
+	      true,
       0x7003u);
 
   run_special_register_trap_demo(
       machine,
-      "special_tltu not taken unsigned compare",
-      0x000001a0u,
-      encode_special_register_trap(4, 5, 0x33),
-      0xffffffffu,
-      0x00000001u,
-      false,
+	      "special_tltu not taken unsigned compare",
+	      0x000001a0u,
+	      encode_special_register_trap(4, 5, 0x33),
+	      0xffffffffffffffffull,
+	      0x00000001u,
+	      false,
       0x7004u);
 
   run_special_register_trap_demo(
       machine,
-      "special_teq taken equality compare",
-      0x000001c0u,
-      encode_special_register_trap(4, 5, 0x34),
-      0x12345678u,
-      0x12345678u,
-      true,
+	      "special_teq taken equality compare",
+	      0x000001c0u,
+	      encode_special_register_trap(4, 5, 0x34),
+	      0x1234567800005678ull,
+	      0x1234567800005678ull,
+	      true,
       0x7005u);
 
   run_special_register_trap_demo(
       machine,
-      "special_tne not taken inequality compare",
-      0x000001e0u,
-      encode_special_register_trap(4, 5, 0x36),
-      0x12345678u,
-      0x12345678u,
-      false,
+	      "special_tne not taken inequality compare",
+	      0x000001e0u,
+	      encode_special_register_trap(4, 5, 0x36),
+	      0x1234567800005678ull,
+	      0x1234567800005678ull,
+	      false,
       0x7006u);
 }
 
 void run_regimm_immediate_trap_demo(
     Machine& machine,
-    const char* label,
-    std::uint32_t base_address,
-    std::uint32_t trap_instruction,
-    std::uint32_t rs_value,
-    bool expect_taken,
-    std::uint16_t fallthrough_marker) {
+	    const char* label,
+	    std::uint32_t base_address,
+	    std::uint32_t trap_instruction,
+	    CpuRegisterValue rs_value,
+	    bool expect_taken,
+	    std::uint16_t fallthrough_marker) {
   constexpr std::size_t kRsIndex = 4;
   constexpr std::size_t kMarkerIndex = 6;
 
@@ -466,56 +466,56 @@ void run_regimm_immediate_trap_demo(
 void run_regimm_immediate_trap_demos(Machine& machine) {
   run_regimm_immediate_trap_demo(
       machine,
-      "regimm_tgei not taken signed compare",
-      0x00000200u,
-      encode_regimm_immediate_trap(4, 0x08, 0x0001u),
-      0xffffffffu,
-      false,
+	      "regimm_tgei not taken signed compare",
+	      0x00000200u,
+	      encode_regimm_immediate_trap(4, 0x08, 0x0001u),
+	      0xffffffffffffffffull,
+	      false,
       0x7101u);
 
   run_regimm_immediate_trap_demo(
       machine,
-      "regimm_tgeiu taken unsigned compare with sign-extended immediate",
-      0x00000220u,
-      encode_regimm_immediate_trap(4, 0x09, 0xffffu),
-      0xffffffffu,
-      true,
+	      "regimm_tgeiu taken unsigned compare with sign-extended immediate",
+	      0x00000220u,
+	      encode_regimm_immediate_trap(4, 0x09, 0xffffu),
+	      0xffffffffffffffffull,
+	      true,
       0x7102u);
 
   run_regimm_immediate_trap_demo(
       machine,
-      "regimm_tlti taken signed compare",
-      0x00000240u,
-      encode_regimm_immediate_trap(4, 0x0a, 0x0001u),
-      0xffffffffu,
-      true,
+	      "regimm_tlti taken signed compare",
+	      0x00000240u,
+	      encode_regimm_immediate_trap(4, 0x0a, 0x0001u),
+	      0xffffffffffffffffull,
+	      true,
       0x7103u);
 
   run_regimm_immediate_trap_demo(
       machine,
-      "regimm_tltiu not taken unsigned compare with sign-extended immediate",
-      0x00000260u,
-      encode_regimm_immediate_trap(4, 0x0b, 0xffffu),
-      0xffffffffu,
-      false,
+	      "regimm_tltiu not taken unsigned compare with sign-extended immediate",
+	      0x00000260u,
+	      encode_regimm_immediate_trap(4, 0x0b, 0xffffu),
+	      0xffffffffffffffffull,
+	      false,
       0x7104u);
 
   run_regimm_immediate_trap_demo(
       machine,
-      "regimm_teqi taken equality compare",
-      0x00000280u,
-      encode_regimm_immediate_trap(4, 0x0c, 0xffffu),
-      0xffffffffu,
-      true,
+	      "regimm_teqi taken equality compare",
+	      0x00000280u,
+	      encode_regimm_immediate_trap(4, 0x0c, 0xffffu),
+	      0xffffffffffffffffull,
+	      true,
       0x7105u);
 
   run_regimm_immediate_trap_demo(
       machine,
-      "regimm_tnei not taken inequality compare",
-      0x000002a0u,
-      encode_regimm_immediate_trap(4, 0x0e, 0xffffu),
-      0xffffffffu,
-      false,
+	      "regimm_tnei not taken inequality compare",
+	      0x000002a0u,
+	      encode_regimm_immediate_trap(4, 0x0e, 0xffffu),
+	      0xffffffffffffffffull,
+	      false,
       0x7106u);
 }
 

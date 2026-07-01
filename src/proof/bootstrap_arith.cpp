@@ -65,9 +65,9 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   machine.stage_cpu_gpr(kAddiResultIndex, 0u);
   machine.stage_cpu_gpr(kAddiuSourceIndex, 0x00000010u);
   machine.stage_cpu_gpr(kAddiuResultIndex, 0u);
-  machine.stage_cpu_gpr(kSltiSourceIndex, 0xfffffffeu);
+  machine.stage_cpu_gpr(kSltiSourceIndex, 0xfffffffffffffffeull);
   machine.stage_cpu_gpr(kSltiResultIndex, 0u);
-  machine.stage_cpu_gpr(kSltiuSourceIndex, 0u);
+  machine.stage_cpu_gpr(kSltiuSourceIndex, 0x0000000100000000ull);
   machine.stage_cpu_gpr(kSltiuResultIndex, 0u);
 
   machine.stage_rdram_u32_be(kAddiAddress, kAddiInstruction);
@@ -141,7 +141,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   }
 
   if (machine.inspect_cpu_gpr(kSltiResultIndex) != 1u) {
-    throw std::runtime_error("reg-immediate demo SLTI negative immediate compare result was wrong");
+    throw std::runtime_error("reg-immediate demo SLTI full-width negative immediate compare result was wrong");
   }
 
   const std::uint32_t sltiu_raw = kSltiuInstruction;
@@ -159,7 +159,7 @@ void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   }
 
   if (machine.inspect_cpu_gpr(kSltiuResultIndex) != 1u) {
-    throw std::runtime_error("reg-immediate demo SLTIU negative immediate result was wrong");
+    throw std::runtime_error("reg-immediate demo SLTIU full-width sign-extended immediate result was wrong");
   }
 
   require_stopped(machine.step_cpu_instruction(), "reg_immediate_demo_break");
@@ -638,6 +638,88 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
 
   if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
     throw std::runtime_error("logic/immediate demo did not advance past executed BREAK");
+  }
+}
+
+void run_full_width_register_compare_demo(Machine& machine) {
+  constexpr std::size_t kSignedLhsIndex = 4;
+  constexpr std::size_t kSignedRhsIndex = 5;
+  constexpr std::size_t kSignedResultIndex = 6;
+  constexpr std::size_t kUnsignedLhsIndex = 7;
+  constexpr std::size_t kUnsignedRhsIndex = 8;
+  constexpr std::size_t kUnsignedResultIndex = 9;
+
+  constexpr std::uint32_t kSltAddress = 0x00000720u;
+  constexpr std::uint32_t kSltuAddress = 0x00000724u;
+  constexpr std::uint32_t kBreakAddress = 0x00000728u;
+  constexpr std::uint32_t kAfterBreakAddress = 0x0000072cu;
+
+  constexpr CpuInstructionWord kSltInstruction = encode_special(
+      static_cast<std::uint8_t>(kSignedLhsIndex),
+      static_cast<std::uint8_t>(kSignedRhsIndex),
+      static_cast<std::uint8_t>(kSignedResultIndex),
+      0,
+      0x2a);
+  constexpr CpuInstructionWord kSltuInstruction = encode_sltu(
+      static_cast<std::uint8_t>(kUnsignedResultIndex),
+      static_cast<std::uint8_t>(kUnsignedLhsIndex),
+      static_cast<std::uint8_t>(kUnsignedRhsIndex));
+  constexpr CpuInstructionWord kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kSltAddress));
+  machine.stage_cpu_gpr(kSignedLhsIndex, 0xffffffff00000000ull);
+  machine.stage_cpu_gpr(kSignedRhsIndex, 0u);
+  machine.stage_cpu_gpr(kSignedResultIndex, 0u);
+  machine.stage_cpu_gpr(kUnsignedLhsIndex, 0x0000000100000000ull);
+  machine.stage_cpu_gpr(kUnsignedRhsIndex, 0x00000000ffffffffull);
+  machine.stage_cpu_gpr(kUnsignedResultIndex, 0u);
+
+  machine.stage_rdram_u32_be(kSltAddress, kSltInstruction);
+  machine.stage_rdram_u32_be(kSltuAddress, kSltuInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
+
+  std::cout << "fn64 bootstrap full-width register compare demo: SLT/SLTU use 64-bit GPR values\n";
+  std::cout << "before step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kSignedLhsIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kSignedRhsIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kUnsignedLhsIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kUnsignedRhsIndex));
+
+  print_hex32("  slt_raw", kSltInstruction);
+  require_stepped(machine.step_cpu_instruction(), "full_width_compare_demo_slt");
+
+  std::cout << "after step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kSignedResultIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kSltuAddress)) {
+    throw std::runtime_error("full-width compare demo did not advance from SLT to SLTU");
+  }
+
+  if (machine.inspect_cpu_gpr(kSignedResultIndex) != 1u) {
+    throw std::runtime_error("full-width compare demo SLT did not use signed 64-bit values");
+  }
+
+  print_hex32("  sltu_raw", kSltuInstruction);
+  require_stepped(machine.step_cpu_instruction(), "full_width_compare_demo_sltu");
+
+  std::cout << "after step 2:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kUnsignedResultIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
+    throw std::runtime_error("full-width compare demo did not advance from SLTU to BREAK");
+  }
+
+  if (machine.inspect_cpu_gpr(kUnsignedResultIndex) != 0u) {
+    throw std::runtime_error("full-width compare demo SLTU ignored high register bits");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), "full_width_compare_demo_break");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
+    throw std::runtime_error("full-width compare demo did not advance past executed BREAK");
   }
 }
 
@@ -1178,6 +1260,7 @@ void run_arithmetic_demos(Machine& machine) {
   run_addi_positive_overflow_demo(machine);
   run_addi_negative_overflow_demo(machine);
   run_logic_immediate_unsigned_compare_demo(machine);
+  run_full_width_register_compare_demo(machine);
   run_cpu_register_value_width_demo(machine);
   run_hilo_arithmetic_demo(machine);
 }

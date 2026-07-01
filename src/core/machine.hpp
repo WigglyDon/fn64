@@ -305,8 +305,9 @@ private:
   // Full-value helpers touch the GPR storage/staging surface. Word helpers are
   // the current local 32-bit instruction operand seam. Result helpers name the
   // current MIPS64-shaped writeback policy: arithmetic/shift/LUI/signed loads
-  // sign-extend, unsigned loads and boolean results zero-extend, and LWL/LWR
-  // remain an explicit local partial-word merge until that seam is earned.
+  // sign-extend, unsigned loads zero-extend, comparisons write full 0/1
+  // values, and LWL/LWR remain an explicit local partial-word merge until
+  // that seam is earned.
   CpuRegisterValue read_cpu_gpr_value(std::size_t index) const;
   std::uint32_t read_cpu_gpr_word(std::size_t index) const;
 

@@ -9,14 +9,14 @@ namespace {
 
 void run_ordinary_branch_demo(
     Machine& machine,
-    const char* label,
-    std::uint32_t base_address,
-    std::uint32_t branch_instruction,
-    std::uint32_t rs_value,
-    std::uint32_t rt_value,
-    bool expect_taken,
-    bool expect_link,
-    std::uint16_t delay_slot_marker,
+	    const char* label,
+	    std::uint32_t base_address,
+	    std::uint32_t branch_instruction,
+	    CpuRegisterValue rs_value,
+	    CpuRegisterValue rt_value,
+	    bool expect_taken,
+	    bool expect_link,
+	    std::uint16_t delay_slot_marker,
     std::uint16_t fallthrough_marker,
     std::uint16_t target_marker) {
   constexpr std::size_t kRsIndex = 4;
@@ -223,13 +223,13 @@ void run_ordinary_branch_demo(
 
 void run_aliased_register_link_branch_demo(
     Machine& machine,
-    const char* label,
-    std::uint32_t base_address,
-    std::uint32_t branch_instruction,
-    std::uint32_t original_aliased_source_value,
-    bool expect_taken,
-    std::uint16_t delay_slot_marker,
-    std::uint16_t fallthrough_marker,
+	    const char* label,
+	    std::uint32_t base_address,
+	    std::uint32_t branch_instruction,
+	    CpuRegisterValue original_aliased_source_value,
+	    bool expect_taken,
+	    std::uint16_t delay_slot_marker,
+	    std::uint16_t fallthrough_marker,
     std::uint16_t target_marker) {
   constexpr std::size_t kAliasedSourceAndLinkIndex = 31;
   constexpr std::size_t kDelaySlotMarkerIndex = 6;
@@ -277,10 +277,10 @@ void run_aliased_register_link_branch_demo(
 
   print_hex32("  branch_raw", branch_raw);
 
-  if ((original_aliased_source_value & 0x80000000u) == 0) {
-    throw std::runtime_error(
-        std::string("aliased register-link branch demo expected a negative original rs value: ") +
-        label);
+	  if ((original_aliased_source_value & 0x8000000000000000ull) == 0) {
+	    throw std::runtime_error(
+	        std::string("aliased register-link branch demo expected a negative original rs value: ") +
+	        label);
   }
 
   require_stepped(machine.step_cpu_instruction(), std::string(label) + "_branch");
@@ -484,14 +484,14 @@ void run_aliased_register_link_branch_demo(
 
 void run_backward_ordinary_branch_demo(
     Machine& machine,
-    const char* label,
-    std::uint32_t base_address,
-    std::uint32_t branch_instruction,
-    std::uint32_t rs_value,
-    std::uint32_t rt_value,
-    std::uint16_t delay_slot_marker,
-    std::uint16_t fallthrough_marker,
-    std::uint16_t target_marker) {
+	    const char* label,
+	    std::uint32_t base_address,
+	    std::uint32_t branch_instruction,
+	    CpuRegisterValue rs_value,
+	    CpuRegisterValue rt_value,
+	    std::uint16_t delay_slot_marker,
+	    std::uint16_t fallthrough_marker,
+	    std::uint16_t target_marker) {
   constexpr std::size_t kRsIndex = 4;
   constexpr std::size_t kRtIndex = 5;
   constexpr std::size_t kDelaySlotMarkerIndex = 6;
@@ -659,15 +659,28 @@ void run_ordinary_branch_demos(Machine& machine) {
       0x7342u,
       0x7343u);
 
-  run_ordinary_branch_demo(
-      machine,
-      "blez taken signed compare",
-      0x000005a0u,
-      encode_blez(4, kTargetImmediate),
-      0u,
-      0u,
-      true,
-      false,
+	  run_ordinary_branch_demo(
+	      machine,
+	      "bne taken full-width equality compare",
+	      0x00000590u,
+	      encode_bne(4, 5, kTargetImmediate),
+	      0x1111111100007788ull,
+	      0x2222222200007788ull,
+	      true,
+	      false,
+	      0x7344u,
+	      0x7345u,
+	      0x7346u);
+
+	  run_ordinary_branch_demo(
+	      machine,
+	      "blez taken signed compare",
+	      0x000005a0u,
+	      encode_blez(4, kTargetImmediate),
+	      0x8000000000000000ull,
+	      0u,
+	      true,
+	      false,
       0x7351u,
       0x7352u,
       0x7353u);
@@ -687,75 +700,75 @@ void run_ordinary_branch_demos(Machine& machine) {
 
   run_ordinary_branch_demo(
       machine,
-      "regimm_bltz taken signed compare",
-      0x000005e0u,
-      encode_bltz(4, kTargetImmediate),
-      0xffffffffu,
-      0u,
-      true,
-      false,
+	      "regimm_bltz taken signed compare",
+	      0x000005e0u,
+	      encode_bltz(4, kTargetImmediate),
+	      0x8000000000000000ull,
+	      0u,
+	      true,
+	      false,
       0x7371u,
       0x7372u,
       0x7373u);
 
   run_ordinary_branch_demo(
       machine,
-      "regimm_bgez not taken signed compare",
-      0x00000600u,
-      encode_bgez(4, kTargetImmediate),
-      0xffffffffu,
-      0u,
-      false,
-      false,
+	      "regimm_bgez not taken signed compare",
+	      0x00000600u,
+	      encode_bgez(4, kTargetImmediate),
+	      0xffffffffffffffffull,
+	      0u,
+	      false,
+	      false,
       0x7381u,
       0x7382u,
       0x7383u);
 
   run_ordinary_branch_demo(
       machine,
-      "regimm_bltzal taken signed compare with link",
-      0x00000620u,
-      encode_bltzal(4, kTargetImmediate),
-      0xffffffffu,
-      0u,
-      true,
-      true,
+	      "regimm_bltzal taken signed compare with link",
+	      0x00000620u,
+	      encode_bltzal(4, kTargetImmediate),
+	      0xffffffffffffffffull,
+	      0u,
+	      true,
+	      true,
       0x7391u,
       0x7392u,
       0x7393u);
 
   run_ordinary_branch_demo(
       machine,
-      "regimm_bgezal not taken signed compare with unconditional link",
-      0x00000640u,
-      encode_bgezal(4, kTargetImmediate),
-      0xffffffffu,
-      0u,
-      false,
-      true,
+	      "regimm_bgezal not taken signed compare with unconditional link",
+	      0x00000640u,
+	      encode_bgezal(4, kTargetImmediate),
+	      0xffffffffffffffffull,
+	      0u,
+	      false,
+	      true,
       0x73a1u,
       0x73a2u,
       0x73a3u);
 
   run_aliased_register_link_branch_demo(
       machine,
-      "regimm_bltzal taken signed compare with rs == 31 reads original source before link",
-      0x00000780u,
-      encode_bltzal(31, kTargetImmediate),
-      0xffffffffu,
-      true,
-      0x73c1u,
+	      "regimm_bltzal taken signed compare with rs == 31 reads original source before link",
+	      0x00000780u,
+	      encode_bltzal(31, kTargetImmediate),
+	      0xffffffffffffffffull,
+	      true,
+	      0x73c1u,
       0x73c2u,
       0x73c3u);
 
   run_aliased_register_link_branch_demo(
       machine,
-      "regimm_bgezal not taken signed compare with rs == 31 still links after reading original source",
-      0x000007a0u,
-      encode_bgezal(31, kTargetImmediate),
-      0xffffffffu,
-      false,
-      0x73d1u,
+	      "regimm_bgezal not taken signed compare with rs == 31 still links after reading original source",
+	      0x000007a0u,
+	      encode_bgezal(31, kTargetImmediate),
+	      0xffffffffffffffffull,
+	      false,
+	      0x73d1u,
       0x73d2u,
       0x73d3u);
 
