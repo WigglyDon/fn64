@@ -808,7 +808,8 @@ void run_cpu_rdram_load_case(
     throw std::runtime_error(std::string(test_case.label) + " did not advance to BREAK");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetIndex) != test_case.data_word) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) !=
+      cpu_value_from_sign_extended_u32(test_case.data_word)) {
     throw std::runtime_error(std::string(test_case.label) + " loaded the wrong word");
   }
 
@@ -1449,7 +1450,8 @@ void run_cpu_rdram_alias_demo(Machine& machine) {
     throw std::runtime_error("CPU RDRAM alias demo did not advance to KSEG0 BREAK");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetIndex) != kDataWord) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) !=
+      cpu_value_from_sign_extended_u32(kDataWord)) {
     throw std::runtime_error("CPU RDRAM alias demo LW did not read through KSEG1");
   }
 
@@ -1877,7 +1879,8 @@ void run_aligned_word_load_store_demo(Machine& machine) {
     throw std::runtime_error("aligned word demo did not advance to BREAK sentinel");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x89abcdefu) {
+  if (machine.inspect_cpu_gpr(kTargetIndex) !=
+      cpu_value_from_sign_extended_u32(0x89abcdefu)) {
     throw std::runtime_error("aligned word demo LW load result was wrong");
   }
 
@@ -2051,7 +2054,8 @@ void run_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("byte demo did not advance to LBU");
   }
 
-  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffffff80u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) !=
+      cpu_value_from_sign_extended_u32(0xffffff80u)) {
     throw std::runtime_error("byte demo LB sign-extension result was wrong");
   }
 
@@ -2144,7 +2148,8 @@ void run_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("halfword demo did not advance to LHU");
   }
 
-  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffff8001u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) !=
+      cpu_value_from_sign_extended_u32(0xffff8001u)) {
     throw std::runtime_error("halfword demo LH sign-extension result was wrong");
   }
 
@@ -2457,7 +2462,8 @@ void run_negative_byte_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset byte demo did not advance to LBU");
   }
 
-  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffffff80u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) !=
+      cpu_value_from_sign_extended_u32(0xffffff80u)) {
     throw std::runtime_error("negative-offset byte demo LB sign-extension result was wrong");
   }
 
@@ -2554,7 +2560,8 @@ void run_negative_halfword_load_store_demo(Machine& machine) {
     throw std::runtime_error("negative-offset halfword demo did not advance to LHU");
   }
 
-  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != 0xffff8001u) {
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) !=
+      cpu_value_from_sign_extended_u32(0xffff8001u)) {
     throw std::runtime_error("negative-offset halfword demo LH sign-extension result was wrong");
   }
 

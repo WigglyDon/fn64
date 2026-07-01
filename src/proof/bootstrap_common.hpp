@@ -23,6 +23,19 @@ constexpr RdramOffset rdram_offset_from_cpu_address(CpuAddress cpu_address) {
   return cpu_address & kSyntheticDirectSegmentOffsetMask;
 }
 
+constexpr CpuRegisterValue cpu_value_from_sign_extended_u32(std::uint32_t value) {
+  if ((value & 0x80000000u) == 0) {
+    return static_cast<CpuRegisterValue>(value);
+  }
+
+  return static_cast<CpuRegisterValue>(0xffffffff00000000ull) |
+         static_cast<CpuRegisterValue>(value);
+}
+
+constexpr CpuRegisterValue cpu_value_from_zero_extended_u32(std::uint32_t value) {
+  return static_cast<CpuRegisterValue>(value);
+}
+
 constexpr CpuInstructionWord encode_i_type(
     std::uint8_t opcode,
     std::uint8_t rs,

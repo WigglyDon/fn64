@@ -396,6 +396,7 @@ int main(int argc, char** argv) {
     constexpr std::uint32_t kInitialWordDataWord = 0xDEADBEEFu;
     constexpr fn64::CpuRegisterValue kExpectedGpr4 = 0x00001234u;
     constexpr fn64::CpuRegisterValue kExpectedGpr5 = 0x00001234u;
+    constexpr fn64::CpuRegisterValue kExpectedGpr6 = 0xffffffff80000000ull;
     constexpr fn64::CpuRegisterValue kExpectedGpr7 = 0x000000abu;
     constexpr fn64::CpuRegisterValue kExpectedGpr8 = 0x000000abu;
     constexpr fn64::CpuRegisterValue kHighRegisterSentinel = 0x13579bdf2468ace0ull;
@@ -471,7 +472,7 @@ int main(int argc, char** argv) {
     require_equal("step 1 next pc", machine.cpu_next_pc(), kSwCpuAddress);
     require_cpu_value_equal("step 1 gpr[4]", machine.inspect_cpu_gpr(4), 0);
     require_cpu_value_equal("step 1 gpr[5]", machine.inspect_cpu_gpr(5), 0);
-    require_cpu_value_equal("step 1 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 1 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 1 gpr[7]", machine.inspect_cpu_gpr(7), 0);
     require_cpu_value_equal("step 1 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
@@ -497,7 +498,7 @@ int main(int argc, char** argv) {
     require_equal("step 2 next pc", machine.cpu_next_pc(), kLwCpuAddress);
     require_cpu_value_equal("step 2 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
     require_cpu_value_equal("step 2 gpr[5]", machine.inspect_cpu_gpr(5), 0);
-    require_cpu_value_equal("step 2 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 2 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 2 gpr[7]", machine.inspect_cpu_gpr(7), 0);
     require_cpu_value_equal("step 2 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
@@ -523,7 +524,7 @@ int main(int argc, char** argv) {
     require_equal("step 3 next pc", machine.cpu_next_pc(), kByteOriCpuAddress);
     require_cpu_value_equal("step 3 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
     require_cpu_value_equal("step 3 gpr[5]", machine.inspect_cpu_gpr(5), 0);
-    require_cpu_value_equal("step 3 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 3 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 3 gpr[7]", machine.inspect_cpu_gpr(7), 0);
     require_cpu_value_equal("step 3 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
@@ -549,7 +550,7 @@ int main(int argc, char** argv) {
     require_equal("step 4 next pc", machine.cpu_next_pc(), kSbCpuAddress);
     require_cpu_value_equal("step 4 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
     require_cpu_value_equal("step 4 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_cpu_value_equal("step 4 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 4 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 4 gpr[7]", machine.inspect_cpu_gpr(7), 0);
     require_cpu_value_equal("step 4 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
@@ -575,7 +576,7 @@ int main(int argc, char** argv) {
     require_equal("step 5 next pc", machine.cpu_next_pc(), kLbuCpuAddress);
     require_cpu_value_equal("step 5 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
     require_cpu_value_equal("step 5 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_cpu_value_equal("step 5 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 5 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 5 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
     require_cpu_value_equal("step 5 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
@@ -601,7 +602,7 @@ int main(int argc, char** argv) {
     require_equal("step 6 next pc", machine.cpu_next_pc(), kBreakCpuAddress);
     require_cpu_value_equal("step 6 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
     require_cpu_value_equal("step 6 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_cpu_value_equal("step 6 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 6 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 6 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
     require_cpu_value_equal("step 6 gpr[8]", machine.inspect_cpu_gpr(8), 0);
     require_equal(
@@ -627,7 +628,7 @@ int main(int argc, char** argv) {
     require_equal("step 7 next pc", machine.cpu_next_pc(), kAfterBreakPc);
     require_cpu_value_equal("step 7 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
     require_cpu_value_equal("step 7 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_cpu_value_equal("step 7 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 7 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 7 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
     require_cpu_value_equal("step 7 gpr[8]", machine.inspect_cpu_gpr(8), kExpectedGpr8);
     require_equal(
@@ -653,7 +654,7 @@ int main(int argc, char** argv) {
     require_equal("step 8 next pc", machine.cpu_next_pc(), kAfterBreakNextPc);
     require_cpu_value_equal("step 8 gpr[4]", machine.inspect_cpu_gpr(4), kExpectedGpr4);
     require_cpu_value_equal("step 8 gpr[5]", machine.inspect_cpu_gpr(5), kExpectedGpr5);
-    require_cpu_value_equal("step 8 gpr[6]", machine.inspect_cpu_gpr(6), kCpuRdramAliasBase);
+    require_cpu_value_equal("step 8 gpr[6]", machine.inspect_cpu_gpr(6), kExpectedGpr6);
     require_cpu_value_equal("step 8 gpr[7]", machine.inspect_cpu_gpr(7), kExpectedGpr7);
     require_cpu_value_equal("step 8 gpr[8]", machine.inspect_cpu_gpr(8), kExpectedGpr8);
     require_equal(

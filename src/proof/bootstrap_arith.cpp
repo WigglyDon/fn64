@@ -491,7 +491,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo did not advance from LUI to ORI");
   }
 
-  if (machine.inspect_cpu_gpr(kValueIndex) != 0xabcd0000u) {
+  if (machine.inspect_cpu_gpr(kValueIndex) !=
+      cpu_value_from_sign_extended_u32(0xabcd0000u)) {
     throw std::runtime_error("logic/immediate demo LUI result was wrong");
   }
 
@@ -509,7 +510,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo did not advance from ORI to ANDI");
   }
 
-  if (machine.inspect_cpu_gpr(kValueIndex) != 0xabcd1234u) {
+  if (machine.inspect_cpu_gpr(kValueIndex) !=
+      cpu_value_from_sign_extended_u32(0xabcd1234u)) {
     throw std::runtime_error("logic/immediate demo ORI result was wrong");
   }
 
@@ -527,7 +529,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo did not advance from ANDI to XORI");
   }
 
-  if (machine.inspect_cpu_gpr(kAndResultIndex) != 0x00000030u) {
+  if (machine.inspect_cpu_gpr(kAndResultIndex) !=
+      cpu_value_from_zero_extended_u32(0x00000030u)) {
     throw std::runtime_error("logic/immediate demo ANDI result was wrong");
   }
 
@@ -545,7 +548,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo did not advance from XORI to second LUI");
   }
 
-  if (machine.inspect_cpu_gpr(kXorResultIndex) != 0xabcd12cbu) {
+  if (machine.inspect_cpu_gpr(kXorResultIndex) !=
+      cpu_value_from_sign_extended_u32(0xabcd12cbu)) {
     throw std::runtime_error("logic/immediate demo XORI result was wrong");
   }
 
@@ -563,7 +567,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo did not advance from second LUI to second ORI");
   }
 
-  if (machine.inspect_cpu_gpr(kMaxIndex) != 0xffff0000u) {
+  if (machine.inspect_cpu_gpr(kMaxIndex) !=
+      cpu_value_from_sign_extended_u32(0xffff0000u)) {
     throw std::runtime_error("logic/immediate demo second LUI result was wrong");
   }
 
@@ -582,7 +587,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
         "logic/immediate demo did not advance from second ORI to one-building ORI");
   }
 
-  if (machine.inspect_cpu_gpr(kMaxIndex) != 0xffffffffu) {
+  if (machine.inspect_cpu_gpr(kMaxIndex) !=
+      cpu_value_from_sign_extended_u32(0xffffffffu)) {
     throw std::runtime_error("logic/immediate demo second ORI result was wrong");
   }
 
@@ -600,7 +606,8 @@ void run_logic_immediate_unsigned_compare_demo(Machine& machine) {
     throw std::runtime_error("logic/immediate demo did not advance from one-building ORI to SLTU");
   }
 
-  if (machine.inspect_cpu_gpr(kOneIndex) != 0x00000001u) {
+  if (machine.inspect_cpu_gpr(kOneIndex) !=
+      cpu_value_from_zero_extended_u32(0x00000001u)) {
     throw std::runtime_error("logic/immediate demo one-building ORI result was wrong");
   }
 
@@ -804,26 +811,60 @@ void run_cpu_register_value_width_demo(Machine& machine) {
   constexpr std::uint8_t kLoSourceIndex = 15;
   constexpr std::uint8_t kHiReadIndex = 16;
   constexpr std::uint8_t kLoReadIndex = 17;
+  constexpr std::uint8_t kSignSourceIndex = 18;
+  constexpr std::uint8_t kSignResultIndex = 19;
+  constexpr std::uint8_t kShiftSourceIndex = 20;
+  constexpr std::uint8_t kShiftResultIndex = 21;
+  constexpr std::uint8_t kLuiResultIndex = 22;
 
   constexpr CpuRegisterValue kHighSourceValue = 0x12345678000012abull;
   constexpr CpuRegisterValue kInitialWordResultValue = 0xfedcba9800000000ull;
+  constexpr CpuRegisterValue kSignSourceValue = 0x123456787fffffffull;
+  constexpr CpuRegisterValue kInitialSignResultValue = 0x1111111122222222ull;
+  constexpr CpuRegisterValue kShiftSourceValue = 0x5555555500000001ull;
+  constexpr CpuRegisterValue kInitialShiftResultValue = 0x3333333344444444ull;
+  constexpr CpuRegisterValue kInitialLuiResultValue = 0x7777777788888888ull;
   constexpr CpuRegisterValue kHiValue = 0x0123456789abcdefull;
   constexpr CpuRegisterValue kLoValue = 0xfedcba9876543210ull;
   constexpr CpuRegisterValue kMthiValue = 0x0badf00d12345678ull;
   constexpr CpuRegisterValue kMtloValue = 0xc001d00d87654321ull;
   constexpr CpuRegisterValue kZeroAttempt = 0xffffffffffffffffull;
 
-  constexpr std::uint32_t kExpectedWordResult = 0x000012ffu;
-  constexpr CpuInstructionWord kOriInstruction = encode_ori(
+  constexpr CpuRegisterValue kExpectedPositiveAddiuResult =
+      cpu_value_from_sign_extended_u32(0x000012ffu);
+  constexpr CpuRegisterValue kExpectedNegativeAddiuResult =
+      cpu_value_from_sign_extended_u32(0x80000000u);
+  constexpr CpuRegisterValue kExpectedShiftResult =
+      cpu_value_from_sign_extended_u32(0x80000000u);
+  constexpr CpuRegisterValue kExpectedLuiResult =
+      cpu_value_from_sign_extended_u32(0x80000000u);
+
+  constexpr CpuInstructionWord kPositiveAddiuInstruction = encode_addiu(
       kWordResultIndex,
       kHighSourceIndex,
-      0x00ffu);
+      0x0054u);
+  constexpr CpuInstructionWord kNegativeAddiuInstruction = encode_addiu(
+      kSignResultIndex,
+      kSignSourceIndex,
+      0x0001u);
+  constexpr CpuInstructionWord kShiftInstruction = encode_special(
+      0,
+      kShiftSourceIndex,
+      kShiftResultIndex,
+      31,
+      0x00);
+  constexpr CpuInstructionWord kLuiInstruction = encode_lui(kLuiResultIndex, 0x8000u);
 
   machine.stage_cpu_pc(cpu_rdram_alias(kPc));
   machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
   machine.stage_cpu_gpr(0, kZeroAttempt);
   machine.stage_cpu_gpr(kHighSourceIndex, kHighSourceValue);
   machine.stage_cpu_gpr(kWordResultIndex, kInitialWordResultValue);
+  machine.stage_cpu_gpr(kSignSourceIndex, kSignSourceValue);
+  machine.stage_cpu_gpr(kSignResultIndex, kInitialSignResultValue);
+  machine.stage_cpu_gpr(kShiftSourceIndex, kShiftSourceValue);
+  machine.stage_cpu_gpr(kShiftResultIndex, kInitialShiftResultValue);
+  machine.stage_cpu_gpr(kLuiResultIndex, kInitialLuiResultValue);
   machine.stage_cpu_gpr(kHiSourceIndex, kMthiValue);
   machine.stage_cpu_gpr(kLoSourceIndex, kMtloValue);
   machine.stage_cpu_gpr(kHiReadIndex, 0);
@@ -838,6 +879,11 @@ void run_cpu_register_value_width_demo(Machine& machine) {
   print_hex64("  gpr[0]", machine.inspect_cpu_gpr(0));
   print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kHighSourceIndex));
   print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kWordResultIndex));
+  print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kSignSourceIndex));
+  print_hex64("  gpr[19]", machine.inspect_cpu_gpr(kSignResultIndex));
+  print_hex64("  gpr[20]", machine.inspect_cpu_gpr(kShiftSourceIndex));
+  print_hex64("  gpr[21]", machine.inspect_cpu_gpr(kShiftResultIndex));
+  print_hex64("  gpr[22]", machine.inspect_cpu_gpr(kLuiResultIndex));
   print_hex64("  hi", machine.inspect_cpu_hi());
   print_hex64("  lo", machine.inspect_cpu_lo());
 
@@ -878,13 +924,45 @@ void run_cpu_register_value_width_demo(Machine& machine) {
     throw std::runtime_error("CPU register width demo did not move full GPR values into HI/LO");
   }
 
-  machine.stage_rdram_u32_be(
-      rdram_offset_from_cpu_address(machine.cpu_pc()),
-      kOriInstruction);
+  auto step_word_policy_instruction =
+      [&machine](CpuInstructionWord instruction, const char* label) {
+        machine.stage_rdram_u32_be(
+            rdram_offset_from_cpu_address(machine.cpu_pc()),
+            instruction);
+        print_hex32("  instruction_raw", instruction);
+        std::cout << "  instruction_label = " << label << '\n';
+        require_stepped(
+            machine.step_cpu_instruction(),
+            std::string("register_value_width_demo_") + label);
+      };
 
-  print_hex32("  ori_raw", kOriInstruction);
+  step_word_policy_instruction(kPositiveAddiuInstruction, "positive_addiu");
 
-  require_stepped(machine.step_cpu_instruction(), "register_value_width_demo_ori");
+  if (machine.inspect_cpu_gpr(kWordResultIndex) != kExpectedPositiveAddiuResult) {
+    throw std::runtime_error(
+        "CPU register width demo did not sign-extend the positive ADDIU word result");
+  }
+
+  step_word_policy_instruction(kNegativeAddiuInstruction, "negative_addiu");
+
+  if (machine.inspect_cpu_gpr(kSignResultIndex) != kExpectedNegativeAddiuResult) {
+    throw std::runtime_error(
+        "CPU register width demo did not sign-extend the negative ADDIU word result");
+  }
+
+  step_word_policy_instruction(kShiftInstruction, "sll_bit31");
+
+  if (machine.inspect_cpu_gpr(kShiftResultIndex) != kExpectedShiftResult) {
+    throw std::runtime_error(
+        "CPU register width demo did not sign-extend the SLL word result");
+  }
+
+  step_word_policy_instruction(kLuiInstruction, "lui_8000");
+
+  if (machine.inspect_cpu_gpr(kLuiResultIndex) != kExpectedLuiResult) {
+    throw std::runtime_error(
+        "CPU register width demo did not sign-extend the LUI 0x8000 word result");
+  }
 
   std::cout << "after step sequence:\n";
   print_control_flow_state(machine);
@@ -892,6 +970,11 @@ void run_cpu_register_value_width_demo(Machine& machine) {
   print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kWordResultIndex));
   print_hex64("  gpr[16]", machine.inspect_cpu_gpr(kHiReadIndex));
   print_hex64("  gpr[17]", machine.inspect_cpu_gpr(kLoReadIndex));
+  print_hex64("  gpr[18]", machine.inspect_cpu_gpr(kSignSourceIndex));
+  print_hex64("  gpr[19]", machine.inspect_cpu_gpr(kSignResultIndex));
+  print_hex64("  gpr[20]", machine.inspect_cpu_gpr(kShiftSourceIndex));
+  print_hex64("  gpr[21]", machine.inspect_cpu_gpr(kShiftResultIndex));
+  print_hex64("  gpr[22]", machine.inspect_cpu_gpr(kLuiResultIndex));
   print_hex64("  hi", machine.inspect_cpu_hi());
   print_hex64("  lo", machine.inspect_cpu_lo());
 
@@ -899,13 +982,7 @@ void run_cpu_register_value_width_demo(Machine& machine) {
     throw std::runtime_error("CPU register width demo changed the 64-bit word source register");
   }
 
-  if (machine.inspect_cpu_gpr(kWordResultIndex) !=
-      static_cast<CpuRegisterValue>(kExpectedWordResult)) {
-    throw std::runtime_error(
-        "CPU register width demo did not zero-extend the 32-bit ORI word result");
-  }
-
-  constexpr std::uint32_t kSteppedInstructionCount = 5u;
+  constexpr std::uint32_t kSteppedInstructionCount = 8u;
   constexpr CpuAddress kExpectedFinalPc = kPc + (kSteppedInstructionCount * 4u);
   constexpr CpuAddress kExpectedFinalNextPc = kExpectedFinalPc + 4u;
 
