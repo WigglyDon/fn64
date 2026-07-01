@@ -613,6 +613,29 @@ void require_step_machine_fault(
   throw std::runtime_error(std::string(label) + " did not throw MachineFault");
 }
 
+void require_step_cpu_rdram_address_fault(
+    Machine& machine,
+    const char* label,
+    CpuAddress expected_cpu_address,
+    std::size_t expected_access_size) {
+  try {
+    static_cast<void>(machine.step_cpu_instruction());
+  } catch (const MachineFault& fault) {
+    std::cout << "  " << label << " threw: " << fault.what() << '\n';
+    require_machine_fault(fault, label, MachineFaultKind::kCpuRdramAddressRejected, expected_access_size);
+    if (fault.cpu_address() != expected_cpu_address) {
+      throw std::runtime_error(
+          std::string(label) + " reported an unexpected CPU address");
+    }
+    return;
+  } catch (const std::exception& e) {
+    throw std::runtime_error(
+        std::string(label) + " threw unexpected exception type: " + e.what());
+  }
+
+  throw std::runtime_error(std::string(label) + " did not throw CPU RDRAM address MachineFault");
+}
+
 void require_stage_exception_contains(
     Machine& machine,
     std::uint32_t cartridge_offset,
@@ -1034,6 +1057,329 @@ void run_low_cpu_data_store_rejection_case(Machine& machine) {
   throw std::runtime_error("low CPU SW data address unexpectedly stored");
 }
 
+CpuAddress kseg1_rdram_alias(RdramOffset offset) {
+  return 0xa0000000u + offset;
+}
+
+void run_cpu_rdram_fetch_rejection_case(const char* label, CpuAddress rejected_pc) {
+  constexpr CpuAddress kPreservedNextPc = 0x80000b04u;
+  constexpr RdramOffset kSentinelAddress = 0x00000b80u;
+  constexpr std::uint32_t kSentinelWord = 0xfeedc0deu;
+  constexpr std::size_t kExpectedFetchSize = 4;
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  machine.stage_cpu_pc(rejected_pc);
+  machine.stage_cpu_next_pc(kPreservedNextPc);
+  machine.stage_cpu_gpr(8, 0x1111222233334444ull);
+  machine.stage_rdram_u32_be(kSentinelAddress, kSentinelWord);
+
+  std::cout << "  reject case: " << label << '\n';
+  print_control_flow_state(machine);
+  print_hex32("    rejected_pc", rejected_pc);
+
+  require_step_cpu_rdram_address_fault(machine, label, rejected_pc, kExpectedFetchSize);
+
+  if (machine.cpu_pc() != rejected_pc ||
+      machine.cpu_next_pc() != kPreservedNextPc ||
+      machine.inspect_cpu_gpr(8) != 0x1111222233334444ull ||
+      machine.inspect_rdram_u32_be(kSentinelAddress) != kSentinelWord) {
+    throw std::runtime_error(std::string(label) + " changed visible machine state");
+  }
+}
+
+void run_cpu_rdram_load_rejection_case(
+    const char* label,
+    CpuInstructionWord instruction,
+    CpuAddress data_cpu_address,
+    std::size_t expected_access_size) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kTargetIndex = 12;
+  constexpr CpuAddress kInstructionCpuAddress = 0x80000b00u;
+  constexpr RdramOffset kInstructionRdramAddress = 0x00000b00u;
+  constexpr CpuRegisterValue kTargetSentinel = 0x5555666677778888ull;
+  constexpr RdramOffset kSentinelAddress = 0x00000b84u;
+  constexpr std::uint32_t kSentinelWord = 0x10203040u;
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  machine.stage_cpu_pc(kInstructionCpuAddress);
+  machine.stage_cpu_gpr(kBaseIndex, data_cpu_address);
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+  machine.stage_rdram_u32_be(kInstructionRdramAddress, instruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kSentinelWord);
+
+  std::cout << "  reject case: " << label << '\n';
+  print_control_flow_state(machine);
+  print_hex32("    rejected_data_cpu_address", data_cpu_address);
+
+  require_step_cpu_rdram_address_fault(machine, label, data_cpu_address, expected_access_size);
+
+  if (machine.cpu_pc() != kInstructionCpuAddress ||
+      machine.cpu_next_pc() != kInstructionCpuAddress + 4u ||
+      machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel ||
+      machine.inspect_rdram_u32_be(kSentinelAddress) != kSentinelWord) {
+    throw std::runtime_error(std::string(label) + " changed visible machine state");
+  }
+}
+
+void run_cpu_rdram_store_rejection_case(
+    const char* label,
+    CpuInstructionWord instruction,
+    CpuAddress data_cpu_address,
+    std::size_t expected_access_size) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSourceIndex = 13;
+  constexpr CpuAddress kInstructionCpuAddress = 0x80000b20u;
+  constexpr RdramOffset kInstructionRdramAddress = 0x00000b20u;
+  constexpr CpuRegisterValue kSourceValue = 0xaabbccddeeff0011ull;
+  constexpr RdramOffset kSentinelAddress = 0x00000b88u;
+  constexpr std::uint32_t kSentinelWord = 0x55667788u;
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  machine.stage_cpu_pc(kInstructionCpuAddress);
+  machine.stage_cpu_gpr(kBaseIndex, data_cpu_address);
+  machine.stage_cpu_gpr(kSourceIndex, kSourceValue);
+  machine.stage_rdram_u32_be(kInstructionRdramAddress, instruction);
+  machine.stage_rdram_u32_be(kSentinelAddress, kSentinelWord);
+
+  std::cout << "  reject case: " << label << '\n';
+  print_control_flow_state(machine);
+  print_hex32("    rejected_data_cpu_address", data_cpu_address);
+
+  require_step_cpu_rdram_address_fault(machine, label, data_cpu_address, expected_access_size);
+
+  if (machine.cpu_pc() != kInstructionCpuAddress ||
+      machine.cpu_next_pc() != kInstructionCpuAddress + 4u ||
+      machine.inspect_cpu_gpr(kSourceIndex) != kSourceValue ||
+      machine.inspect_rdram_u32_be(kSentinelAddress) != kSentinelWord) {
+    throw std::runtime_error(std::string(label) + " changed visible machine state");
+  }
+}
+
+void run_non_direct_cpu_address_rejection_demo() {
+  std::cout << "fn64 bootstrap CPU address rejection demo: non-direct ranges stay local MachineFaults\n";
+
+  run_cpu_rdram_fetch_rejection_case("kuseg_like_fetch_rejected", 0x40000100u);
+  run_cpu_rdram_fetch_rejection_case("upper_non_direct_fetch_rejected", 0xc0000100u);
+  run_cpu_rdram_fetch_rejection_case("upper_max_aligned_fetch_rejected", 0xfffffffcu);
+
+  run_cpu_rdram_load_rejection_case(
+      "kuseg_like_lw_rejected",
+      encode_lw(12, 4, 0),
+      0x40000100u,
+      4);
+  run_cpu_rdram_store_rejection_case(
+      "upper_non_direct_sw_rejected",
+      encode_sw(13, 4, 0),
+      0xc0000100u,
+      4);
+  run_cpu_rdram_store_rejection_case(
+      "all_ones_sb_rejected",
+      encode_sb(13, 4, 0),
+      0xffffffffu,
+      1);
+}
+
+void run_cpu_rdram_span_boundary_rejection_demo() {
+  constexpr RdramOffset kRdramSize = 0x00400000u;
+
+  std::cout << "fn64 bootstrap CPU RDRAM span rejection demo: KSEG aliases must fit Machine RDRAM\n";
+
+  run_cpu_rdram_fetch_rejection_case(
+      "kseg0_fetch_end_plus_one_rejected",
+      cpu_rdram_alias(kRdramSize));
+  run_cpu_rdram_fetch_rejection_case(
+      "kseg1_fetch_end_plus_one_rejected",
+      kseg1_rdram_alias(kRdramSize));
+
+  run_cpu_rdram_load_rejection_case(
+      "kseg0_byte_end_plus_one_rejected",
+      encode_lb(12, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      1);
+  run_cpu_rdram_load_rejection_case(
+      "kseg1_byte_end_plus_one_rejected",
+      encode_lb(12, 4, 0),
+      kseg1_rdram_alias(kRdramSize),
+      1);
+  run_cpu_rdram_load_rejection_case(
+      "kseg0_halfword_end_plus_one_rejected",
+      encode_lh(12, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      2);
+  run_cpu_rdram_load_rejection_case(
+      "kseg1_halfword_end_plus_one_rejected",
+      encode_lh(12, 4, 0),
+      kseg1_rdram_alias(kRdramSize),
+      2);
+  run_cpu_rdram_load_rejection_case(
+      "kseg0_word_end_plus_one_rejected",
+      encode_lw(12, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      4);
+  run_cpu_rdram_load_rejection_case(
+      "kseg1_word_end_plus_one_rejected",
+      encode_lw(12, 4, 0),
+      kseg1_rdram_alias(kRdramSize),
+      4);
+  run_cpu_rdram_load_rejection_case(
+      "kseg0_doubleword_end_plus_one_rejected",
+      encode_ld(12, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      8);
+  run_cpu_rdram_load_rejection_case(
+      "kseg1_doubleword_end_plus_one_rejected",
+      encode_ld(12, 4, 0),
+      kseg1_rdram_alias(kRdramSize),
+      8);
+
+  run_cpu_rdram_store_rejection_case(
+      "kseg0_sb_end_plus_one_no_ghost",
+      encode_sb(13, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      1);
+  run_cpu_rdram_store_rejection_case(
+      "kseg0_sh_end_plus_one_no_ghost",
+      encode_sh(13, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      2);
+  run_cpu_rdram_store_rejection_case(
+      "kseg0_sw_end_plus_one_no_ghost",
+      encode_sw(13, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      4);
+  run_cpu_rdram_store_rejection_case(
+      "kseg0_sd_end_plus_one_no_ghost",
+      encode_sd(13, 4, 0),
+      cpu_rdram_alias(kRdramSize),
+      8);
+}
+
+void run_last_valid_load_case(
+    const char* label,
+    CpuInstructionWord instruction,
+    CpuAddress data_cpu_address,
+    CpuRegisterValue expected_value) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kTargetIndex = 12;
+  constexpr CpuAddress kInstructionCpuAddress = 0x80000b40u;
+  constexpr RdramOffset kInstructionRdramAddress = 0x00000b40u;
+  constexpr RdramOffset kLastDoublewordAddress = 0x003ffff8u;
+  constexpr RdramOffset kLastWordAddress = 0x003ffffcu;
+  constexpr std::uint32_t kHighWord = 0x01020304u;
+  constexpr std::uint32_t kLowWord = 0x11223344u;
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  machine.stage_cpu_pc(kInstructionCpuAddress);
+  machine.stage_cpu_gpr(kBaseIndex, data_cpu_address);
+  machine.stage_cpu_gpr(kTargetIndex, 0);
+  machine.stage_rdram_u32_be(kInstructionRdramAddress, instruction);
+  machine.stage_rdram_u32_be(kLastDoublewordAddress, kHighWord);
+  machine.stage_rdram_u32_be(kLastWordAddress, kLowWord);
+
+  std::cout << "  accepted boundary load: " << label << '\n';
+  print_hex32("    data_cpu_address", data_cpu_address);
+
+  require_stepped(machine.step_cpu_instruction(), label);
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != expected_value) {
+    throw std::runtime_error(std::string(label) + " loaded an unexpected value");
+  }
+}
+
+void run_last_valid_store_case(
+    const char* label,
+    CpuInstructionWord instruction,
+    CpuAddress data_cpu_address,
+    CpuRegisterValue source_value,
+    std::uint32_t expected_high_word,
+    std::uint32_t expected_low_word) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSourceIndex = 13;
+  constexpr CpuAddress kInstructionCpuAddress = 0x80000b60u;
+  constexpr RdramOffset kInstructionRdramAddress = 0x00000b60u;
+  constexpr RdramOffset kLastDoublewordAddress = 0x003ffff8u;
+  constexpr RdramOffset kLastWordAddress = 0x003ffffcu;
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  machine.stage_cpu_pc(kInstructionCpuAddress);
+  machine.stage_cpu_gpr(kBaseIndex, data_cpu_address);
+  machine.stage_cpu_gpr(kSourceIndex, source_value);
+  machine.stage_rdram_u32_be(kInstructionRdramAddress, instruction);
+  machine.stage_rdram_u32_be(kLastDoublewordAddress, 0x01020304u);
+  machine.stage_rdram_u32_be(kLastWordAddress, 0x11223344u);
+
+  std::cout << "  accepted boundary store: " << label << '\n';
+  print_hex32("    data_cpu_address", data_cpu_address);
+
+  require_stepped(machine.step_cpu_instruction(), label);
+
+  if (machine.inspect_rdram_u32_be(kLastDoublewordAddress) != expected_high_word ||
+      machine.inspect_rdram_u32_be(kLastWordAddress) != expected_low_word) {
+    throw std::runtime_error(std::string(label) + " stored outside the expected RDRAM bytes");
+  }
+}
+
+void run_cpu_rdram_last_valid_access_demo() {
+  constexpr RdramOffset kRdramSize = 0x00400000u;
+
+  std::cout << "fn64 bootstrap CPU RDRAM boundary demo: last valid alias accesses still work\n";
+
+  run_last_valid_load_case(
+      "kseg0_last_valid_byte_load",
+      encode_lb(12, 4, 0),
+      cpu_rdram_alias(kRdramSize - 1u),
+      0x44u);
+  run_last_valid_load_case(
+      "kseg1_last_valid_halfword_load",
+      encode_lh(12, 4, 0),
+      kseg1_rdram_alias(kRdramSize - 2u),
+      0x3344u);
+  run_last_valid_load_case(
+      "kseg0_last_valid_word_load",
+      encode_lw(12, 4, 0),
+      cpu_rdram_alias(kRdramSize - 4u),
+      0x11223344u);
+  run_last_valid_load_case(
+      "kseg1_last_valid_doubleword_load",
+      encode_ld(12, 4, 0),
+      kseg1_rdram_alias(kRdramSize - 8u),
+      0x0102030411223344ull);
+
+  run_last_valid_store_case(
+      "kseg0_last_valid_byte_store",
+      encode_sb(13, 4, 0),
+      cpu_rdram_alias(kRdramSize - 1u),
+      0xaau,
+      0x01020304u,
+      0x112233aau);
+  run_last_valid_store_case(
+      "kseg1_last_valid_halfword_store",
+      encode_sh(13, 4, 0),
+      kseg1_rdram_alias(kRdramSize - 2u),
+      0xbbeeu,
+      0x01020304u,
+      0x1122bbeeu);
+  run_last_valid_store_case(
+      "kseg0_last_valid_word_store",
+      encode_sw(13, 4, 0),
+      cpu_rdram_alias(kRdramSize - 4u),
+      0xcafef00du,
+      0x01020304u,
+      0xcafef00du);
+  run_last_valid_store_case(
+      "kseg1_last_valid_doubleword_store",
+      encode_sd(13, 4, 0),
+      kseg1_rdram_alias(kRdramSize - 8u),
+      0x0123456789abcdefull,
+      0x01234567u,
+      0x89abcdefu);
+}
+
 void run_cartridge_staging_demo() {
   constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
   constexpr std::uint32_t kProgramRdramAddress = 0x00000800u;
@@ -1346,6 +1692,9 @@ void run_cpu_rdram_translation_demo(Machine& machine) {
   run_low_cpu_fetch_rejection_case(machine);
   run_low_cpu_data_load_rejection_case(machine);
   run_low_cpu_data_store_rejection_case(machine);
+  run_non_direct_cpu_address_rejection_demo();
+  run_cpu_rdram_span_boundary_rejection_demo();
+  run_cpu_rdram_last_valid_access_demo();
   run_kseg1_base_fetch_case(
       machine,
       "kseg1_base_fetch_executes_rdram_zero",
