@@ -109,6 +109,11 @@ void Machine::reset_to_blank_rdram_power_on_state() {
   sp_dmem_.fill(0);
   sp_imem_.fill(0);
   clear_cpu_rdram_reservation();
+  sp_mem_address_ = 0;
+  sp_dram_address_ = 0;
+  sp_rd_len_ = 0;
+  sp_wr_len_ = 0;
+  sp_status_ = 0;
   pi_dram_address_ = 0;
   pi_cart_address_ = 0;
   pi_cart_to_rdram_length_ = 0;
@@ -212,11 +217,35 @@ bool Machine::translate_cpu_physical_sp_memory_address(
         return true;
       };
 
-  if (translate_span(kSpDmemPhysicalBase, CpuDataTargetKind::kSpDmem, out_kind, out_sp_offset)) {
+  if (translate_span(
+          kSpDmemPhysicalBase,
+          CpuDataTargetKind::kSpDmem,
+          out_kind,
+          out_sp_offset)) {
     return true;
   }
 
-  return translate_span(kSpImemPhysicalBase, CpuDataTargetKind::kSpImem, out_kind, out_sp_offset);
+  return translate_span(
+      kSpImemPhysicalBase,
+      CpuDataTargetKind::kSpImem,
+      out_kind,
+      out_sp_offset);
+}
+
+bool Machine::translate_cpu_physical_sp_register_address(
+    CpuPhysicalAddress physical_address,
+    std::uint32_t& out_register_offset) noexcept {
+  if (physical_address < kSpRegisterPhysicalBase) {
+    return false;
+  }
+
+  const std::uint32_t register_offset = physical_address - kSpRegisterPhysicalBase;
+  if (register_offset >= kSpRegisterWindowSize) {
+    return false;
+  }
+
+  out_register_offset = register_offset;
+  return true;
 }
 
 bool Machine::translate_cpu_physical_pi_register_address(

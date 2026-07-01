@@ -47,7 +47,7 @@ The current machine state is intentionally plain:
 - CPU pc / next_pc exist
 - the reset model is an explicit blank RDRAM power-on state, not N64 reset/PIF boot
 - CPU instruction fetch currently uses only KSEG0/KSEG1-style direct RDRAM aliases
-- CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, plus a minimal local PI MMIO subset
+- CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, minimal local SP DMA MMIO, plus a minimal local PI MMIO subset
 - cartridge execution mapping is not wired yet
 
 This keeps ROM loading honest without pretending the cartridge is executing.
@@ -61,7 +61,7 @@ The CPU now reaches RDRAM through a tiny machine-local translation rule:
 Raw physical RDRAM offsets are staging/inspection addresses, not CPU addresses.
 
 This is not a bus, general memory map, TLB translation, or cartridge ROM mapping.
-The current non-RDRAM data targets are local SP DMEM/IMEM byte memories and a tiny local PI MMIO subset. This is not RSP execution, SP DMA, COP2, timing, interrupts, boot, or compatibility.
+The current non-RDRAM data targets are local SP DMEM/IMEM byte memories, a tiny local SP DMA MMIO subset, and a tiny local PI MMIO subset. This is not RSP execution, COP2, timing, interrupts, boot, or compatibility.
 
 ## Blank reset state
 
@@ -99,7 +99,9 @@ This is not PI timing, DMA scheduling, MI interrupts, boot, cartridge CPU mappin
 
 CPU data load/store can access Machine-owned 4 KiB SP DMEM and 4 KiB SP IMEM byte memories through direct aliases. Instruction fetch still remains RDRAM-only.
 
-This is not SP register behavior, SP DMA, RSP execution, COP2, renderer/audio, or game compatibility.
+The current CPU data path also recognizes a tiny local SP register window for aligned 32-bit loads and stores. Writing the local SP read/write length registers immediately copies exact bytes between physical RDRAM and local SP memory.
+
+This is not full SP register behavior, SP status/timing/interrupt fidelity, RSP execution, COP2, renderer/audio, or game compatibility.
 
 ## No-window ROM inspection
 

@@ -144,13 +144,15 @@ private:
 
   // Private CPU data access dispatch seam. It names the current
   // CpuAddress -> CpuPhysicalAddress -> target split without adding a bus or
-  // full memory map. RDRAM, local SP DMEM/IMEM byte memories, and a minimal
-  // local PI MMIO subset are the only CPU data targets today; instruction fetch
-  // remains RDRAM-only, and cartridge bytes are not CPU-addressable.
+  // full memory map. RDRAM, local SP DMEM/IMEM byte memories, minimal local SP
+  // DMA MMIO, and a minimal local PI MMIO subset are the only CPU data targets
+  // today; instruction fetch remains RDRAM-only, and cartridge bytes are not
+  // CPU-addressable.
   enum class CpuDataTargetKind {
     kRdram,
     kSpDmem,
     kSpImem,
+    kSpMmio,
     kPi,
   };
 
@@ -159,6 +161,7 @@ private:
     CpuPhysicalAddress physical_address = 0;
     RdramOffset rdram_offset = 0;
     std::uint32_t sp_memory_offset = 0;
+    std::uint32_t sp_register_offset = 0;
     std::uint32_t pi_register_offset = 0;
   };
 
@@ -312,6 +315,13 @@ private:
   static constexpr std::size_t kCpuGprCount = 32;
   static constexpr CpuPhysicalAddress kSpDmemPhysicalBase = 0x04000000u;
   static constexpr CpuPhysicalAddress kSpImemPhysicalBase = 0x04001000u;
+  static constexpr CpuPhysicalAddress kSpRegisterPhysicalBase = 0x04040000u;
+  static constexpr std::uint32_t kSpRegisterWindowSize = 0x20u;
+  static constexpr std::uint32_t kSpMemoryAddressRegisterOffset = 0x00u;
+  static constexpr std::uint32_t kSpDramAddressRegisterOffset = 0x04u;
+  static constexpr std::uint32_t kSpReadLengthRegisterOffset = 0x08u;
+  static constexpr std::uint32_t kSpWriteLengthRegisterOffset = 0x0cu;
+  static constexpr std::uint32_t kSpStatusRegisterOffset = 0x10u;
   static constexpr CpuPhysicalAddress kPiPhysicalBase = 0x04600000u;
   static constexpr std::uint32_t kPiRegisterWindowSize = 0x20u;
   static constexpr std::uint32_t kPiDramAddressRegisterOffset = 0x00u;
@@ -345,8 +355,8 @@ private:
   // Every other CPU range remains a local MachineFault. This is not a bus,
   // full memory map, TLB translation, cartridge ROM mapping, or device/MMIO
   // dispatch; the separate CPU data target resolver owns the local SP
-  // DMEM/IMEM byte memories and tiny PI MMIO subset that have been earned for
-  // data loads/stores.
+  // DMEM/IMEM byte memories, minimal SP DMA MMIO, and tiny PI MMIO subset that
+  // have been earned for data loads/stores.
   static RdramOffset require_cpu_rdram_address(
       const char* operation,
       CpuAddress cpu_address,
@@ -382,6 +392,9 @@ private:
       std::size_t width,
       CpuDataTargetKind& out_kind,
       std::uint32_t& out_sp_offset) noexcept;
+  static bool translate_cpu_physical_sp_register_address(
+      CpuPhysicalAddress physical_address,
+      std::uint32_t& out_register_offset) noexcept;
   static bool translate_cpu_physical_pi_register_address(
       CpuPhysicalAddress physical_address,
       std::uint32_t& out_register_offset) noexcept;
@@ -407,6 +420,29 @@ private:
       CpuDataTargetKind kind,
       std::uint32_t offset,
       CpuRegisterValue value);
+
+  std::uint32_t read_sp_register_u32(
+      CpuPhysicalAddress physical_address,
+      CpuAddress cpu_address) const;
+  void write_sp_register_u32(
+      CpuPhysicalAddress physical_address,
+      CpuAddress cpu_address,
+      std::uint32_t value);
+  static bool translate_sp_memory_dma_span(
+      std::uint32_t sp_memory_address,
+      std::uint32_t byte_count,
+      CpuDataTargetKind& out_kind,
+      std::uint32_t& out_sp_offset) noexcept;
+  static CpuDataTarget require_sp_memory_dma_span(
+      const char* operation,
+      std::uint32_t sp_memory_address,
+      std::uint32_t byte_count);
+  static RdramOffset require_sp_dma_rdram_span(
+      const char* operation,
+      RdramOffset rdram_address,
+      std::uint32_t byte_count);
+  void perform_sp_read_dma(std::uint32_t length_register_value);
+  void perform_sp_write_dma(std::uint32_t length_register_value);
 
   std::uint32_t read_pi_register_u32(
       CpuPhysicalAddress physical_address,
@@ -465,6 +501,11 @@ private:
   std::array<std::uint8_t, kSpMemorySizeBytes> sp_dmem_{};
   std::array<std::uint8_t, kSpMemorySizeBytes> sp_imem_{};
   CpuRdramReservation cpu_rdram_reservation_{};
+  std::uint32_t sp_mem_address_ = 0;
+  RdramOffset sp_dram_address_ = 0;
+  std::uint32_t sp_rd_len_ = 0;
+  std::uint32_t sp_wr_len_ = 0;
+  std::uint32_t sp_status_ = 0;
   RdramOffset pi_dram_address_ = 0;
   PiCartAddress pi_cart_address_ = 0;
   std::uint32_t pi_cart_to_rdram_length_ = 0;
