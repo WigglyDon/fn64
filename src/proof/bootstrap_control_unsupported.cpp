@@ -209,16 +209,26 @@ void run_unsupported_identity_demo(
 void run_unsupported_instruction_demos(Machine& machine) {
   run_fetch_failure_no_ghost_demo(machine);
 
-  constexpr std::uint32_t kCop0UnsupportedInstruction = 0x40000000u;
+  constexpr CpuInstructionWord kCop0UnsupportedInstruction = encode_i_type(0x10, 0, 0, 0x0000u);
+  constexpr CpuInstructionWord kCop1UnsupportedInstruction = encode_i_type(0x11, 0, 0, 0x0000u);
+  constexpr CpuInstructionWord kCop2UnsupportedInstruction = encode_i_type(0x12, 0, 0, 0x0000u);
+  constexpr CpuInstructionWord kCop3UnsupportedInstruction = encode_i_type(0x13, 0, 0, 0x0000u);
   constexpr std::uint32_t kSpecialUnknownUnsupportedInstruction = 0x00000001u;
   constexpr std::uint32_t kRegimmUnknownUnsupportedInstruction = 0x04040000u;
   constexpr std::uint32_t kUnknownPrimaryUnsupportedInstruction = 0xcc000000u;
+  constexpr CpuInstructionWord kCacheUnsupportedInstruction = encode_i_type(0x2f, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kLlUnsupportedInstruction = encode_i_type(0x30, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kLwc1UnsupportedInstruction = encode_i_type(0x31, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kLwc2UnsupportedInstruction = encode_i_type(0x32, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kLldUnsupportedInstruction = encode_i_type(0x34, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kLdc1UnsupportedInstruction = encode_i_type(0x35, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kLdc2UnsupportedInstruction = encode_i_type(0x36, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kScUnsupportedInstruction = encode_i_type(0x38, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kSwc1UnsupportedInstruction = encode_i_type(0x39, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kSwc2UnsupportedInstruction = encode_i_type(0x3a, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kScdUnsupportedInstruction = encode_i_type(0x3c, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kSdc1UnsupportedInstruction = encode_i_type(0x3d, 6, 4, 0x0000u);
+  constexpr CpuInstructionWord kSdc2UnsupportedInstruction = encode_i_type(0x3e, 6, 4, 0x0000u);
 
   run_unsupported_identity_demo(
       machine,
@@ -229,17 +239,38 @@ void run_unsupported_instruction_demos(Machine& machine) {
 
   run_unsupported_identity_demo(
       machine,
-      "special unknown funct returns unsupported with rollback intact",
+      "cop1 path returns unsupported with rollback intact",
+      0x000006c8u,
+      kCop1UnsupportedInstruction,
+      0x75c9u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "cop2 path returns unsupported with rollback intact",
       0x000006d0u,
-      kSpecialUnknownUnsupportedInstruction,
+      kCop2UnsupportedInstruction,
       0x75d1u);
 
   run_unsupported_identity_demo(
       machine,
-      "regimm unknown rt returns unsupported with rollback intact",
+      "cop3 path returns unsupported with rollback intact",
+      0x000006d8u,
+      kCop3UnsupportedInstruction,
+      0x75d9u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "special unknown funct returns unsupported with rollback intact",
       0x000006e0u,
-      kRegimmUnknownUnsupportedInstruction,
+      kSpecialUnknownUnsupportedInstruction,
       0x75e1u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "regimm unknown rt returns unsupported with rollback intact",
+      0x000006e8u,
+      kRegimmUnknownUnsupportedInstruction,
+      0x75e9u);
 
   run_unsupported_identity_demo(
       machine,
@@ -250,10 +281,31 @@ void run_unsupported_instruction_demos(Machine& machine) {
 
   run_unsupported_identity_demo(
       machine,
+      "CACHE remains unsupported with rollback intact",
+      0x00000730u,
+      kCacheUnsupportedInstruction,
+      0x7631u);
+
+  run_unsupported_identity_demo(
+      machine,
       "LL remains unsupported with rollback intact",
       0x00000740u,
       kLlUnsupportedInstruction,
       0x7641u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "LWC1 remains unsupported with rollback intact",
+      0x00000748u,
+      kLwc1UnsupportedInstruction,
+      0x7649u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "LWC2 remains unsupported with rollback intact",
+      0x0000074cu,
+      kLwc2UnsupportedInstruction,
+      0x764du);
 
   run_unsupported_identity_demo(
       machine,
@@ -271,10 +323,31 @@ void run_unsupported_instruction_demos(Machine& machine) {
 
   run_unsupported_identity_demo(
       machine,
+      "LDC2 remains unsupported with rollback intact",
+      0x00000768u,
+      kLdc2UnsupportedInstruction,
+      0x7669u);
+
+  run_unsupported_identity_demo(
+      machine,
       "SC remains unsupported with rollback intact",
       0x00000770u,
       kScUnsupportedInstruction,
       0x7671u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "SWC1 remains unsupported with rollback intact",
+      0x00000778u,
+      kSwc1UnsupportedInstruction,
+      0x7679u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "SWC2 remains unsupported with rollback intact",
+      0x0000077cu,
+      kSwc2UnsupportedInstruction,
+      0x767du);
 
   run_unsupported_identity_demo(
       machine,
@@ -289,6 +362,13 @@ void run_unsupported_instruction_demos(Machine& machine) {
       0x00000790u,
       kSdc1UnsupportedInstruction,
       0x7691u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "SDC2 remains unsupported with rollback intact",
+      0x00000798u,
+      kSdc2UnsupportedInstruction,
+      0x7699u);
 }
 
 }  // namespace fn64::bootstrap_detail
