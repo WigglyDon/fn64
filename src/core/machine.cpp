@@ -7,7 +7,7 @@
 namespace fn64 {
 namespace {
 
-[[noreturn]] void fail_rdram_access(std::uint32_t address, std::size_t width) {
+[[noreturn]] void fail_rdram_access(RdramOffset address, std::size_t width) {
   throw std::out_of_range(
       "RDRAM access out of range: address=" + std::to_string(address) +
       " width=" + std::to_string(width));
@@ -73,7 +73,7 @@ void require_stage_span_inside_buffer(
 MachineFault::MachineFault(
     MachineFaultKind kind,
     std::string operation,
-    std::uint32_t cpu_address,
+    CpuAddress cpu_address,
     std::size_t access_size,
     std::string message)
     : std::runtime_error(std::move(message)),
@@ -90,7 +90,7 @@ const std::string& MachineFault::operation() const noexcept {
   return operation_;
 }
 
-std::uint32_t MachineFault::cpu_address() const noexcept {
+CpuAddress MachineFault::cpu_address() const noexcept {
   return cpu_address_;
 }
 
@@ -126,19 +126,19 @@ std::size_t Machine::rdram_size_bytes() const noexcept {
 }
 
 bool Machine::translate_cpu_rdram_address(
-    std::uint32_t cpu_address,
+    CpuAddress cpu_address,
     std::size_t width,
-    std::uint32_t& out_rdram_address) noexcept {
+    RdramOffset& out_rdram_address) noexcept {
   if (width == 0 || width > kRdramSizeBytes) {
     return false;
   }
 
-  constexpr std::uint32_t kDirectSegmentMask = 0xe0000000u;
-  constexpr std::uint32_t kDirectSegmentOffsetMask = 0x1fffffffu;
-  constexpr std::uint32_t kKseg0RdramBase = 0x80000000u;
-  constexpr std::uint32_t kKseg1RdramBase = 0xa0000000u;
+  constexpr CpuAddress kDirectSegmentMask = 0xe0000000u;
+  constexpr CpuAddress kDirectSegmentOffsetMask = 0x1fffffffu;
+  constexpr CpuAddress kKseg0RdramBase = 0x80000000u;
+  constexpr CpuAddress kKseg1RdramBase = 0xa0000000u;
 
-  const std::uint32_t direct_segment = cpu_address & kDirectSegmentMask;
+  const CpuAddress direct_segment = cpu_address & kDirectSegmentMask;
   if (direct_segment != kKseg0RdramBase && direct_segment != kKseg1RdramBase) {
     return false;
   }
@@ -154,7 +154,7 @@ bool Machine::translate_cpu_rdram_address(
   return true;
 }
 
-std::uint8_t Machine::read_rdram_u8(std::uint32_t address) const {
+std::uint8_t Machine::read_rdram_u8(RdramOffset address) const {
   if (address >= rdram_.size()) {
     fail_rdram_access(address, 1);
   }
@@ -162,7 +162,7 @@ std::uint8_t Machine::read_rdram_u8(std::uint32_t address) const {
   return rdram_[address];
 }
 
-std::uint16_t Machine::read_rdram_u16_be(std::uint32_t address) const {
+std::uint16_t Machine::read_rdram_u16_be(RdramOffset address) const {
   if (address > rdram_.size() - 2) {
     fail_rdram_access(address, 2);
   }
@@ -172,11 +172,11 @@ std::uint16_t Machine::read_rdram_u16_be(std::uint32_t address) const {
       static_cast<std::uint16_t>(rdram_[address + 1]));
 }
 
-std::uint32_t Machine::inspect_rdram_u32_be(std::uint32_t address) const {
+std::uint32_t Machine::inspect_rdram_u32_be(RdramOffset address) const {
   return read_rdram_u32_be(address);
 }
 
-std::uint32_t Machine::read_rdram_u32_be(std::uint32_t address) const {
+std::uint32_t Machine::read_rdram_u32_be(RdramOffset address) const {
   if (address > rdram_.size() - 4) {
     fail_rdram_access(address, 4);
   }
@@ -187,7 +187,7 @@ std::uint32_t Machine::read_rdram_u32_be(std::uint32_t address) const {
          static_cast<std::uint32_t>(rdram_[address + 3]);
 }
 
-void Machine::write_rdram_u8(std::uint32_t address, std::uint8_t value) {
+void Machine::write_rdram_u8(RdramOffset address, std::uint8_t value) {
   if (address >= rdram_.size()) {
     fail_rdram_access(address, 1);
   }
@@ -195,7 +195,7 @@ void Machine::write_rdram_u8(std::uint32_t address, std::uint8_t value) {
   rdram_[address] = value;
 }
 
-void Machine::write_rdram_u16_be(std::uint32_t address, std::uint16_t value) {
+void Machine::write_rdram_u16_be(RdramOffset address, std::uint16_t value) {
   if (address > rdram_.size() - 2) {
     fail_rdram_access(address, 2);
   }
@@ -204,11 +204,11 @@ void Machine::write_rdram_u16_be(std::uint32_t address, std::uint16_t value) {
   rdram_[address + 1] = static_cast<std::uint8_t>(value & 0xff);
 }
 
-void Machine::stage_rdram_u32_be(std::uint32_t address, std::uint32_t value) {
+void Machine::stage_rdram_u32_be(RdramOffset address, std::uint32_t value) {
   write_rdram_u32_be(address, value);
 }
 
-void Machine::write_rdram_u32_be(std::uint32_t address, std::uint32_t value) {
+void Machine::write_rdram_u32_be(RdramOffset address, std::uint32_t value) {
   if (address > rdram_.size() - 4) {
     fail_rdram_access(address, 4);
   }
@@ -220,8 +220,8 @@ void Machine::write_rdram_u32_be(std::uint32_t address, std::uint32_t value) {
 }
 
 void Machine::stage_cartridge_bytes_to_rdram(
-    std::uint32_t cartridge_offset,
-    std::uint32_t rdram_address,
+    CartridgeOffset cartridge_offset,
+    RdramOffset rdram_address,
     std::uint32_t byte_count) {
   require_u32_span("cartridge source", cartridge_offset, byte_count);
   require_u32_span("RDRAM destination", rdram_address, byte_count);

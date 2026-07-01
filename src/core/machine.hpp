@@ -10,6 +10,12 @@
 
 namespace fn64 {
 
+using CpuRegisterValue = std::uint32_t;
+using CpuAddress = std::uint32_t;
+using CpuInstructionWord = std::uint32_t;
+using RdramOffset = std::uint32_t;
+using CartridgeOffset = std::uint32_t;
+
 enum class MachineFaultKind {
   kCpuRdramAddressRejected,
   kUnalignedInstructionFetch,
@@ -23,26 +29,28 @@ public:
   MachineFault(
       MachineFaultKind kind,
       std::string operation,
-      std::uint32_t cpu_address,
+      CpuAddress cpu_address,
       std::size_t access_size,
       std::string message);
 
   MachineFaultKind kind() const noexcept;
   const std::string& operation() const noexcept;
-  std::uint32_t cpu_address() const noexcept;
+  CpuAddress cpu_address() const noexcept;
   std::size_t access_size() const noexcept;
 
 private:
   MachineFaultKind kind_;
   std::string operation_;
-  std::uint32_t cpu_address_;
+  CpuAddress cpu_address_;
   std::size_t access_size_;
 };
 
 class Machine {
 public:
-  // Current CPU scope: fn64 models a local 32-bit integer subset. GPRs,
-  // HI/LO, pc/next_pc, and CPU addresses are std::uint32_t, including the
+  // Current CPU scope: fn64 models a local 32-bit integer subset. The aliases
+  // above deliberately distinguish current register values, CPU addresses,
+  // instruction words, physical RDRAM offsets, and cartridge byte offsets even
+  // though each is backed by std::uint32_t today. CPU addresses include the
   // direct KSEG0/KSEG1 RDRAM alias form. This is not the full N64 VR4300
   // 64-bit integer model.
 
@@ -63,8 +71,8 @@ public:
 
   explicit Machine(Cartridge cartridge);
 
-  static constexpr std::uint32_t kBlankInitialCpuPc = 0x00000000u;
-  static constexpr std::uint32_t kBlankInitialCpuNextPc = 0x00000004u;
+  static constexpr CpuAddress kBlankInitialCpuPc = 0x00000000u;
+  static constexpr CpuAddress kBlankInitialCpuNextPc = 0x00000004u;
 
   // Construction owns the Cartridge and creates fn64's current local blank
   // powered-on state: zeroed RDRAM, zeroed CPU registers, and the blank
@@ -80,26 +88,26 @@ public:
   const Cartridge& cartridge() const;
   std::size_t rdram_size_bytes() const noexcept;
 
-  std::uint32_t inspect_rdram_u32_be(std::uint32_t address) const;
+  std::uint32_t inspect_rdram_u32_be(RdramOffset address) const;
 
-  void stage_rdram_u32_be(std::uint32_t address, std::uint32_t value);
+  void stage_rdram_u32_be(RdramOffset address, std::uint32_t value);
 
   void stage_cartridge_bytes_to_rdram(
-      std::uint32_t cartridge_offset,
-      std::uint32_t rdram_address,
+      CartridgeOffset cartridge_offset,
+      RdramOffset rdram_address,
       std::uint32_t byte_count);
 
-  std::uint32_t cpu_pc() const;
-  std::uint32_t cpu_next_pc() const;
-  std::uint32_t inspect_cpu_hi() const;
-  std::uint32_t inspect_cpu_lo() const;
-  std::uint32_t inspect_cpu_gpr(std::size_t index) const;
+  CpuAddress cpu_pc() const;
+  CpuAddress cpu_next_pc() const;
+  CpuRegisterValue inspect_cpu_hi() const;
+  CpuRegisterValue inspect_cpu_lo() const;
+  CpuRegisterValue inspect_cpu_gpr(std::size_t index) const;
 
-  void stage_cpu_pc(std::uint32_t value);
-  void stage_cpu_next_pc(std::uint32_t value);
-  void stage_cpu_hi(std::uint32_t value);
-  void stage_cpu_lo(std::uint32_t value);
-  void stage_cpu_gpr(std::size_t index, std::uint32_t value);
+  void stage_cpu_pc(CpuAddress value);
+  void stage_cpu_next_pc(CpuAddress value);
+  void stage_cpu_hi(CpuRegisterValue value);
+  void stage_cpu_lo(CpuRegisterValue value);
+  void stage_cpu_gpr(std::size_t index, CpuRegisterValue value);
 
   // Public CPU execution creation point. A completed step commits this
   // Machine's current pc/next_pc movement. Thrown MachineFault values are
@@ -109,7 +117,7 @@ public:
 
 private:
   struct DecodedCpuInstructionWord {
-    std::uint32_t raw = 0;
+    CpuInstructionWord raw = 0;
     std::uint8_t opcode = 0;
     std::uint8_t rs = 0;
     std::uint8_t rt = 0;
@@ -266,45 +274,45 @@ private:
 
   void reset_to_blank_rdram_power_on_state();
 
-  std::uint8_t read_rdram_u8(std::uint32_t address) const;
-  std::uint16_t read_rdram_u16_be(std::uint32_t address) const;
-  std::uint32_t read_rdram_u32_be(std::uint32_t address) const;
+  std::uint8_t read_rdram_u8(RdramOffset address) const;
+  std::uint16_t read_rdram_u16_be(RdramOffset address) const;
+  std::uint32_t read_rdram_u32_be(RdramOffset address) const;
 
-  void write_rdram_u8(std::uint32_t address, std::uint8_t value);
-  void write_rdram_u16_be(std::uint32_t address, std::uint16_t value);
-  void write_rdram_u32_be(std::uint32_t address, std::uint32_t value);
+  void write_rdram_u8(RdramOffset address, std::uint8_t value);
+  void write_rdram_u16_be(RdramOffset address, std::uint16_t value);
+  void write_rdram_u32_be(RdramOffset address, std::uint32_t value);
 
-  static std::uint32_t require_cpu_rdram_address(
+  static RdramOffset require_cpu_rdram_address(
       const char* operation,
-      std::uint32_t cpu_address,
+      CpuAddress cpu_address,
       std::size_t width);
 
-  std::uint8_t read_cpu_memory_u8(std::uint32_t cpu_address) const;
-  std::uint16_t read_cpu_memory_u16_be(std::uint32_t cpu_address) const;
-  std::uint32_t read_cpu_memory_u32_be(std::uint32_t cpu_address) const;
+  std::uint8_t read_cpu_memory_u8(CpuAddress cpu_address) const;
+  std::uint16_t read_cpu_memory_u16_be(CpuAddress cpu_address) const;
+  std::uint32_t read_cpu_memory_u32_be(CpuAddress cpu_address) const;
 
-  void write_cpu_memory_u8(std::uint32_t cpu_address, std::uint8_t value);
-  void write_cpu_memory_u16_be(std::uint32_t cpu_address, std::uint16_t value);
-  void write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value);
+  void write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value);
+  void write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t value);
+  void write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t value);
 
   static bool translate_cpu_rdram_address(
-      std::uint32_t cpu_address,
+      CpuAddress cpu_address,
       std::size_t width,
-      std::uint32_t& out_rdram_address) noexcept;
+      RdramOffset& out_rdram_address) noexcept;
 
-  std::uint32_t cpu_hi() const;
-  std::uint32_t cpu_lo() const;
-  std::uint32_t read_cpu_gpr(std::size_t index) const;
+  CpuRegisterValue cpu_hi() const;
+  CpuRegisterValue cpu_lo() const;
+  CpuRegisterValue read_cpu_gpr(std::size_t index) const;
 
-  void write_cpu_pc(std::uint32_t value);
-  void write_cpu_next_pc(std::uint32_t value);
-  void write_cpu_hi(std::uint32_t value);
-  void write_cpu_lo(std::uint32_t value);
-  void write_cpu_gpr(std::size_t index, std::uint32_t value);
+  void write_cpu_pc(CpuAddress value);
+  void write_cpu_next_pc(CpuAddress value);
+  void write_cpu_hi(CpuRegisterValue value);
+  void write_cpu_lo(CpuRegisterValue value);
+  void write_cpu_gpr(std::size_t index, CpuRegisterValue value);
 
-  std::uint32_t fetch_cpu_instruction_word() const;
+  CpuInstructionWord fetch_cpu_instruction_word() const;
 
-  static DecodedCpuInstructionWord decode_cpu_instruction_word(std::uint32_t raw);
+  static DecodedCpuInstructionWord decode_cpu_instruction_word(CpuInstructionWord raw);
   static CpuInstructionIdentity identify_cpu_instruction(
       const DecodedCpuInstructionWord& instruction);
 
@@ -316,11 +324,11 @@ private:
   bool powered_on_ = false;
   std::array<std::uint8_t, kRdramSizeBytes> rdram_{};
 
-  std::uint32_t cpu_pc_ = kBlankInitialCpuPc;
-  std::uint32_t cpu_next_pc_ = kBlankInitialCpuNextPc;
-  std::uint32_t cpu_hi_ = 0;
-  std::uint32_t cpu_lo_ = 0;
-  std::array<std::uint32_t, kCpuGprCount> cpu_gprs_{};
+  CpuAddress cpu_pc_ = kBlankInitialCpuPc;
+  CpuAddress cpu_next_pc_ = kBlankInitialCpuNextPc;
+  CpuRegisterValue cpu_hi_ = 0;
+  CpuRegisterValue cpu_lo_ = 0;
+  std::array<CpuRegisterValue, kCpuGprCount> cpu_gprs_{};
 };
 
 }  // namespace fn64

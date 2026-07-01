@@ -22,7 +22,7 @@ std::string hex_u32(std::uint32_t value) {
   return stream.str();
 }
 
-constexpr std::uint32_t encode_ori(
+constexpr fn64::CpuInstructionWord encode_ori(
     std::uint8_t rt,
     std::uint8_t rs,
     std::uint16_t immediate) {
@@ -32,7 +32,7 @@ constexpr std::uint32_t encode_ori(
          static_cast<std::uint32_t>(immediate);
 }
 
-constexpr std::uint32_t encode_lui(
+constexpr fn64::CpuInstructionWord encode_lui(
     std::uint8_t rt,
     std::uint16_t immediate) {
   return (0x0fu << 26) |
@@ -40,7 +40,7 @@ constexpr std::uint32_t encode_lui(
          static_cast<std::uint32_t>(immediate);
 }
 
-constexpr std::uint32_t encode_lw(
+constexpr fn64::CpuInstructionWord encode_lw(
     std::uint8_t rt,
     std::uint8_t base,
     std::uint16_t offset) {
@@ -50,7 +50,7 @@ constexpr std::uint32_t encode_lw(
          static_cast<std::uint32_t>(offset);
 }
 
-constexpr std::uint32_t encode_lbu(
+constexpr fn64::CpuInstructionWord encode_lbu(
     std::uint8_t rt,
     std::uint8_t base,
     std::uint16_t offset) {
@@ -60,7 +60,7 @@ constexpr std::uint32_t encode_lbu(
          static_cast<std::uint32_t>(offset);
 }
 
-constexpr std::uint32_t encode_sb(
+constexpr fn64::CpuInstructionWord encode_sb(
     std::uint8_t rt,
     std::uint8_t base,
     std::uint16_t offset) {
@@ -70,7 +70,7 @@ constexpr std::uint32_t encode_sb(
          static_cast<std::uint32_t>(offset);
 }
 
-constexpr std::uint32_t encode_sw(
+constexpr fn64::CpuInstructionWord encode_sw(
     std::uint8_t rt,
     std::uint8_t base,
     std::uint16_t offset) {
@@ -80,7 +80,7 @@ constexpr std::uint32_t encode_sw(
          static_cast<std::uint32_t>(offset);
 }
 
-constexpr std::uint32_t encode_break() {
+constexpr fn64::CpuInstructionWord encode_break() {
   return 0x0000000du;
 }
 
@@ -114,9 +114,9 @@ std::vector<std::uint8_t> make_synthetic_cartridge_bytes() {
 }
 
 std::vector<std::uint8_t> make_synthetic_cartridge_program_bytes(
-    std::uint32_t first_instruction,
-    std::uint32_t second_instruction,
-    std::uint32_t program_cartridge_offset) {
+    fn64::CpuInstructionWord first_instruction,
+    fn64::CpuInstructionWord second_instruction,
+    fn64::CartridgeOffset program_cartridge_offset) {
   std::vector<std::uint8_t> bytes = make_synthetic_cartridge_bytes();
   bytes.resize(program_cartridge_offset + 8u, 0);
   write_u32_be(bytes, program_cartridge_offset, first_instruction);
@@ -126,7 +126,7 @@ std::vector<std::uint8_t> make_synthetic_cartridge_program_bytes(
 
 std::uint32_t read_cartridge_u32_be(
     const fn64::Cartridge& cartridge,
-    std::uint32_t offset) {
+    fn64::CartridgeOffset offset) {
   return (static_cast<std::uint32_t>(cartridge.read_u8(offset)) << 24) |
          (static_cast<std::uint32_t>(cartridge.read_u8(offset + 1u)) << 16) |
          (static_cast<std::uint32_t>(cartridge.read_u8(offset + 2u)) << 8) |
@@ -161,7 +161,7 @@ void print_machine_state(const char* label, const fn64::Machine& machine) {
 void print_fetch_view(
     const char* label,
     const fn64::Machine& machine,
-    std::uint32_t rdram_offset) {
+    fn64::RdramOffset rdram_offset) {
   std::cout
       << label << '\n'
       << "  fetch CPU pc: " << hex_u32(machine.cpu_pc()) << '\n'
@@ -199,20 +199,20 @@ void print_usage() {
 }
 
 void run_synthetic_cartridge_staged_program() {
-  constexpr std::uint32_t kCpuRdramAliasBase = 0x80000000u;
-  constexpr std::uint32_t kProgramCartridgeOffset = 0x00000040u;
-  constexpr std::uint32_t kProgramRdramOffset = 0x00000000u;
+  constexpr fn64::CpuAddress kCpuRdramAliasBase = 0x80000000u;
+  constexpr fn64::CartridgeOffset kProgramCartridgeOffset = 0x00000040u;
+  constexpr fn64::RdramOffset kProgramRdramOffset = 0x00000000u;
   constexpr std::uint32_t kProgramByteCount = 8u;
-  constexpr std::uint32_t kOriCpuAddress = kCpuRdramAliasBase + kProgramRdramOffset;
-  constexpr std::uint32_t kBreakCpuAddress = kCpuRdramAliasBase + 0x00000004u;
-  constexpr std::uint32_t kAfterBreakPc = kCpuRdramAliasBase + 0x00000008u;
-  constexpr std::uint32_t kAfterBreakNextPc = kCpuRdramAliasBase + 0x0000000cu;
+  constexpr fn64::CpuAddress kOriCpuAddress = kCpuRdramAliasBase + kProgramRdramOffset;
+  constexpr fn64::CpuAddress kBreakCpuAddress = kCpuRdramAliasBase + 0x00000004u;
+  constexpr fn64::CpuAddress kAfterBreakPc = kCpuRdramAliasBase + 0x00000008u;
+  constexpr fn64::CpuAddress kAfterBreakNextPc = kCpuRdramAliasBase + 0x0000000cu;
   constexpr std::uint8_t kTargetRegister = 9;
   constexpr std::uint16_t kImmediate = 0x5a5au;
 
-  const std::uint32_t ori_instruction =
+  const fn64::CpuInstructionWord ori_instruction =
       encode_ori(kTargetRegister, 0, kImmediate);
-  const std::uint32_t break_instruction = encode_break();
+  const fn64::CpuInstructionWord break_instruction = encode_break();
 
   fn64::Cartridge cartridge;
   std::string error;
@@ -345,50 +345,50 @@ int main(int argc, char** argv) {
     }
 
     fn64::Machine machine(std::move(cartridge));
-    constexpr std::uint32_t kCpuRdramAliasBase = 0x80000000u;
-    constexpr std::uint32_t kLuiRdramOffset = 0x00000000u;
-    constexpr std::uint32_t kOriRdramOffset = 0x00000004u;
-    constexpr std::uint32_t kSwRdramOffset = 0x00000008u;
-    constexpr std::uint32_t kLwRdramOffset = 0x0000000cu;
-    constexpr std::uint32_t kByteOriRdramOffset = 0x00000010u;
-    constexpr std::uint32_t kSbRdramOffset = 0x00000014u;
-    constexpr std::uint32_t kLbuRdramOffset = 0x00000018u;
-    constexpr std::uint32_t kBreakRdramOffset = 0x0000001cu;
-    constexpr std::uint32_t kByteDataRdramOffset = 0x00000100u;
-    constexpr std::uint32_t kWordDataRdramOffset = 0x00000104u;
-    constexpr std::uint32_t kLuiCpuAddress = kCpuRdramAliasBase + kLuiRdramOffset;
-    constexpr std::uint32_t kOriCpuAddress = kCpuRdramAliasBase + kOriRdramOffset;
-    constexpr std::uint32_t kSwCpuAddress = kCpuRdramAliasBase + kSwRdramOffset;
-    constexpr std::uint32_t kLwCpuAddress = kCpuRdramAliasBase + kLwRdramOffset;
-    constexpr std::uint32_t kByteOriCpuAddress =
+    constexpr fn64::CpuAddress kCpuRdramAliasBase = 0x80000000u;
+    constexpr fn64::RdramOffset kLuiRdramOffset = 0x00000000u;
+    constexpr fn64::RdramOffset kOriRdramOffset = 0x00000004u;
+    constexpr fn64::RdramOffset kSwRdramOffset = 0x00000008u;
+    constexpr fn64::RdramOffset kLwRdramOffset = 0x0000000cu;
+    constexpr fn64::RdramOffset kByteOriRdramOffset = 0x00000010u;
+    constexpr fn64::RdramOffset kSbRdramOffset = 0x00000014u;
+    constexpr fn64::RdramOffset kLbuRdramOffset = 0x00000018u;
+    constexpr fn64::RdramOffset kBreakRdramOffset = 0x0000001cu;
+    constexpr fn64::RdramOffset kByteDataRdramOffset = 0x00000100u;
+    constexpr fn64::RdramOffset kWordDataRdramOffset = 0x00000104u;
+    constexpr fn64::CpuAddress kLuiCpuAddress = kCpuRdramAliasBase + kLuiRdramOffset;
+    constexpr fn64::CpuAddress kOriCpuAddress = kCpuRdramAliasBase + kOriRdramOffset;
+    constexpr fn64::CpuAddress kSwCpuAddress = kCpuRdramAliasBase + kSwRdramOffset;
+    constexpr fn64::CpuAddress kLwCpuAddress = kCpuRdramAliasBase + kLwRdramOffset;
+    constexpr fn64::CpuAddress kByteOriCpuAddress =
         kCpuRdramAliasBase + kByteOriRdramOffset;
-    constexpr std::uint32_t kSbCpuAddress = kCpuRdramAliasBase + kSbRdramOffset;
-    constexpr std::uint32_t kLbuCpuAddress = kCpuRdramAliasBase + kLbuRdramOffset;
-    constexpr std::uint32_t kBreakCpuAddress = kCpuRdramAliasBase + kBreakRdramOffset;
-    constexpr std::uint32_t kByteDataCpuAddress =
+    constexpr fn64::CpuAddress kSbCpuAddress = kCpuRdramAliasBase + kSbRdramOffset;
+    constexpr fn64::CpuAddress kLbuCpuAddress = kCpuRdramAliasBase + kLbuRdramOffset;
+    constexpr fn64::CpuAddress kBreakCpuAddress = kCpuRdramAliasBase + kBreakRdramOffset;
+    constexpr fn64::CpuAddress kByteDataCpuAddress =
         kCpuRdramAliasBase + kByteDataRdramOffset + 2u;
-    constexpr std::uint32_t kWordDataCpuAddress =
+    constexpr fn64::CpuAddress kWordDataCpuAddress =
         kCpuRdramAliasBase + kWordDataRdramOffset;
-    constexpr std::uint32_t kAfterBreakPc = kCpuRdramAliasBase + 0x00000020u;
-    constexpr std::uint32_t kAfterBreakNextPc = kCpuRdramAliasBase + 0x00000024u;
+    constexpr fn64::CpuAddress kAfterBreakPc = kCpuRdramAliasBase + 0x00000020u;
+    constexpr fn64::CpuAddress kAfterBreakNextPc = kCpuRdramAliasBase + 0x00000024u;
     constexpr std::uint16_t kByteImmediateOffset = 0x0102u;
     constexpr std::uint16_t kWordImmediateOffset = 0x0104u;
     constexpr std::uint32_t kInitialByteDataWord = 0x00000000u;
     constexpr std::uint32_t kInitialWordDataWord = 0xDEADBEEFu;
-    constexpr std::uint32_t kExpectedGpr4 = 0x00001234u;
-    constexpr std::uint32_t kExpectedGpr5 = 0x00001234u;
-    constexpr std::uint32_t kExpectedGpr7 = 0x000000abu;
-    constexpr std::uint32_t kExpectedGpr8 = 0x000000abu;
+    constexpr fn64::CpuRegisterValue kExpectedGpr4 = 0x00001234u;
+    constexpr fn64::CpuRegisterValue kExpectedGpr5 = 0x00001234u;
+    constexpr fn64::CpuRegisterValue kExpectedGpr7 = 0x000000abu;
+    constexpr fn64::CpuRegisterValue kExpectedGpr8 = 0x000000abu;
     constexpr std::uint32_t kExpectedByteDataWord = 0x0000ab00u;
 
-    const std::uint32_t lui_instruction = encode_lui(6, 0x8000u);
-    const std::uint32_t ori_instruction = encode_ori(4, 0, 0x1234u);
-    const std::uint32_t sw_instruction = encode_sw(4, 6, kWordImmediateOffset);
-    const std::uint32_t lw_instruction = encode_lw(5, 6, kWordImmediateOffset);
-    const std::uint32_t byte_ori_instruction = encode_ori(7, 0, 0x00abu);
-    const std::uint32_t sb_instruction = encode_sb(7, 6, kByteImmediateOffset);
-    const std::uint32_t lbu_instruction = encode_lbu(8, 6, kByteImmediateOffset);
-    const std::uint32_t break_instruction = encode_break();
+    const fn64::CpuInstructionWord lui_instruction = encode_lui(6, 0x8000u);
+    const fn64::CpuInstructionWord ori_instruction = encode_ori(4, 0, 0x1234u);
+    const fn64::CpuInstructionWord sw_instruction = encode_sw(4, 6, kWordImmediateOffset);
+    const fn64::CpuInstructionWord lw_instruction = encode_lw(5, 6, kWordImmediateOffset);
+    const fn64::CpuInstructionWord byte_ori_instruction = encode_ori(7, 0, 0x00abu);
+    const fn64::CpuInstructionWord sb_instruction = encode_sb(7, 6, kByteImmediateOffset);
+    const fn64::CpuInstructionWord lbu_instruction = encode_lbu(8, 6, kByteImmediateOffset);
+    const fn64::CpuInstructionWord break_instruction = encode_break();
 
     machine.stage_cpu_pc(kLuiCpuAddress);
     machine.stage_rdram_u32_be(kLuiRdramOffset, lui_instruction);

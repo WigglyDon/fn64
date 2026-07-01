@@ -9,7 +9,7 @@ namespace {
 
 [[noreturn]] void fail_cpu_rdram_address(
     const char* operation,
-    std::uint32_t cpu_address,
+    CpuAddress cpu_address,
     std::size_t width) {
   throw MachineFault(
       MachineFaultKind::kCpuRdramAddressRejected,
@@ -26,7 +26,7 @@ namespace {
   throw std::out_of_range("CPU GPR index out of range: " + std::to_string(index));
 }
 
-[[noreturn]] void fail_unaligned_instruction_fetch(std::uint32_t pc) {
+[[noreturn]] void fail_unaligned_instruction_fetch(CpuAddress pc) {
   throw MachineFault(
       MachineFaultKind::kUnalignedInstructionFetch,
       "CPU instruction fetch",
@@ -37,7 +37,7 @@ namespace {
 
 [[noreturn]] void fail_unaligned_halfword_memory_access(
     const char* operation,
-    std::uint32_t address) {
+    CpuAddress address) {
   throw MachineFault(
       MachineFaultKind::kUnalignedCpuMemoryAccess,
       operation,
@@ -50,7 +50,7 @@ namespace {
 
 [[noreturn]] void fail_unaligned_word_memory_access(
     const char* operation,
-    std::uint32_t address) {
+    CpuAddress address) {
   throw MachineFault(
       MachineFaultKind::kUnalignedCpuMemoryAccess,
       operation,
@@ -63,7 +63,7 @@ namespace {
 
 [[noreturn]] void fail_unaligned_control_transfer_target(
     const char* operation,
-    std::uint32_t address) {
+    CpuAddress address) {
   throw MachineFault(
       MachineFaultKind::kUnalignedControlTransferTarget,
       operation,
@@ -83,11 +83,11 @@ namespace {
       std::string(operation) + " overflow");
 }
 
-std::uint8_t variable_shift_amount_u32(std::uint32_t value) {
+std::uint8_t variable_shift_amount_u32(CpuRegisterValue value) {
   return static_cast<std::uint8_t>(value & 0x1fu);
 }
 
-std::uint32_t arithmetic_shift_right_u32(std::uint32_t value, std::uint8_t sa) {
+CpuRegisterValue arithmetic_shift_right_u32(CpuRegisterValue value, std::uint8_t sa) {
   if (sa == 0) {
     return value;
   }
@@ -101,7 +101,7 @@ std::uint32_t arithmetic_shift_right_u32(std::uint32_t value, std::uint8_t sa) {
   return shifted | fill_mask;
 }
 
-std::int32_t i32_from_u32_bits(std::uint32_t value) {
+std::int32_t i32_from_u32_bits(CpuRegisterValue value) {
   if ((value & 0x80000000u) == 0) {
     return static_cast<std::int32_t>(value);
   }
@@ -116,7 +116,7 @@ bool signed_i32_result_out_of_range(std::int64_t value) {
          value > static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
 }
 
-std::uint32_t u32_bits_from_i32_value(std::int64_t value) {
+CpuRegisterValue u32_bits_from_i32_value(std::int64_t value) {
   if (value < 0) {
     return static_cast<std::uint32_t>(0x100000000ll + value);
   }
@@ -134,23 +134,23 @@ std::int16_t i16_from_u16_bits(std::uint16_t value) {
   return static_cast<std::int16_t>(signed_value);
 }
 
-bool signed_register_value_greater_equal(std::uint32_t lhs, std::uint32_t rhs) {
+bool signed_register_value_greater_equal(CpuRegisterValue lhs, CpuRegisterValue rhs) {
   return i32_from_u32_bits(lhs) >= i32_from_u32_bits(rhs);
 }
 
-bool signed_register_value_less_than(std::uint32_t lhs, std::uint32_t rhs) {
+bool signed_register_value_less_than(CpuRegisterValue lhs, CpuRegisterValue rhs) {
   return i32_from_u32_bits(lhs) < i32_from_u32_bits(rhs);
 }
 
-bool signed_register_value_greater_equal_immediate(std::uint32_t lhs, std::int16_t rhs) {
+bool signed_register_value_greater_equal_immediate(CpuRegisterValue lhs, std::int16_t rhs) {
   return i32_from_u32_bits(lhs) >= static_cast<std::int32_t>(rhs);
 }
 
-bool signed_register_value_less_than_immediate(std::uint32_t lhs, std::int16_t rhs) {
+bool signed_register_value_less_than_immediate(CpuRegisterValue lhs, std::int16_t rhs) {
   return i32_from_u32_bits(lhs) < static_cast<std::int32_t>(rhs);
 }
 
-std::uint32_t sign_extend_u8_to_u32(std::uint8_t value) {
+CpuRegisterValue sign_extend_u8_to_u32(std::uint8_t value) {
   if ((value & 0x80u) == 0) {
     return static_cast<std::uint32_t>(value);
   }
@@ -158,7 +158,7 @@ std::uint32_t sign_extend_u8_to_u32(std::uint8_t value) {
   return 0xffffff00u | static_cast<std::uint32_t>(value);
 }
 
-std::uint32_t sign_extend_u16_to_u32(std::uint16_t value) {
+CpuRegisterValue sign_extend_u16_to_u32(std::uint16_t value) {
   if ((value & 0x8000u) == 0) {
     return static_cast<std::uint32_t>(value);
   }
@@ -166,28 +166,28 @@ std::uint32_t sign_extend_u16_to_u32(std::uint16_t value) {
   return 0xffff0000u | static_cast<std::uint32_t>(value);
 }
 
-std::uint32_t low_u32(std::uint64_t value) {
+CpuRegisterValue low_u32(std::uint64_t value) {
   return static_cast<std::uint32_t>(value & 0xffffffffull);
 }
 
-std::uint32_t high_u32(std::uint64_t value) {
+CpuRegisterValue high_u32(std::uint64_t value) {
   return static_cast<std::uint32_t>(value >> 32);
 }
 
-std::uint32_t sequential_instruction_address(std::uint32_t address) {
+CpuAddress sequential_instruction_address(CpuAddress address) {
   return address + 4u;
 }
 
-std::uint32_t link_return_address(std::uint32_t current_pc) {
+CpuAddress link_return_address(CpuAddress current_pc) {
   return sequential_instruction_address(sequential_instruction_address(current_pc));
 }
 
-std::uint32_t jump_target_address(std::uint32_t current_pc, std::uint32_t jump_target) {
-  const std::uint32_t next_sequential = sequential_instruction_address(current_pc);
+CpuAddress jump_target_address(CpuAddress current_pc, std::uint32_t jump_target) {
+  const CpuAddress next_sequential = sequential_instruction_address(current_pc);
   return (next_sequential & 0xf0000000u) | ((jump_target & 0x03ffffffu) << 2);
 }
 
-std::uint32_t branch_target_address(std::uint32_t current_pc, std::int16_t immediate) {
+CpuAddress branch_target_address(CpuAddress current_pc, std::int16_t immediate) {
   const std::int32_t offset_bytes = static_cast<std::int32_t>(immediate) * 4;
   return sequential_instruction_address(current_pc) +
          static_cast<std::uint32_t>(offset_bytes);
@@ -195,7 +195,7 @@ std::uint32_t branch_target_address(std::uint32_t current_pc, std::int16_t immed
 
 void validate_control_transfer_target_alignment(
     const char* operation,
-    std::uint32_t address) {
+    CpuAddress address) {
   if ((address & 0x3u) != 0) {
     fail_unaligned_control_transfer_target(operation, address);
   }
@@ -218,11 +218,11 @@ std::uint32_t replace_u32_byte_be(
 
 }  // namespace
 
-std::uint32_t Machine::require_cpu_rdram_address(
+RdramOffset Machine::require_cpu_rdram_address(
     const char* operation,
-    std::uint32_t cpu_address,
+    CpuAddress cpu_address,
     std::size_t width) {
-  std::uint32_t rdram_address = 0;
+  RdramOffset rdram_address = 0;
   if (!translate_cpu_rdram_address(cpu_address, width, rdram_address)) {
     fail_cpu_rdram_address(operation, cpu_address, width);
   }
@@ -230,59 +230,59 @@ std::uint32_t Machine::require_cpu_rdram_address(
   return rdram_address;
 }
 
-std::uint8_t Machine::read_cpu_memory_u8(std::uint32_t cpu_address) const {
+std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
   return read_rdram_u8(require_cpu_rdram_address("CPU byte read", cpu_address, 1));
 }
 
-std::uint16_t Machine::read_cpu_memory_u16_be(std::uint32_t cpu_address) const {
+std::uint16_t Machine::read_cpu_memory_u16_be(CpuAddress cpu_address) const {
   return read_rdram_u16_be(require_cpu_rdram_address("CPU halfword read", cpu_address, 2));
 }
 
-std::uint32_t Machine::read_cpu_memory_u32_be(std::uint32_t cpu_address) const {
+std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
   return read_rdram_u32_be(require_cpu_rdram_address("CPU word read", cpu_address, 4));
 }
 
-void Machine::write_cpu_memory_u8(std::uint32_t cpu_address, std::uint8_t value) {
+void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
   write_rdram_u8(require_cpu_rdram_address("CPU byte write", cpu_address, 1), value);
 }
 
-void Machine::write_cpu_memory_u16_be(std::uint32_t cpu_address, std::uint16_t value) {
+void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t value) {
   write_rdram_u16_be(require_cpu_rdram_address("CPU halfword write", cpu_address, 2), value);
 }
 
-void Machine::write_cpu_memory_u32_be(std::uint32_t cpu_address, std::uint32_t value) {
+void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t value) {
   write_rdram_u32_be(require_cpu_rdram_address("CPU word write", cpu_address, 4), value);
 }
 
-std::uint32_t Machine::cpu_pc() const {
+CpuAddress Machine::cpu_pc() const {
   return cpu_pc_;
 }
 
-std::uint32_t Machine::cpu_next_pc() const {
+CpuAddress Machine::cpu_next_pc() const {
   return cpu_next_pc_;
 }
 
-std::uint32_t Machine::inspect_cpu_hi() const {
+CpuRegisterValue Machine::inspect_cpu_hi() const {
   return cpu_hi();
 }
 
-std::uint32_t Machine::inspect_cpu_lo() const {
+CpuRegisterValue Machine::inspect_cpu_lo() const {
   return cpu_lo();
 }
 
-std::uint32_t Machine::inspect_cpu_gpr(std::size_t index) const {
+CpuRegisterValue Machine::inspect_cpu_gpr(std::size_t index) const {
   return read_cpu_gpr(index);
 }
 
-std::uint32_t Machine::cpu_hi() const {
+CpuRegisterValue Machine::cpu_hi() const {
   return cpu_hi_;
 }
 
-std::uint32_t Machine::cpu_lo() const {
+CpuRegisterValue Machine::cpu_lo() const {
   return cpu_lo_;
 }
 
-std::uint32_t Machine::read_cpu_gpr(std::size_t index) const {
+CpuRegisterValue Machine::read_cpu_gpr(std::size_t index) const {
   if (index >= cpu_gprs_.size()) {
     fail_cpu_gpr_index(index);
   }
@@ -294,44 +294,44 @@ std::uint32_t Machine::read_cpu_gpr(std::size_t index) const {
   return cpu_gprs_[index];
 }
 
-void Machine::stage_cpu_pc(std::uint32_t value) {
+void Machine::stage_cpu_pc(CpuAddress value) {
   write_cpu_pc(value);
 }
 
-void Machine::stage_cpu_next_pc(std::uint32_t value) {
+void Machine::stage_cpu_next_pc(CpuAddress value) {
   write_cpu_next_pc(value);
 }
 
-void Machine::stage_cpu_hi(std::uint32_t value) {
+void Machine::stage_cpu_hi(CpuRegisterValue value) {
   write_cpu_hi(value);
 }
 
-void Machine::stage_cpu_lo(std::uint32_t value) {
+void Machine::stage_cpu_lo(CpuRegisterValue value) {
   write_cpu_lo(value);
 }
 
-void Machine::stage_cpu_gpr(std::size_t index, std::uint32_t value) {
+void Machine::stage_cpu_gpr(std::size_t index, CpuRegisterValue value) {
   write_cpu_gpr(index, value);
 }
 
-void Machine::write_cpu_pc(std::uint32_t value) {
+void Machine::write_cpu_pc(CpuAddress value) {
   cpu_pc_ = value;
   cpu_next_pc_ = sequential_instruction_address(value);
 }
 
-void Machine::write_cpu_next_pc(std::uint32_t value) {
+void Machine::write_cpu_next_pc(CpuAddress value) {
   cpu_next_pc_ = value;
 }
 
-void Machine::write_cpu_hi(std::uint32_t value) {
+void Machine::write_cpu_hi(CpuRegisterValue value) {
   cpu_hi_ = value;
 }
 
-void Machine::write_cpu_lo(std::uint32_t value) {
+void Machine::write_cpu_lo(CpuRegisterValue value) {
   cpu_lo_ = value;
 }
 
-void Machine::write_cpu_gpr(std::size_t index, std::uint32_t value) {
+void Machine::write_cpu_gpr(std::size_t index, CpuRegisterValue value) {
   if (index >= cpu_gprs_.size()) {
     fail_cpu_gpr_index(index);
   }
@@ -343,19 +343,19 @@ void Machine::write_cpu_gpr(std::size_t index, std::uint32_t value) {
   cpu_gprs_[index] = value;
 }
 
-std::uint32_t Machine::fetch_cpu_instruction_word() const {
-  const std::uint32_t pc = cpu_pc();
+CpuInstructionWord Machine::fetch_cpu_instruction_word() const {
+  const CpuAddress pc = cpu_pc();
 
   if ((pc & 0x3u) != 0) {
     fail_unaligned_instruction_fetch(pc);
   }
 
-  const std::uint32_t rdram_address =
+  const RdramOffset rdram_address =
       require_cpu_rdram_address("CPU instruction fetch", pc, 4);
   return read_rdram_u32_be(rdram_address);
 }
 
-Machine::DecodedCpuInstructionWord Machine::decode_cpu_instruction_word(std::uint32_t raw) {
+Machine::DecodedCpuInstructionWord Machine::decode_cpu_instruction_word(CpuInstructionWord raw) {
   DecodedCpuInstructionWord instruction;
   instruction.raw = raw;
   instruction.opcode = static_cast<std::uint8_t>((raw >> 26) & 0x3f);

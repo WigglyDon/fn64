@@ -24,7 +24,7 @@ void print_control_flow_state(const Machine& machine) {
   print_hex64("  next_pc", machine.cpu_next_pc());
 }
 
-void print_rdram_word(const Machine& machine, const char* label, std::uint32_t address) {
+void print_rdram_word(const Machine& machine, const char* label, RdramOffset address) {
   print_hex32(label, machine.inspect_rdram_u32_be(address));
 }
 
