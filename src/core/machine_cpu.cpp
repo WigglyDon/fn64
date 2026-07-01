@@ -411,12 +411,21 @@ void Machine::write_cpu_gpr_word_zero_extended_result(
   write_cpu_gpr_value(index, zero_extend_u32_to_cpu_value(value));
 }
 
-void Machine::write_cpu_gpr_local_partial_word_result(
+void Machine::write_cpu_gpr_partial_word_sign_extended_result(
     std::size_t index,
     std::uint32_t value) {
-  // LWL/LWR remain fn64's local 32-bit partial-word merge. Keep that policy
-  // explicit until a full 64-bit partial-word load rule is earned.
-  write_cpu_gpr_word_zero_extended_result(index, value);
+  write_cpu_gpr_value(index, sign_extend_u32_to_cpu_value(value));
+}
+
+void Machine::write_cpu_gpr_partial_word_preserve_high_result(
+    std::size_t index,
+    std::uint32_t value,
+    CpuRegisterValue previous_value) {
+  constexpr CpuRegisterValue kHighWordMask =
+      static_cast<CpuRegisterValue>(0xffffffff00000000ull);
+  write_cpu_gpr_value(
+      index,
+      (previous_value & kHighWordMask) | static_cast<CpuRegisterValue>(value));
 }
 
 CpuInstructionWord Machine::fetch_cpu_instruction_word() const {
@@ -1172,7 +1181,9 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         value = replace_u32_byte_be(value, static_cast<std::size_t>(i), memory_byte);
       }
 
-      write_cpu_gpr_local_partial_word_result(instruction.rt, value);
+      // This local LWL lane rule always replaces byte 0 of the low word, so the
+      // merged word's sign bit is known and can define the full stored value.
+      write_cpu_gpr_partial_word_sign_extended_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
@@ -1199,7 +1210,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t byte_count = byte_offset + 1u;
       const std::uint32_t first_register_byte = 4u - byte_count;
 
-      std::uint32_t value = read_cpu_gpr_word(instruction.rt);
+      const CpuRegisterValue previous_value = read_cpu_gpr_value(instruction.rt);
+      std::uint32_t value = static_cast<std::uint32_t>(previous_value);
       for (std::uint32_t i = 0; i < byte_count; ++i) {
         const std::uint8_t memory_byte = read_cpu_memory_u8(aligned_address + i);
         value = replace_u32_byte_be(
@@ -1208,7 +1220,16 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
             memory_byte);
       }
 
-      write_cpu_gpr_local_partial_word_result(instruction.rt, value);
+      // LWR only replaces byte 0 when offset 3 loads all four bytes. Partial
+      // LWR rows keep the prior high 32 bits while replacing the low-word lanes.
+      if (byte_offset == 3u) {
+        write_cpu_gpr_partial_word_sign_extended_result(instruction.rt, value);
+      } else {
+        write_cpu_gpr_partial_word_preserve_high_result(
+            instruction.rt,
+            value,
+            previous_value);
+      }
       return CpuInstructionExecutionResult::kExecuted;
     }
 

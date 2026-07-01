@@ -1465,10 +1465,20 @@ void run_unaligned_load_word_demo(Machine& machine) {
   constexpr std::uint32_t kLwlAddress = 0x000000b0u;
   constexpr std::uint32_t kLwrAddress = 0x000000b4u;
   constexpr std::uint32_t kBreakAddress = 0x000000b8u;
+  constexpr std::uint32_t kReverseLwrAddress = 0x000000bcu;
+  constexpr std::uint32_t kReverseLwlAddress = 0x000000c0u;
+  constexpr std::uint32_t kReverseBreakAddress = 0x000000c4u;
 
   constexpr std::uint32_t kDataWord0Address = 0x00000410u;
   constexpr std::uint32_t kDataWord1Address = 0x00000414u;
   constexpr std::uint32_t kMergedWordAddress = 0x00000412u;
+  constexpr CpuRegisterValue kInitialTarget = 0x11223344aabbccddull;
+  constexpr CpuRegisterValue kExpectedLwl =
+      cpu_value_from_sign_extended_u32(0x8000ccddu);
+  constexpr CpuRegisterValue kExpectedLwrPartial =
+      0x11223344aabb007full;
+  constexpr CpuRegisterValue kExpectedPair =
+      cpu_value_from_sign_extended_u32(0x8000007fu);
 
   const std::uint32_t kLwlInstruction = encode_lwl(
       static_cast<std::uint8_t>(kTargetIndex),
@@ -1478,20 +1488,26 @@ void run_unaligned_load_word_demo(Machine& machine) {
       static_cast<std::uint8_t>(kTargetIndex),
       static_cast<std::uint8_t>(kBaseIndex),
       0x0005u);
+  const std::uint32_t kReverseLwrInstruction = kLwrInstruction;
+  const std::uint32_t kReverseLwlInstruction = kLwlInstruction;
   const std::uint32_t kBreakInstruction = encode_break();
 
   machine.stage_cpu_pc(cpu_rdram_alias(kLwlAddress));
   machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataWord0Address));
-  machine.stage_cpu_gpr(kTargetIndex, 0xaabbccddu);
+  machine.stage_cpu_gpr(kTargetIndex, kInitialTarget);
 
   machine.stage_rdram_u32_be(kLwlAddress, kLwlInstruction);
   machine.stage_rdram_u32_be(kLwrAddress, kLwrInstruction);
   machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kReverseLwrAddress, kReverseLwrInstruction);
+  machine.stage_rdram_u32_be(kReverseLwlAddress, kReverseLwlInstruction);
+  machine.stage_rdram_u32_be(kReverseBreakAddress, kBreakInstruction);
 
-  machine.stage_rdram_u32_be(kDataWord0Address, 0x10203040u);
-  machine.stage_rdram_u32_be(kDataWord1Address, 0x50607080u);
+  machine.stage_rdram_u32_be(kDataWord0Address, 0x11228000u);
+  machine.stage_rdram_u32_be(kDataWord1Address, 0x007f7788u);
 
-  std::cout << "fn64 bootstrap unaligned load demo: explicit local LWL/LWR merge\n";
+  std::cout
+      << "fn64 bootstrap unaligned load demo: LWL/LWR local 64-bit storage policy\n";
   std::cout << "before step 1:\n";
   print_control_flow_state(machine);
   print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
@@ -1513,8 +1529,9 @@ void run_unaligned_load_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned load demo did not advance to LWR");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x3040ccddu) {
-    throw std::runtime_error("unaligned load demo LWL merge result was wrong");
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kExpectedLwl) {
+    throw std::runtime_error(
+        "unaligned load demo LWL did not sign-extend the merged low word");
   }
 
   const std::uint32_t lwr_raw = kLwrInstruction;
@@ -1532,11 +1549,56 @@ void run_unaligned_load_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned load demo did not advance to BREAK sentinel");
   }
 
-  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x30405060u) {
-    throw std::runtime_error("unaligned load demo LWL/LWR pair did not produce merged word");
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kExpectedPair) {
+    throw std::runtime_error(
+        "unaligned load demo LWL/LWR pair did not produce a sign-extended word");
   }
 
   require_stopped(machine.step_cpu_instruction(), "unaligned_load_demo_break");
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kReverseLwrAddress));
+  machine.stage_cpu_gpr(kTargetIndex, kInitialTarget);
+
+  std::cout << "reverse pair before step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  print_hex32("  reverse_lwr_raw", kReverseLwrInstruction);
+
+  require_stepped(machine.step_cpu_instruction(), "unaligned_load_demo_reverse_lwr");
+
+  std::cout << "reverse pair after step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kReverseLwlAddress)) {
+    throw std::runtime_error("unaligned load reverse demo did not advance to LWL");
+  }
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kExpectedLwrPartial) {
+    throw std::runtime_error(
+        "unaligned load reverse demo LWR did not preserve the previous high word");
+  }
+
+  print_hex32("  reverse_lwl_raw", kReverseLwlInstruction);
+
+  require_stepped(machine.step_cpu_instruction(), "unaligned_load_demo_reverse_lwl");
+
+  std::cout << "reverse pair after step 2:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kReverseBreakAddress)) {
+    throw std::runtime_error(
+        "unaligned load reverse demo did not advance to BREAK sentinel");
+  }
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != kExpectedPair) {
+    throw std::runtime_error(
+        "unaligned load demo LWR/LWL pair did not produce a sign-extended word");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), "unaligned_load_demo_reverse_break");
 }
 
 void run_unaligned_store_word_demo(Machine& machine) {
@@ -1550,6 +1612,7 @@ void run_unaligned_store_word_demo(Machine& machine) {
   constexpr std::uint32_t kDataWord0Address = 0x00000430u;
   constexpr std::uint32_t kDataWord1Address = 0x00000434u;
   constexpr std::uint32_t kMergedWordAddress = 0x00000432u;
+  constexpr CpuRegisterValue kStoreSource = 0xaabbccdd11223344ull;
 
   const std::uint32_t kSwlInstruction = encode_swl(
       static_cast<std::uint8_t>(kSourceIndex),
@@ -1563,14 +1626,14 @@ void run_unaligned_store_word_demo(Machine& machine) {
 
   machine.stage_cpu_pc(cpu_rdram_alias(kSwlAddress));
   machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataWord0Address));
-  machine.stage_cpu_gpr(kSourceIndex, 0xa1b2c3d4u);
+  machine.stage_cpu_gpr(kSourceIndex, kStoreSource);
 
   machine.stage_rdram_u32_be(kSwlAddress, kSwlInstruction);
   machine.stage_rdram_u32_be(kSwrAddress, kSwrInstruction);
   machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
 
-  machine.stage_rdram_u32_be(kDataWord0Address, 0x11223344u);
-  machine.stage_rdram_u32_be(kDataWord1Address, 0x55667788u);
+  machine.stage_rdram_u32_be(kDataWord0Address, 0x55667788u);
+  machine.stage_rdram_u32_be(kDataWord1Address, 0x99aabbccu);
 
   std::cout << "fn64 bootstrap unaligned store demo: explicit local SWL/SWR shaping\n";
   std::cout << "before step 1:\n";
@@ -1595,11 +1658,11 @@ void run_unaligned_store_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned store demo did not advance to SWR");
   }
 
-  if (machine.inspect_rdram_u32_be(kDataWord0Address) != 0x1122a1b2u) {
+  if (machine.inspect_rdram_u32_be(kDataWord0Address) != 0x55661122u) {
     throw std::runtime_error("unaligned store demo SWL shaping was wrong");
   }
 
-  if (machine.inspect_rdram_u32_be(kDataWord1Address) != 0x55667788u) {
+  if (machine.inspect_rdram_u32_be(kDataWord1Address) != 0x99aabbccu) {
     throw std::runtime_error("unaligned store demo SWL touched the wrong aligned word");
   }
 
@@ -1619,15 +1682,15 @@ void run_unaligned_store_word_demo(Machine& machine) {
     throw std::runtime_error("unaligned store demo did not advance to BREAK sentinel");
   }
 
-  if (machine.inspect_rdram_u32_be(kDataWord0Address) != 0x1122a1b2u) {
+  if (machine.inspect_rdram_u32_be(kDataWord0Address) != 0x55661122u) {
     throw std::runtime_error("unaligned store demo SWR unexpectedly changed the left aligned word");
   }
 
-  if (machine.inspect_rdram_u32_be(kDataWord1Address) != 0xc3d47788u) {
+  if (machine.inspect_rdram_u32_be(kDataWord1Address) != 0x3344bbccu) {
     throw std::runtime_error("unaligned store demo SWR shaping was wrong");
   }
 
-  if (machine.inspect_rdram_u32_be(kMergedWordAddress) != 0xa1b2c3d4u) {
+  if (machine.inspect_rdram_u32_be(kMergedWordAddress) != 0x11223344u) {
     throw std::runtime_error("unaligned store demo SWL/SWR pair did not reconstruct the unaligned word");
   }
 
@@ -1637,7 +1700,7 @@ void run_unaligned_store_word_demo(Machine& machine) {
 struct PartialLoadLaneCase {
   const char* label;
   std::uint32_t instruction;
-  std::uint32_t expected_gpr;
+  CpuRegisterValue expected_gpr;
 };
 
 struct PartialStoreLaneCase {
@@ -1654,51 +1717,51 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
   constexpr std::uint32_t kInstructionAddress = 0x00000600u;
   constexpr std::uint32_t kAfterInstructionAddress = kInstructionAddress + 4u;
   constexpr std::uint32_t kDataWordAddress = 0x00000640u;
-  constexpr std::uint32_t kInitialLoadTarget = 0xaabbccddu;
-  constexpr std::uint32_t kLoadMemoryWord = 0x10203040u;
-  constexpr std::uint32_t kStoreSource = 0xa1b2c3d4u;
-  constexpr std::uint32_t kInitialStoreMemoryWord = 0x11223344u;
+  constexpr CpuRegisterValue kInitialLoadTarget = 0x11223344aabbccddull;
+  constexpr std::uint32_t kLoadMemoryWord = 0x8000007fu;
+  constexpr CpuRegisterValue kStoreSource = 0xaabbccdd11223344ull;
+  constexpr std::uint32_t kInitialStoreMemoryWord = 0x55667788u;
 
   const PartialLoadLaneCase kLoadCases[] = {
       {
           "LWL offset 0",
           encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0000u),
-          0x10203040u,
+          cpu_value_from_sign_extended_u32(0x8000007fu),
       },
       {
           "LWL offset 1",
           encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0001u),
-          0x203040ddu,
+          cpu_value_from_sign_extended_u32(0x00007fddu),
       },
       {
           "LWL offset 2",
           encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0002u),
-          0x3040ccddu,
+          cpu_value_from_sign_extended_u32(0x007fccddu),
       },
       {
           "LWL offset 3",
           encode_lwl(kLoadTargetIndex, kBaseIndex, 0x0003u),
-          0x40bbccddu,
+          cpu_value_from_sign_extended_u32(0x7fbbccddu),
       },
       {
           "LWR offset 0",
           encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0000u),
-          0xaabbcc10u,
+          0x11223344aabbcc80ull,
       },
       {
           "LWR offset 1",
           encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0001u),
-          0xaabb1020u,
+          0x11223344aabb8000ull,
       },
       {
           "LWR offset 2",
           encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0002u),
-          0xaa102030u,
+          0x11223344aa800000ull,
       },
       {
           "LWR offset 3",
           encode_lwr(kLoadTargetIndex, kBaseIndex, 0x0003u),
-          0x10203040u,
+          cpu_value_from_sign_extended_u32(0x8000007fu),
       },
   };
 
@@ -1706,47 +1769,47 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
       {
           "SWL offset 0",
           encode_swl(kStoreSourceIndex, kBaseIndex, 0x0000u),
-          0xa1b2c3d4u,
+          0x11223344u,
       },
       {
           "SWL offset 1",
           encode_swl(kStoreSourceIndex, kBaseIndex, 0x0001u),
-          0x11a1b2c3u,
+          0x55112233u,
       },
       {
           "SWL offset 2",
           encode_swl(kStoreSourceIndex, kBaseIndex, 0x0002u),
-          0x1122a1b2u,
+          0x55661122u,
       },
       {
           "SWL offset 3",
           encode_swl(kStoreSourceIndex, kBaseIndex, 0x0003u),
-          0x112233a1u,
+          0x55667711u,
       },
       {
           "SWR offset 0",
           encode_swr(kStoreSourceIndex, kBaseIndex, 0x0000u),
-          0xd4223344u,
+          0x44667788u,
       },
       {
           "SWR offset 1",
           encode_swr(kStoreSourceIndex, kBaseIndex, 0x0001u),
-          0xc3d43344u,
+          0x33447788u,
       },
       {
           "SWR offset 2",
           encode_swr(kStoreSourceIndex, kBaseIndex, 0x0002u),
-          0xb2c3d444u,
+          0x22334488u,
       },
       {
           "SWR offset 3",
           encode_swr(kStoreSourceIndex, kBaseIndex, 0x0003u),
-          0xa1b2c3d4u,
+          0x11223344u,
       },
   };
 
   std::cout
-      << "fn64 bootstrap partial-word lane matrix demo: LWL/LWR/SWL/SWR local byte lanes\n";
+      << "fn64 bootstrap partial-word lane matrix demo: LWL/LWR/SWL/SWR local 64-bit storage policy\n";
 
   for (const PartialLoadLaneCase& test_case : kLoadCases) {
     machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
@@ -1763,7 +1826,7 @@ void run_partial_word_lane_matrix_demo(Machine& machine) {
     require_stepped(machine.step_cpu_instruction(), test_case.label);
 
     print_hex64("  actual_gpr[16]", machine.inspect_cpu_gpr(kLoadTargetIndex));
-    print_hex32("  expected_gpr[16]", test_case.expected_gpr);
+    print_hex64("  expected_gpr[16]", test_case.expected_gpr);
 
     if (machine.cpu_pc() != cpu_rdram_alias(kAfterInstructionAddress)) {
       throw std::runtime_error(
@@ -2590,7 +2653,7 @@ void run_failed_partial_load_no_ghost_demo(Machine& machine) {
   constexpr std::uint32_t kLwrAddress = 0x00000204u;
 
   constexpr std::uint32_t kInvalidKseg1Address = 0xa0400000u;
-  constexpr std::uint32_t kTargetSentinel = 0x89abcdefu;
+  constexpr CpuRegisterValue kTargetSentinel = 0x1122334489abcdefull;
 
   const std::uint32_t kLwlInstruction = encode_lwl(
       static_cast<std::uint8_t>(kTargetIndex),
@@ -2698,7 +2761,7 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   machine.stage_rdram_u32_be(kLowSentinelAddress, kLowSentinel);
   machine.stage_rdram_u32_be(kTailSentinelAddress, kTailSentinel);
   machine.stage_cpu_gpr(kBaseIndex, kInvalidKseg1Address);
-  machine.stage_cpu_gpr(kSourceIndex, 0xa1b2c3d4u);
+  machine.stage_cpu_gpr(kSourceIndex, 0xaabbccdda1b2c3d4ull);
 
   std::cout
       << "fn64 bootstrap failed partial-store no-ghost demo: SWL/SWR faults do not mutate RDRAM or advance control state\n";
