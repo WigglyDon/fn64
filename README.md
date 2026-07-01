@@ -91,7 +91,7 @@ Normal ROM launch does not stage or execute cartridge bytes automatically.
 
 ## Minimal PI MMIO subset
 
-The current CPU data path recognizes a tiny local PI register window for aligned 32-bit loads and stores. Writing the local cartridge-to-RDRAM length register immediately copies normalized Cartridge bytes into physical RDRAM.
+The current CPU data path recognizes a tiny local PI register window for aligned 32-bit loads and stores. Writing the local cartridge-to-RDRAM length register immediately copies from the supported local PI cart ROM address window into physical RDRAM. PI cart address 0x10000000 maps to normalized Cartridge offset 0.
 
 This is not PI timing, DMA scheduling, MI interrupts, boot, cartridge CPU mapping, or game compatibility.
 

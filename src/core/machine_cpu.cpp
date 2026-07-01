@@ -43,6 +43,37 @@ namespace {
       std::to_string(length_register_value));
 }
 
+[[noreturn]] void fail_pi_cart_rom_source_below_base(
+    PiCartAddress pi_cart_address,
+    PiCartAddress base_address) {
+  throw std::out_of_range(
+      "PI cart ROM source address is below supported local ROM base: address=" +
+      std::to_string(pi_cart_address) +
+      " base=" + std::to_string(base_address));
+}
+
+[[noreturn]] void fail_pi_cart_rom_source_span_overflow(
+    PiCartAddress pi_cart_address,
+    std::uint32_t byte_count) {
+  throw std::out_of_range(
+      "PI cart ROM source span overflows 32-bit address space: address=" +
+      std::to_string(pi_cart_address) +
+      " byte_count=" + std::to_string(byte_count));
+}
+
+[[noreturn]] void fail_pi_cart_rom_source_out_of_range(
+    PiCartAddress pi_cart_address,
+    CartridgeOffset cartridge_offset,
+    std::uint32_t byte_count,
+    std::size_t cartridge_size) {
+  throw std::out_of_range(
+      "PI cart ROM source span out of range: address=" +
+      std::to_string(pi_cart_address) +
+      " cartridge_offset=" + std::to_string(cartridge_offset) +
+      " byte_count=" + std::to_string(byte_count) +
+      " cartridge_size=" + std::to_string(cartridge_size));
+}
+
 [[noreturn]] void fail_cpu_gpr_index(std::size_t index) {
   throw std::out_of_range("CPU GPR index out of range: " + std::to_string(index));
 }
@@ -515,7 +546,7 @@ void Machine::write_pi_register_u32(
       return;
 
     case kPiCartAddressRegisterOffset:
-      pi_cart_address_ = static_cast<CartridgeOffset>(value);
+      pi_cart_address_ = static_cast<PiCartAddress>(value);
       return;
 
     case kPiCartToRdramLengthRegisterOffset:
@@ -534,6 +565,37 @@ void Machine::write_pi_register_u32(
   }
 }
 
+CartridgeOffset Machine::require_pi_cart_rom_source(
+    PiCartAddress pi_cart_address,
+    std::uint32_t byte_count) const {
+  if (pi_cart_address < kPiCartRomBase) {
+    fail_pi_cart_rom_source_below_base(pi_cart_address, kPiCartRomBase);
+  }
+
+  if (byte_count > 0) {
+    const std::uint32_t last_byte_offset = byte_count - 1u;
+    if (pi_cart_address >
+        std::numeric_limits<PiCartAddress>::max() - last_byte_offset) {
+      fail_pi_cart_rom_source_span_overflow(pi_cart_address, byte_count);
+    }
+  }
+
+  const CartridgeOffset cartridge_offset =
+      static_cast<CartridgeOffset>(pi_cart_address - kPiCartRomBase);
+  const std::size_t cartridge_size = cartridge_.size_bytes();
+  if (static_cast<std::size_t>(byte_count) > cartridge_size ||
+      static_cast<std::size_t>(cartridge_offset) >
+          cartridge_size - static_cast<std::size_t>(byte_count)) {
+    fail_pi_cart_rom_source_out_of_range(
+        pi_cart_address,
+        cartridge_offset,
+        byte_count,
+        cartridge_size);
+  }
+
+  return cartridge_offset;
+}
+
 void Machine::perform_pi_cart_to_rdram_dma(std::uint32_t length_register_value) {
   const std::uint64_t transfer_count =
       static_cast<std::uint64_t>(length_register_value) + 1ull;
@@ -541,14 +603,19 @@ void Machine::perform_pi_cart_to_rdram_dma(std::uint32_t length_register_value) 
     fail_pi_dma_length_overflow(length_register_value);
   }
 
-  // Local PI subset: the cart register is a normalized CartridgeOffset, the
-  // DRAM register is a physical RdramOffset, and the trigger copies exactly
+  const std::uint32_t byte_count = static_cast<std::uint32_t>(transfer_count);
+  const CartridgeOffset cartridge_offset =
+      require_pi_cart_rom_source(pi_cart_address_, byte_count);
+
+  // Local PI subset: the cart register stores a PI cart-domain ROM address
+  // whose supported 0x10000000 window translates to normalized Cartridge bytes.
+  // The DRAM register is a physical RdramOffset, and the trigger copies exactly
   // length+1 bytes immediately. Timing, block rounding, interrupts, cart CPU
   // mapping, and boot behavior are not modeled here.
   stage_cartridge_bytes_to_rdram(
-      pi_cart_address_,
+      cartridge_offset,
       pi_dram_address_,
-      static_cast<std::uint32_t>(transfer_count));
+      byte_count);
 }
 
 std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {

@@ -16,6 +16,7 @@ using CpuPhysicalAddress = std::uint32_t;
 using CpuInstructionWord = std::uint32_t;
 using RdramOffset = std::uint32_t;
 using CartridgeOffset = std::uint32_t;
+using PiCartAddress = std::uint32_t;
 
 enum class MachineFaultKind {
   kCpuRdramAddressRejected,
@@ -53,9 +54,10 @@ public:
   // explicitly supported 64-bit D instruction cluster; most executed instructions
   // still model a local 32-bit word subset. CPU addresses, CPU physical
   // addresses produced by direct aliases, instruction words, physical RDRAM
-  // offsets, and cartridge byte offsets are deliberately separate 32-bit
-  // domains. CPU addresses include the direct KSEG0/KSEG1 RDRAM alias form.
-  // This is not the full N64 VR4300 64-bit execution model.
+  // offsets, PI cart-domain addresses, and normalized cartridge byte offsets
+  // are deliberately separate 32-bit domains. CPU addresses include the direct
+  // KSEG0/KSEG1 RDRAM alias form. This is not the full N64 VR4300 64-bit
+  // execution model.
 
   // Public CPU execution result for fn64's current local step policy.
   // kStopped is a local stop condition, not N64 COP0 exception delivery.
@@ -310,6 +312,7 @@ private:
   static constexpr std::uint32_t kPiCartAddressRegisterOffset = 0x04u;
   static constexpr std::uint32_t kPiCartToRdramLengthRegisterOffset = 0x0cu;
   static constexpr std::uint32_t kPiStatusRegisterOffset = 0x10u;
+  static constexpr PiCartAddress kPiCartRomBase = 0x10000000u;
 
   void reset_to_blank_rdram_power_on_state();
 
@@ -378,6 +381,9 @@ private:
       CpuPhysicalAddress physical_address,
       CpuAddress cpu_address,
       std::uint32_t value);
+  CartridgeOffset require_pi_cart_rom_source(
+      PiCartAddress pi_cart_address,
+      std::uint32_t byte_count) const;
   void perform_pi_cart_to_rdram_dma(std::uint32_t length_register_value);
 
   CpuRegisterValue cpu_hi() const;
@@ -424,7 +430,7 @@ private:
   std::array<std::uint8_t, kRdramSizeBytes> rdram_{};
   CpuRdramReservation cpu_rdram_reservation_{};
   RdramOffset pi_dram_address_ = 0;
-  CartridgeOffset pi_cart_address_ = 0;
+  PiCartAddress pi_cart_address_ = 0;
   std::uint32_t pi_cart_to_rdram_length_ = 0;
   std::uint32_t pi_status_ = 0;
 
