@@ -106,6 +106,8 @@ Machine::Machine(Cartridge cartridge)
 void Machine::reset_to_blank_rdram_power_on_state() {
   powered_on_ = true;
   rdram_.fill(0);
+  sp_dmem_.fill(0);
+  sp_imem_.fill(0);
   clear_cpu_rdram_reservation();
   pi_dram_address_ = 0;
   pi_cart_address_ = 0;
@@ -179,6 +181,42 @@ bool Machine::translate_cpu_physical_rdram_address(
 
   out_rdram_address = static_cast<RdramOffset>(physical_address);
   return true;
+}
+
+bool Machine::translate_cpu_physical_sp_memory_address(
+    CpuPhysicalAddress physical_address,
+    std::size_t width,
+    CpuDataTargetKind& out_kind,
+    std::uint32_t& out_sp_offset) noexcept {
+  if (width == 0 || width > kSpMemorySizeBytes) {
+    return false;
+  }
+
+  const auto translate_span =
+      [physical_address, width](
+          CpuPhysicalAddress base,
+          CpuDataTargetKind kind,
+          CpuDataTargetKind& out_span_kind,
+          std::uint32_t& out_span_offset) noexcept {
+        if (physical_address < base) {
+          return false;
+        }
+
+        const std::uint32_t offset = physical_address - base;
+        if (static_cast<std::size_t>(offset) > kSpMemorySizeBytes - width) {
+          return false;
+        }
+
+        out_span_kind = kind;
+        out_span_offset = offset;
+        return true;
+      };
+
+  if (translate_span(kSpDmemPhysicalBase, CpuDataTargetKind::kSpDmem, out_kind, out_sp_offset)) {
+    return true;
+  }
+
+  return translate_span(kSpImemPhysicalBase, CpuDataTargetKind::kSpImem, out_kind, out_sp_offset);
 }
 
 bool Machine::translate_cpu_physical_pi_register_address(

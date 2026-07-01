@@ -144,11 +144,13 @@ private:
 
   // Private CPU data access dispatch seam. It names the current
   // CpuAddress -> CpuPhysicalAddress -> target split without adding a bus or
-  // full memory map. RDRAM and a minimal local PI MMIO subset are the only CPU
-  // data targets today; instruction fetch remains RDRAM-only, and cartridge
-  // bytes are not CPU-addressable.
+  // full memory map. RDRAM, local SP DMEM/IMEM byte memories, and a minimal
+  // local PI MMIO subset are the only CPU data targets today; instruction fetch
+  // remains RDRAM-only, and cartridge bytes are not CPU-addressable.
   enum class CpuDataTargetKind {
     kRdram,
+    kSpDmem,
+    kSpImem,
     kPi,
   };
 
@@ -156,6 +158,7 @@ private:
     CpuDataTargetKind kind = CpuDataTargetKind::kRdram;
     CpuPhysicalAddress physical_address = 0;
     RdramOffset rdram_offset = 0;
+    std::uint32_t sp_memory_offset = 0;
     std::uint32_t pi_register_offset = 0;
   };
 
@@ -305,7 +308,10 @@ private:
   };
 
   static constexpr std::size_t kRdramSizeBytes = 4 * 1024 * 1024;
+  static constexpr std::size_t kSpMemorySizeBytes = 4 * 1024;
   static constexpr std::size_t kCpuGprCount = 32;
+  static constexpr CpuPhysicalAddress kSpDmemPhysicalBase = 0x04000000u;
+  static constexpr CpuPhysicalAddress kSpImemPhysicalBase = 0x04001000u;
   static constexpr CpuPhysicalAddress kPiPhysicalBase = 0x04600000u;
   static constexpr std::uint32_t kPiRegisterWindowSize = 0x20u;
   static constexpr std::uint32_t kPiDramAddressRegisterOffset = 0x00u;
@@ -338,8 +344,9 @@ private:
   // spans belonging to Machine-owned RDRAM and converts them to RdramOffset.
   // Every other CPU range remains a local MachineFault. This is not a bus,
   // full memory map, TLB translation, cartridge ROM mapping, or device/MMIO
-  // dispatch; the separate CPU data target resolver owns the tiny PI MMIO
-  // subset that has been earned for data loads/stores.
+  // dispatch; the separate CPU data target resolver owns the local SP
+  // DMEM/IMEM byte memories and tiny PI MMIO subset that have been earned for
+  // data loads/stores.
   static RdramOffset require_cpu_rdram_address(
       const char* operation,
       CpuAddress cpu_address,
@@ -370,9 +377,36 @@ private:
       CpuPhysicalAddress physical_address,
       std::size_t width,
       RdramOffset& out_rdram_address) noexcept;
+  static bool translate_cpu_physical_sp_memory_address(
+      CpuPhysicalAddress physical_address,
+      std::size_t width,
+      CpuDataTargetKind& out_kind,
+      std::uint32_t& out_sp_offset) noexcept;
   static bool translate_cpu_physical_pi_register_address(
       CpuPhysicalAddress physical_address,
       std::uint32_t& out_register_offset) noexcept;
+
+  const std::array<std::uint8_t, kSpMemorySizeBytes>& sp_memory_for_kind(
+      CpuDataTargetKind kind) const;
+  std::array<std::uint8_t, kSpMemorySizeBytes>& sp_memory_for_kind(
+      CpuDataTargetKind kind);
+  std::uint8_t read_sp_memory_u8(CpuDataTargetKind kind, std::uint32_t offset) const;
+  std::uint16_t read_sp_memory_u16_be(CpuDataTargetKind kind, std::uint32_t offset) const;
+  std::uint32_t read_sp_memory_u32_be(CpuDataTargetKind kind, std::uint32_t offset) const;
+  CpuRegisterValue read_sp_memory_u64_be(CpuDataTargetKind kind, std::uint32_t offset) const;
+  void write_sp_memory_u8(CpuDataTargetKind kind, std::uint32_t offset, std::uint8_t value);
+  void write_sp_memory_u16_be(
+      CpuDataTargetKind kind,
+      std::uint32_t offset,
+      std::uint16_t value);
+  void write_sp_memory_u32_be(
+      CpuDataTargetKind kind,
+      std::uint32_t offset,
+      std::uint32_t value);
+  void write_sp_memory_u64_be(
+      CpuDataTargetKind kind,
+      std::uint32_t offset,
+      CpuRegisterValue value);
 
   std::uint32_t read_pi_register_u32(
       CpuPhysicalAddress physical_address,
@@ -428,6 +462,8 @@ private:
   Cartridge cartridge_;
   bool powered_on_ = false;
   std::array<std::uint8_t, kRdramSizeBytes> rdram_{};
+  std::array<std::uint8_t, kSpMemorySizeBytes> sp_dmem_{};
+  std::array<std::uint8_t, kSpMemorySizeBytes> sp_imem_{};
   CpuRdramReservation cpu_rdram_reservation_{};
   RdramOffset pi_dram_address_ = 0;
   PiCartAddress pi_cart_address_ = 0;

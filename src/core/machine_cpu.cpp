@@ -497,6 +497,19 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
         physical_address,
         rdram_address,
         0,
+        0,
+    };
+  }
+
+  CpuDataTargetKind sp_kind = CpuDataTargetKind::kSpDmem;
+  std::uint32_t sp_memory_offset = 0;
+  if (translate_cpu_physical_sp_memory_address(physical_address, width, sp_kind, sp_memory_offset)) {
+    return CpuDataTarget{
+        sp_kind,
+        physical_address,
+        0,
+        sp_memory_offset,
+        0,
     };
   }
 
@@ -506,11 +519,115 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
         CpuDataTargetKind::kPi,
         physical_address,
         0,
+        0,
         pi_register_offset,
     };
   }
 
   fail_cpu_rdram_address(operation, cpu_address, width);
+}
+
+const std::array<std::uint8_t, Machine::kSpMemorySizeBytes>& Machine::sp_memory_for_kind(
+    CpuDataTargetKind kind) const {
+  switch (kind) {
+    case CpuDataTargetKind::kSpDmem:
+      return sp_dmem_;
+
+    case CpuDataTargetKind::kSpImem:
+      return sp_imem_;
+
+    case CpuDataTargetKind::kRdram:
+    case CpuDataTargetKind::kPi:
+      break;
+  }
+
+  throw std::logic_error("CPU data target is not SP memory");
+}
+
+std::array<std::uint8_t, Machine::kSpMemorySizeBytes>& Machine::sp_memory_for_kind(
+    CpuDataTargetKind kind) {
+  switch (kind) {
+    case CpuDataTargetKind::kSpDmem:
+      return sp_dmem_;
+
+    case CpuDataTargetKind::kSpImem:
+      return sp_imem_;
+
+    case CpuDataTargetKind::kRdram:
+    case CpuDataTargetKind::kPi:
+      break;
+  }
+
+  throw std::logic_error("CPU data target is not SP memory");
+}
+
+std::uint8_t Machine::read_sp_memory_u8(
+    CpuDataTargetKind kind,
+    std::uint32_t offset) const {
+  return sp_memory_for_kind(kind)[offset];
+}
+
+std::uint16_t Machine::read_sp_memory_u16_be(
+    CpuDataTargetKind kind,
+    std::uint32_t offset) const {
+  return static_cast<std::uint16_t>(
+      (static_cast<std::uint16_t>(read_sp_memory_u8(kind, offset)) << 8) |
+      static_cast<std::uint16_t>(read_sp_memory_u8(kind, offset + 1u)));
+}
+
+std::uint32_t Machine::read_sp_memory_u32_be(
+    CpuDataTargetKind kind,
+    std::uint32_t offset) const {
+  return (static_cast<std::uint32_t>(read_sp_memory_u8(kind, offset)) << 24) |
+         (static_cast<std::uint32_t>(read_sp_memory_u8(kind, offset + 1u)) << 16) |
+         (static_cast<std::uint32_t>(read_sp_memory_u8(kind, offset + 2u)) << 8) |
+         static_cast<std::uint32_t>(read_sp_memory_u8(kind, offset + 3u));
+}
+
+CpuRegisterValue Machine::read_sp_memory_u64_be(
+    CpuDataTargetKind kind,
+    std::uint32_t offset) const {
+  return (static_cast<CpuRegisterValue>(read_sp_memory_u32_be(kind, offset)) << 32) |
+         static_cast<CpuRegisterValue>(read_sp_memory_u32_be(kind, offset + 4u));
+}
+
+void Machine::write_sp_memory_u8(
+    CpuDataTargetKind kind,
+    std::uint32_t offset,
+    std::uint8_t value) {
+  sp_memory_for_kind(kind)[offset] = value;
+}
+
+void Machine::write_sp_memory_u16_be(
+    CpuDataTargetKind kind,
+    std::uint32_t offset,
+    std::uint16_t value) {
+  write_sp_memory_u8(kind, offset, static_cast<std::uint8_t>((value >> 8) & 0xffu));
+  write_sp_memory_u8(kind, offset + 1u, static_cast<std::uint8_t>(value & 0xffu));
+}
+
+void Machine::write_sp_memory_u32_be(
+    CpuDataTargetKind kind,
+    std::uint32_t offset,
+    std::uint32_t value) {
+  write_sp_memory_u8(kind, offset, static_cast<std::uint8_t>((value >> 24) & 0xffu));
+  write_sp_memory_u8(kind, offset + 1u, static_cast<std::uint8_t>((value >> 16) & 0xffu));
+  write_sp_memory_u8(kind, offset + 2u, static_cast<std::uint8_t>((value >> 8) & 0xffu));
+  write_sp_memory_u8(kind, offset + 3u, static_cast<std::uint8_t>(value & 0xffu));
+}
+
+void Machine::write_sp_memory_u64_be(
+    CpuDataTargetKind kind,
+    std::uint32_t offset,
+    CpuRegisterValue value) {
+  write_sp_memory_u32_be(
+      kind,
+      offset,
+      static_cast<std::uint32_t>((value >> 32) & 0xffffffffull));
+  write_sp_memory_u32_be(
+      kind,
+      offset + 4u,
+      static_cast<std::uint32_t>(value & 0xffffffffull));
 }
 
 std::uint32_t Machine::read_pi_register_u32(
@@ -624,6 +741,10 @@ std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u8(target.rdram_offset);
 
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      return read_sp_memory_u8(target.kind, target.sp_memory_offset);
+
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI byte read", cpu_address, 1);
   }
@@ -636,6 +757,10 @@ std::uint16_t Machine::read_cpu_memory_u16_be(CpuAddress cpu_address) const {
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u16_be(target.rdram_offset);
+
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      return read_sp_memory_u16_be(target.kind, target.sp_memory_offset);
 
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI halfword read", cpu_address, 2);
@@ -650,6 +775,10 @@ std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u32_be(target.rdram_offset);
 
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      return read_sp_memory_u32_be(target.kind, target.sp_memory_offset);
+
     case CpuDataTargetKind::kPi:
       return read_pi_register_u32(target.physical_address, cpu_address);
   }
@@ -663,6 +792,10 @@ CpuRegisterValue Machine::read_cpu_memory_u64_be(CpuAddress cpu_address) const {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u64_be(target.rdram_offset);
 
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      return read_sp_memory_u64_be(target.kind, target.sp_memory_offset);
+
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI doubleword read", cpu_address, 8);
   }
@@ -675,6 +808,11 @@ void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u8(target.rdram_offset, value);
+      return;
+
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      write_sp_memory_u8(target.kind, target.sp_memory_offset, value);
       return;
 
     case CpuDataTargetKind::kPi:
@@ -691,6 +829,11 @@ void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t valu
       write_rdram_u16_be(target.rdram_offset, value);
       return;
 
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      write_sp_memory_u16_be(target.kind, target.sp_memory_offset, value);
+      return;
+
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI halfword write", cpu_address, 2);
   }
@@ -703,6 +846,11 @@ void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t valu
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u32_be(target.rdram_offset, value);
+      return;
+
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      write_sp_memory_u32_be(target.kind, target.sp_memory_offset, value);
       return;
 
     case CpuDataTargetKind::kPi:
@@ -718,6 +866,11 @@ void Machine::write_cpu_memory_u64_be(CpuAddress cpu_address, CpuRegisterValue v
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u64_be(target.rdram_offset, value);
+      return;
+
+    case CpuDataTargetKind::kSpDmem:
+    case CpuDataTargetKind::kSpImem:
+      write_sp_memory_u64_be(target.kind, target.sp_memory_offset, value);
       return;
 
     case CpuDataTargetKind::kPi:
@@ -1814,6 +1967,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           return CpuInstructionExecutionResult::kExecuted;
         }
 
+        case CpuDataTargetKind::kSpDmem:
+        case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("LL", effective_address, 4);
       }
@@ -1937,6 +2092,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           return CpuInstructionExecutionResult::kExecuted;
         }
 
+        case CpuDataTargetKind::kSpDmem:
+        case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("LLD", effective_address, 8);
       }
@@ -2028,6 +2185,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           return CpuInstructionExecutionResult::kExecuted;
         }
 
+        case CpuDataTargetKind::kSpDmem:
+        case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("SC", effective_address, 4);
       }
@@ -2140,6 +2299,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           return CpuInstructionExecutionResult::kExecuted;
         }
 
+        case CpuDataTargetKind::kSpDmem:
+        case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("SCD", effective_address, 8);
       }

@@ -4181,6 +4181,28 @@ constexpr PiCartAddress pi_cart_rom_address(CartridgeOffset cartridge_offset) {
   return kSyntheticPiCartRomBase + cartridge_offset;
 }
 
+constexpr CpuAddress kSyntheticSpDmemKseg0Base = 0x84000000u;
+constexpr CpuAddress kSyntheticSpDmemKseg1Base = 0xa4000000u;
+constexpr CpuAddress kSyntheticSpImemKseg0Base = 0x84001000u;
+constexpr CpuAddress kSyntheticSpImemKseg1Base = 0xa4001000u;
+constexpr CpuAddress kSyntheticSpRegisterKseg1Base = 0xa4040000u;
+
+constexpr CpuAddress sp_dmem_cached_alias(std::uint16_t offset) {
+  return kSyntheticSpDmemKseg0Base + offset;
+}
+
+constexpr CpuAddress sp_dmem_uncached_alias(std::uint16_t offset) {
+  return kSyntheticSpDmemKseg1Base + offset;
+}
+
+constexpr CpuAddress sp_imem_cached_alias(std::uint16_t offset) {
+  return kSyntheticSpImemKseg0Base + offset;
+}
+
+constexpr CpuAddress sp_imem_uncached_alias(std::uint16_t offset) {
+  return kSyntheticSpImemKseg1Base + offset;
+}
+
 std::unique_ptr<Machine> make_pi_dma_proof_machine() {
   Cartridge cartridge;
   std::string error;
@@ -4754,6 +4776,374 @@ void run_pi_mmio_fault_demo() {
         MachineFaultKind::kCpuRdramAddressRejected,
         4);
     require_rdram_word_equals(machine, kSentinelAddress, 0x12345678u, "pi_mmio_fault_demo_fetch_rejected");
+  }
+}
+
+void run_sp_memory_data_demo() {
+  std::cout << "fn64 bootstrap SP memory demo: CPU data reaches local DMEM/IMEM only\n";
+
+  const auto stage_next =
+      [](Machine& machine,
+         RdramOffset& instruction_address,
+         CpuInstructionWord instruction,
+         const char* label) {
+        machine.stage_rdram_u32_be(instruction_address, instruction);
+        step_at(machine, instruction_address, label);
+        instruction_address += 4u;
+      };
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kSourceIndex = 5;
+    constexpr std::size_t kTargetIndex = 6;
+    constexpr RdramOffset kInstructionBase = 0x00001400u;
+    RdramOffset instruction_address = kInstructionBase;
+
+    machine.stage_cpu_gpr(kBaseIndex, sp_dmem_uncached_alias(0));
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x11223344556677abull);
+    stage_next(machine, instruction_address, encode_sb(5, 4, 0x0010u), "sp_memory_demo_sb_dmem");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0010u), "sp_memory_demo_lbu_dmem");
+    require_gpr_equals(machine, kTargetIndex, 0xabu, "sp_memory_demo_lbu_dmem");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x112233445555beefull);
+    stage_next(machine, instruction_address, encode_sh(5, 4, 0x0020u), "sp_memory_demo_sh_dmem");
+    stage_next(machine, instruction_address, encode_lhu(6, 4, 0x0020u), "sp_memory_demo_lhu_dmem");
+    require_gpr_equals(machine, kTargetIndex, 0xbeefu, "sp_memory_demo_lhu_dmem");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0020u), "sp_memory_demo_lhu_dmem_high_byte");
+    require_gpr_equals(machine, kTargetIndex, 0xbeu, "sp_memory_demo_lhu_dmem_high_byte");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0021u), "sp_memory_demo_lhu_dmem_low_byte");
+    require_gpr_equals(machine, kTargetIndex, 0xefu, "sp_memory_demo_lhu_dmem_low_byte");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x11223344u);
+    stage_next(machine, instruction_address, encode_sw(5, 4, 0x0030u), "sp_memory_demo_sw_dmem");
+    stage_next(machine, instruction_address, encode_lwu(6, 4, 0x0030u), "sp_memory_demo_lwu_dmem");
+    require_gpr_equals(machine, kTargetIndex, 0x11223344u, "sp_memory_demo_lwu_dmem");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0030u), "sp_memory_demo_lwu_dmem_high_byte");
+    require_gpr_equals(machine, kTargetIndex, 0x11u, "sp_memory_demo_lwu_dmem_high_byte");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0033u), "sp_memory_demo_lwu_dmem_low_byte");
+    require_gpr_equals(machine, kTargetIndex, 0x44u, "sp_memory_demo_lwu_dmem_low_byte");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x0102030405060708ull);
+    stage_next(machine, instruction_address, encode_sd(5, 4, 0x0040u), "sp_memory_demo_sd_dmem");
+    stage_next(machine, instruction_address, encode_ld(6, 4, 0x0040u), "sp_memory_demo_ld_dmem");
+    require_gpr_equals(machine, kTargetIndex, 0x0102030405060708ull, "sp_memory_demo_ld_dmem");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0040u), "sp_memory_demo_ld_dmem_high_byte");
+    require_gpr_equals(machine, kTargetIndex, 0x01u, "sp_memory_demo_ld_dmem_high_byte");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0047u), "sp_memory_demo_ld_dmem_low_byte");
+    require_gpr_equals(machine, kTargetIndex, 0x08u, "sp_memory_demo_ld_dmem_low_byte");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kSourceIndex = 5;
+    constexpr std::size_t kTargetIndex = 6;
+    constexpr RdramOffset kInstructionBase = 0x00001480u;
+    RdramOffset instruction_address = kInstructionBase;
+
+    machine.stage_cpu_gpr(kBaseIndex, sp_dmem_cached_alias(0));
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x000000ffu);
+    stage_next(machine, instruction_address, encode_sb(5, 4, 0x0fffu), "sp_memory_demo_last_byte_store");
+    stage_next(machine, instruction_address, encode_lbu(6, 4, 0x0fffu), "sp_memory_demo_last_byte_load");
+    require_gpr_equals(machine, kTargetIndex, 0xffu, "sp_memory_demo_last_byte_load");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x0000abcdu);
+    stage_next(machine, instruction_address, encode_sh(5, 4, 0x0ffeu), "sp_memory_demo_last_half_store");
+    stage_next(machine, instruction_address, encode_lhu(6, 4, 0x0ffeu), "sp_memory_demo_last_half_load");
+    require_gpr_equals(machine, kTargetIndex, 0xabcdu, "sp_memory_demo_last_half_load");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x89abcdefu);
+    stage_next(machine, instruction_address, encode_sw(5, 4, 0x0ffcu), "sp_memory_demo_last_word_store");
+    stage_next(machine, instruction_address, encode_lwu(6, 4, 0x0ffcu), "sp_memory_demo_last_word_load");
+    require_gpr_equals(machine, kTargetIndex, 0x89abcdefu, "sp_memory_demo_last_word_load");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x1122334455667788ull);
+    stage_next(machine, instruction_address, encode_sd(5, 4, 0x0ff8u), "sp_memory_demo_last_doubleword_store");
+    stage_next(machine, instruction_address, encode_ld(6, 4, 0x0ff8u), "sp_memory_demo_last_doubleword_load");
+    require_gpr_equals(machine, kTargetIndex, 0x1122334455667788ull, "sp_memory_demo_last_doubleword_load");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kDmemBaseIndex = 4;
+    constexpr std::size_t kImemBaseIndex = 5;
+    constexpr std::size_t kSourceIndex = 6;
+    constexpr std::size_t kDmemTargetIndex = 7;
+    constexpr std::size_t kImemTargetIndex = 8;
+    constexpr RdramOffset kInstructionBase = 0x00001500u;
+    RdramOffset instruction_address = kInstructionBase;
+
+    machine.stage_cpu_gpr(kDmemBaseIndex, sp_dmem_cached_alias(0));
+    machine.stage_cpu_gpr(kImemBaseIndex, sp_imem_cached_alias(0));
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x11223344u);
+    stage_next(machine, instruction_address, encode_sw(6, 4, 0), "sp_memory_demo_dmem_alias_sw");
+    machine.stage_cpu_gpr(kDmemBaseIndex, sp_dmem_uncached_alias(0));
+    stage_next(machine, instruction_address, encode_lwu(7, 4, 0), "sp_memory_demo_dmem_alias_lwu");
+    require_gpr_equals(machine, kDmemTargetIndex, 0x11223344u, "sp_memory_demo_dmem_alias_lwu");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x55667788u);
+    stage_next(machine, instruction_address, encode_sw(6, 5, 0), "sp_memory_demo_imem_sw");
+    machine.stage_cpu_gpr(kImemBaseIndex, sp_imem_uncached_alias(0));
+    stage_next(machine, instruction_address, encode_lwu(8, 5, 0), "sp_memory_demo_imem_lwu");
+    require_gpr_equals(machine, kImemTargetIndex, 0x55667788u, "sp_memory_demo_imem_lwu");
+
+    stage_next(machine, instruction_address, encode_lwu(7, 4, 0), "sp_memory_demo_dmem_independent_lwu");
+    require_gpr_equals(machine, kDmemTargetIndex, 0x11223344u, "sp_memory_demo_dmem_independent_lwu");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddeeff0011ull);
+    stage_next(machine, instruction_address, encode_sd(6, 5, 0x0008u), "sp_memory_demo_imem_sd");
+    stage_next(machine, instruction_address, encode_ld(8, 5, 0x0008u), "sp_memory_demo_imem_ld");
+    require_gpr_equals(machine, kImemTargetIndex, 0xaabbccddeeff0011ull, "sp_memory_demo_imem_ld");
+  }
+
+  const auto require_sp_machine_fault =
+      [](const char* label,
+         CpuInstructionWord instruction,
+         CpuAddress base_value,
+         MachineFaultKind expected_kind,
+         std::size_t expected_access_size) {
+        auto machine_storage = std::make_unique<Machine>(Cartridge{});
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kBaseIndex = 4;
+        constexpr std::size_t kSourceIndex = 5;
+        constexpr std::size_t kTargetIndex = 6;
+        constexpr RdramOffset kInstructionAddress = 0x00001580u;
+        constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+
+        machine.stage_rdram_u32_be(kInstructionAddress, instruction);
+        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+        machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 4u));
+        machine.stage_cpu_gpr(kBaseIndex, base_value);
+        machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddeeff0011ull);
+        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+        require_step_machine_fault(machine, label, expected_kind, expected_access_size);
+
+        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
+            machine.cpu_next_pc() != cpu_rdram_alias(kInstructionAddress + 4u)) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
+        }
+
+        require_gpr_equals(machine, kTargetIndex, kTargetSentinel, label);
+      };
+
+  require_sp_machine_fault(
+      "sp_memory_demo_sp_register_range_rejected",
+      encode_lw(6, 4, 0),
+      kSyntheticSpRegisterKseg1Base,
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+  require_sp_machine_fault(
+      "sp_memory_demo_outside_sp_ranges_rejected",
+      encode_lw(6, 4, 0),
+      0xa4002000u,
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+  require_sp_machine_fault(
+      "sp_memory_demo_ll_to_sp_rejected",
+      encode_ll(6, 4, 0),
+      sp_dmem_uncached_alias(0),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_sp_machine_fault(
+      "sp_memory_demo_lld_to_sp_rejected",
+      encode_lld(6, 4, 0),
+      sp_imem_uncached_alias(0),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      8);
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kSourceIndex = 5;
+    constexpr std::size_t kTargetIndex = 6;
+    constexpr RdramOffset kSwAddress = 0x000015a0u;
+    constexpr RdramOffset kBadSwAddress = 0x000015a4u;
+    constexpr RdramOffset kLwAddress = 0x000015a8u;
+
+    machine.stage_rdram_u32_be(kSwAddress, encode_sw(5, 4, 0));
+    machine.stage_rdram_u32_be(kBadSwAddress, encode_sw(5, 4, 0));
+    machine.stage_rdram_u32_be(kLwAddress, encode_lwu(6, 4, 0));
+
+    machine.stage_cpu_gpr(kBaseIndex, sp_dmem_uncached_alias(0x0080u));
+    machine.stage_cpu_gpr(kSourceIndex, 0x11223344u);
+    step_at(machine, kSwAddress, "sp_memory_demo_failed_store_seed");
+
+    machine.stage_cpu_gpr(kBaseIndex, kSyntheticSpRegisterKseg1Base);
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddu);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBadSwAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kBadSwAddress + 4u));
+    require_step_machine_fault(
+        machine,
+        "sp_memory_demo_failed_store_no_ghost",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+
+    machine.stage_cpu_gpr(kBaseIndex, sp_dmem_uncached_alias(0x0080u));
+    step_at(machine, kLwAddress, "sp_memory_demo_failed_store_no_ghost_lwu");
+    require_gpr_equals(machine, kTargetIndex, 0x11223344u, "sp_memory_demo_failed_store_no_ghost_lwu");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kRdramBaseIndex = 4;
+    constexpr std::size_t kSpBaseIndex = 5;
+    constexpr std::size_t kLlTargetIndex = 6;
+    constexpr std::size_t kStoreSourceIndex = 7;
+    constexpr std::size_t kScSourceIndex = 8;
+    constexpr std::size_t kSpReadIndex = 9;
+    constexpr RdramOffset kLlAddress = 0x000015c0u;
+    constexpr RdramOffset kSwSpAddress = 0x000015c4u;
+    constexpr RdramOffset kLwuSpAddress = 0x000015c8u;
+    constexpr RdramOffset kScAddress = 0x000015ccu;
+    constexpr RdramOffset kReservedAddress = 0x00001680u;
+
+    machine.stage_rdram_u32_be(
+        kLlAddress,
+        encode_ll(
+            static_cast<std::uint8_t>(kLlTargetIndex),
+            static_cast<std::uint8_t>(kRdramBaseIndex),
+            0));
+    machine.stage_rdram_u32_be(kSwSpAddress, encode_sw(7, 5, 0));
+    machine.stage_rdram_u32_be(kLwuSpAddress, encode_lwu(9, 5, 0));
+    machine.stage_rdram_u32_be(kScAddress, encode_sc(8, 4, 0));
+    machine.stage_rdram_u32_be(kReservedAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kRdramBaseIndex, cpu_rdram_alias(kReservedAddress));
+    machine.stage_cpu_gpr(kSpBaseIndex, sp_dmem_uncached_alias(0x0100u));
+
+    step_at(machine, kLlAddress, "sp_memory_demo_reservation_ll");
+    machine.stage_cpu_gpr(kStoreSourceIndex, 0x55667788u);
+    step_at(machine, kSwSpAddress, "sp_memory_demo_reservation_sp_sw");
+    step_at(machine, kLwuSpAddress, "sp_memory_demo_reservation_sp_lwu");
+    require_gpr_equals(machine, kSpReadIndex, 0x55667788u, "sp_memory_demo_reservation_sp_lwu");
+
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+    step_at(machine, kScAddress, "sp_memory_demo_reservation_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 1, "sp_memory_demo_reservation_sc");
+    require_rdram_word_equals(machine, kReservedAddress, 0xaabbccddu, "sp_memory_demo_reservation_sc");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kSpBaseIndex = 4;
+    constexpr std::size_t kRdramBaseIndex = 5;
+    constexpr std::size_t kLlTargetIndex = 6;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlSpAddress = 0x00001600u;
+    constexpr RdramOffset kScAddress = 0x00001604u;
+    constexpr RdramOffset kDataAddress = 0x000016c0u;
+    constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+
+    machine.stage_rdram_u32_be(kLlSpAddress, encode_ll(6, 4, 0));
+    machine.stage_rdram_u32_be(kScAddress, encode_sc(7, 5, 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kSpBaseIndex, sp_dmem_uncached_alias(0));
+    machine.stage_cpu_gpr(kRdramBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kLlTargetIndex, kTargetSentinel);
+    machine.stage_cpu_pc(cpu_rdram_alias(kLlSpAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kLlSpAddress + 4u));
+    require_step_machine_fault(
+        machine,
+        "sp_memory_demo_ll_rejects_without_reservation",
+        MachineFaultKind::kUnsupportedCpuDataAccess,
+        4);
+    require_gpr_equals(
+        machine,
+        kLlTargetIndex,
+        kTargetSentinel,
+        "sp_memory_demo_ll_rejects_without_reservation");
+
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+    step_at(machine, kScAddress, "sp_memory_demo_ll_rejects_then_sc_fails");
+    require_gpr_equals(machine, kScSourceIndex, 0, "sp_memory_demo_ll_rejects_then_sc_fails");
+    require_rdram_word_equals(machine, kDataAddress, 0x11112222u, "sp_memory_demo_ll_rejects_then_sc_fails");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kSourceIndex = 5;
+    constexpr std::size_t kTargetIndex = 6;
+    constexpr RdramOffset kSeedSwAddress = 0x00001620u;
+    constexpr RdramOffset kBadScAddress = 0x00001624u;
+    constexpr RdramOffset kReadLwuAddress = 0x00001628u;
+    constexpr RdramOffset kSeedSdAddress = 0x0000162cu;
+    constexpr RdramOffset kBadScdAddress = 0x00001630u;
+    constexpr RdramOffset kReadLdAddress = 0x00001634u;
+
+    machine.stage_rdram_u32_be(kSeedSwAddress, encode_sw(5, 4, 0x0120u));
+    machine.stage_rdram_u32_be(kBadScAddress, encode_sc(5, 4, 0x0120u));
+    machine.stage_rdram_u32_be(kReadLwuAddress, encode_lwu(6, 4, 0x0120u));
+    machine.stage_rdram_u32_be(kSeedSdAddress, encode_sd(5, 4, 0x0130u));
+    machine.stage_rdram_u32_be(kBadScdAddress, encode_scd(5, 4, 0x0130u));
+    machine.stage_rdram_u32_be(kReadLdAddress, encode_ld(6, 4, 0x0130u));
+
+    machine.stage_cpu_gpr(kBaseIndex, sp_dmem_uncached_alias(0));
+    machine.stage_cpu_gpr(kSourceIndex, 0x11223344u);
+    step_at(machine, kSeedSwAddress, "sp_memory_demo_sc_rejected_seed");
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddu);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBadScAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kBadScAddress + 4u));
+    require_step_machine_fault(
+        machine,
+        "sp_memory_demo_sc_to_sp_rejected",
+        MachineFaultKind::kUnsupportedCpuDataAccess,
+        4);
+    step_at(machine, kReadLwuAddress, "sp_memory_demo_sc_to_sp_rejected_lwu");
+    require_gpr_equals(machine, kTargetIndex, 0x11223344u, "sp_memory_demo_sc_to_sp_rejected_lwu");
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x0102030405060708ull);
+    step_at(machine, kSeedSdAddress, "sp_memory_demo_scd_rejected_seed");
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddeeff0011ull);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBadScdAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kBadScdAddress + 4u));
+    require_step_machine_fault(
+        machine,
+        "sp_memory_demo_scd_to_sp_rejected",
+        MachineFaultKind::kUnsupportedCpuDataAccess,
+        8);
+    step_at(machine, kReadLdAddress, "sp_memory_demo_scd_to_sp_rejected_ld");
+    require_gpr_equals(
+        machine,
+        kTargetIndex,
+        0x0102030405060708ull,
+        "sp_memory_demo_scd_to_sp_rejected_ld");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    machine.stage_cpu_pc(sp_dmem_uncached_alias(0));
+    machine.stage_cpu_next_pc(sp_dmem_uncached_alias(4));
+    require_step_machine_fault(
+        machine,
+        "sp_memory_demo_dmem_fetch_rejected",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    machine.stage_cpu_pc(sp_imem_uncached_alias(0));
+    machine.stage_cpu_next_pc(sp_imem_uncached_alias(4));
+    require_step_machine_fault(
+        machine,
+        "sp_memory_demo_imem_fetch_rejected",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
   }
 }
 
@@ -5703,6 +6093,7 @@ void run_data_demos(Machine& machine) {
   run_public_staging_reservation_demo();
   run_store_conditional_register_order_demo();
   run_load_link_store_conditional_fault_demo();
+  run_sp_memory_data_demo();
   run_cpu_driven_pi_dma_execution_demo();
   run_pi_mmio_dma_success_demo();
   run_pi_dma_reservation_demo();
