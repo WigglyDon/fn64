@@ -96,6 +96,46 @@ namespace {
       std::string(operation) + " overflow");
 }
 
+bool signed_cpu_add_overflows(
+    CpuRegisterValue lhs,
+    CpuRegisterValue rhs,
+    CpuRegisterValue result) {
+  constexpr CpuRegisterValue kSignBit = 0x8000000000000000ull;
+  return ((~(lhs ^ rhs) & (lhs ^ result)) & kSignBit) != 0;
+}
+
+bool signed_cpu_sub_overflows(
+    CpuRegisterValue lhs,
+    CpuRegisterValue rhs,
+    CpuRegisterValue result) {
+  constexpr CpuRegisterValue kSignBit = 0x8000000000000000ull;
+  return (((lhs ^ rhs) & (lhs ^ result)) & kSignBit) != 0;
+}
+
+CpuRegisterValue checked_signed_cpu_add(
+    const char* operation,
+    CpuRegisterValue lhs,
+    CpuRegisterValue rhs) {
+  const CpuRegisterValue result = lhs + rhs;
+  if (signed_cpu_add_overflows(lhs, rhs, result)) {
+    fail_signed_arithmetic_overflow(operation);
+  }
+
+  return result;
+}
+
+CpuRegisterValue checked_signed_cpu_sub(
+    const char* operation,
+    CpuRegisterValue lhs,
+    CpuRegisterValue rhs) {
+  const CpuRegisterValue result = lhs - rhs;
+  if (signed_cpu_sub_overflows(lhs, rhs, result)) {
+    fail_signed_arithmetic_overflow(operation);
+  }
+
+  return result;
+}
+
 std::uint8_t variable_shift_amount_u32(std::uint32_t value) {
   return static_cast<std::uint8_t>(value & 0x1fu);
 }
@@ -1114,9 +1154,29 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kSpecialDadd: {
+      const CpuRegisterValue value =
+          checked_signed_cpu_add(
+              "DADD",
+              read_cpu_gpr_value(instruction.rs),
+              read_cpu_gpr_value(instruction.rt));
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kSpecialDaddu: {
       const CpuRegisterValue value =
           read_cpu_gpr_value(instruction.rs) + read_cpu_gpr_value(instruction.rt);
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsub: {
+      const CpuRegisterValue value =
+          checked_signed_cpu_sub(
+              "DSUB",
+              read_cpu_gpr_value(instruction.rs),
+              read_cpu_gpr_value(instruction.rt));
       write_cpu_gpr_value(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
@@ -1193,6 +1253,16 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       write_cpu_gpr_word_sign_extended_result(instruction.rt, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kDaddi: {
+      const CpuRegisterValue value =
+          checked_signed_cpu_add(
+              "DADDI",
+              read_cpu_gpr_value(instruction.rs),
+              sign_extend_u16_to_cpu_value(instruction.immediate_u16));
+      write_cpu_gpr_value(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 

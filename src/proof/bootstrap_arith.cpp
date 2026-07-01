@@ -867,6 +867,241 @@ void run_d_integer_add_sub_demo(Machine& machine) {
   }
 }
 
+void require_d_signed_overflow_case(
+    Machine& machine,
+    const char* label,
+    const char* operation,
+    CpuAddress instruction_address,
+    CpuInstructionWord instruction,
+    std::uint8_t lhs_index,
+    CpuRegisterValue lhs,
+    bool has_rhs,
+    std::uint8_t rhs_index,
+    CpuRegisterValue rhs,
+    std::uint8_t destination_index,
+    CpuRegisterValue destination_sentinel) {
+  constexpr CpuRegisterValue kHiSentinel = 0x0102030405060708ull;
+  constexpr CpuRegisterValue kLoSentinel = 0x8877665544332211ull;
+
+  machine.stage_cpu_pc(cpu_rdram_alias(instruction_address));
+  machine.stage_cpu_gpr(lhs_index, lhs);
+  if (has_rhs) {
+    machine.stage_cpu_gpr(rhs_index, rhs);
+  }
+  machine.stage_cpu_gpr(destination_index, destination_sentinel);
+  machine.stage_cpu_hi(kHiSentinel);
+  machine.stage_cpu_lo(kLoSentinel);
+  machine.stage_rdram_u32_be(instruction_address, instruction);
+
+  std::cout << "fn64 bootstrap D signed overflow demo: " << label << '\n';
+  std::cout << "before failing step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  lhs", machine.inspect_cpu_gpr(lhs_index));
+  if (has_rhs) {
+    print_hex64("  rhs", machine.inspect_cpu_gpr(rhs_index));
+  }
+  print_hex64("  destination", machine.inspect_cpu_gpr(destination_index));
+  print_hex32("  instruction_raw", instruction);
+
+  try {
+    static_cast<void>(machine.step_cpu_instruction());
+  } catch (const MachineFault& fault) {
+    std::cout << "  exception = " << fault.what() << '\n';
+    require_signed_overflow_fault(fault, label, operation);
+
+    std::cout << "after failing step:\n";
+    print_control_flow_state(machine);
+    print_hex64("  destination", machine.inspect_cpu_gpr(destination_index));
+    print_hex64("  hi", machine.inspect_cpu_hi());
+    print_hex64("  lo", machine.inspect_cpu_lo());
+
+    if (machine.cpu_pc() != cpu_rdram_alias(instruction_address)) {
+      throw std::runtime_error(std::string(label) + " did not restore pc after throw");
+    }
+
+    if (machine.cpu_next_pc() != cpu_rdram_alias(instruction_address + 4u)) {
+      throw std::runtime_error(std::string(label) + " did not restore next_pc after throw");
+    }
+
+    if (machine.inspect_cpu_gpr(destination_index) != destination_sentinel) {
+      throw std::runtime_error(std::string(label) + " changed destination on overflow");
+    }
+
+    if (machine.inspect_cpu_hi() != kHiSentinel ||
+        machine.inspect_cpu_lo() != kLoSentinel) {
+      throw std::runtime_error(std::string(label) + " changed HI/LO on overflow");
+    }
+
+    return;
+  }
+
+  throw std::runtime_error(std::string(label) + " did not throw signed overflow");
+}
+
+void run_trapping_d_integer_add_sub_demo(Machine& machine) {
+  constexpr std::uint8_t kDaddLhsIndex = 4;
+  constexpr std::uint8_t kDaddRhsIndex = 5;
+  constexpr std::uint8_t kDaddResultIndex = 6;
+  constexpr std::uint8_t kDaddiSourceIndex = 7;
+  constexpr std::uint8_t kDaddiResultIndex = 8;
+  constexpr std::uint8_t kDsubLhsIndex = 9;
+  constexpr std::uint8_t kDsubRhsIndex = 10;
+  constexpr std::uint8_t kDsubResultIndex = 11;
+
+  constexpr CpuAddress kDaddAddress = 0x000007b0u;
+  constexpr CpuAddress kDaddiAddress = 0x000007b4u;
+  constexpr CpuAddress kDsubAddress = 0x000007b8u;
+  constexpr CpuAddress kZeroDaddAddress = 0x000007bcu;
+  constexpr CpuAddress kBreakAddress = 0x000007c0u;
+  constexpr CpuAddress kAfterBreakAddress = 0x000007c4u;
+
+  constexpr CpuRegisterValue kDaddLhs = 0x0000000100000000ull;
+  constexpr CpuRegisterValue kDaddRhs = 0x0000000200000003ull;
+  constexpr CpuRegisterValue kDaddExpected = 0x0000000300000003ull;
+  constexpr CpuRegisterValue kDaddiSource = 0x0000000100000000ull;
+  constexpr CpuRegisterValue kDaddiExpected = 0x00000000ffffffffull;
+  constexpr CpuRegisterValue kDsubLhs = 0x0000000300000003ull;
+  constexpr CpuRegisterValue kDsubRhs = 0x0000000100000000ull;
+  constexpr CpuRegisterValue kDsubExpected = 0x0000000200000003ull;
+
+  const CpuInstructionWord kDaddInstruction =
+      encode_dadd(kDaddResultIndex, kDaddLhsIndex, kDaddRhsIndex);
+  const CpuInstructionWord kDaddiInstruction =
+      encode_daddi(kDaddiResultIndex, kDaddiSourceIndex, 0xffffu);
+  const CpuInstructionWord kDsubInstruction =
+      encode_dsub(kDsubResultIndex, kDsubLhsIndex, kDsubRhsIndex);
+  const CpuInstructionWord kZeroDaddInstruction =
+      encode_dadd(0, kDaddLhsIndex, kDaddRhsIndex);
+  const CpuInstructionWord kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kDaddAddress));
+  machine.stage_cpu_gpr(kDaddLhsIndex, kDaddLhs);
+  machine.stage_cpu_gpr(kDaddRhsIndex, kDaddRhs);
+  machine.stage_cpu_gpr(kDaddResultIndex, 0);
+  machine.stage_cpu_gpr(kDaddiSourceIndex, kDaddiSource);
+  machine.stage_cpu_gpr(kDaddiResultIndex, 0);
+  machine.stage_cpu_gpr(kDsubLhsIndex, kDsubLhs);
+  machine.stage_cpu_gpr(kDsubRhsIndex, kDsubRhs);
+  machine.stage_cpu_gpr(kDsubResultIndex, 0);
+  machine.stage_cpu_gpr(0, 0xffffffffffffffffull);
+
+  machine.stage_rdram_u32_be(kDaddAddress, kDaddInstruction);
+  machine.stage_rdram_u32_be(kDaddiAddress, kDaddiInstruction);
+  machine.stage_rdram_u32_be(kDsubAddress, kDsubInstruction);
+  machine.stage_rdram_u32_be(kZeroDaddAddress, kZeroDaddInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
+
+  std::cout
+      << "fn64 bootstrap trapping D integer demo: DADD/DADDI/DSUB execute with local signed-overflow faults\n";
+  std::cout << "before step sequence:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kDaddLhsIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kDaddRhsIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kDaddiSourceIndex));
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kDsubLhsIndex));
+  print_hex64("  gpr[10]", machine.inspect_cpu_gpr(kDsubRhsIndex));
+
+  auto step_d_instruction = [&machine](CpuInstructionWord instruction, const char* label) {
+    print_hex32("  instruction_raw", instruction);
+    std::cout << "  instruction_label = " << label << '\n';
+    require_stepped(machine.step_cpu_instruction(), std::string("trapping_d_demo_") + label);
+  };
+
+  step_d_instruction(kDaddInstruction, "DADD");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kDaddiAddress)) {
+    throw std::runtime_error("trapping D demo did not advance from DADD to DADDI");
+  }
+
+  if (machine.inspect_cpu_gpr(kDaddResultIndex) != kDaddExpected) {
+    throw std::runtime_error("trapping D demo DADD did not use full 64-bit operands");
+  }
+
+  step_d_instruction(kDaddiInstruction, "DADDI negative immediate");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kDsubAddress)) {
+    throw std::runtime_error("trapping D demo did not advance from DADDI to DSUB");
+  }
+
+  if (machine.inspect_cpu_gpr(kDaddiResultIndex) != kDaddiExpected) {
+    throw std::runtime_error("trapping D demo DADDI did not sign-extend the immediate");
+  }
+
+  step_d_instruction(kDsubInstruction, "DSUB");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kZeroDaddAddress)) {
+    throw std::runtime_error("trapping D demo did not advance from DSUB to DADD $0");
+  }
+
+  if (machine.inspect_cpu_gpr(kDsubResultIndex) != kDsubExpected) {
+    throw std::runtime_error("trapping D demo DSUB did not use full 64-bit operands");
+  }
+
+  step_d_instruction(kZeroDaddInstruction, "DADD $0");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
+    throw std::runtime_error("trapping D demo did not advance to BREAK");
+  }
+
+  if (machine.inspect_cpu_gpr(0) != 0) {
+    throw std::runtime_error("trapping D demo wrote to gpr[0]");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), "trapping_d_demo_break");
+
+  std::cout << "after step sequence:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDaddResultIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kDaddiResultIndex));
+  print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kDsubResultIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
+    throw std::runtime_error("trapping D demo did not advance past BREAK");
+  }
+
+  require_d_signed_overflow_case(
+      machine,
+      "DADD overflow",
+      "DADD",
+      0x000007d0u,
+      encode_dadd(14, 12, 13),
+      12,
+      0x7fffffffffffffffull,
+      true,
+      13,
+      0x0000000000000001ull,
+      14,
+      0x0123456789abcdefull);
+
+  require_d_signed_overflow_case(
+      machine,
+      "DADDI overflow",
+      "DADDI",
+      0x000007d4u,
+      encode_daddi(16, 15, 0x0001u),
+      15,
+      0x7fffffffffffffffull,
+      false,
+      0,
+      0,
+      16,
+      0xfedcba9876543210ull);
+
+  require_d_signed_overflow_case(
+      machine,
+      "DSUB overflow",
+      "DSUB",
+      0x000007d8u,
+      encode_dsub(19, 17, 18),
+      17,
+      0x8000000000000000ull,
+      true,
+      18,
+      0x0000000000000001ull,
+      19,
+      0x0badf00dc001d00dull);
+}
+
 void run_d_shift_demo(Machine& machine) {
   constexpr std::uint8_t kDsllSourceIndex = 4;
   constexpr std::uint8_t kDsllResultIndex = 5;
@@ -1638,6 +1873,7 @@ void run_arithmetic_demos(Machine& machine) {
   run_logic_immediate_unsigned_compare_demo(machine);
   run_full_width_register_compare_demo(machine);
   run_d_integer_add_sub_demo(machine);
+  run_trapping_d_integer_add_sub_demo(machine);
   run_d_shift_demo(machine);
   run_cpu_register_value_width_demo(machine);
   run_hilo_arithmetic_demo(machine);

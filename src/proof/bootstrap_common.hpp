@@ -119,6 +119,13 @@ constexpr CpuInstructionWord encode_addiu(
   return encode_i_type(0x09, rs, rt, immediate);
 }
 
+constexpr CpuInstructionWord encode_daddi(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x18, rs, rt, immediate);
+}
+
 constexpr CpuInstructionWord encode_daddiu(
     std::uint8_t rt,
     std::uint8_t rs,
@@ -367,11 +374,25 @@ constexpr CpuInstructionWord encode_sltu(
   return encode_special(rs, rt, rd, 0, 0x2b);
 }
 
+constexpr CpuInstructionWord encode_dadd(
+    std::uint8_t rd,
+    std::uint8_t rs,
+    std::uint8_t rt) {
+  return encode_special(rs, rt, rd, 0, 0x2c);
+}
+
 constexpr CpuInstructionWord encode_daddu(
     std::uint8_t rd,
     std::uint8_t rs,
     std::uint8_t rt) {
   return encode_special(rs, rt, rd, 0, 0x2d);
+}
+
+constexpr CpuInstructionWord encode_dsub(
+    std::uint8_t rd,
+    std::uint8_t rs,
+    std::uint8_t rt) {
+  return encode_special(rs, rt, rd, 0, 0x2e);
 }
 
 constexpr CpuInstructionWord encode_dsubu(
