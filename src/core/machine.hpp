@@ -47,12 +47,12 @@ private:
 
 class Machine {
 public:
-  // Current CPU scope: fn64 owns 64-bit integer register storage, but executed
-  // instructions still model a local 32-bit word subset. CPU addresses,
-  // instruction words, physical RDRAM offsets, and cartridge byte offsets are
-  // deliberately separate 32-bit domains. CPU addresses include the direct
-  // KSEG0/KSEG1 RDRAM alias form. This is not the full N64 VR4300 64-bit
-  // execution model.
+  // Current CPU scope: fn64 owns 64-bit integer register storage and a tiny
+  // explicitly supported 64-bit D integer cluster; most executed instructions
+  // still model a local 32-bit word subset. CPU addresses, instruction words,
+  // physical RDRAM offsets, and cartridge byte offsets are deliberately
+  // separate 32-bit domains. CPU addresses include the direct KSEG0/KSEG1 RDRAM
+  // alias form. This is not the full N64 VR4300 64-bit execution model.
 
   // Public CPU execution result for fn64's current local step policy.
   // kStopped is a local stop condition, not N64 COP0 exception delivery.
@@ -129,8 +129,9 @@ private:
     std::uint32_t jump_target = 0;
   };
 
-  // D/MIPS64-style identities are decoded so the step path can report them as
-  // unsupported; recognition here does not imply 64-bit execution support.
+  // D/MIPS64-style identities are decoded so the step path can either execute
+  // the small explicitly supported 64-bit cluster or report the rest as
+  // unsupported; recognition here does not imply full VR4300 execution support.
   enum class CpuInstructionIdentity {
     kUnknownPrimary,
     kSpecialUnknown,

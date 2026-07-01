@@ -123,9 +123,9 @@ void run_unsupported_identity_demo(
     std::uint16_t following_marker) {
   constexpr std::size_t kPreservedRegisterIndex = 23;
   constexpr std::size_t kFollowingMarkerIndex = 24;
-  constexpr std::uint32_t kPreservedRegisterValue = 0x13572468u;
-  constexpr std::uint32_t kHiValue = 0x24681357u;
-  constexpr std::uint32_t kLoValue = 0x89abcdefu;
+  constexpr CpuRegisterValue kPreservedRegisterValue = 0x1122334413572468ull;
+  constexpr CpuRegisterValue kHiValue = 0x5566778824681357ull;
+  constexpr CpuRegisterValue kLoValue = 0x99aabbcc89abcdefull;
   constexpr std::uint32_t kRdramSentinelAddress = 0x00000940u;
   constexpr std::uint32_t kRdramSentinelValue = 0x5a17c0deu;
 
@@ -213,6 +213,9 @@ void run_unsupported_instruction_demos(Machine& machine) {
   constexpr std::uint32_t kSpecialUnknownUnsupportedInstruction = 0x00000001u;
   constexpr std::uint32_t kRegimmUnknownUnsupportedInstruction = 0x04040000u;
   constexpr std::uint32_t kUnknownPrimaryUnsupportedInstruction = 0xcc000000u;
+  constexpr CpuInstructionWord kDaddUnsupportedInstruction = encode_special(4, 5, 6, 0, 0x2c);
+  constexpr CpuInstructionWord kDaddiUnsupportedInstruction = encode_i_type(0x18, 4, 6, 0x0001u);
+  constexpr CpuInstructionWord kDsubUnsupportedInstruction = encode_special(4, 5, 6, 0, 0x2e);
 
   run_unsupported_identity_demo(
       machine,
@@ -241,6 +244,27 @@ void run_unsupported_instruction_demos(Machine& machine) {
       0x000006f0u,
       kUnknownPrimaryUnsupportedInstruction,
       0x75f1u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "DADD remains unsupported with rollback intact",
+      0x00000700u,
+      kDaddUnsupportedInstruction,
+      0x7601u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "DADDI remains unsupported with rollback intact",
+      0x00000710u,
+      kDaddiUnsupportedInstruction,
+      0x7611u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "DSUB remains unsupported with rollback intact",
+      0x00000720u,
+      kDsubUnsupportedInstruction,
+      0x7621u);
 }
 
 }  // namespace fn64::bootstrap_detail

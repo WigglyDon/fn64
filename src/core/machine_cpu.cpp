@@ -1005,6 +1005,20 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kSpecialDaddu: {
+      const CpuRegisterValue value =
+          read_cpu_gpr_value(instruction.rs) + read_cpu_gpr_value(instruction.rt);
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSpecialDsubu: {
+      const CpuRegisterValue value =
+          read_cpu_gpr_value(instruction.rs) - read_cpu_gpr_value(instruction.rt);
+      write_cpu_gpr_value(instruction.rd, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kSpecialAnd: {
       const CpuRegisterValue value =
           read_cpu_gpr_value(instruction.rs) & read_cpu_gpr_value(instruction.rt);
@@ -1070,6 +1084,14 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       write_cpu_gpr_word_sign_extended_result(instruction.rt, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kDaddiu: {
+      const CpuRegisterValue value =
+          read_cpu_gpr_value(instruction.rs) +
+          sign_extend_u16_to_cpu_value(instruction.immediate_u16);
+      write_cpu_gpr_value(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 

@@ -723,6 +723,150 @@ void run_full_width_register_compare_demo(Machine& machine) {
   }
 }
 
+void run_d_integer_add_sub_demo(Machine& machine) {
+  constexpr std::uint8_t kDadduLhsIndex = 4;
+  constexpr std::uint8_t kDadduRhsIndex = 5;
+  constexpr std::uint8_t kDadduResultIndex = 6;
+  constexpr std::uint8_t kDsubuLhsIndex = 7;
+  constexpr std::uint8_t kDsubuRhsIndex = 8;
+  constexpr std::uint8_t kDsubuResultIndex = 9;
+  constexpr std::uint8_t kDaddiuSourceIndex = 10;
+  constexpr std::uint8_t kDaddiuResultIndex = 11;
+  constexpr std::uint8_t kDaddiuWrapSourceIndex = 12;
+  constexpr std::uint8_t kDaddiuWrapResultIndex = 13;
+
+  constexpr CpuAddress kDadduAddress = 0x00000730u;
+  constexpr CpuAddress kDsubuAddress = 0x00000734u;
+  constexpr CpuAddress kDaddiuAddress = 0x00000738u;
+  constexpr CpuAddress kDaddiuWrapAddress = 0x0000073cu;
+  constexpr CpuAddress kZeroDadduAddress = 0x00000740u;
+  constexpr CpuAddress kBreakAddress = 0x00000744u;
+  constexpr CpuAddress kAfterBreakAddress = 0x00000748u;
+
+  constexpr CpuRegisterValue kDadduLhs = 0x0000000100000000ull;
+  constexpr CpuRegisterValue kDadduRhs = 0x0000000200000003ull;
+  constexpr CpuRegisterValue kDadduExpected = 0x0000000300000003ull;
+  constexpr CpuRegisterValue kDsubuLhs = 0x0000000000000000ull;
+  constexpr CpuRegisterValue kDsubuRhs = 0x0000000000000001ull;
+  constexpr CpuRegisterValue kDsubuExpected = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kDaddiuSource = 0x0000000100000000ull;
+  constexpr CpuRegisterValue kDaddiuExpected = 0x00000000ffffffffull;
+  constexpr CpuRegisterValue kDaddiuWrapSource = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kDaddiuWrapExpected = 0x0000000000000000ull;
+
+  constexpr CpuInstructionWord kDadduInstruction =
+      encode_daddu(kDadduResultIndex, kDadduLhsIndex, kDadduRhsIndex);
+  constexpr CpuInstructionWord kDsubuInstruction =
+      encode_dsubu(kDsubuResultIndex, kDsubuLhsIndex, kDsubuRhsIndex);
+  constexpr CpuInstructionWord kDaddiuInstruction =
+      encode_daddiu(kDaddiuResultIndex, kDaddiuSourceIndex, 0xffffu);
+  constexpr CpuInstructionWord kDaddiuWrapInstruction =
+      encode_daddiu(kDaddiuWrapResultIndex, kDaddiuWrapSourceIndex, 0x0001u);
+  constexpr CpuInstructionWord kZeroDadduInstruction =
+      encode_daddu(0, kDadduLhsIndex, kDadduRhsIndex);
+  constexpr CpuInstructionWord kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kDadduAddress));
+  machine.stage_cpu_gpr(kDadduLhsIndex, kDadduLhs);
+  machine.stage_cpu_gpr(kDadduRhsIndex, kDadduRhs);
+  machine.stage_cpu_gpr(kDadduResultIndex, 0);
+  machine.stage_cpu_gpr(kDsubuLhsIndex, kDsubuLhs);
+  machine.stage_cpu_gpr(kDsubuRhsIndex, kDsubuRhs);
+  machine.stage_cpu_gpr(kDsubuResultIndex, 0);
+  machine.stage_cpu_gpr(kDaddiuSourceIndex, kDaddiuSource);
+  machine.stage_cpu_gpr(kDaddiuResultIndex, 0);
+  machine.stage_cpu_gpr(kDaddiuWrapSourceIndex, kDaddiuWrapSource);
+  machine.stage_cpu_gpr(kDaddiuWrapResultIndex, 0x1111111122222222ull);
+  machine.stage_cpu_gpr(0, 0xffffffffffffffffull);
+
+  machine.stage_rdram_u32_be(kDadduAddress, kDadduInstruction);
+  machine.stage_rdram_u32_be(kDsubuAddress, kDsubuInstruction);
+  machine.stage_rdram_u32_be(kDaddiuAddress, kDaddiuInstruction);
+  machine.stage_rdram_u32_be(kDaddiuWrapAddress, kDaddiuWrapInstruction);
+  machine.stage_rdram_u32_be(kZeroDadduAddress, kZeroDadduInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
+
+  std::cout
+      << "fn64 bootstrap D integer demo: DADDU/DSUBU/DADDIU execute over full 64-bit GPR values\n";
+  std::cout << "before step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kDadduLhsIndex));
+  print_hex64("  gpr[5]", machine.inspect_cpu_gpr(kDadduRhsIndex));
+  print_hex64("  gpr[7]", machine.inspect_cpu_gpr(kDsubuLhsIndex));
+  print_hex64("  gpr[8]", machine.inspect_cpu_gpr(kDsubuRhsIndex));
+  print_hex64("  gpr[10]", machine.inspect_cpu_gpr(kDaddiuSourceIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kDaddiuWrapSourceIndex));
+
+  auto step_d_instruction = [&machine](CpuInstructionWord instruction, const char* label) {
+    print_hex32("  instruction_raw", instruction);
+    std::cout << "  instruction_label = " << label << '\n';
+    require_stepped(machine.step_cpu_instruction(), std::string("d_integer_demo_") + label);
+  };
+
+  step_d_instruction(kDadduInstruction, "DADDU");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kDsubuAddress)) {
+    throw std::runtime_error("D integer demo did not advance from DADDU to DSUBU");
+  }
+
+  if (machine.inspect_cpu_gpr(kDadduResultIndex) != kDadduExpected) {
+    throw std::runtime_error("D integer demo DADDU did not use full 64-bit operands");
+  }
+
+  step_d_instruction(kDsubuInstruction, "DSUBU");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kDaddiuAddress)) {
+    throw std::runtime_error("D integer demo did not advance from DSUBU to DADDIU");
+  }
+
+  if (machine.inspect_cpu_gpr(kDsubuResultIndex) != kDsubuExpected) {
+    throw std::runtime_error("D integer demo DSUBU did not wrap modulo 2^64");
+  }
+
+  step_d_instruction(kDaddiuInstruction, "DADDIU negative immediate");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kDaddiuWrapAddress)) {
+    throw std::runtime_error("D integer demo did not advance to DADDIU wrap case");
+  }
+
+  if (machine.inspect_cpu_gpr(kDaddiuResultIndex) != kDaddiuExpected) {
+    throw std::runtime_error("D integer demo DADDIU did not sign-extend the immediate");
+  }
+
+  step_d_instruction(kDaddiuWrapInstruction, "DADDIU wrap");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kZeroDadduAddress)) {
+    throw std::runtime_error("D integer demo did not advance to DADDU zero-register case");
+  }
+
+  if (machine.inspect_cpu_gpr(kDaddiuWrapResultIndex) != kDaddiuWrapExpected) {
+    throw std::runtime_error("D integer demo DADDIU did not wrap modulo 2^64");
+  }
+
+  step_d_instruction(kZeroDadduInstruction, "DADDU $0");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
+    throw std::runtime_error("D integer demo did not advance to BREAK");
+  }
+
+  if (machine.inspect_cpu_gpr(0) != 0) {
+    throw std::runtime_error("D integer demo wrote to gpr[0]");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), "d_integer_demo_break");
+
+  std::cout << "after stop:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[6]", machine.inspect_cpu_gpr(kDadduResultIndex));
+  print_hex64("  gpr[9]", machine.inspect_cpu_gpr(kDsubuResultIndex));
+  print_hex64("  gpr[11]", machine.inspect_cpu_gpr(kDaddiuResultIndex));
+  print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kDaddiuWrapResultIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kAfterBreakAddress)) {
+    throw std::runtime_error("D integer demo did not advance past BREAK");
+  }
+}
+
 void run_cpu_local_single_ori_step_demo(Machine& machine) {
   constexpr std::uint8_t kZeroIndex = 0;
   constexpr std::uint8_t kSourceIndex = 4;
@@ -1269,6 +1413,7 @@ void run_arithmetic_demos(Machine& machine) {
   run_addi_negative_overflow_demo(machine);
   run_logic_immediate_unsigned_compare_demo(machine);
   run_full_width_register_compare_demo(machine);
+  run_d_integer_add_sub_demo(machine);
   run_cpu_register_value_width_demo(machine);
   run_hilo_arithmetic_demo(machine);
 }
