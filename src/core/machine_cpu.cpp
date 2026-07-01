@@ -429,36 +429,109 @@ RdramOffset Machine::require_cpu_rdram_address(
   return rdram_address;
 }
 
+Machine::CpuDataTarget Machine::require_cpu_data_target(
+    const char* operation,
+    CpuAddress cpu_address,
+    std::size_t width) {
+  CpuPhysicalAddress physical_address = 0;
+  if (!translate_direct_cpu_physical_address(cpu_address, physical_address)) {
+    fail_cpu_rdram_address(operation, cpu_address, width);
+  }
+
+  RdramOffset rdram_address = 0;
+  if (translate_cpu_physical_rdram_address(physical_address, width, rdram_address)) {
+    return CpuDataTarget{
+        CpuDataTargetKind::kRdram,
+        physical_address,
+        rdram_address,
+    };
+  }
+
+  fail_cpu_rdram_address(operation, cpu_address, width);
+}
+
 std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
-  return read_rdram_u8(require_cpu_rdram_address("CPU byte read", cpu_address, 1));
+  const CpuDataTarget target = require_cpu_data_target("CPU byte read", cpu_address, 1);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      return read_rdram_u8(target.rdram_offset);
+  }
+
+  throw std::logic_error("unknown CPU byte read target");
 }
 
 std::uint16_t Machine::read_cpu_memory_u16_be(CpuAddress cpu_address) const {
-  return read_rdram_u16_be(require_cpu_rdram_address("CPU halfword read", cpu_address, 2));
+  const CpuDataTarget target = require_cpu_data_target("CPU halfword read", cpu_address, 2);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      return read_rdram_u16_be(target.rdram_offset);
+  }
+
+  throw std::logic_error("unknown CPU halfword read target");
 }
 
 std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
-  return read_rdram_u32_be(require_cpu_rdram_address("CPU word read", cpu_address, 4));
+  const CpuDataTarget target = require_cpu_data_target("CPU word read", cpu_address, 4);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      return read_rdram_u32_be(target.rdram_offset);
+  }
+
+  throw std::logic_error("unknown CPU word read target");
 }
 
 CpuRegisterValue Machine::read_cpu_memory_u64_be(CpuAddress cpu_address) const {
-  return read_rdram_u64_be(require_cpu_rdram_address("CPU doubleword read", cpu_address, 8));
+  const CpuDataTarget target = require_cpu_data_target("CPU doubleword read", cpu_address, 8);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      return read_rdram_u64_be(target.rdram_offset);
+  }
+
+  throw std::logic_error("unknown CPU doubleword read target");
 }
 
 void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
-  write_rdram_u8(require_cpu_rdram_address("CPU byte write", cpu_address, 1), value);
+  const CpuDataTarget target = require_cpu_data_target("CPU byte write", cpu_address, 1);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      write_rdram_u8(target.rdram_offset, value);
+      return;
+  }
+
+  throw std::logic_error("unknown CPU byte write target");
 }
 
 void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t value) {
-  write_rdram_u16_be(require_cpu_rdram_address("CPU halfword write", cpu_address, 2), value);
+  const CpuDataTarget target = require_cpu_data_target("CPU halfword write", cpu_address, 2);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      write_rdram_u16_be(target.rdram_offset, value);
+      return;
+  }
+
+  throw std::logic_error("unknown CPU halfword write target");
 }
 
 void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t value) {
-  write_rdram_u32_be(require_cpu_rdram_address("CPU word write", cpu_address, 4), value);
+  const CpuDataTarget target = require_cpu_data_target("CPU word write", cpu_address, 4);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      write_rdram_u32_be(target.rdram_offset, value);
+      return;
+  }
+
+  throw std::logic_error("unknown CPU word write target");
 }
 
 void Machine::write_cpu_memory_u64_be(CpuAddress cpu_address, CpuRegisterValue value) {
-  write_rdram_u64_be(require_cpu_rdram_address("CPU doubleword write", cpu_address, 8), value);
+  const CpuDataTarget target = require_cpu_data_target("CPU doubleword write", cpu_address, 8);
+  switch (target.kind) {
+    case CpuDataTargetKind::kRdram:
+      write_rdram_u64_be(target.rdram_offset, value);
+      return;
+  }
+
+  throw std::logic_error("unknown CPU doubleword write target");
 }
 
 CpuAddress Machine::cpu_pc() const {
@@ -1539,12 +1612,17 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         fail_unaligned_word_memory_access("LL", effective_address);
       }
 
-      const RdramOffset rdram_address =
-          require_cpu_rdram_address("LL", effective_address, 4);
-      const std::uint32_t value = read_rdram_u32_be(rdram_address);
-      write_cpu_gpr_word_sign_extended_result(instruction.rt, value);
-      set_cpu_rdram_reservation(rdram_address, 4);
-      return CpuInstructionExecutionResult::kExecuted;
+      const CpuDataTarget target = require_cpu_data_target("LL", effective_address, 4);
+      switch (target.kind) {
+        case CpuDataTargetKind::kRdram: {
+          const std::uint32_t value = read_rdram_u32_be(target.rdram_offset);
+          write_cpu_gpr_word_sign_extended_result(instruction.rt, value);
+          set_cpu_rdram_reservation(target.rdram_offset, 4);
+          return CpuInstructionExecutionResult::kExecuted;
+        }
+      }
+
+      throw std::logic_error("unknown LL data target");
     }
 
     case CpuInstructionIdentity::kLwu: {
@@ -1654,12 +1732,17 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         fail_unaligned_doubleword_memory_access("LLD", effective_address);
       }
 
-      const RdramOffset rdram_address =
-          require_cpu_rdram_address("LLD", effective_address, 8);
-      const CpuRegisterValue value = read_rdram_u64_be(rdram_address);
-      write_cpu_gpr_value(instruction.rt, value);
-      set_cpu_rdram_reservation(rdram_address, 8);
-      return CpuInstructionExecutionResult::kExecuted;
+      const CpuDataTarget target = require_cpu_data_target("LLD", effective_address, 8);
+      switch (target.kind) {
+        case CpuDataTargetKind::kRdram: {
+          const CpuRegisterValue value = read_rdram_u64_be(target.rdram_offset);
+          write_cpu_gpr_value(instruction.rt, value);
+          set_cpu_rdram_reservation(target.rdram_offset, 8);
+          return CpuInstructionExecutionResult::kExecuted;
+        }
+      }
+
+      throw std::logic_error("unknown LLD data target");
     }
 
     case CpuInstructionIdentity::kSb: {
@@ -1731,17 +1814,23 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         fail_unaligned_word_memory_access("SC", effective_address);
       }
 
-      const RdramOffset rdram_address =
-          require_cpu_rdram_address("SC", effective_address, 4);
-      const bool reservation_matched = cpu_rdram_reservation_matches(rdram_address, 4);
-      clear_cpu_rdram_reservation();
+      const CpuDataTarget target = require_cpu_data_target("SC", effective_address, 4);
+      switch (target.kind) {
+        case CpuDataTargetKind::kRdram: {
+          const bool reservation_matched =
+              cpu_rdram_reservation_matches(target.rdram_offset, 4);
+          clear_cpu_rdram_reservation();
 
-      if (reservation_matched) {
-        write_rdram_u32_be(rdram_address, source_value);
+          if (reservation_matched) {
+            write_rdram_u32_be(target.rdram_offset, source_value);
+          }
+
+          write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
+          return CpuInstructionExecutionResult::kExecuted;
+        }
       }
 
-      write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
-      return CpuInstructionExecutionResult::kExecuted;
+      throw std::logic_error("unknown SC data target");
     }
 
     case CpuInstructionIdentity::kSwr: {
@@ -1834,17 +1923,23 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         fail_unaligned_doubleword_memory_access("SCD", effective_address);
       }
 
-      const RdramOffset rdram_address =
-          require_cpu_rdram_address("SCD", effective_address, 8);
-      const bool reservation_matched = cpu_rdram_reservation_matches(rdram_address, 8);
-      clear_cpu_rdram_reservation();
+      const CpuDataTarget target = require_cpu_data_target("SCD", effective_address, 8);
+      switch (target.kind) {
+        case CpuDataTargetKind::kRdram: {
+          const bool reservation_matched =
+              cpu_rdram_reservation_matches(target.rdram_offset, 8);
+          clear_cpu_rdram_reservation();
 
-      if (reservation_matched) {
-        write_rdram_u64_be(rdram_address, source_value);
+          if (reservation_matched) {
+            write_rdram_u64_be(target.rdram_offset, source_value);
+          }
+
+          write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
+          return CpuInstructionExecutionResult::kExecuted;
+        }
       }
 
-      write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
-      return CpuInstructionExecutionResult::kExecuted;
+      throw std::logic_error("unknown SCD data target");
     }
 
     default:

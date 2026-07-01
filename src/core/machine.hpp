@@ -139,6 +139,20 @@ private:
     std::size_t width = 0;
   };
 
+  // Private CPU data access dispatch seam. It names the current
+  // CpuAddress -> CpuPhysicalAddress -> target split without adding a bus,
+  // full memory map, MMIO/device region, or cartridge mapping. RDRAM remains
+  // the only supported CPU data target today.
+  enum class CpuDataTargetKind {
+    kRdram,
+  };
+
+  struct CpuDataTarget {
+    CpuDataTargetKind kind = CpuDataTargetKind::kRdram;
+    CpuPhysicalAddress physical_address = 0;
+    RdramOffset rdram_offset = 0;
+  };
+
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
@@ -317,6 +331,10 @@ private:
       const char* operation,
       CpuAddress cpu_address,
       std::size_t width);
+  static CpuDataTarget require_cpu_data_target(
+      const char* operation,
+      CpuAddress cpu_address,
+      std::size_t width);
 
   std::uint8_t read_cpu_memory_u8(CpuAddress cpu_address) const;
   std::uint16_t read_cpu_memory_u16_be(CpuAddress cpu_address) const;
@@ -335,6 +353,10 @@ private:
   static bool translate_direct_cpu_physical_address(
       CpuAddress cpu_address,
       CpuPhysicalAddress& out_physical_address) noexcept;
+  static bool translate_cpu_physical_rdram_address(
+      CpuPhysicalAddress physical_address,
+      std::size_t width,
+      RdramOffset& out_rdram_address) noexcept;
 
   CpuRegisterValue cpu_hi() const;
   CpuRegisterValue cpu_lo() const;

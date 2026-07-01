@@ -148,12 +148,22 @@ bool Machine::translate_cpu_rdram_address(
     CpuAddress cpu_address,
     std::size_t width,
     RdramOffset& out_rdram_address) noexcept {
-  if (width == 0 || width > kRdramSizeBytes) {
+  CpuPhysicalAddress physical_address = 0;
+  if (!translate_direct_cpu_physical_address(cpu_address, physical_address)) {
     return false;
   }
 
-  CpuPhysicalAddress physical_address = 0;
-  if (!translate_direct_cpu_physical_address(cpu_address, physical_address)) {
+  return translate_cpu_physical_rdram_address(
+      physical_address,
+      width,
+      out_rdram_address);
+}
+
+bool Machine::translate_cpu_physical_rdram_address(
+    CpuPhysicalAddress physical_address,
+    std::size_t width,
+    RdramOffset& out_rdram_address) noexcept {
+  if (width == 0 || width > kRdramSizeBytes) {
     return false;
   }
 
