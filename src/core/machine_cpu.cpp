@@ -379,6 +379,14 @@ void Machine::write_cpu_lo(CpuRegisterValue value) {
   cpu_lo_ = value;
 }
 
+void Machine::write_cpu_hi_word_sign_extended_result(std::uint32_t value) {
+  write_cpu_hi(sign_extend_u32_to_cpu_value(value));
+}
+
+void Machine::write_cpu_lo_word_sign_extended_result(std::uint32_t value) {
+  write_cpu_lo(sign_extend_u32_to_cpu_value(value));
+}
+
 void Machine::write_cpu_gpr_value(std::size_t index, CpuRegisterValue value) {
   if (index >= cpu_gprs_.size()) {
     fail_cpu_gpr_index(index);
@@ -680,8 +688,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::int64_t rhs =
           static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rt)));
       const std::uint64_t product = static_cast<std::uint64_t>(lhs * rhs);
-      write_cpu_lo(zero_extend_u32_to_cpu_value(low_u32(product)));
-      write_cpu_hi(zero_extend_u32_to_cpu_value(high_u32(product)));
+      write_cpu_lo_word_sign_extended_result(low_u32(product));
+      write_cpu_hi_word_sign_extended_result(high_u32(product));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
@@ -689,8 +697,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint64_t lhs = static_cast<std::uint64_t>(read_cpu_gpr_word(instruction.rs));
       const std::uint64_t rhs = static_cast<std::uint64_t>(read_cpu_gpr_word(instruction.rt));
       const std::uint64_t product = lhs * rhs;
-      write_cpu_lo(zero_extend_u32_to_cpu_value(low_u32(product)));
-      write_cpu_hi(zero_extend_u32_to_cpu_value(high_u32(product)));
+      write_cpu_lo_word_sign_extended_result(low_u32(product));
+      write_cpu_hi_word_sign_extended_result(high_u32(product));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
@@ -706,8 +714,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           static_cast<std::int64_t>(i32_from_u32_bits(divisor_u32));
       const std::int64_t quotient = dividend / divisor;
       const std::int64_t remainder = dividend % divisor;
-      write_cpu_lo(zero_extend_u32_to_cpu_value(static_cast<std::uint32_t>(quotient)));
-      write_cpu_hi(zero_extend_u32_to_cpu_value(static_cast<std::uint32_t>(remainder)));
+      write_cpu_lo_word_sign_extended_result(static_cast<std::uint32_t>(quotient));
+      write_cpu_hi_word_sign_extended_result(static_cast<std::uint32_t>(remainder));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
@@ -718,8 +726,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       }
 
       const std::uint32_t dividend = read_cpu_gpr_word(instruction.rs);
-      write_cpu_lo(zero_extend_u32_to_cpu_value(dividend / divisor));
-      write_cpu_hi(zero_extend_u32_to_cpu_value(dividend % divisor));
+      write_cpu_lo_word_sign_extended_result(dividend / divisor);
+      write_cpu_hi_word_sign_extended_result(dividend % divisor);
       return CpuInstructionExecutionResult::kExecuted;
     }
 

@@ -306,8 +306,8 @@ private:
   // the current local 32-bit instruction operand seam. Result helpers name the
   // current MIPS64-shaped writeback policy: arithmetic/shift/LUI/signed loads
   // sign-extend, unsigned loads zero-extend, comparisons write full 0/1
-  // values, and LWL/LWR remain an explicit local partial-word merge until
-  // that seam is earned.
+  // values, word MULT/DIV results sign-extend each HI/LO word, and LWL/LWR
+  // remain an explicit local partial-word merge until that seam is earned.
   CpuRegisterValue read_cpu_gpr_value(std::size_t index) const;
   std::uint32_t read_cpu_gpr_word(std::size_t index) const;
 
@@ -315,6 +315,8 @@ private:
   void write_cpu_next_pc(CpuAddress value);
   void write_cpu_hi(CpuRegisterValue value);
   void write_cpu_lo(CpuRegisterValue value);
+  void write_cpu_hi_word_sign_extended_result(std::uint32_t value);
+  void write_cpu_lo_word_sign_extended_result(std::uint32_t value);
   void write_cpu_gpr_value(std::size_t index, CpuRegisterValue value);
   void write_cpu_gpr_word_sign_extended_result(std::size_t index, std::uint32_t value);
   void write_cpu_gpr_word_zero_extended_result(std::size_t index, std::uint32_t value);

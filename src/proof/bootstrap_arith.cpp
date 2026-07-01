@@ -1085,20 +1085,28 @@ void run_hilo_arithmetic_demo(Machine& machine) {
   constexpr std::uint8_t kLhsIndex = 8;
   constexpr std::uint8_t kRhsIndex = 9;
 
-  constexpr std::uint32_t kMthiValue = 0x89abcdefu;
-  constexpr std::uint32_t kMtloValue = 0x01234567u;
-  constexpr std::uint32_t kMultExpectedHi = 0xffffffffu;
-  constexpr std::uint32_t kMultExpectedLo = 0xfffffffau;
-  constexpr std::uint32_t kMultuExpectedHi = 0x00000001u;
-  constexpr std::uint32_t kMultuExpectedLo = 0xfffffffeu;
-  constexpr std::uint32_t kDivExpectedHi = 0xfffffffdu;
-  constexpr std::uint32_t kDivExpectedLo = 0xfffffffeu;
-  constexpr std::uint32_t kDivuExpectedHi = 0x00000003u;
-  constexpr std::uint32_t kDivuExpectedLo = 0x00000002u;
-  constexpr std::uint32_t kDivZeroHi = 0x13579bdfu;
-  constexpr std::uint32_t kDivZeroLo = 0x2468ace0u;
-  constexpr std::uint32_t kDivuZeroHi = 0x0badc0deu;
-  constexpr std::uint32_t kDivuZeroLo = 0x00c0ffeeu;
+  constexpr CpuRegisterValue kMthiValue = 0x89abcdef01234567ull;
+  constexpr CpuRegisterValue kMtloValue = 0xfedcba9876543210ull;
+  constexpr CpuRegisterValue kMultExpectedHi =
+      cpu_value_from_sign_extended_u32(0xffffffffu);
+  constexpr CpuRegisterValue kMultExpectedLo =
+      cpu_value_from_sign_extended_u32(0xfffffffau);
+  constexpr CpuRegisterValue kMultuExpectedHi =
+      cpu_value_from_sign_extended_u32(0x00000001u);
+  constexpr CpuRegisterValue kMultuExpectedLo =
+      cpu_value_from_sign_extended_u32(0xfffffffeu);
+  constexpr CpuRegisterValue kDivExpectedHi =
+      cpu_value_from_sign_extended_u32(0xfffffffdu);
+  constexpr CpuRegisterValue kDivExpectedLo =
+      cpu_value_from_sign_extended_u32(0xfffffffeu);
+  constexpr CpuRegisterValue kDivuExpectedHi =
+      cpu_value_from_sign_extended_u32(0x00000000u);
+  constexpr CpuRegisterValue kDivuExpectedLo =
+      cpu_value_from_sign_extended_u32(0xffffffffu);
+  constexpr CpuRegisterValue kDivZeroHi = 0x13579bdf2468ace0ull;
+  constexpr CpuRegisterValue kDivZeroLo = 0xfedcba9800c0ffeeull;
+  constexpr CpuRegisterValue kDivuZeroHi = 0x0badc0de12345678ull;
+  constexpr CpuRegisterValue kDivuZeroLo = 0xc001d00d00c0ffeeull;
 
   machine.stage_cpu_pc(cpu_rdram_alias(kPc));
   machine.stage_cpu_next_pc(cpu_rdram_alias(kNextPc));
@@ -1157,7 +1165,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo wrote HI/LO reads into gpr[0]");
   }
 
-  machine.stage_cpu_gpr(kLhsIndex, 0xfffffffeu);
+  machine.stage_cpu_gpr(kLhsIndex, cpu_value_from_sign_extended_u32(0xfffffffeu));
   machine.stage_cpu_gpr(kRhsIndex, 0x00000003u);
   step_hilo_instruction(
       machine,
@@ -1168,7 +1176,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo signed MULT result was wrong");
   }
 
-  machine.stage_cpu_gpr(kLhsIndex, 0xffffffffu);
+  machine.stage_cpu_gpr(kLhsIndex, cpu_value_from_sign_extended_u32(0xffffffffu));
   machine.stage_cpu_gpr(kRhsIndex, 0x00000002u);
   step_hilo_instruction(
       machine,
@@ -1179,7 +1187,7 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo unsigned MULTU result was wrong");
   }
 
-  machine.stage_cpu_gpr(kLhsIndex, 0xfffffff3u);
+  machine.stage_cpu_gpr(kLhsIndex, cpu_value_from_sign_extended_u32(0xfffffff3u));
   machine.stage_cpu_gpr(kRhsIndex, 0x00000005u);
   step_hilo_instruction(
       machine,
@@ -1190,8 +1198,8 @@ void run_hilo_arithmetic_demo(Machine& machine) {
     throw std::runtime_error("HI/LO demo signed DIV result was wrong");
   }
 
-  machine.stage_cpu_gpr(kLhsIndex, 0x0000000du);
-  machine.stage_cpu_gpr(kRhsIndex, 0x00000005u);
+  machine.stage_cpu_gpr(kLhsIndex, cpu_value_from_sign_extended_u32(0xffffffffu));
+  machine.stage_cpu_gpr(kRhsIndex, 0x00000001u);
   step_hilo_instruction(
       machine,
       encode_special(kLhsIndex, kRhsIndex, 0, 0, 0x1b),
