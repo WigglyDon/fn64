@@ -1530,6 +1530,23 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kLl: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+
+      if ((effective_address & 0x3u) != 0) {
+        fail_unaligned_word_memory_access("LL", effective_address);
+      }
+
+      const RdramOffset rdram_address =
+          require_cpu_rdram_address("LL", effective_address, 4);
+      const std::uint32_t value = read_rdram_u32_be(rdram_address);
+      write_cpu_gpr_word_sign_extended_result(instruction.rt, value);
+      set_cpu_rdram_reservation(rdram_address, 4);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kLwu: {
       const std::uint32_t effective_address =
           read_cpu_gpr_word(instruction.rs) +
@@ -1628,6 +1645,23 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kLld: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+
+      if ((effective_address & 0x7u) != 0) {
+        fail_unaligned_doubleword_memory_access("LLD", effective_address);
+      }
+
+      const RdramOffset rdram_address =
+          require_cpu_rdram_address("LLD", effective_address, 8);
+      const CpuRegisterValue value = read_rdram_u64_be(rdram_address);
+      write_cpu_gpr_value(instruction.rt, value);
+      set_cpu_rdram_reservation(rdram_address, 8);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kSb: {
       const std::uint32_t effective_address =
           read_cpu_gpr_word(instruction.rs) +
@@ -1684,6 +1718,29 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       }
 
       write_cpu_memory_u32_be(effective_address, read_cpu_gpr_word(instruction.rt));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kSc: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+      const std::uint32_t source_value = read_cpu_gpr_word(instruction.rt);
+
+      if ((effective_address & 0x3u) != 0) {
+        fail_unaligned_word_memory_access("SC", effective_address);
+      }
+
+      const RdramOffset rdram_address =
+          require_cpu_rdram_address("SC", effective_address, 4);
+      const bool reservation_matched = cpu_rdram_reservation_matches(rdram_address, 4);
+      clear_cpu_rdram_reservation();
+
+      if (reservation_matched) {
+        write_rdram_u32_be(rdram_address, source_value);
+      }
+
+      write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
@@ -1764,6 +1821,29 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       }
 
       write_cpu_memory_u64_be(effective_address, read_cpu_gpr_value(instruction.rt));
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
+    case CpuInstructionIdentity::kScd: {
+      const CpuAddress effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+      const CpuRegisterValue source_value = read_cpu_gpr_value(instruction.rt);
+
+      if ((effective_address & 0x7u) != 0) {
+        fail_unaligned_doubleword_memory_access("SCD", effective_address);
+      }
+
+      const RdramOffset rdram_address =
+          require_cpu_rdram_address("SCD", effective_address, 8);
+      const bool reservation_matched = cpu_rdram_reservation_matches(rdram_address, 8);
+      clear_cpu_rdram_reservation();
+
+      if (reservation_matched) {
+        write_rdram_u64_be(rdram_address, source_value);
+      }
+
+      write_cpu_gpr_value(instruction.rt, reservation_matched ? 1u : 0u);
       return CpuInstructionExecutionResult::kExecuted;
     }
 

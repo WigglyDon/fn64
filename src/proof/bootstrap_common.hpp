@@ -228,6 +228,13 @@ constexpr CpuInstructionWord encode_lwu(
   return encode_i_type(0x27, rs, rt, immediate);
 }
 
+constexpr CpuInstructionWord encode_ll(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x30, rs, rt, immediate);
+}
+
 constexpr CpuInstructionWord encode_ldl(
     std::uint8_t rt,
     std::uint8_t rs,
@@ -247,6 +254,13 @@ constexpr CpuInstructionWord encode_ld(
     std::uint8_t rs,
     std::uint16_t immediate) {
   return encode_i_type(0x37, rs, rt, immediate);
+}
+
+constexpr CpuInstructionWord encode_lld(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x34, rs, rt, immediate);
 }
 
 constexpr CpuInstructionWord encode_sb(
@@ -277,6 +291,13 @@ constexpr CpuInstructionWord encode_sw(
   return encode_i_type(0x2b, rs, rt, immediate);
 }
 
+constexpr CpuInstructionWord encode_sc(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x38, rs, rt, immediate);
+}
+
 constexpr CpuInstructionWord encode_swr(
     std::uint8_t rt,
     std::uint8_t rs,
@@ -303,6 +324,13 @@ constexpr CpuInstructionWord encode_sd(
     std::uint8_t rs,
     std::uint16_t immediate) {
   return encode_i_type(0x3f, rs, rt, immediate);
+}
+
+constexpr CpuInstructionWord encode_scd(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x3c, rs, rt, immediate);
 }
 
 constexpr CpuInstructionWord encode_beql(

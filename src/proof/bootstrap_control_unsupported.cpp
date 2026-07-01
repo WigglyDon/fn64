@@ -217,16 +217,12 @@ void run_unsupported_instruction_demos(Machine& machine) {
   constexpr std::uint32_t kRegimmUnknownUnsupportedInstruction = 0x04040000u;
   constexpr std::uint32_t kUnknownPrimaryUnsupportedInstruction = 0xcc000000u;
   constexpr CpuInstructionWord kCacheUnsupportedInstruction = encode_i_type(0x2f, 6, 4, 0x0000u);
-  constexpr CpuInstructionWord kLlUnsupportedInstruction = encode_i_type(0x30, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kLwc1UnsupportedInstruction = encode_i_type(0x31, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kLwc2UnsupportedInstruction = encode_i_type(0x32, 6, 4, 0x0000u);
-  constexpr CpuInstructionWord kLldUnsupportedInstruction = encode_i_type(0x34, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kLdc1UnsupportedInstruction = encode_i_type(0x35, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kLdc2UnsupportedInstruction = encode_i_type(0x36, 6, 4, 0x0000u);
-  constexpr CpuInstructionWord kScUnsupportedInstruction = encode_i_type(0x38, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kSwc1UnsupportedInstruction = encode_i_type(0x39, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kSwc2UnsupportedInstruction = encode_i_type(0x3a, 6, 4, 0x0000u);
-  constexpr CpuInstructionWord kScdUnsupportedInstruction = encode_i_type(0x3c, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kSdc1UnsupportedInstruction = encode_i_type(0x3d, 6, 4, 0x0000u);
   constexpr CpuInstructionWord kSdc2UnsupportedInstruction = encode_i_type(0x3e, 6, 4, 0x0000u);
 
@@ -288,13 +284,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
 
   run_unsupported_identity_demo(
       machine,
-      "LL remains unsupported with rollback intact",
-      0x00000740u,
-      kLlUnsupportedInstruction,
-      0x7641u);
-
-  run_unsupported_identity_demo(
-      machine,
       "LWC1 remains unsupported with rollback intact",
       0x00000748u,
       kLwc1UnsupportedInstruction,
@@ -306,13 +295,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       0x0000074cu,
       kLwc2UnsupportedInstruction,
       0x764du);
-
-  run_unsupported_identity_demo(
-      machine,
-      "LLD remains unsupported with rollback intact",
-      0x00000750u,
-      kLldUnsupportedInstruction,
-      0x7651u);
 
   run_unsupported_identity_demo(
       machine,
@@ -330,13 +312,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
 
   run_unsupported_identity_demo(
       machine,
-      "SC remains unsupported with rollback intact",
-      0x00000770u,
-      kScUnsupportedInstruction,
-      0x7671u);
-
-  run_unsupported_identity_demo(
-      machine,
       "SWC1 remains unsupported with rollback intact",
       0x00000778u,
       kSwc1UnsupportedInstruction,
@@ -348,13 +323,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       0x0000077cu,
       kSwc2UnsupportedInstruction,
       0x767du);
-
-  run_unsupported_identity_demo(
-      machine,
-      "SCD remains unsupported with rollback intact",
-      0x00000780u,
-      kScdUnsupportedInstruction,
-      0x7681u);
 
   run_unsupported_identity_demo(
       machine,

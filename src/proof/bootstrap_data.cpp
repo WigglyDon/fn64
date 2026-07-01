@@ -3765,6 +3765,873 @@ void run_failed_doubleword_no_ghost_demo(Machine& machine) {
   }
 }
 
+void stage_rdram_u64_be(Machine& machine, RdramOffset address, CpuRegisterValue value) {
+  machine.stage_rdram_u32_be(address, static_cast<std::uint32_t>(value >> 32));
+  machine.stage_rdram_u32_be(address + 4u, static_cast<std::uint32_t>(value));
+}
+
+CpuRegisterValue inspect_rdram_u64_be(const Machine& machine, RdramOffset address) {
+  return (static_cast<CpuRegisterValue>(machine.inspect_rdram_u32_be(address)) << 32) |
+         static_cast<CpuRegisterValue>(machine.inspect_rdram_u32_be(address + 4u));
+}
+
+void stage_atomic_instruction(
+    Machine& machine,
+    RdramOffset address,
+    CpuInstructionWord instruction) {
+  machine.stage_rdram_u32_be(address, instruction);
+}
+
+void step_at(
+    Machine& machine,
+    RdramOffset address,
+    const char* label) {
+  machine.stage_cpu_pc(cpu_rdram_alias(address));
+  require_stepped(machine.step_cpu_instruction(), label);
+}
+
+void require_rdram_word_equals(
+    const Machine& machine,
+    RdramOffset address,
+    std::uint32_t expected,
+    const char* label) {
+  if (machine.inspect_rdram_u32_be(address) != expected) {
+    throw std::runtime_error(std::string(label) + " RDRAM word mismatch");
+  }
+}
+
+void require_rdram_doubleword_equals(
+    const Machine& machine,
+    RdramOffset address,
+    CpuRegisterValue expected,
+    const char* label) {
+  if (inspect_rdram_u64_be(machine, address) != expected) {
+    throw std::runtime_error(std::string(label) + " RDRAM doubleword mismatch");
+  }
+}
+
+void require_gpr_equals(
+    const Machine& machine,
+    std::size_t index,
+    CpuRegisterValue expected,
+    const char* label) {
+  if (machine.inspect_cpu_gpr(index) != expected) {
+    throw std::runtime_error(std::string(label) + " GPR mismatch");
+  }
+}
+
+void run_load_link_store_conditional_success_demo() {
+  std::cout << "fn64 bootstrap LL/SC demo: local single-Machine RDRAM reservation success paths\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kResultIndex = 5;
+    constexpr RdramOffset kLlAddress = 0x00000a00u;
+    constexpr RdramOffset kScAddress = 0x00000a04u;
+    constexpr RdramOffset kDataAddress = 0x00000a80u;
+    constexpr std::uint32_t kInitialWord = 0x8000007fu;
+    constexpr CpuRegisterValue kScSource = 0x11223344aabbccddu;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kResultIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kResultIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, kInitialWord);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+
+    step_at(machine, kLlAddress, "ll_sc_demo_ll");
+    require_gpr_equals(
+        machine,
+        kResultIndex,
+        cpu_value_from_sign_extended_u32(kInitialWord),
+        "ll_sc_demo_ll");
+
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_uncached_alias(kDataAddress));
+    machine.stage_cpu_gpr(kResultIndex, kScSource);
+    step_at(machine, kScAddress, "ll_sc_demo_sc_alias_success");
+
+    require_gpr_equals(machine, kResultIndex, 1, "ll_sc_demo_sc_alias_success");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        static_cast<std::uint32_t>(kScSource),
+        "ll_sc_demo_sc_alias_success");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kResultIndex = 6;
+    constexpr RdramOffset kLldAddress = 0x00000a20u;
+    constexpr RdramOffset kScdAddress = 0x00000a24u;
+    constexpr RdramOffset kDataAddress = 0x00000ac0u;
+    constexpr CpuRegisterValue kInitialValue = 0x1122334455667788ull;
+    constexpr CpuRegisterValue kScdSource = 0xaabbccddeeff0011ull;
+
+    stage_atomic_instruction(
+        machine,
+        kLldAddress,
+        encode_lld(static_cast<std::uint8_t>(kResultIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScdAddress,
+        encode_scd(static_cast<std::uint8_t>(kResultIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, kInitialValue);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+
+    step_at(machine, kLldAddress, "ll_sc_demo_lld");
+    require_gpr_equals(machine, kResultIndex, kInitialValue, "ll_sc_demo_lld");
+
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_uncached_alias(kDataAddress));
+    machine.stage_cpu_gpr(kResultIndex, kScdSource);
+    step_at(machine, kScdAddress, "ll_sc_demo_scd_alias_success");
+
+    require_gpr_equals(machine, kResultIndex, 1, "ll_sc_demo_scd_alias_success");
+    require_rdram_doubleword_equals(
+        machine,
+        kDataAddress,
+        kScdSource,
+        "ll_sc_demo_scd_alias_success");
+  }
+}
+
+void run_store_conditional_failure_demo() {
+  std::cout << "fn64 bootstrap LL/SC demo: reservation miss and width mismatch paths\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kSourceIndex = 7;
+    constexpr RdramOffset kScAddress = 0x00000b00u;
+    constexpr RdramOffset kDataAddress = 0x00000b80u;
+    constexpr std::uint32_t kInitialWord = 0x11112222u;
+
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, kInitialWord);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddu);
+    step_at(machine, kScAddress, "sc_failure_demo_no_reservation");
+
+    require_gpr_equals(machine, kSourceIndex, 0, "sc_failure_demo_no_reservation");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        kInitialWord,
+        "sc_failure_demo_no_reservation");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kSourceIndex = 7;
+    constexpr RdramOffset kScdAddress = 0x00000b20u;
+    constexpr RdramOffset kDataAddress = 0x00000bc0u;
+    constexpr CpuRegisterValue kInitialValue = 0x0102030405060708ull;
+
+    stage_atomic_instruction(
+        machine,
+        kScdAddress,
+        encode_scd(static_cast<std::uint8_t>(kSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, kInitialValue);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddeeff0011ull);
+    step_at(machine, kScdAddress, "sc_failure_demo_scd_no_reservation");
+
+    require_gpr_equals(machine, kSourceIndex, 0, "sc_failure_demo_scd_no_reservation");
+    require_rdram_doubleword_equals(
+        machine,
+        kDataAddress,
+        kInitialValue,
+        "sc_failure_demo_scd_no_reservation");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr std::size_t kSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00000b40u;
+    constexpr RdramOffset kScAddress = 0x00000b44u;
+    constexpr RdramOffset kDataAddress = 0x00000c00u;
+    constexpr std::uint32_t kSecondWord = 0x33334444u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 4));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_rdram_u32_be(kDataAddress + 4u, kSecondWord);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddu);
+
+    step_at(machine, kLlAddress, "sc_failure_demo_ll");
+    step_at(machine, kScAddress, "sc_failure_demo_different_offset");
+
+    require_gpr_equals(machine, kSourceIndex, 0, "sc_failure_demo_different_offset");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress + 4u,
+        kSecondWord,
+        "sc_failure_demo_different_offset");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr std::size_t kSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00000b60u;
+    constexpr RdramOffset kScdAddress = 0x00000b64u;
+    constexpr RdramOffset kDataAddress = 0x00000c40u;
+    constexpr CpuRegisterValue kInitialValue = 0x0102030405060708ull;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScdAddress,
+        encode_scd(static_cast<std::uint8_t>(kSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, kInitialValue);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddeeff0011ull);
+
+    step_at(machine, kLlAddress, "sc_failure_demo_width_ll");
+    step_at(machine, kScdAddress, "sc_failure_demo_ll_then_scd");
+
+    require_gpr_equals(machine, kSourceIndex, 0, "sc_failure_demo_ll_then_scd");
+    require_rdram_doubleword_equals(machine, kDataAddress, kInitialValue, "sc_failure_demo_ll_then_scd");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLldTargetIndex = 5;
+    constexpr std::size_t kSourceIndex = 7;
+    constexpr RdramOffset kLldAddress = 0x00000b80u;
+    constexpr RdramOffset kScAddress = 0x00000b84u;
+    constexpr RdramOffset kDataAddress = 0x00000c80u;
+    constexpr std::uint32_t kInitialWord = 0x01020304u;
+
+    stage_atomic_instruction(
+        machine,
+        kLldAddress,
+        encode_lld(static_cast<std::uint8_t>(kLldTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, 0x0102030405060708ull);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddu);
+
+    step_at(machine, kLldAddress, "sc_failure_demo_width_lld");
+    step_at(machine, kScAddress, "sc_failure_demo_lld_then_sc");
+
+    require_gpr_equals(machine, kSourceIndex, 0, "sc_failure_demo_lld_then_sc");
+    require_rdram_word_equals(machine, kDataAddress, kInitialWord, "sc_failure_demo_lld_then_sc");
+  }
+}
+
+void run_store_conditional_invalidation_demo() {
+  std::cout << "fn64 bootstrap LL/SC demo: overlapping RDRAM writes invalidate reservations\n";
+
+  const auto require_word_store_invalidates =
+      [](const char* label,
+         CpuInstructionWord store_instruction,
+         CpuRegisterValue store_source,
+         std::uint32_t expected_after_store) {
+        auto machine_storage = std::make_unique<Machine>(Cartridge{});
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kBaseIndex = 4;
+        constexpr std::size_t kLlTargetIndex = 5;
+        constexpr std::size_t kStoreSourceIndex = 6;
+        constexpr std::size_t kScSourceIndex = 7;
+        constexpr RdramOffset kLlAddress = 0x00000c00u;
+        constexpr RdramOffset kStoreAddress = 0x00000c04u;
+        constexpr RdramOffset kScAddress = 0x00000c08u;
+        constexpr RdramOffset kDataAddress = 0x00000d00u;
+
+        stage_atomic_instruction(
+            machine,
+            kLlAddress,
+            encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+        stage_atomic_instruction(machine, kStoreAddress, store_instruction);
+        stage_atomic_instruction(
+            machine,
+            kScAddress,
+            encode_sc(static_cast<std::uint8_t>(kScSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+        machine.stage_rdram_u32_be(kDataAddress, 0x01020304u);
+        machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+        machine.stage_cpu_gpr(kStoreSourceIndex, store_source);
+        machine.stage_cpu_gpr(kScSourceIndex, 0x88776655u);
+
+        step_at(machine, kLlAddress, label);
+        step_at(machine, kStoreAddress, label);
+        require_rdram_word_equals(machine, kDataAddress, expected_after_store, label);
+        step_at(machine, kScAddress, label);
+
+        require_gpr_equals(machine, kScSourceIndex, 0, label);
+        require_rdram_word_equals(machine, kDataAddress, expected_after_store, label);
+      };
+
+  require_word_store_invalidates(
+      "ll_sc_invalidation_demo_sw",
+      encode_sw(6, 4, 0),
+      0xaabbccddu,
+      0xaabbccddu);
+  require_word_store_invalidates(
+      "ll_sc_invalidation_demo_sb",
+      encode_sb(6, 4, 1),
+      0x000000aau,
+      0x01aa0304u);
+  require_word_store_invalidates(
+      "ll_sc_invalidation_demo_sh",
+      encode_sh(6, 4, 2),
+      0x0000bbccu,
+      0x0102bbccu);
+  require_word_store_invalidates(
+      "ll_sc_invalidation_demo_swl",
+      encode_swl(6, 4, 1),
+      0xaabbccddu,
+      0x01aabbccu);
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kOtherBaseIndex = 8;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr std::size_t kStoreSourceIndex = 6;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00000c20u;
+    constexpr RdramOffset kStoreAddress = 0x00000c24u;
+    constexpr RdramOffset kScAddress = 0x00000c28u;
+    constexpr RdramOffset kReservedAddress = 0x00000d20u;
+    constexpr RdramOffset kOtherAddress = 0x00000d40u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kStoreAddress,
+        encode_sw(static_cast<std::uint8_t>(kStoreSourceIndex), static_cast<std::uint8_t>(kOtherBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kScSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kReservedAddress, 0x11112222u);
+    machine.stage_rdram_u32_be(kOtherAddress, 0x33334444u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kReservedAddress));
+    machine.stage_cpu_gpr(kOtherBaseIndex, cpu_rdram_alias(kOtherAddress));
+    machine.stage_cpu_gpr(kStoreSourceIndex, 0x55667788u);
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+
+    step_at(machine, kLlAddress, "ll_sc_invalidation_demo_non_overlap_ll");
+    step_at(machine, kStoreAddress, "ll_sc_invalidation_demo_non_overlap_sw");
+    step_at(machine, kScAddress, "ll_sc_invalidation_demo_non_overlap_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 1, "ll_sc_invalidation_demo_non_overlap_sc");
+    require_rdram_word_equals(
+        machine,
+        kReservedAddress,
+        0xaabbccddu,
+        "ll_sc_invalidation_demo_non_overlap_sc");
+    require_rdram_word_equals(
+        machine,
+        kOtherAddress,
+        0x55667788u,
+        "ll_sc_invalidation_demo_non_overlap_sc");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLldTargetIndex = 5;
+    constexpr std::size_t kStoreSourceIndex = 6;
+    constexpr std::size_t kScdSourceIndex = 7;
+    constexpr RdramOffset kLldAddress = 0x00000c40u;
+    constexpr RdramOffset kSdAddress = 0x00000c44u;
+    constexpr RdramOffset kScdAddress = 0x00000c48u;
+    constexpr RdramOffset kDataAddress = 0x00000d80u;
+    constexpr CpuRegisterValue kStoreValue = 0x0102030405060708ull;
+
+    stage_atomic_instruction(
+        machine,
+        kLldAddress,
+        encode_lld(static_cast<std::uint8_t>(kLldTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kSdAddress,
+        encode_sd(static_cast<std::uint8_t>(kStoreSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScdAddress,
+        encode_scd(static_cast<std::uint8_t>(kScdSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, 0xaabbccddeeff0011ull);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kStoreSourceIndex, kStoreValue);
+    machine.stage_cpu_gpr(kScdSourceIndex, 0x1122334455667788ull);
+
+    step_at(machine, kLldAddress, "ll_sc_invalidation_demo_lld");
+    step_at(machine, kSdAddress, "ll_sc_invalidation_demo_sd");
+    require_rdram_doubleword_equals(machine, kDataAddress, kStoreValue, "ll_sc_invalidation_demo_sd");
+    step_at(machine, kScdAddress, "ll_sc_invalidation_demo_scd_after_sd");
+
+    require_gpr_equals(machine, kScdSourceIndex, 0, "ll_sc_invalidation_demo_scd_after_sd");
+    require_rdram_doubleword_equals(
+        machine,
+        kDataAddress,
+        kStoreValue,
+        "ll_sc_invalidation_demo_scd_after_sd");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLldTargetIndex = 5;
+    constexpr std::size_t kStoreSourceIndex = 6;
+    constexpr std::size_t kScdSourceIndex = 7;
+    constexpr RdramOffset kLldAddress = 0x00000c60u;
+    constexpr RdramOffset kSdlAddress = 0x00000c64u;
+    constexpr RdramOffset kScdAddress = 0x00000c68u;
+    constexpr RdramOffset kDataAddress = 0x00000dc0u;
+
+    stage_atomic_instruction(
+        machine,
+        kLldAddress,
+        encode_lld(static_cast<std::uint8_t>(kLldTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kSdlAddress,
+        encode_sdl(static_cast<std::uint8_t>(kStoreSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 2));
+    stage_atomic_instruction(
+        machine,
+        kScdAddress,
+        encode_scd(static_cast<std::uint8_t>(kScdSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, 0xaaaaaaaabbbbbbbbull);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kStoreSourceIndex, 0x1122334455667788ull);
+    machine.stage_cpu_gpr(kScdSourceIndex, 0x99aabbccddeeff00ull);
+
+    step_at(machine, kLldAddress, "ll_sc_invalidation_demo_lld_partial");
+    step_at(machine, kSdlAddress, "ll_sc_invalidation_demo_sdl");
+    require_rdram_doubleword_equals(
+        machine,
+        kDataAddress,
+        0xaaaa112233445566ull,
+        "ll_sc_invalidation_demo_sdl");
+    step_at(machine, kScdAddress, "ll_sc_invalidation_demo_scd_after_sdl");
+
+    require_gpr_equals(machine, kScdSourceIndex, 0, "ll_sc_invalidation_demo_scd_after_sdl");
+    require_rdram_doubleword_equals(
+        machine,
+        kDataAddress,
+        0xaaaa112233445566ull,
+        "ll_sc_invalidation_demo_scd_after_sdl");
+  }
+}
+
+void run_public_staging_reservation_demo() {
+  std::cout << "fn64 bootstrap LL/SC demo: public staging interactions with local reservations\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00000d00u;
+    constexpr RdramOffset kScAddress = 0x00000d04u;
+    constexpr RdramOffset kDataAddress = 0x00000e00u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kScSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+
+    step_at(machine, kLlAddress, "public_staging_demo_ll");
+    machine.stage_rdram_u32_be(kDataAddress, 0x33334444u);
+    step_at(machine, kScAddress, "public_staging_demo_stage_overlap_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 0, "public_staging_demo_stage_overlap_sc");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        0x33334444u,
+        "public_staging_demo_stage_overlap_sc");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00000d20u;
+    constexpr RdramOffset kScAddress = 0x00000d24u;
+    constexpr RdramOffset kDataAddress = 0x00000e20u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kScSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+
+    step_at(machine, kLlAddress, "public_staging_demo_failed_stage_ll");
+    try {
+      machine.stage_rdram_u32_be(0x003ffffeu, 0x33334444u);
+    } catch (const std::exception& e) {
+      std::cout << "  failed public RDRAM staging threw: " << e.what() << '\n';
+    }
+    step_at(machine, kScAddress, "public_staging_demo_failed_stage_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 1, "public_staging_demo_failed_stage_sc");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        0xaabbccddu,
+        "public_staging_demo_failed_stage_sc");
+  }
+
+  {
+    const std::vector<std::uint8_t> rom =
+        make_bootstrap_cartridge_staging_rom(0xdeadbeefu, 0x00000000u);
+    Cartridge cartridge;
+    std::string error;
+    if (!load_cartridge(rom, cartridge, error)) {
+      throw std::runtime_error("public staging reservation demo could not load cartridge: " + error);
+    }
+
+    auto machine_storage = std::make_unique<Machine>(std::move(cartridge));
+
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00000d40u;
+    constexpr RdramOffset kScAddress = 0x00000d44u;
+    constexpr RdramOffset kDataAddress = 0x00000e40u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kScSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+
+    step_at(machine, kLlAddress, "public_staging_demo_cartridge_ll");
+    machine.stage_cartridge_bytes_to_rdram(0x40u, kDataAddress, 4);
+    step_at(machine, kScAddress, "public_staging_demo_cartridge_overlap_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 0, "public_staging_demo_cartridge_overlap_sc");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        0xdeadbeefu,
+        "public_staging_demo_cartridge_overlap_sc");
+  }
+}
+
+void run_store_conditional_register_order_demo() {
+  std::cout << "fn64 bootstrap LL/SC demo: SC/SCD source and address are read before result write\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseAndSourceIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr RdramOffset kLlAddress = 0x00000d80u;
+    constexpr RdramOffset kScAddress = 0x00000d84u;
+    constexpr RdramOffset kDataAddress = 0x00000e80u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseAndSourceIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kScAddress,
+        encode_sc(static_cast<std::uint8_t>(kBaseAndSourceIndex), static_cast<std::uint8_t>(kBaseAndSourceIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kBaseAndSourceIndex, cpu_rdram_alias(kDataAddress));
+
+    step_at(machine, kLlAddress, "sc_register_order_demo_ll");
+    step_at(machine, kScAddress, "sc_register_order_demo_sc_rt_is_base");
+
+    require_gpr_equals(machine, kBaseAndSourceIndex, 1, "sc_register_order_demo_sc_rt_is_base");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        cpu_rdram_alias(kDataAddress),
+        "sc_register_order_demo_sc_rt_is_base");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr RdramOffset kLlAddress = 0x00000da0u;
+    constexpr RdramOffset kScAddress = 0x00000da4u;
+    constexpr RdramOffset kDataAddress = 0x00000ea0u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(machine, kScAddress, encode_sc(0, static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+
+    step_at(machine, kLlAddress, "sc_register_order_demo_zero_ll");
+    step_at(machine, kScAddress, "sc_register_order_demo_zero_sc_success");
+
+    require_gpr_equals(machine, 0, 0, "sc_register_order_demo_zero_sc_success");
+    require_rdram_word_equals(machine, kDataAddress, 0, "sc_register_order_demo_zero_sc_success");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr RdramOffset kScAddress = 0x00000dc0u;
+    constexpr RdramOffset kDataAddress = 0x00000ec0u;
+
+    stage_atomic_instruction(machine, kScAddress, encode_sc(0, static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    step_at(machine, kScAddress, "sc_register_order_demo_zero_sc_failure");
+
+    require_gpr_equals(machine, 0, 0, "sc_register_order_demo_zero_sc_failure");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        0x11112222u,
+        "sc_register_order_demo_zero_sc_failure");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLldTargetIndex = 5;
+    constexpr RdramOffset kLldAddress = 0x00000dd0u;
+    constexpr RdramOffset kScdAddress = 0x00000dd4u;
+    constexpr RdramOffset kDataAddress = 0x00000ee0u;
+
+    stage_atomic_instruction(
+        machine,
+        kLldAddress,
+        encode_lld(static_cast<std::uint8_t>(kLldTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(machine, kScdAddress, encode_scd(0, static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, 0x1122334455667788ull);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+
+    step_at(machine, kLldAddress, "sc_register_order_demo_zero_lld");
+    step_at(machine, kScdAddress, "sc_register_order_demo_zero_scd_success");
+
+    require_gpr_equals(machine, 0, 0, "sc_register_order_demo_zero_scd_success");
+    require_rdram_doubleword_equals(
+        machine,
+        kDataAddress,
+        0,
+        "sc_register_order_demo_zero_scd_success");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr RdramOffset kScdAddress = 0x00000df0u;
+    constexpr RdramOffset kDataAddress = 0x00000ef0u;
+    constexpr CpuRegisterValue kInitialValue = 0x1122334455667788ull;
+
+    stage_atomic_instruction(machine, kScdAddress, encode_scd(0, static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_rdram_u64_be(machine, kDataAddress, kInitialValue);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    step_at(machine, kScdAddress, "sc_register_order_demo_zero_scd_failure");
+
+    require_gpr_equals(machine, 0, 0, "sc_register_order_demo_zero_scd_failure");
+    require_rdram_doubleword_equals(
+        machine,
+        kDataAddress,
+        kInitialValue,
+        "sc_register_order_demo_zero_scd_failure");
+  }
+}
+
+void run_load_link_store_conditional_fault_demo() {
+  std::cout << "fn64 bootstrap LL/SC demo: local MachineFault paths do not mutate visible state\n";
+
+  const auto require_fault_case =
+      [](const char* label,
+         CpuInstructionWord instruction,
+         CpuAddress base_value,
+         MachineFaultKind expected_kind,
+         std::size_t expected_access_size) {
+        auto machine_storage = std::make_unique<Machine>(Cartridge{});
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kBaseIndex = 4;
+        constexpr std::size_t kTargetIndex = 7;
+        constexpr RdramOffset kInstructionAddress = 0x00000e00u;
+        constexpr RdramOffset kSentinelAddress = 0x00000f00u;
+        constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+        constexpr std::uint32_t kRdramSentinel = 0xaabbccddu;
+
+        stage_atomic_instruction(machine, kInstructionAddress, instruction);
+        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+        machine.stage_cpu_gpr(kBaseIndex, base_value);
+        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+        machine.stage_rdram_u32_be(kSentinelAddress, kRdramSentinel);
+
+        require_step_machine_fault(machine, label, expected_kind, expected_access_size);
+
+        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
+            machine.cpu_next_pc() != cpu_rdram_alias(kInstructionAddress + 4u)) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
+        }
+
+        require_gpr_equals(machine, kTargetIndex, kTargetSentinel, label);
+        require_rdram_word_equals(machine, kSentinelAddress, kRdramSentinel, label);
+      };
+
+  require_fault_case(
+      "ll_fault_demo_misaligned_ll",
+      encode_ll(7, 4, 0),
+      cpu_rdram_alias(0x00001001u),
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      4);
+  require_fault_case(
+      "ll_fault_demo_out_of_range_ll",
+      encode_ll(7, 4, 0),
+      cpu_rdram_alias(0x00400000u),
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+  require_fault_case(
+      "ll_fault_demo_misaligned_lld",
+      encode_lld(7, 4, 0),
+      cpu_rdram_alias(0x00001004u),
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      8);
+  require_fault_case(
+      "ll_fault_demo_out_of_range_lld",
+      encode_lld(7, 4, 0),
+      cpu_rdram_alias(0x00400000u),
+      MachineFaultKind::kCpuRdramAddressRejected,
+      8);
+  require_fault_case(
+      "ll_fault_demo_misaligned_sc",
+      encode_sc(7, 4, 0),
+      cpu_rdram_alias(0x00001001u),
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      4);
+  require_fault_case(
+      "ll_fault_demo_out_of_range_sc",
+      encode_sc(7, 4, 0),
+      cpu_rdram_alias(0x00400000u),
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+  require_fault_case(
+      "ll_fault_demo_misaligned_scd",
+      encode_scd(7, 4, 0),
+      cpu_rdram_alias(0x00001004u),
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      8);
+  require_fault_case(
+      "ll_fault_demo_out_of_range_scd",
+      encode_scd(7, 4, 0),
+      cpu_rdram_alias(0x00400000u),
+      MachineFaultKind::kCpuRdramAddressRejected,
+      8);
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLlTargetIndex = 5;
+    constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kLlAddress = 0x00000e40u;
+    constexpr RdramOffset kBadScAddress = 0x00000e44u;
+    constexpr RdramOffset kGoodScAddress = 0x00000e48u;
+    constexpr RdramOffset kDataAddress = 0x00000f40u;
+
+    stage_atomic_instruction(
+        machine,
+        kLlAddress,
+        encode_ll(static_cast<std::uint8_t>(kLlTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    stage_atomic_instruction(
+        machine,
+        kBadScAddress,
+        encode_sc(static_cast<std::uint8_t>(kScSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 1));
+    stage_atomic_instruction(
+        machine,
+        kGoodScAddress,
+        encode_sc(static_cast<std::uint8_t>(kScSourceIndex), static_cast<std::uint8_t>(kBaseIndex), 0));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11112222u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+
+    step_at(machine, kLlAddress, "ll_fault_demo_sc_preserve_reservation_ll");
+    machine.stage_cpu_pc(cpu_rdram_alias(kBadScAddress));
+    require_step_machine_fault(
+        machine,
+        "ll_fault_demo_sc_preserve_reservation_fault",
+        MachineFaultKind::kUnalignedCpuMemoryAccess,
+        4);
+    step_at(machine, kGoodScAddress, "ll_fault_demo_sc_preserve_reservation_sc");
+
+    require_gpr_equals(machine, kScSourceIndex, 1, "ll_fault_demo_sc_preserve_reservation_sc");
+    require_rdram_word_equals(
+        machine,
+        kDataAddress,
+        0xaabbccddu,
+        "ll_fault_demo_sc_preserve_reservation_sc");
+  }
+}
+
 void run_negative_out_of_range_guard_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 27;
@@ -3893,6 +4760,12 @@ void run_data_demos(Machine& machine) {
   run_failed_partial_doubleword_no_ghost_demo(machine);
   run_failed_unsigned_word_load_no_ghost_demo(machine);
   run_failed_doubleword_no_ghost_demo(machine);
+  run_load_link_store_conditional_success_demo();
+  run_store_conditional_failure_demo();
+  run_store_conditional_invalidation_demo();
+  run_public_staging_reservation_demo();
+  run_store_conditional_register_order_demo();
+  run_load_link_store_conditional_fault_demo();
   run_negative_out_of_range_guard_demo(machine);
 }
 

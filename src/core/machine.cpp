@@ -106,6 +106,7 @@ Machine::Machine(Cartridge cartridge)
 void Machine::reset_to_blank_rdram_power_on_state() {
   powered_on_ = true;
   rdram_.fill(0);
+  clear_cpu_rdram_reservation();
   cpu_pc_ = kBlankInitialCpuPc;
   cpu_next_pc_ = kBlankInitialCpuNextPc;
   cpu_hi_ = 0;
@@ -202,11 +203,49 @@ CpuRegisterValue Machine::read_rdram_u64_be(RdramOffset address) const {
          static_cast<CpuRegisterValue>(rdram_[address + 7]);
 }
 
+void Machine::clear_cpu_rdram_reservation() noexcept {
+  cpu_rdram_reservation_ = {};
+}
+
+void Machine::set_cpu_rdram_reservation(RdramOffset address, std::size_t width) noexcept {
+  cpu_rdram_reservation_.valid = true;
+  cpu_rdram_reservation_.rdram_offset = address;
+  cpu_rdram_reservation_.width = width;
+}
+
+bool Machine::cpu_rdram_reservation_matches(
+    RdramOffset address,
+    std::size_t width) const noexcept {
+  return cpu_rdram_reservation_.valid &&
+         cpu_rdram_reservation_.rdram_offset == address &&
+         cpu_rdram_reservation_.width == width;
+}
+
+void Machine::invalidate_cpu_rdram_reservation_for_write(
+    RdramOffset address,
+    std::size_t width) noexcept {
+  if (!cpu_rdram_reservation_.valid || width == 0) {
+    return;
+  }
+
+  const std::uint64_t write_begin = static_cast<std::uint64_t>(address);
+  const std::uint64_t write_end = write_begin + static_cast<std::uint64_t>(width);
+  const std::uint64_t reservation_begin =
+      static_cast<std::uint64_t>(cpu_rdram_reservation_.rdram_offset);
+  const std::uint64_t reservation_end =
+      reservation_begin + static_cast<std::uint64_t>(cpu_rdram_reservation_.width);
+
+  if (write_begin < reservation_end && reservation_begin < write_end) {
+    clear_cpu_rdram_reservation();
+  }
+}
+
 void Machine::write_rdram_u8(RdramOffset address, std::uint8_t value) {
   if (address >= rdram_.size()) {
     fail_rdram_access(address, 1);
   }
 
+  invalidate_cpu_rdram_reservation_for_write(address, 1);
   rdram_[address] = value;
 }
 
@@ -215,6 +254,7 @@ void Machine::write_rdram_u16_be(RdramOffset address, std::uint16_t value) {
     fail_rdram_access(address, 2);
   }
 
+  invalidate_cpu_rdram_reservation_for_write(address, 2);
   rdram_[address] = static_cast<std::uint8_t>((value >> 8) & 0xff);
   rdram_[address + 1] = static_cast<std::uint8_t>(value & 0xff);
 }
@@ -228,6 +268,7 @@ void Machine::write_rdram_u32_be(RdramOffset address, std::uint32_t value) {
     fail_rdram_access(address, 4);
   }
 
+  invalidate_cpu_rdram_reservation_for_write(address, 4);
   rdram_[address] = static_cast<std::uint8_t>((value >> 24) & 0xff);
   rdram_[address + 1] = static_cast<std::uint8_t>((value >> 16) & 0xff);
   rdram_[address + 2] = static_cast<std::uint8_t>((value >> 8) & 0xff);
@@ -239,6 +280,7 @@ void Machine::write_rdram_u64_be(RdramOffset address, CpuRegisterValue value) {
     fail_rdram_access(address, 8);
   }
 
+  invalidate_cpu_rdram_reservation_for_write(address, 8);
   rdram_[address] = static_cast<std::uint8_t>((value >> 56) & 0xff);
   rdram_[address + 1] = static_cast<std::uint8_t>((value >> 48) & 0xff);
   rdram_[address + 2] = static_cast<std::uint8_t>((value >> 40) & 0xff);

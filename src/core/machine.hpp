@@ -129,6 +129,14 @@ private:
     std::uint32_t jump_target = 0;
   };
 
+  // Local single-Machine LL/SC reservation state for Machine-owned RDRAM only.
+  // This is not cache coherence, memory ordering, SMP, TLB, or COP0 behavior.
+  struct CpuRdramReservation {
+    bool valid = false;
+    RdramOffset rdram_offset = 0;
+    std::size_t width = 0;
+  };
+
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
@@ -285,6 +293,13 @@ private:
   void write_rdram_u32_be(RdramOffset address, std::uint32_t value);
   void write_rdram_u64_be(RdramOffset address, CpuRegisterValue value);
 
+  void clear_cpu_rdram_reservation() noexcept;
+  void set_cpu_rdram_reservation(RdramOffset address, std::size_t width) noexcept;
+  bool cpu_rdram_reservation_matches(RdramOffset address, std::size_t width) const noexcept;
+  void invalidate_cpu_rdram_reservation_for_write(
+      RdramOffset address,
+      std::size_t width) noexcept;
+
   static RdramOffset require_cpu_rdram_address(
       const char* operation,
       CpuAddress cpu_address,
@@ -347,6 +362,7 @@ private:
   Cartridge cartridge_;
   bool powered_on_ = false;
   std::array<std::uint8_t, kRdramSizeBytes> rdram_{};
+  CpuRdramReservation cpu_rdram_reservation_{};
 
   CpuAddress cpu_pc_ = kBlankInitialCpuPc;
   CpuAddress cpu_next_pc_ = kBlankInitialCpuNextPc;
