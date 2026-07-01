@@ -302,13 +302,19 @@ private:
 
   CpuRegisterValue cpu_hi() const;
   CpuRegisterValue cpu_lo() const;
-  CpuRegisterValue read_cpu_gpr(std::size_t index) const;
+  // Full-value helpers touch the current GPR storage/staging surface. Word
+  // helpers are the current local 32-bit instruction operand/result seam; a
+  // future CpuRegisterValue widening should make extension/narrowing choices
+  // here instead of accidentally widening every executed word operation.
+  CpuRegisterValue read_cpu_gpr_value(std::size_t index) const;
+  std::uint32_t read_cpu_gpr_word(std::size_t index) const;
 
   void write_cpu_pc(CpuAddress value);
   void write_cpu_next_pc(CpuAddress value);
   void write_cpu_hi(CpuRegisterValue value);
   void write_cpu_lo(CpuRegisterValue value);
-  void write_cpu_gpr(std::size_t index, CpuRegisterValue value);
+  void write_cpu_gpr_value(std::size_t index, CpuRegisterValue value);
+  void write_cpu_gpr_word_result(std::size_t index, std::uint32_t value);
 
   CpuInstructionWord fetch_cpu_instruction_word() const;
 

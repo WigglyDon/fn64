@@ -83,11 +83,11 @@ namespace {
       std::string(operation) + " overflow");
 }
 
-std::uint8_t variable_shift_amount_u32(CpuRegisterValue value) {
+std::uint8_t variable_shift_amount_u32(std::uint32_t value) {
   return static_cast<std::uint8_t>(value & 0x1fu);
 }
 
-CpuRegisterValue arithmetic_shift_right_u32(CpuRegisterValue value, std::uint8_t sa) {
+std::uint32_t arithmetic_shift_right_u32(std::uint32_t value, std::uint8_t sa) {
   if (sa == 0) {
     return value;
   }
@@ -101,7 +101,7 @@ CpuRegisterValue arithmetic_shift_right_u32(CpuRegisterValue value, std::uint8_t
   return shifted | fill_mask;
 }
 
-std::int32_t i32_from_u32_bits(CpuRegisterValue value) {
+std::int32_t i32_from_u32_bits(std::uint32_t value) {
   if ((value & 0x80000000u) == 0) {
     return static_cast<std::int32_t>(value);
   }
@@ -116,7 +116,7 @@ bool signed_i32_result_out_of_range(std::int64_t value) {
          value > static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
 }
 
-CpuRegisterValue u32_bits_from_i32_value(std::int64_t value) {
+std::uint32_t u32_bits_from_i32_value(std::int64_t value) {
   if (value < 0) {
     return static_cast<std::uint32_t>(0x100000000ll + value);
   }
@@ -134,23 +134,23 @@ std::int16_t i16_from_u16_bits(std::uint16_t value) {
   return static_cast<std::int16_t>(signed_value);
 }
 
-bool signed_register_value_greater_equal(CpuRegisterValue lhs, CpuRegisterValue rhs) {
+bool signed_register_value_greater_equal(std::uint32_t lhs, std::uint32_t rhs) {
   return i32_from_u32_bits(lhs) >= i32_from_u32_bits(rhs);
 }
 
-bool signed_register_value_less_than(CpuRegisterValue lhs, CpuRegisterValue rhs) {
+bool signed_register_value_less_than(std::uint32_t lhs, std::uint32_t rhs) {
   return i32_from_u32_bits(lhs) < i32_from_u32_bits(rhs);
 }
 
-bool signed_register_value_greater_equal_immediate(CpuRegisterValue lhs, std::int16_t rhs) {
+bool signed_register_value_greater_equal_immediate(std::uint32_t lhs, std::int16_t rhs) {
   return i32_from_u32_bits(lhs) >= static_cast<std::int32_t>(rhs);
 }
 
-bool signed_register_value_less_than_immediate(CpuRegisterValue lhs, std::int16_t rhs) {
+bool signed_register_value_less_than_immediate(std::uint32_t lhs, std::int16_t rhs) {
   return i32_from_u32_bits(lhs) < static_cast<std::int32_t>(rhs);
 }
 
-CpuRegisterValue sign_extend_u8_to_u32(std::uint8_t value) {
+std::uint32_t sign_extend_u8_to_u32(std::uint8_t value) {
   if ((value & 0x80u) == 0) {
     return static_cast<std::uint32_t>(value);
   }
@@ -158,7 +158,7 @@ CpuRegisterValue sign_extend_u8_to_u32(std::uint8_t value) {
   return 0xffffff00u | static_cast<std::uint32_t>(value);
 }
 
-CpuRegisterValue sign_extend_u16_to_u32(std::uint16_t value) {
+std::uint32_t sign_extend_u16_to_u32(std::uint16_t value) {
   if ((value & 0x8000u) == 0) {
     return static_cast<std::uint32_t>(value);
   }
@@ -166,11 +166,11 @@ CpuRegisterValue sign_extend_u16_to_u32(std::uint16_t value) {
   return 0xffff0000u | static_cast<std::uint32_t>(value);
 }
 
-CpuRegisterValue low_u32(std::uint64_t value) {
+std::uint32_t low_u32(std::uint64_t value) {
   return static_cast<std::uint32_t>(value & 0xffffffffull);
 }
 
-CpuRegisterValue high_u32(std::uint64_t value) {
+std::uint32_t high_u32(std::uint64_t value) {
   return static_cast<std::uint32_t>(value >> 32);
 }
 
@@ -271,7 +271,7 @@ CpuRegisterValue Machine::inspect_cpu_lo() const {
 }
 
 CpuRegisterValue Machine::inspect_cpu_gpr(std::size_t index) const {
-  return read_cpu_gpr(index);
+  return read_cpu_gpr_value(index);
 }
 
 CpuRegisterValue Machine::cpu_hi() const {
@@ -282,7 +282,7 @@ CpuRegisterValue Machine::cpu_lo() const {
   return cpu_lo_;
 }
 
-CpuRegisterValue Machine::read_cpu_gpr(std::size_t index) const {
+CpuRegisterValue Machine::read_cpu_gpr_value(std::size_t index) const {
   if (index >= cpu_gprs_.size()) {
     fail_cpu_gpr_index(index);
   }
@@ -292,6 +292,10 @@ CpuRegisterValue Machine::read_cpu_gpr(std::size_t index) const {
   }
 
   return cpu_gprs_[index];
+}
+
+std::uint32_t Machine::read_cpu_gpr_word(std::size_t index) const {
+  return static_cast<std::uint32_t>(read_cpu_gpr_value(index));
 }
 
 void Machine::stage_cpu_pc(CpuAddress value) {
@@ -311,7 +315,7 @@ void Machine::stage_cpu_lo(CpuRegisterValue value) {
 }
 
 void Machine::stage_cpu_gpr(std::size_t index, CpuRegisterValue value) {
-  write_cpu_gpr(index, value);
+  write_cpu_gpr_value(index, value);
 }
 
 void Machine::write_cpu_pc(CpuAddress value) {
@@ -331,7 +335,7 @@ void Machine::write_cpu_lo(CpuRegisterValue value) {
   cpu_lo_ = value;
 }
 
-void Machine::write_cpu_gpr(std::size_t index, CpuRegisterValue value) {
+void Machine::write_cpu_gpr_value(std::size_t index, CpuRegisterValue value) {
   if (index >= cpu_gprs_.size()) {
     fail_cpu_gpr_index(index);
   }
@@ -341,6 +345,10 @@ void Machine::write_cpu_gpr(std::size_t index, CpuRegisterValue value) {
   }
 
   cpu_gprs_[index] = value;
+}
+
+void Machine::write_cpu_gpr_word_result(std::size_t index, std::uint32_t value) {
+  write_cpu_gpr_value(index, static_cast<CpuRegisterValue>(value));
 }
 
 CpuInstructionWord Machine::fetch_cpu_instruction_word() const {
@@ -519,60 +527,60 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
   switch (identity) {
     case CpuInstructionIdentity::kSpecialSll: {
-      const std::uint32_t value = read_cpu_gpr(instruction.rt) << instruction.sa;
-      write_cpu_gpr(instruction.rd, value);
+      const std::uint32_t value = read_cpu_gpr_word(instruction.rt) << instruction.sa;
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSrl: {
-      const std::uint32_t value = read_cpu_gpr(instruction.rt) >> instruction.sa;
-      write_cpu_gpr(instruction.rd, value);
+      const std::uint32_t value = read_cpu_gpr_word(instruction.rt) >> instruction.sa;
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSra: {
       const std::uint32_t value =
-          arithmetic_shift_right_u32(read_cpu_gpr(instruction.rt), instruction.sa);
-      write_cpu_gpr(instruction.rd, value);
+          arithmetic_shift_right_u32(read_cpu_gpr_word(instruction.rt), instruction.sa);
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSllv: {
       const std::uint8_t sa =
-          variable_shift_amount_u32(read_cpu_gpr(instruction.rs));
-      const std::uint32_t value = read_cpu_gpr(instruction.rt) << sa;
-      write_cpu_gpr(instruction.rd, value);
+          variable_shift_amount_u32(read_cpu_gpr_word(instruction.rs));
+      const std::uint32_t value = read_cpu_gpr_word(instruction.rt) << sa;
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSrlv: {
       const std::uint8_t sa =
-          variable_shift_amount_u32(read_cpu_gpr(instruction.rs));
-      const std::uint32_t value = read_cpu_gpr(instruction.rt) >> sa;
-      write_cpu_gpr(instruction.rd, value);
+          variable_shift_amount_u32(read_cpu_gpr_word(instruction.rs));
+      const std::uint32_t value = read_cpu_gpr_word(instruction.rt) >> sa;
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSrav: {
       const std::uint8_t sa =
-          variable_shift_amount_u32(read_cpu_gpr(instruction.rs));
+          variable_shift_amount_u32(read_cpu_gpr_word(instruction.rs));
       const std::uint32_t value =
-          arithmetic_shift_right_u32(read_cpu_gpr(instruction.rt), sa);
-      write_cpu_gpr(instruction.rd, value);
+          arithmetic_shift_right_u32(read_cpu_gpr_word(instruction.rt), sa);
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialJr: {
-      const std::uint32_t target = read_cpu_gpr(instruction.rs);
+      const CpuAddress target = read_cpu_gpr_word(instruction.rs);
       validate_control_transfer_target_alignment("JR", target);
       write_cpu_next_pc(target);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialJalr: {
-      const std::uint32_t target = read_cpu_gpr(instruction.rs);
+      const CpuAddress target = read_cpu_gpr_word(instruction.rs);
       validate_control_transfer_target_alignment("JALR", target);
-      write_cpu_gpr(instruction.rd, link_return_address(cpu_pc()));
+      write_cpu_gpr_value(instruction.rd, link_return_address(cpu_pc()));
       write_cpu_next_pc(target);
       return CpuInstructionExecutionResult::kExecuted;
     }
@@ -587,30 +595,30 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
 
     case CpuInstructionIdentity::kSpecialMfhi: {
-      write_cpu_gpr(instruction.rd, cpu_hi());
+      write_cpu_gpr_value(instruction.rd, cpu_hi());
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialMthi: {
-      write_cpu_hi(read_cpu_gpr(instruction.rs));
+      write_cpu_hi(read_cpu_gpr_value(instruction.rs));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialMflo: {
-      write_cpu_gpr(instruction.rd, cpu_lo());
+      write_cpu_gpr_value(instruction.rd, cpu_lo());
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialMtlo: {
-      write_cpu_lo(read_cpu_gpr(instruction.rs));
+      write_cpu_lo(read_cpu_gpr_value(instruction.rs));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialMult: {
       const std::int64_t lhs =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rs)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rs)));
       const std::int64_t rhs =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rt)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rt)));
       const std::uint64_t product = static_cast<std::uint64_t>(lhs * rhs);
       write_cpu_lo(low_u32(product));
       write_cpu_hi(high_u32(product));
@@ -618,8 +626,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kSpecialMultu: {
-      const std::uint64_t lhs = static_cast<std::uint64_t>(read_cpu_gpr(instruction.rs));
-      const std::uint64_t rhs = static_cast<std::uint64_t>(read_cpu_gpr(instruction.rt));
+      const std::uint64_t lhs = static_cast<std::uint64_t>(read_cpu_gpr_word(instruction.rs));
+      const std::uint64_t rhs = static_cast<std::uint64_t>(read_cpu_gpr_word(instruction.rt));
       const std::uint64_t product = lhs * rhs;
       write_cpu_lo(low_u32(product));
       write_cpu_hi(high_u32(product));
@@ -627,13 +635,13 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kSpecialDiv: {
-      const std::uint32_t divisor_u32 = read_cpu_gpr(instruction.rt);
+      const std::uint32_t divisor_u32 = read_cpu_gpr_word(instruction.rt);
       if (divisor_u32 == 0) {
         return CpuInstructionExecutionResult::kExecuted;
       }
 
       const std::int64_t dividend =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rs)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rs)));
       const std::int64_t divisor =
           static_cast<std::int64_t>(i32_from_u32_bits(divisor_u32));
       const std::int64_t quotient = dividend / divisor;
@@ -644,12 +652,12 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kSpecialDivu: {
-      const std::uint32_t divisor = read_cpu_gpr(instruction.rt);
+      const std::uint32_t divisor = read_cpu_gpr_word(instruction.rt);
       if (divisor == 0) {
         return CpuInstructionExecutionResult::kExecuted;
       }
 
-      const std::uint32_t dividend = read_cpu_gpr(instruction.rs);
+      const std::uint32_t dividend = read_cpu_gpr_word(instruction.rs);
       write_cpu_lo(dividend / divisor);
       write_cpu_hi(dividend % divisor);
       return CpuInstructionExecutionResult::kExecuted;
@@ -658,65 +666,65 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     case CpuInstructionIdentity::kSpecialTge:
       return trap_execution_result(
           signed_register_value_greater_equal(
-              read_cpu_gpr(instruction.rs),
-              read_cpu_gpr(instruction.rt)));
+              read_cpu_gpr_word(instruction.rs),
+              read_cpu_gpr_word(instruction.rt)));
 
     case CpuInstructionIdentity::kSpecialTgeu:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) >= read_cpu_gpr(instruction.rt));
+          read_cpu_gpr_word(instruction.rs) >= read_cpu_gpr_word(instruction.rt));
 
     case CpuInstructionIdentity::kSpecialTlt:
       return trap_execution_result(
           signed_register_value_less_than(
-              read_cpu_gpr(instruction.rs),
-              read_cpu_gpr(instruction.rt)));
+              read_cpu_gpr_word(instruction.rs),
+              read_cpu_gpr_word(instruction.rt)));
 
     case CpuInstructionIdentity::kSpecialTltu:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) < read_cpu_gpr(instruction.rt));
+          read_cpu_gpr_word(instruction.rs) < read_cpu_gpr_word(instruction.rt));
 
     case CpuInstructionIdentity::kSpecialTeq:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) == read_cpu_gpr(instruction.rt));
+          read_cpu_gpr_word(instruction.rs) == read_cpu_gpr_word(instruction.rt));
 
     case CpuInstructionIdentity::kSpecialTne:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) != read_cpu_gpr(instruction.rt));
+          read_cpu_gpr_word(instruction.rs) != read_cpu_gpr_word(instruction.rt));
 
     case CpuInstructionIdentity::kRegimmTgei:
       return trap_execution_result(
           signed_register_value_greater_equal_immediate(
-              read_cpu_gpr(instruction.rs),
+              read_cpu_gpr_word(instruction.rs),
               instruction.immediate_i16));
 
     case CpuInstructionIdentity::kRegimmTgeiu:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) >=
+          read_cpu_gpr_word(instruction.rs) >=
           sign_extend_u16_to_u32(instruction.immediate_u16));
 
     case CpuInstructionIdentity::kRegimmTlti:
       return trap_execution_result(
           signed_register_value_less_than_immediate(
-              read_cpu_gpr(instruction.rs),
+              read_cpu_gpr_word(instruction.rs),
               instruction.immediate_i16));
 
     case CpuInstructionIdentity::kRegimmTltiu:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) <
+          read_cpu_gpr_word(instruction.rs) <
           sign_extend_u16_to_u32(instruction.immediate_u16));
 
     case CpuInstructionIdentity::kRegimmTeqi:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) ==
+          read_cpu_gpr_word(instruction.rs) ==
           sign_extend_u16_to_u32(instruction.immediate_u16));
 
     case CpuInstructionIdentity::kRegimmTnei:
       return trap_execution_result(
-          read_cpu_gpr(instruction.rs) !=
+          read_cpu_gpr_word(instruction.rs) !=
           sign_extend_u16_to_u32(instruction.immediate_u16));
 
     case CpuInstructionIdentity::kRegimmBltz: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value < 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
@@ -724,7 +732,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBgez: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value >= 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
@@ -732,7 +740,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBltzl: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value < 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
@@ -741,7 +749,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBgezl: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value >= 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
@@ -750,8 +758,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBltzal: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
-      write_cpu_gpr(31, link_return_address(cpu_pc()));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
+      write_cpu_gpr_value(31, link_return_address(cpu_pc()));
       if (value < 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
@@ -759,8 +767,8 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBgezal: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
-      write_cpu_gpr(31, link_return_address(cpu_pc()));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
+      write_cpu_gpr_value(31, link_return_address(cpu_pc()));
       if (value >= 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
@@ -768,9 +776,9 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBltzall: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value < 0) {
-        write_cpu_gpr(31, link_return_address(cpu_pc()));
+        write_cpu_gpr_value(31, link_return_address(cpu_pc()));
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
       }
@@ -778,9 +786,9 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kRegimmBgezall: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value >= 0) {
-        write_cpu_gpr(31, link_return_address(cpu_pc()));
+        write_cpu_gpr_value(31, link_return_address(cpu_pc()));
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
       }
@@ -788,34 +796,34 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kJ: {
-      const std::uint32_t target = jump_target_address(cpu_pc(), instruction.jump_target);
+      const CpuAddress target = jump_target_address(cpu_pc(), instruction.jump_target);
       write_cpu_next_pc(target);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kJal: {
-      write_cpu_gpr(31, link_return_address(cpu_pc()));
-      const std::uint32_t target = jump_target_address(cpu_pc(), instruction.jump_target);
+      write_cpu_gpr_value(31, link_return_address(cpu_pc()));
+      const CpuAddress target = jump_target_address(cpu_pc(), instruction.jump_target);
       write_cpu_next_pc(target);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kBeq: {
-      if (read_cpu_gpr(instruction.rs) == read_cpu_gpr(instruction.rt)) {
+      if (read_cpu_gpr_word(instruction.rs) == read_cpu_gpr_word(instruction.rt)) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kBne: {
-      if (read_cpu_gpr(instruction.rs) != read_cpu_gpr(instruction.rt)) {
+      if (read_cpu_gpr_word(instruction.rs) != read_cpu_gpr_word(instruction.rt)) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kBlez: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value <= 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
@@ -823,7 +831,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kBgtz: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value > 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
       }
@@ -831,7 +839,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kBeql: {
-      if (read_cpu_gpr(instruction.rs) == read_cpu_gpr(instruction.rt)) {
+      if (read_cpu_gpr_word(instruction.rs) == read_cpu_gpr_word(instruction.rt)) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
       }
@@ -839,7 +847,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kBnel: {
-      if (read_cpu_gpr(instruction.rs) != read_cpu_gpr(instruction.rt)) {
+      if (read_cpu_gpr_word(instruction.rs) != read_cpu_gpr_word(instruction.rt)) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
       }
@@ -847,7 +855,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kBlezl: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value <= 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
@@ -856,7 +864,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
     }
 
     case CpuInstructionIdentity::kBgtzl: {
-      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr(instruction.rs));
+      const std::int32_t value = i32_from_u32_bits(read_cpu_gpr_word(instruction.rs));
       if (value > 0) {
         write_cpu_next_pc(branch_target_address(cpu_pc(), instruction.immediate_i16));
         return CpuInstructionExecutionResult::kExecuted;
@@ -866,94 +874,94 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
     case CpuInstructionIdentity::kSpecialAdd: {
       const std::int64_t lhs =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rs)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rs)));
       const std::int64_t rhs =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rt)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rt)));
       const std::int64_t value = lhs + rhs;
 
       if (signed_i32_result_out_of_range(value)) {
         fail_signed_arithmetic_overflow("ADD");
       }
 
-      write_cpu_gpr(instruction.rd, u32_bits_from_i32_value(value));
+      write_cpu_gpr_word_result(instruction.rd, u32_bits_from_i32_value(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialAddu: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) + read_cpu_gpr(instruction.rt);
-      write_cpu_gpr(instruction.rd, value);
+          read_cpu_gpr_word(instruction.rs) + read_cpu_gpr_word(instruction.rt);
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSub: {
       const std::int64_t lhs =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rs)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rs)));
       const std::int64_t rhs =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rt)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rt)));
       const std::int64_t value = lhs - rhs;
 
       if (signed_i32_result_out_of_range(value)) {
         fail_signed_arithmetic_overflow("SUB");
       }
 
-      write_cpu_gpr(instruction.rd, u32_bits_from_i32_value(value));
+      write_cpu_gpr_word_result(instruction.rd, u32_bits_from_i32_value(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSubu: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) - read_cpu_gpr(instruction.rt);
-      write_cpu_gpr(instruction.rd, value);
+          read_cpu_gpr_word(instruction.rs) - read_cpu_gpr_word(instruction.rt);
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialAnd: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) & read_cpu_gpr(instruction.rt);
-      write_cpu_gpr(instruction.rd, value);
+          read_cpu_gpr_word(instruction.rs) & read_cpu_gpr_word(instruction.rt);
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialOr: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) | read_cpu_gpr(instruction.rt);
-      write_cpu_gpr(instruction.rd, value);
+          read_cpu_gpr_word(instruction.rs) | read_cpu_gpr_word(instruction.rt);
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialXor: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) ^ read_cpu_gpr(instruction.rt);
-      write_cpu_gpr(instruction.rd, value);
+          read_cpu_gpr_word(instruction.rs) ^ read_cpu_gpr_word(instruction.rt);
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialNor: {
       const std::uint32_t value =
-          ~(read_cpu_gpr(instruction.rs) | read_cpu_gpr(instruction.rt));
-      write_cpu_gpr(instruction.rd, value);
+          ~(read_cpu_gpr_word(instruction.rs) | read_cpu_gpr_word(instruction.rt));
+      write_cpu_gpr_word_result(instruction.rd, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSlt: {
       const bool value =
-          i32_from_u32_bits(read_cpu_gpr(instruction.rs)) <
-          i32_from_u32_bits(read_cpu_gpr(instruction.rt));
-      write_cpu_gpr(instruction.rd, value ? 1u : 0u);
+          i32_from_u32_bits(read_cpu_gpr_word(instruction.rs)) <
+          i32_from_u32_bits(read_cpu_gpr_word(instruction.rt));
+      write_cpu_gpr_word_result(instruction.rd, value ? 1u : 0u);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSpecialSltu: {
       const bool value =
-          read_cpu_gpr(instruction.rs) < read_cpu_gpr(instruction.rt);
-      write_cpu_gpr(instruction.rd, value ? 1u : 0u);
+          read_cpu_gpr_word(instruction.rs) < read_cpu_gpr_word(instruction.rt);
+      write_cpu_gpr_word_result(instruction.rd, value ? 1u : 0u);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kAddi: {
       const std::int64_t lhs =
-          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr(instruction.rs)));
+          static_cast<std::int64_t>(i32_from_u32_bits(read_cpu_gpr_word(instruction.rs)));
       const std::int64_t rhs = static_cast<std::int64_t>(instruction.immediate_i16);
       const std::int64_t value = lhs + rhs;
 
@@ -961,86 +969,86 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         fail_signed_arithmetic_overflow("ADDI");
       }
 
-      write_cpu_gpr(instruction.rt, u32_bits_from_i32_value(value));
+      write_cpu_gpr_word_result(instruction.rt, u32_bits_from_i32_value(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kAddiu: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSlti: {
       const bool value =
-          i32_from_u32_bits(read_cpu_gpr(instruction.rs)) <
+          i32_from_u32_bits(read_cpu_gpr_word(instruction.rs)) <
           static_cast<std::int32_t>(instruction.immediate_i16);
-      write_cpu_gpr(instruction.rt, value ? 1u : 0u);
+      write_cpu_gpr_word_result(instruction.rt, value ? 1u : 0u);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSltiu: {
       const bool value =
-          read_cpu_gpr(instruction.rs) <
+          read_cpu_gpr_word(instruction.rs) <
           sign_extend_u16_to_u32(instruction.immediate_u16);
-      write_cpu_gpr(instruction.rt, value ? 1u : 0u);
+      write_cpu_gpr_word_result(instruction.rt, value ? 1u : 0u);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kAndi: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) &
+          read_cpu_gpr_word(instruction.rs) &
           static_cast<std::uint32_t>(instruction.immediate_u16);
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kOri: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) |
+          read_cpu_gpr_word(instruction.rs) |
           static_cast<std::uint32_t>(instruction.immediate_u16);
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kXori: {
       const std::uint32_t value =
-          read_cpu_gpr(instruction.rs) ^
+          read_cpu_gpr_word(instruction.rs) ^
           static_cast<std::uint32_t>(instruction.immediate_u16);
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLui: {
       const std::uint32_t value =
           static_cast<std::uint32_t>(instruction.immediate_u16) << 16;
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLb: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       const std::uint8_t value = read_cpu_memory_u8(effective_address);
-      write_cpu_gpr(instruction.rt, sign_extend_u8_to_u32(value));
+      write_cpu_gpr_word_result(instruction.rt, sign_extend_u8_to_u32(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLbu: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       const std::uint8_t value = read_cpu_memory_u8(effective_address);
-      write_cpu_gpr(instruction.rt, static_cast<std::uint32_t>(value));
+      write_cpu_gpr_word_result(instruction.rt, static_cast<std::uint32_t>(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLh: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x1u) != 0) {
@@ -1048,13 +1056,13 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       }
 
       const std::uint16_t value = read_cpu_memory_u16_be(effective_address);
-      write_cpu_gpr(instruction.rt, sign_extend_u16_to_u32(value));
+      write_cpu_gpr_word_result(instruction.rt, sign_extend_u16_to_u32(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLhu: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x1u) != 0) {
@@ -1062,30 +1070,30 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       }
 
       const std::uint16_t value = read_cpu_memory_u16_be(effective_address);
-      write_cpu_gpr(instruction.rt, static_cast<std::uint32_t>(value));
+      write_cpu_gpr_word_result(instruction.rt, static_cast<std::uint32_t>(value));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLwl: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       const std::uint32_t byte_offset = effective_address & 0x3u;
       const std::uint32_t byte_count = 4u - byte_offset;
 
-      std::uint32_t value = read_cpu_gpr(instruction.rt);
+      std::uint32_t value = read_cpu_gpr_word(instruction.rt);
       for (std::uint32_t i = 0; i < byte_count; ++i) {
         const std::uint8_t memory_byte = read_cpu_memory_u8(effective_address + i);
         value = replace_u32_byte_be(value, static_cast<std::size_t>(i), memory_byte);
       }
 
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLw: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x3u) != 0) {
@@ -1093,20 +1101,20 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       }
 
       const std::uint32_t value = read_cpu_memory_u32_be(effective_address);
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kLwr: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       const std::uint32_t aligned_address = effective_address & ~0x3u;
       const std::uint32_t byte_offset = effective_address & 0x3u;
       const std::uint32_t byte_count = byte_offset + 1u;
       const std::uint32_t first_register_byte = 4u - byte_count;
 
-      std::uint32_t value = read_cpu_gpr(instruction.rt);
+      std::uint32_t value = read_cpu_gpr_word(instruction.rt);
       for (std::uint32_t i = 0; i < byte_count; ++i) {
         const std::uint8_t memory_byte = read_cpu_memory_u8(aligned_address + i);
         value = replace_u32_byte_be(
@@ -1115,23 +1123,23 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
             memory_byte);
       }
 
-      write_cpu_gpr(instruction.rt, value);
+      write_cpu_gpr_word_result(instruction.rt, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSb: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       const std::uint8_t value =
-          static_cast<std::uint8_t>(read_cpu_gpr(instruction.rt) & 0xffu);
+          static_cast<std::uint8_t>(read_cpu_gpr_word(instruction.rt) & 0xffu);
       write_cpu_memory_u8(effective_address, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSh: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x1u) != 0) {
@@ -1139,18 +1147,18 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       }
 
       const std::uint16_t value =
-          static_cast<std::uint16_t>(read_cpu_gpr(instruction.rt) & 0xffffu);
+          static_cast<std::uint16_t>(read_cpu_gpr_word(instruction.rt) & 0xffffu);
       write_cpu_memory_u16_be(effective_address, value);
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSwl: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       const std::uint32_t byte_offset = effective_address & 0x3u;
       const std::uint32_t byte_count = 4u - byte_offset;
-      const std::uint32_t value = read_cpu_gpr(instruction.rt);
+      const std::uint32_t value = read_cpu_gpr_word(instruction.rt);
 
       for (std::uint32_t i = 0; i < byte_count; ++i) {
         static_cast<void>(read_cpu_memory_u8(effective_address + i));
@@ -1167,26 +1175,26 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
     case CpuInstructionIdentity::kSw: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x3u) != 0) {
         fail_unaligned_word_memory_access("SW", effective_address);
       }
 
-      write_cpu_memory_u32_be(effective_address, read_cpu_gpr(instruction.rt));
+      write_cpu_memory_u32_be(effective_address, read_cpu_gpr_word(instruction.rt));
       return CpuInstructionExecutionResult::kExecuted;
     }
 
     case CpuInstructionIdentity::kSwr: {
       const std::uint32_t effective_address =
-          read_cpu_gpr(instruction.rs) +
+          read_cpu_gpr_word(instruction.rs) +
           sign_extend_u16_to_u32(instruction.immediate_u16);
       const std::uint32_t aligned_address = effective_address & ~0x3u;
       const std::uint32_t byte_offset = effective_address & 0x3u;
       const std::uint32_t byte_count = byte_offset + 1u;
       const std::uint32_t first_register_byte = 4u - byte_count;
-      const std::uint32_t value = read_cpu_gpr(instruction.rt);
+      const std::uint32_t value = read_cpu_gpr_word(instruction.rt);
 
       for (std::uint32_t i = 0; i < byte_count; ++i) {
         static_cast<void>(read_cpu_memory_u8(aligned_address + i));
