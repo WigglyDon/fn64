@@ -46,7 +46,7 @@ The current machine state is intentionally plain:
 - RDRAM exists
 - CPU pc / next_pc exist
 - the reset model is an explicit blank RDRAM power-on state, not N64 reset/PIF boot
-- CPU fetch currently reaches only RDRAM physical/KSEG0/KSEG1 aliases
+- CPU fetch/load/store currently use only KSEG0/KSEG1-style direct RDRAM aliases
 - cartridge execution mapping is not wired yet
 
 This keeps ROM loading honest without pretending the cartridge is executing.
@@ -54,11 +54,12 @@ This keeps ROM loading honest without pretending the cartridge is executing.
 ## CPU RDRAM address aliases
 
 The CPU now reaches RDRAM through a tiny machine-local translation rule:
-- low physical RDRAM addresses map directly
 - 0x80000000 based RDRAM aliases map to local RDRAM
 - 0xa0000000 based RDRAM aliases map to local RDRAM
 
-This is not a bus and not a general memory map.
+Raw physical RDRAM offsets are staging/inspection addresses, not CPU addresses.
+
+This is not a bus, general memory map, TLB translation, cartridge ROM mapping, or device/MMIO dispatch.
 It is the smallest earned address truth needed before cartridge or boot execution work.
 
 ## Blank reset state
@@ -79,6 +80,7 @@ It is a named temporary starting point until boot/PIF/reset behavior is earned.
 The machine now has an explicit method that can copy normalized cartridge bytes into local RDRAM.
 
 This is not cartridge execution mapping.
+It is not CPU cartridge ROM mapping.
 It is not a bus.
 It is not N64 boot.
 
