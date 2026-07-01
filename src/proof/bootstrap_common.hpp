@@ -214,6 +214,13 @@ constexpr CpuInstructionWord encode_lwr(
   return encode_i_type(0x26, rs, rt, immediate);
 }
 
+constexpr CpuInstructionWord encode_lwu(
+    std::uint8_t rt,
+    std::uint8_t rs,
+    std::uint16_t immediate) {
+  return encode_i_type(0x27, rs, rt, immediate);
+}
+
 constexpr CpuInstructionWord encode_ldl(
     std::uint8_t rt,
     std::uint8_t rs,

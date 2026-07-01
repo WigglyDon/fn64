@@ -1332,6 +1332,20 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       return CpuInstructionExecutionResult::kExecuted;
     }
 
+    case CpuInstructionIdentity::kLwu: {
+      const std::uint32_t effective_address =
+          read_cpu_gpr_word(instruction.rs) +
+          sign_extend_u16_to_u32(instruction.immediate_u16);
+
+      if ((effective_address & 0x3u) != 0) {
+        fail_unaligned_word_memory_access("LWU", effective_address);
+      }
+
+      const std::uint32_t value = read_cpu_memory_u32_be(effective_address);
+      write_cpu_gpr_word_zero_extended_result(instruction.rt, value);
+      return CpuInstructionExecutionResult::kExecuted;
+    }
+
     case CpuInstructionIdentity::kLwr: {
       const std::uint32_t effective_address =
           read_cpu_gpr_word(instruction.rs) +

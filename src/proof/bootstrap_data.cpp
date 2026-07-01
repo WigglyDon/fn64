@@ -1950,6 +1950,96 @@ void run_aligned_word_load_store_demo(Machine& machine) {
   require_stopped(machine.step_cpu_instruction(), "aligned_word_demo_break");
 }
 
+void run_unsigned_word_load_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSignedTargetIndex = 12;
+  constexpr std::size_t kUnsignedTargetIndex = 13;
+
+  constexpr RdramOffset kLwAddress = 0x00000280u;
+  constexpr RdramOffset kLwuAddress = 0x00000284u;
+  constexpr RdramOffset kLwuZeroAddress = 0x00000288u;
+  constexpr RdramOffset kBreakAddress = 0x0000028cu;
+
+  constexpr RdramOffset kDataAddress = 0x000005a0u;
+  constexpr std::uint16_t kOffset = 0x0000u;
+  constexpr std::uint32_t kWordWithSignBit = 0xffffffffu;
+  constexpr CpuRegisterValue kSignedWordValue = 0xffffffffffffffffull;
+  constexpr CpuRegisterValue kUnsignedWordValue = 0x00000000ffffffffull;
+
+  const CpuInstructionWord kLwInstruction = encode_lw(
+      static_cast<std::uint8_t>(kSignedTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      kOffset);
+  const CpuInstructionWord kLwuInstruction = encode_lwu(
+      static_cast<std::uint8_t>(kUnsignedTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      kOffset);
+  const CpuInstructionWord kLwuZeroInstruction = encode_lwu(
+      0,
+      static_cast<std::uint8_t>(kBaseIndex),
+      kOffset);
+  const CpuInstructionWord kBreakInstruction = encode_break();
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLwAddress));
+  machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+  machine.stage_cpu_gpr(kSignedTargetIndex, 0);
+  machine.stage_cpu_gpr(kUnsignedTargetIndex, 0);
+  machine.stage_cpu_gpr(0, 0xffffffffffffffffull);
+
+  machine.stage_rdram_u32_be(kLwAddress, kLwInstruction);
+  machine.stage_rdram_u32_be(kLwuAddress, kLwuInstruction);
+  machine.stage_rdram_u32_be(kLwuZeroAddress, kLwuZeroInstruction);
+  machine.stage_rdram_u32_be(kBreakAddress, kBreakInstruction);
+  machine.stage_rdram_u32_be(kDataAddress, kWordWithSignBit);
+
+  std::cout
+      << "fn64 bootstrap unsigned word load demo: LW sign-extends and LWU zero-extends the same RDRAM word\n";
+  std::cout << "before step 1:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_rdram_word(machine, "  rdram[0x000005a0]", kDataAddress);
+
+  require_stepped(machine.step_cpu_instruction(), "unsigned_word_load_demo_lw");
+
+  std::cout << "after LW step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kSignedTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLwuAddress)) {
+    throw std::runtime_error("unsigned word load demo did not advance to LWU");
+  }
+
+  if (machine.inspect_cpu_gpr(kSignedTargetIndex) != kSignedWordValue) {
+    throw std::runtime_error("unsigned word load demo LW result was not sign-extended");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "unsigned_word_load_demo_lwu");
+
+  std::cout << "after LWU step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[13]", machine.inspect_cpu_gpr(kUnsignedTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLwuZeroAddress)) {
+    throw std::runtime_error("unsigned word load demo did not advance to LWU zero row");
+  }
+
+  if (machine.inspect_cpu_gpr(kUnsignedTargetIndex) != kUnsignedWordValue) {
+    throw std::runtime_error("unsigned word load demo LWU result was not zero-extended");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "unsigned_word_load_demo_lwu_zero");
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kBreakAddress)) {
+    throw std::runtime_error("unsigned word load demo did not advance to BREAK sentinel");
+  }
+
+  if (machine.inspect_cpu_gpr(0) != 0) {
+    throw std::runtime_error("unsigned word load demo LWU wrote to gpr[0]");
+  }
+
+  require_stopped(machine.step_cpu_instruction(), "unsigned_word_load_demo_break");
+}
+
 void run_aligned_doubleword_load_store_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kLoadTargetIndex = 5;
@@ -2059,6 +2149,7 @@ void run_word_alignment_guard_demo(Machine& machine) {
 
   constexpr std::uint32_t kSwAddress = 0x00000100u;
   constexpr std::uint32_t kLwAddress = 0x00000104u;
+  constexpr std::uint32_t kLwuAddress = 0x00000108u;
 
   constexpr std::uint32_t kDataBaseAddress = 0x00000470u;
   constexpr std::uint16_t kMisalignedOffset = 0x0003u;
@@ -2072,9 +2163,14 @@ void run_word_alignment_guard_demo(Machine& machine) {
       static_cast<std::uint8_t>(kTargetIndex),
       static_cast<std::uint8_t>(kBaseIndex),
       kMisalignedOffset);
+  const std::uint32_t kLwuInstruction = encode_lwu(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      kMisalignedOffset);
 
   machine.stage_rdram_u32_be(kSwAddress, kSwInstruction);
   machine.stage_rdram_u32_be(kLwAddress, kLwInstruction);
+  machine.stage_rdram_u32_be(kLwuAddress, kLwuInstruction);
 
   machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataBaseAddress));
   machine.stage_cpu_gpr(kSourceIndex, 0xdeadbeefu);
@@ -2144,6 +2240,37 @@ void run_word_alignment_guard_demo(Machine& machine) {
 
   if (machine.inspect_cpu_gpr(kTargetIndex) != 0x01234567u) {
     throw std::runtime_error("word alignment guard demo LW changed target register on fault");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLwuAddress));
+  machine.stage_cpu_gpr(kTargetIndex, 0x89abcdef01234567ull);
+
+  std::cout << "before LWU misaligned step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
+  print_hex32("  lwu_effective_address", kMisalignedAddress);
+
+  require_step_machine_fault(
+      machine,
+      "word_alignment_demo_lwu",
+      MachineFaultKind::kUnalignedCpuMemoryAccess,
+      4);
+
+  std::cout << "after LWU misaligned step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[12]", machine.inspect_cpu_gpr(kTargetIndex));
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLwuAddress)) {
+    throw std::runtime_error("word alignment guard demo LWU changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kLwuAddress + 4u)) {
+    throw std::runtime_error("word alignment guard demo LWU changed next_pc on fault");
+  }
+
+  if (machine.inspect_cpu_gpr(kTargetIndex) != 0x89abcdef01234567ull) {
+    throw std::runtime_error("word alignment guard demo LWU changed target register on fault");
   }
 }
 
@@ -3039,6 +3166,70 @@ void run_failed_partial_store_no_ghost_demo(Machine& machine) {
   }
 }
 
+void run_failed_unsigned_word_load_no_ghost_demo(Machine& machine) {
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kTargetIndex = 28;
+
+  constexpr RdramOffset kLwuAddress = 0x000002a0u;
+  constexpr CpuAddress kInvalidKseg1Address = 0xa0400000u;
+  constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+  constexpr CpuRegisterValue kBaseSentinel = kInvalidKseg1Address;
+  constexpr CpuRegisterValue kHiSentinel = 0x0102030405060708ull;
+  constexpr CpuRegisterValue kLoSentinel = 0x8877665544332211ull;
+
+  const CpuInstructionWord kLwuInstruction = encode_lwu(
+      static_cast<std::uint8_t>(kTargetIndex),
+      static_cast<std::uint8_t>(kBaseIndex),
+      0x0000u);
+
+  machine.stage_rdram_u32_be(kLwuAddress, kLwuInstruction);
+  machine.stage_cpu_gpr(kBaseIndex, kBaseSentinel);
+  machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+  machine.stage_cpu_hi(kHiSentinel);
+  machine.stage_cpu_lo(kLoSentinel);
+
+  std::cout
+      << "fn64 bootstrap failed unsigned word load no-ghost demo: LWU out-of-window fault does not mutate CPU state\n";
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLwuAddress));
+
+  std::cout << "before LWU out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
+  print_hex32("  lwu_effective_address", kInvalidKseg1Address);
+
+  require_step_machine_fault(
+      machine,
+      "failed_unsigned_word_load_demo_lwu",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+
+  std::cout << "after LWU out-of-window step:\n";
+  print_control_flow_state(machine);
+  print_hex64("  gpr[4]", machine.inspect_cpu_gpr(kBaseIndex));
+  print_hex64("  gpr[28]", machine.inspect_cpu_gpr(kTargetIndex));
+  print_hex64("  hi", machine.inspect_cpu_hi());
+  print_hex64("  lo", machine.inspect_cpu_lo());
+
+  if (machine.cpu_pc() != cpu_rdram_alias(kLwuAddress)) {
+    throw std::runtime_error("failed unsigned word load no-ghost demo LWU changed PC on fault");
+  }
+
+  if (machine.cpu_next_pc() != cpu_rdram_alias(kLwuAddress + 4u)) {
+    throw std::runtime_error("failed unsigned word load no-ghost demo LWU changed next_pc on fault");
+  }
+
+  if (machine.inspect_cpu_gpr(kBaseIndex) != kBaseSentinel ||
+      machine.inspect_cpu_gpr(kTargetIndex) != kTargetSentinel ||
+      machine.inspect_cpu_hi() != kHiSentinel ||
+      machine.inspect_cpu_lo() != kLoSentinel) {
+    throw std::runtime_error("failed unsigned word load no-ghost demo LWU changed CPU state");
+  }
+}
+
 void run_failed_doubleword_no_ghost_demo(Machine& machine) {
   constexpr std::size_t kBaseIndex = 4;
   constexpr std::size_t kSourceIndex = 27;
@@ -3263,6 +3454,7 @@ void run_data_demos(Machine& machine) {
   run_unaligned_store_word_demo(machine);
   run_partial_word_lane_matrix_demo(machine);
   run_aligned_word_load_store_demo(machine);
+  run_unsigned_word_load_demo(machine);
   run_aligned_doubleword_load_store_demo(machine);
   run_word_alignment_guard_demo(machine);
   run_doubleword_alignment_guard_demo(machine);
@@ -3274,6 +3466,7 @@ void run_data_demos(Machine& machine) {
   run_negative_halfword_load_store_demo(machine);
   run_failed_partial_load_no_ghost_demo(machine);
   run_failed_partial_store_no_ghost_demo(machine);
+  run_failed_unsigned_word_load_no_ghost_demo(machine);
   run_failed_doubleword_no_ghost_demo(machine);
   run_negative_out_of_range_guard_demo(machine);
 }
