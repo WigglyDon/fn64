@@ -536,6 +536,7 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
         0,
         0,
         0,
+        0,
     };
   }
 
@@ -547,6 +548,7 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
         physical_address,
         0,
         sp_memory_offset,
+        0,
         0,
         0,
     };
@@ -563,6 +565,20 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
         0,
         sp_register_offset,
         0,
+        0,
+    };
+  }
+
+  std::uint32_t mi_register_offset = 0;
+  if (translate_cpu_physical_mi_register_address(physical_address, mi_register_offset)) {
+    return CpuDataTarget{
+        CpuDataTargetKind::kMi,
+        physical_address,
+        0,
+        0,
+        0,
+        mi_register_offset,
+        0,
     };
   }
 
@@ -571,6 +587,7 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
     return CpuDataTarget{
         CpuDataTargetKind::kPi,
         physical_address,
+        0,
         0,
         0,
         0,
@@ -592,6 +609,7 @@ const std::array<std::uint8_t, Machine::kSpMemorySizeBytes>& Machine::sp_memory_
 
     case CpuDataTargetKind::kRdram:
     case CpuDataTargetKind::kSpMmio:
+    case CpuDataTargetKind::kMi:
     case CpuDataTargetKind::kPi:
       break;
   }
@@ -610,6 +628,7 @@ std::array<std::uint8_t, Machine::kSpMemorySizeBytes>& Machine::sp_memory_for_ki
 
     case CpuDataTargetKind::kRdram:
     case CpuDataTargetKind::kSpMmio:
+    case CpuDataTargetKind::kMi:
     case CpuDataTargetKind::kPi:
       break;
   }
@@ -727,12 +746,14 @@ void Machine::write_sp_register_u32(
 
     case kSpReadLengthRegisterOffset:
       perform_sp_read_dma(value);
+      latch_mi_interrupt_pending(kMiInterruptPendingSp);
       sp_rd_len_ = value;
       sp_status_ = 0;
       return;
 
     case kSpWriteLengthRegisterOffset:
       perform_sp_write_dma(value);
+      latch_mi_interrupt_pending(kMiInterruptPendingSp);
       sp_wr_len_ = value;
       sp_status_ = 0;
       return;
@@ -811,6 +832,7 @@ Machine::CpuDataTarget Machine::require_sp_memory_dma_blocks(
       0,
       0,
       offset,
+      0,
       0,
       0,
   };
@@ -906,6 +928,45 @@ void Machine::perform_sp_write_dma(std::uint32_t length_register_value) {
   }
 }
 
+std::uint32_t Machine::read_mi_register_u32(
+    std::uint32_t register_offset,
+    CpuAddress cpu_address) const {
+  switch (register_offset) {
+    case kMiInterruptPendingRegisterOffset:
+      return mi_interrupt_pending_ & kMiSupportedInterruptBits;
+
+    case kMiInterruptMaskRegisterOffset:
+      return mi_interrupt_mask_ & kMiSupportedInterruptBits;
+
+    default:
+      fail_unsupported_cpu_data_access("MI word read", cpu_address, 4);
+  }
+}
+
+void Machine::write_mi_register_u32(
+    std::uint32_t register_offset,
+    CpuAddress cpu_address,
+    std::uint32_t value) {
+  switch (register_offset) {
+    case kMiInterruptPendingRegisterOffset:
+      mi_interrupt_pending_ &= ~(value & kMiSupportedInterruptBits);
+      return;
+
+    case kMiInterruptMaskRegisterOffset:
+      mi_interrupt_mask_ = value & kMiSupportedInterruptBits;
+      return;
+
+    default:
+      fail_unsupported_cpu_data_access("MI word write", cpu_address, 4);
+  }
+}
+
+void Machine::latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept {
+  // Local MI state is observable MMIO only. CPU interrupt delivery, COP0
+  // Cause/Status/EPC, and exception vectors are not modeled here.
+  mi_interrupt_pending_ |= pending_bit & kMiSupportedInterruptBits;
+}
+
 std::uint32_t Machine::read_pi_register_u32(
     CpuPhysicalAddress physical_address,
     CpuAddress cpu_address) const {
@@ -944,6 +1005,7 @@ void Machine::write_pi_register_u32(
 
     case kPiCartToRdramLengthRegisterOffset:
       perform_pi_cart_to_rdram_dma(value);
+      latch_mi_interrupt_pending(kMiInterruptPendingPi);
       pi_cart_to_rdram_length_ = value;
       pi_status_ = 0;
       return;
@@ -1024,6 +1086,9 @@ std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
     case CpuDataTargetKind::kSpMmio:
       fail_unsupported_cpu_data_access("SP byte read", cpu_address, 1);
 
+    case CpuDataTargetKind::kMi:
+      fail_unsupported_cpu_data_access("MI byte read", cpu_address, 1);
+
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI byte read", cpu_address, 1);
   }
@@ -1043,6 +1108,9 @@ std::uint16_t Machine::read_cpu_memory_u16_be(CpuAddress cpu_address) const {
 
     case CpuDataTargetKind::kSpMmio:
       fail_unsupported_cpu_data_access("SP halfword read", cpu_address, 2);
+
+    case CpuDataTargetKind::kMi:
+      fail_unsupported_cpu_data_access("MI halfword read", cpu_address, 2);
 
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI halfword read", cpu_address, 2);
@@ -1064,6 +1132,9 @@ std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
     case CpuDataTargetKind::kSpMmio:
       return read_sp_register_u32(target.physical_address, cpu_address);
 
+    case CpuDataTargetKind::kMi:
+      return read_mi_register_u32(target.mi_register_offset, cpu_address);
+
     case CpuDataTargetKind::kPi:
       return read_pi_register_u32(target.physical_address, cpu_address);
   }
@@ -1083,6 +1154,9 @@ CpuRegisterValue Machine::read_cpu_memory_u64_be(CpuAddress cpu_address) const {
 
     case CpuDataTargetKind::kSpMmio:
       fail_unsupported_cpu_data_access("SP doubleword read", cpu_address, 8);
+
+    case CpuDataTargetKind::kMi:
+      fail_unsupported_cpu_data_access("MI doubleword read", cpu_address, 8);
 
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI doubleword read", cpu_address, 8);
@@ -1106,6 +1180,9 @@ void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
     case CpuDataTargetKind::kSpMmio:
       fail_unsupported_cpu_data_access("SP byte write", cpu_address, 1);
 
+    case CpuDataTargetKind::kMi:
+      fail_unsupported_cpu_data_access("MI byte write", cpu_address, 1);
+
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI byte write", cpu_address, 1);
   }
@@ -1127,6 +1204,9 @@ void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t valu
 
     case CpuDataTargetKind::kSpMmio:
       fail_unsupported_cpu_data_access("SP halfword write", cpu_address, 2);
+
+    case CpuDataTargetKind::kMi:
+      fail_unsupported_cpu_data_access("MI halfword write", cpu_address, 2);
 
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI halfword write", cpu_address, 2);
@@ -1151,6 +1231,10 @@ void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t valu
       write_sp_register_u32(target.physical_address, cpu_address, value);
       return;
 
+    case CpuDataTargetKind::kMi:
+      write_mi_register_u32(target.mi_register_offset, cpu_address, value);
+      return;
+
     case CpuDataTargetKind::kPi:
       write_pi_register_u32(target.physical_address, cpu_address, value);
       return;
@@ -1173,6 +1257,9 @@ void Machine::write_cpu_memory_u64_be(CpuAddress cpu_address, CpuRegisterValue v
 
     case CpuDataTargetKind::kSpMmio:
       fail_unsupported_cpu_data_access("SP doubleword write", cpu_address, 8);
+
+    case CpuDataTargetKind::kMi:
+      fail_unsupported_cpu_data_access("MI doubleword write", cpu_address, 8);
 
     case CpuDataTargetKind::kPi:
       fail_unsupported_cpu_data_access("PI doubleword write", cpu_address, 8);
@@ -2271,6 +2358,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         case CpuDataTargetKind::kSpDmem:
         case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kSpMmio:
+        case CpuDataTargetKind::kMi:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("LL", effective_address, 4);
       }
@@ -2397,6 +2485,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         case CpuDataTargetKind::kSpDmem:
         case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kSpMmio:
+        case CpuDataTargetKind::kMi:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("LLD", effective_address, 8);
       }
@@ -2491,6 +2580,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         case CpuDataTargetKind::kSpDmem:
         case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kSpMmio:
+        case CpuDataTargetKind::kMi:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("SC", effective_address, 4);
       }
@@ -2606,6 +2696,7 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
         case CpuDataTargetKind::kSpDmem:
         case CpuDataTargetKind::kSpImem:
         case CpuDataTargetKind::kSpMmio:
+        case CpuDataTargetKind::kMi:
         case CpuDataTargetKind::kPi:
           fail_unsupported_cpu_data_access("SCD", effective_address, 8);
       }

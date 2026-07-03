@@ -47,7 +47,7 @@ The current machine state is intentionally plain:
 - CPU pc / next_pc exist
 - the reset model is an explicit blank RDRAM power-on state, not N64 reset/PIF boot
 - CPU instruction fetch currently uses only KSEG0/KSEG1-style direct RDRAM aliases
-- CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, minimal local SP DMA MMIO, plus a minimal local PI MMIO subset
+- CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, minimal local SP DMA MMIO, minimal local PI MMIO, plus minimal local MI pending/mask MMIO
 - cartridge execution mapping is not wired yet
 
 This keeps ROM loading honest without pretending the cartridge is executing.
@@ -61,7 +61,7 @@ The CPU now reaches RDRAM through a tiny machine-local translation rule:
 Raw physical RDRAM offsets are staging/inspection addresses, not CPU addresses.
 
 This is not a bus, general memory map, TLB translation, or cartridge ROM mapping.
-The current non-RDRAM data targets are local SP DMEM/IMEM byte memories, a tiny local SP DMA MMIO subset, and a tiny local PI MMIO subset. This is not RSP execution, COP2, timing, interrupts, boot, or compatibility.
+The current non-RDRAM data targets are local SP DMEM/IMEM byte memories, a tiny local SP DMA MMIO subset, a tiny local PI MMIO subset, and local MI pending/mask MMIO. This is not RSP execution, COP2, timing, CPU interrupt delivery, boot, or compatibility.
 
 ## Blank reset state
 
@@ -93,7 +93,7 @@ Normal ROM launch does not stage or execute cartridge bytes automatically.
 
 The current CPU data path recognizes a tiny local PI register window for aligned 32-bit loads and stores. Writing the local cartridge-to-RDRAM length register immediately copies from the supported local PI cart ROM address window into physical RDRAM. PI cart address 0x10000000 maps to normalized Cartridge offset 0.
 
-This is not PI timing, DMA scheduling, MI interrupts, boot, cartridge CPU mapping, or game compatibility.
+Successful PI DMA latches a local MI PI pending bit. This is not PI timing, DMA scheduling, CPU interrupt delivery, boot, cartridge CPU mapping, or game compatibility.
 
 ## Local SP DMEM/IMEM data memory
 
@@ -102,6 +102,12 @@ CPU data load/store can access Machine-owned 4 KiB SP DMEM and 4 KiB SP IMEM byt
 The current CPU data path also recognizes a tiny local SP register window for aligned 32-bit loads and stores. Writing the local SP read/write length registers immediately performs a deterministic local length/count/skip block copy between physical RDRAM and local SP memory.
 
 This is not full SP register behavior, SP status/timing/interrupt fidelity, RSP execution, COP2, renderer/audio, or game compatibility.
+
+## Minimal MI MMIO subset
+
+The current CPU data path recognizes a tiny local MI register window for aligned 32-bit loads and stores. It exposes local SP/PI pending bits and local SP/PI mask bits. Successful PI DMA latches the PI pending bit, and successful SP read/write DMA latches the SP pending bit. CPU writes clear supported pending bits with write-one-to-clear and assign supported mask bits directly.
+
+MI pending/mask state is observable local machine state only. It does not deliver CPU interrupts, does not inspect or mutate COP0 Status/Cause/EPC, does not fetch exception vectors, and does not change pc/next_pc.
 
 ## No-window ROM inspection
 
