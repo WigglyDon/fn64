@@ -116,6 +116,9 @@ void Machine::reset_to_blank_rdram_power_on_state() {
   sp_status_ = 0;
   mi_interrupt_pending_ = 0;
   mi_interrupt_mask_ = 0;
+  cop0_count_ = 0;
+  cop0_compare_ = 0;
+  cop0_timer_interrupt_pending_ = false;
   cop0_status_ = 0;
   cop0_software_interrupt_pending_ = 0;
   cop0_epc_ = 0;

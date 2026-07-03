@@ -184,9 +184,9 @@ private:
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
-  // COP0 is only narrowly subdecoded for local MFC0/MTC0 Status/EPC state,
-  // Cause software-pending state/observation, minimal local interrupt entry,
-  // and ERET return from that entry. COP1/COP2/COP3, CACHE, and coprocessor memory
+  // COP0 is only narrowly subdecoded for local MFC0/MTC0 Status/Count/Compare/
+  // Cause/EPC state, minimal local interrupt entry, and ERET return from that
+  // entry. COP1/COP2/COP3, CACHE, and coprocessor memory
   // identities remain coarse unsupported decode boundaries. fn64 does not
   // model cache state/ops/coherence or general COP0 exception delivery from
   // these identities.
@@ -351,6 +351,8 @@ private:
   static constexpr std::uint32_t kMiInterruptPendingPi = 0x00000010u;
   static constexpr std::uint32_t kMiSupportedInterruptBits =
       kMiInterruptPendingSp | kMiInterruptPendingPi;
+  static constexpr std::uint8_t kCop0CountRegisterIndex = 9;
+  static constexpr std::uint8_t kCop0CompareRegisterIndex = 11;
   static constexpr std::uint8_t kCop0StatusRegisterIndex = 12;
   static constexpr std::uint8_t kCop0CauseRegisterIndex = 13;
   static constexpr std::uint8_t kCop0EpcRegisterIndex = 14;
@@ -359,16 +361,19 @@ private:
   static constexpr std::uint32_t kCop0StatusInterruptMask0 = 0x00000100u;
   static constexpr std::uint32_t kCop0StatusInterruptMask1 = 0x00000200u;
   static constexpr std::uint32_t kCop0StatusInterruptMask2 = 0x00000400u;
+  static constexpr std::uint32_t kCop0StatusInterruptMask7 = 0x00008000u;
   static constexpr std::uint32_t kCop0StatusInterruptMask = 0x0000ff00u;
   static constexpr std::uint32_t kCop0SupportedStatusBits =
       kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask;
   static constexpr std::uint32_t kCop0CauseInterruptPending0 = 0x00000100u;
   static constexpr std::uint32_t kCop0CauseInterruptPending1 = 0x00000200u;
   static constexpr std::uint32_t kCop0CauseInterruptPending2 = 0x00000400u;
+  static constexpr std::uint32_t kCop0CauseInterruptPending7 = 0x00008000u;
   static constexpr std::uint32_t kCop0SoftwareInterruptPendingBits =
       kCop0CauseInterruptPending0 | kCop0CauseInterruptPending1;
   static constexpr std::uint32_t kCop0SupportedInterruptPendingBits =
-      kCop0SoftwareInterruptPendingBits | kCop0CauseInterruptPending2;
+      kCop0SoftwareInterruptPendingBits | kCop0CauseInterruptPending2 |
+      kCop0CauseInterruptPending7;
   static constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
   static constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
   static constexpr CpuPhysicalAddress kPiPhysicalBase = 0x04600000u;
@@ -505,12 +510,17 @@ private:
       CpuAddress cpu_address,
       std::uint32_t value);
   void latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept;
+  std::uint32_t read_cop0_count() const noexcept;
+  std::uint32_t read_cop0_compare() const noexcept;
   std::uint32_t read_cop0_status() const noexcept;
   std::uint32_t read_cop0_cause() const noexcept;
   std::uint32_t read_cop0_epc() const noexcept;
+  void write_cop0_count(std::uint32_t value) noexcept;
+  void write_cop0_compare(std::uint32_t value) noexcept;
   void write_cop0_status(std::uint32_t value) noexcept;
   void write_cop0_cause(std::uint32_t value) noexcept;
   void write_cop0_epc(std::uint32_t value) noexcept;
+  void advance_cop0_count_after_committed_instruction() noexcept;
   std::uint32_t local_cop0_interrupt_pending_lines() const noexcept;
   bool local_interrupt_pending() const noexcept;
   bool local_interrupt_enabled() const noexcept;
@@ -583,6 +593,9 @@ private:
   std::uint32_t sp_status_ = 0;
   std::uint32_t mi_interrupt_pending_ = 0;
   std::uint32_t mi_interrupt_mask_ = 0;
+  std::uint32_t cop0_count_ = 0;
+  std::uint32_t cop0_compare_ = 0;
+  bool cop0_timer_interrupt_pending_ = false;
   std::uint32_t cop0_status_ = 0;
   std::uint32_t cop0_software_interrupt_pending_ = 0;
   CpuAddress cop0_epc_ = 0;

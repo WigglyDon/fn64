@@ -967,6 +967,14 @@ void Machine::latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept {
   mi_interrupt_pending_ |= pending_bit & kMiSupportedInterruptBits;
 }
 
+std::uint32_t Machine::read_cop0_count() const noexcept {
+  return cop0_count_;
+}
+
+std::uint32_t Machine::read_cop0_compare() const noexcept {
+  return cop0_compare_;
+}
+
 std::uint32_t Machine::read_cop0_status() const noexcept {
   return cop0_status_ & kCop0SupportedStatusBits;
 }
@@ -977,11 +985,23 @@ std::uint32_t Machine::read_cop0_cause() const noexcept {
   if ((mi_interrupt_pending_ & mi_interrupt_mask_ & kMiSupportedInterruptBits) != 0) {
     cause |= kCop0CauseInterruptPending2;
   }
+  if (cop0_timer_interrupt_pending_) {
+    cause |= kCop0CauseInterruptPending7;
+  }
   return cause;
 }
 
 std::uint32_t Machine::read_cop0_epc() const noexcept {
   return cop0_epc_;
+}
+
+void Machine::write_cop0_count(std::uint32_t value) noexcept {
+  cop0_count_ = value;
+}
+
+void Machine::write_cop0_compare(std::uint32_t value) noexcept {
+  cop0_compare_ = value;
+  cop0_timer_interrupt_pending_ = false;
 }
 
 void Machine::write_cop0_status(std::uint32_t value) noexcept {
@@ -994,6 +1014,13 @@ void Machine::write_cop0_cause(std::uint32_t value) noexcept {
 
 void Machine::write_cop0_epc(std::uint32_t value) noexcept {
   cop0_epc_ = static_cast<CpuAddress>(value);
+}
+
+void Machine::advance_cop0_count_after_committed_instruction() noexcept {
+  ++cop0_count_;
+  if (cop0_count_ == cop0_compare_) {
+    cop0_timer_interrupt_pending_ = true;
+  }
 }
 
 std::uint32_t Machine::local_cop0_interrupt_pending_lines() const noexcept {
@@ -1812,6 +1839,14 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
     case CpuInstructionIdentity::kCop0Mfc0:
       switch (instruction.rd) {
+        case kCop0CountRegisterIndex:
+          write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_count());
+          return CpuInstructionExecutionResult::kExecuted;
+
+        case kCop0CompareRegisterIndex:
+          write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_compare());
+          return CpuInstructionExecutionResult::kExecuted;
+
         case kCop0StatusRegisterIndex:
           write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_status());
           return CpuInstructionExecutionResult::kExecuted;
@@ -1830,6 +1865,14 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
     case CpuInstructionIdentity::kCop0Mtc0:
       switch (instruction.rd) {
+        case kCop0CountRegisterIndex:
+          write_cop0_count(read_cpu_gpr_word(instruction.rt));
+          return CpuInstructionExecutionResult::kExecuted;
+
+        case kCop0CompareRegisterIndex:
+          write_cop0_compare(read_cpu_gpr_word(instruction.rt));
+          return CpuInstructionExecutionResult::kExecuted;
+
         case kCop0StatusRegisterIndex:
           write_cop0_status(read_cpu_gpr_word(instruction.rt));
           return CpuInstructionExecutionResult::kExecuted;
@@ -2882,6 +2925,7 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
     }
 
     return_from_local_interrupt_entry();
+    advance_cop0_count_after_committed_instruction();
     return CpuInstructionStepResult::kStepped;
   }
 
@@ -2910,10 +2954,12 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
     const std::uint32_t skipped_delay_slot_pc = cpu_next_pc_;
     cpu_pc_ = skipped_delay_slot_pc;
     cpu_next_pc_ = sequential_instruction_address(skipped_delay_slot_pc);
+    advance_cop0_count_after_committed_instruction();
     return CpuInstructionStepResult::kStepped;
   }
 
   cpu_pc_ = current_next_pc;
+  advance_cop0_count_after_committed_instruction();
 
   if (execution_result == CpuInstructionExecutionResult::kStopped) {
     return CpuInstructionStepResult::kStopped;

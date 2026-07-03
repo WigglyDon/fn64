@@ -4184,6 +4184,8 @@ constexpr std::uint16_t kMiUnknownRegisterOffset = 0x0014u;
 constexpr std::uint32_t kMiPendingSp = 0x00000001u;
 constexpr std::uint32_t kMiPendingPi = 0x00000010u;
 constexpr std::uint32_t kMiSupportedBits = kMiPendingSp | kMiPendingPi;
+constexpr std::uint8_t kCop0CountRegisterIndex = 9;
+constexpr std::uint8_t kCop0CompareRegisterIndex = 11;
 constexpr std::uint8_t kCop0StatusRegisterIndex = 12;
 constexpr std::uint8_t kCop0CauseRegisterIndex = 13;
 constexpr std::uint8_t kCop0EpcRegisterIndex = 14;
@@ -4193,12 +4195,14 @@ constexpr std::uint32_t kCop0StatusExl = 0x00000002u;
 constexpr std::uint32_t kCop0StatusInterruptMask0 = 0x00000100u;
 constexpr std::uint32_t kCop0StatusInterruptMask1 = 0x00000200u;
 constexpr std::uint32_t kCop0StatusInterruptMask2 = 0x00000400u;
+constexpr std::uint32_t kCop0StatusInterruptMask7 = 0x00008000u;
 constexpr std::uint32_t kCop0StatusInterruptMask = 0x0000ff00u;
 constexpr std::uint32_t kCop0SupportedStatusBits =
     kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask;
 constexpr std::uint32_t kCop0CauseIp0 = 0x00000100u;
 constexpr std::uint32_t kCop0CauseIp1 = 0x00000200u;
 constexpr std::uint32_t kCop0CauseIp2 = 0x00000400u;
+constexpr std::uint32_t kCop0CauseIp7 = 0x00008000u;
 constexpr std::uint32_t kCop0CauseSoftwareBits = kCop0CauseIp0 | kCop0CauseIp1;
 constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
 constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
@@ -6915,6 +6919,776 @@ void latch_pi_pending_for_cop0_demo(
   step_at(machine, instruction_base + 8u, "cop0_interrupt_latch_pi_pending_sw_length");
 }
 
+void latch_timer_pending_for_cop0_demo(
+    Machine& machine,
+    RdramOffset instruction_base,
+    std::size_t value_register) {
+  write_cop0_register_through_cpu(
+      machine,
+      instruction_base,
+      value_register,
+      kCop0CountRegisterIndex,
+      0,
+      "cop0_timer_latch_write_count");
+  write_cop0_register_through_cpu(
+      machine,
+      instruction_base + 4u,
+      value_register,
+      kCop0CompareRegisterIndex,
+      3,
+      "cop0_timer_latch_write_compare");
+  machine.stage_rdram_u32_be(
+      instruction_base + 8u,
+      encode_ori(static_cast<std::uint8_t>(value_register), 0, 0x0001u));
+  step_at(machine, instruction_base + 8u, "cop0_timer_latch_match_step");
+}
+
+void run_cop0_timer_observation_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: Count/Compare are local CPU-readable state\n";
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kSourceIndex = 4;
+  constexpr std::size_t kReadIndex = 5;
+  constexpr RdramOffset kInitialCountReadAddress = 0x00002800u;
+  constexpr RdramOffset kInitialCompareReadAddress = 0x00002804u;
+  constexpr RdramOffset kInitialCauseReadAddress = 0x00002808u;
+  constexpr RdramOffset kCountWriteAddress = 0x0000280cu;
+  constexpr RdramOffset kCountReadAddress = 0x00002810u;
+  constexpr RdramOffset kCompareWriteAddress = 0x00002814u;
+  constexpr RdramOffset kCompareReadAddress = 0x00002818u;
+  constexpr RdramOffset kCauseReadAddress = 0x0000281cu;
+
+  require_cop0_register_equals(
+      machine,
+      kInitialCountReadAddress,
+      kReadIndex,
+      kCop0CountRegisterIndex,
+      0,
+      "cop0_timer_observation_initial_count");
+  require_cop0_register_equals(
+      machine,
+      kInitialCompareReadAddress,
+      kReadIndex,
+      kCop0CompareRegisterIndex,
+      0,
+      "cop0_timer_observation_initial_compare");
+  require_cop0_register_equals(
+      machine,
+      kInitialCauseReadAddress,
+      kReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_timer_observation_initial_cause");
+
+  write_cop0_register_through_cpu(
+      machine,
+      kCountWriteAddress,
+      kSourceIndex,
+      kCop0CountRegisterIndex,
+      0x00000010u,
+      "cop0_timer_observation_write_count");
+  require_cop0_register_equals(
+      machine,
+      kCountReadAddress,
+      kReadIndex,
+      kCop0CountRegisterIndex,
+      0x00000011u,
+      "cop0_timer_observation_read_written_count_after_tick");
+
+  write_cop0_register_through_cpu(
+      machine,
+      kCompareWriteAddress,
+      kSourceIndex,
+      kCop0CompareRegisterIndex,
+      0x00000020u,
+      "cop0_timer_observation_write_compare");
+  require_cop0_register_equals(
+      machine,
+      kCompareReadAddress,
+      kReadIndex,
+      kCop0CompareRegisterIndex,
+      0x00000020u,
+      "cop0_timer_observation_read_written_compare");
+  require_cop0_register_equals(
+      machine,
+      kCauseReadAddress,
+      kReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_timer_observation_compare_write_no_pending");
+}
+
+void run_cop0_timer_count_cadence_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: Count advances only after committed executed instructions\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kOrdinaryIndex = 5;
+    constexpr std::size_t kReadIndex = 6;
+    constexpr RdramOffset kCountWriteAddress = 0x00002820u;
+    constexpr RdramOffset kFirstStepAddress = 0x00002824u;
+    constexpr RdramOffset kSecondStepAddress = 0x00002828u;
+    constexpr RdramOffset kCountAfterStepsReadAddress = 0x0000282cu;
+    constexpr RdramOffset kBreakAddress = 0x00002830u;
+    constexpr RdramOffset kCountAfterBreakReadAddress = 0x00002834u;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountWriteAddress,
+        kSourceIndex,
+        kCop0CountRegisterIndex,
+        0,
+        "cop0_timer_count_cadence_write_count_zero");
+    machine.stage_rdram_u32_be(
+        kFirstStepAddress,
+        encode_ori(static_cast<std::uint8_t>(kOrdinaryIndex), 0, 0x0011u));
+    machine.stage_rdram_u32_be(
+        kSecondStepAddress,
+        encode_ori(static_cast<std::uint8_t>(kOrdinaryIndex), 0, 0x0022u));
+    step_at(machine, kFirstStepAddress, "cop0_timer_count_cadence_first_step");
+    step_at(machine, kSecondStepAddress, "cop0_timer_count_cadence_second_step");
+    require_cop0_register_equals(
+        machine,
+        kCountAfterStepsReadAddress,
+        kReadIndex,
+        kCop0CountRegisterIndex,
+        3,
+        "cop0_timer_count_cadence_two_steps");
+
+    machine.stage_rdram_u32_be(kBreakAddress, encode_break());
+    machine.stage_cpu_pc(cpu_rdram_alias(kBreakAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kBreakAddress + 4u));
+    require_stopped(machine.step_cpu_instruction(), "cop0_timer_count_cadence_break_stopped");
+    require_cop0_register_equals(
+        machine,
+        kCountAfterBreakReadAddress,
+        kReadIndex,
+        kCop0CountRegisterIndex,
+        5,
+        "cop0_timer_count_cadence_stopped_instruction_ticks");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kInterruptedIndex = 5;
+    constexpr std::size_t kReadIndex = 6;
+    constexpr RdramOffset kCountWriteAddress = 0x00002840u;
+    constexpr RdramOffset kStatusWriteAddress = 0x00002844u;
+    constexpr RdramOffset kCauseWriteAddress = 0x00002848u;
+    constexpr RdramOffset kInterruptedInstructionAddress = 0x00002860u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(
+        kInterruptedInstructionAddress,
+        encode_ori(static_cast<std::uint8_t>(kInterruptedIndex), 0, 0x3344u));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kReadIndex), kCop0CountRegisterIndex));
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountWriteAddress,
+        kSourceIndex,
+        kCop0CountRegisterIndex,
+        0,
+        "cop0_timer_count_cadence_interrupt_write_count");
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kSourceIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusIe | kCop0StatusInterruptMask0,
+        "cop0_timer_count_cadence_interrupt_write_status");
+    write_cop0_register_through_cpu(
+        machine,
+        kCauseWriteAddress,
+        kSourceIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp0,
+        "cop0_timer_count_cadence_interrupt_write_cause");
+
+    machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedInstructionAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedInstructionAddress + 4u));
+    require_interrupted(machine.step_cpu_instruction(), "cop0_timer_count_cadence_interrupt_entry");
+    require_gpr_equals(
+        machine,
+        kInterruptedIndex,
+        0,
+        "cop0_timer_count_cadence_interrupt_skipped_instruction");
+    require_stepped(machine.step_cpu_instruction(), "cop0_timer_count_cadence_vector_count_read");
+    require_gpr_equals(machine, kReadIndex, 3, "cop0_timer_count_cadence_interrupt_no_tick");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kReadIndex = 5;
+    constexpr RdramOffset kCountWriteAddress = 0x00002870u;
+    constexpr RdramOffset kUnsupportedAddress = 0x00002874u;
+    constexpr RdramOffset kCountAfterUnsupportedReadAddress = 0x00002878u;
+    constexpr RdramOffset kCountRewriteAddress = 0x0000287cu;
+    constexpr RdramOffset kCountAfterFaultReadAddress = 0x00002880u;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountWriteAddress,
+        kSourceIndex,
+        kCop0CountRegisterIndex,
+        0x00000020u,
+        "cop0_timer_count_cadence_unsupported_write_count");
+    machine.stage_rdram_u32_be(
+        kUnsupportedAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kReadIndex), kCop0UnsupportedRegisterIndex));
+    machine.stage_cpu_pc(cpu_rdram_alias(kUnsupportedAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kUnsupportedAddress + 4u));
+    require_step_unsupported(machine, "cop0_timer_count_cadence_unsupported_no_tick");
+    require_cop0_register_equals(
+        machine,
+        kCountAfterUnsupportedReadAddress,
+        kReadIndex,
+        kCop0CountRegisterIndex,
+        0x00000021u,
+        "cop0_timer_count_cadence_unsupported_count_preserved");
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountRewriteAddress,
+        kSourceIndex,
+        kCop0CountRegisterIndex,
+        0x00000030u,
+        "cop0_timer_count_cadence_fault_write_count");
+    machine.stage_cpu_pc(kSyntheticMiMmioCpuBase);
+    machine.stage_cpu_next_pc(kSyntheticMiMmioCpuBase + 4u);
+    require_step_machine_fault(
+        machine,
+        "cop0_timer_count_cadence_fetch_fault_no_tick",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    require_cop0_register_equals(
+        machine,
+        kCountAfterFaultReadAddress,
+        kReadIndex,
+        kCop0CountRegisterIndex,
+        0x00000031u,
+        "cop0_timer_count_cadence_fault_count_preserved");
+  }
+}
+
+void run_cop0_timer_pending_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: Compare match latches sticky local timer IP7\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kReadIndex = 5;
+    constexpr std::size_t kOrdinaryIndex = 6;
+    constexpr RdramOffset kTimerLatchBase = 0x00002890u;
+    constexpr RdramOffset kCausePendingReadAddress = 0x0000289cu;
+    constexpr RdramOffset kLaterStepAddress = 0x000028a0u;
+    constexpr RdramOffset kCauseStickyReadAddress = 0x000028a4u;
+    constexpr RdramOffset kCompareClearAddress = 0x000028a8u;
+    constexpr RdramOffset kCauseClearedReadAddress = 0x000028acu;
+
+    latch_timer_pending_for_cop0_demo(machine, kTimerLatchBase, kSourceIndex);
+    require_cop0_register_equals(
+        machine,
+        kCausePendingReadAddress,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp7,
+        "cop0_timer_pending_latched_cause");
+
+    machine.stage_rdram_u32_be(
+        kLaterStepAddress,
+        encode_ori(static_cast<std::uint8_t>(kOrdinaryIndex), 0, 0x002au));
+    step_at(machine, kLaterStepAddress, "cop0_timer_pending_sticky_step");
+    require_cop0_register_equals(
+        machine,
+        kCauseStickyReadAddress,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp7,
+        "cop0_timer_pending_sticky_cause");
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCompareClearAddress,
+        kSourceIndex,
+        kCop0CompareRegisterIndex,
+        0x00000100u,
+        "cop0_timer_pending_compare_clears");
+    require_cop0_register_equals(
+        machine,
+        kCauseClearedReadAddress,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_timer_pending_cleared_by_compare");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kReadIndex = 5;
+    constexpr RdramOffset kCountWriteAddress = 0x000028b0u;
+    constexpr RdramOffset kCompareWriteAddress = 0x000028b4u;
+    constexpr RdramOffset kCauseReadAddress = 0x000028b8u;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountWriteAddress,
+        kSourceIndex,
+        kCop0CountRegisterIndex,
+        0,
+        "cop0_timer_pending_compare_immediate_count");
+    write_cop0_register_through_cpu(
+        machine,
+        kCompareWriteAddress,
+        kSourceIndex,
+        kCop0CompareRegisterIndex,
+        2,
+        "cop0_timer_pending_compare_immediate_rearms");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp7,
+        "cop0_timer_pending_compare_immediate_ip7");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kReadIndex = 5;
+    constexpr std::size_t kOrdinaryIndex = 6;
+    constexpr RdramOffset kCountWriteAddress = 0x000028c0u;
+    constexpr RdramOffset kCompareWriteAddress = 0x000028c4u;
+    constexpr RdramOffset kWrapStepAddress = 0x000028c8u;
+    constexpr RdramOffset kCauseReadAddress = 0x000028ccu;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountWriteAddress,
+        kSourceIndex,
+        kCop0CountRegisterIndex,
+        0xfffffffdu,
+        "cop0_timer_pending_wrap_write_count");
+    write_cop0_register_through_cpu(
+        machine,
+        kCompareWriteAddress,
+        kSourceIndex,
+        kCop0CompareRegisterIndex,
+        0,
+        "cop0_timer_pending_wrap_write_compare");
+    machine.stage_rdram_u32_be(
+        kWrapStepAddress,
+        encode_ori(static_cast<std::uint8_t>(kOrdinaryIndex), 0, 0x0001u));
+    step_at(machine, kWrapStepAddress, "cop0_timer_pending_wrap_step");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp7,
+        "cop0_timer_pending_wrap_latched");
+  }
+}
+
+void run_cop0_timer_ownership_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: timer IP7 is cleared only by MTC0 Compare\n";
+
+  auto machine_storage = make_pi_dma_proof_machine();
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kPiBaseIndex = 4;
+  constexpr std::size_t kMiBaseIndex = 5;
+  constexpr std::size_t kValueIndex = 6;
+  constexpr std::size_t kCauseSourceIndex = 7;
+  constexpr std::size_t kTimerSourceIndex = 8;
+  constexpr std::size_t kCauseReadIndex = 9;
+  constexpr RdramOffset kTimerLatchBase = 0x000028d0u;
+  constexpr RdramOffset kCountWriteAddress = 0x000028dcu;
+  constexpr RdramOffset kCauseAfterCountWriteAddress = 0x000028e0u;
+  constexpr RdramOffset kCauseWriteZeroAddress = 0x000028e4u;
+  constexpr RdramOffset kCauseAfterCauseZeroReadAddress = 0x000028e8u;
+  constexpr RdramOffset kCauseWriteIp0Address = 0x000028ecu;
+  constexpr RdramOffset kCauseIp0Ip7ReadAddress = 0x000028f0u;
+  constexpr RdramOffset kPiPendingInstructionBase = 0x000028f4u;
+  constexpr RdramOffset kSwMiMaskAddress = 0x00002900u;
+  constexpr RdramOffset kCauseAllPendingReadAddress = 0x00002904u;
+  constexpr RdramOffset kCompareClearAddress = 0x00002908u;
+  constexpr RdramOffset kCauseAfterCompareReadAddress = 0x0000290cu;
+  constexpr RdramOffset kCauseClearSoftwareAddress = 0x00002910u;
+  constexpr RdramOffset kCauseIp2OnlyReadAddress = 0x00002914u;
+  constexpr RdramOffset kSwMiPendingAddress = 0x00002918u;
+  constexpr RdramOffset kCauseAllClearReadAddress = 0x0000291cu;
+  constexpr RdramOffset kPiDmaDestination = 0x00002940u;
+
+  machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+  latch_timer_pending_for_cop0_demo(machine, kTimerLatchBase, kTimerSourceIndex);
+  write_cop0_register_through_cpu(
+      machine,
+      kCountWriteAddress,
+      kTimerSourceIndex,
+      kCop0CountRegisterIndex,
+      0x00000040u,
+      "cop0_timer_ownership_count_write_preserves_pending");
+  require_cop0_register_equals(
+      machine,
+      kCauseAfterCountWriteAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp7,
+      "cop0_timer_ownership_count_did_not_clear_ip7");
+
+  write_cop0_register_through_cpu(
+      machine,
+      kCauseWriteZeroAddress,
+      kCauseSourceIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_timer_ownership_cause_zero");
+  require_cop0_register_equals(
+      machine,
+      kCauseAfterCauseZeroReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp7,
+      "cop0_timer_ownership_cause_did_not_clear_ip7");
+
+  write_cop0_register_through_cpu(
+      machine,
+      kCauseWriteIp0Address,
+      kCauseSourceIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp0,
+      "cop0_timer_ownership_write_ip0");
+  require_cop0_register_equals(
+      machine,
+      kCauseIp0Ip7ReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp0 | kCop0CauseIp7,
+      "cop0_timer_ownership_ip0_and_ip7_compose");
+
+  latch_pi_pending_for_cop0_demo(
+      machine,
+      kPiPendingInstructionBase,
+      kPiDmaDestination,
+      kPiBaseIndex,
+      kValueIndex);
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiMaskAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptMaskRegisterOffset,
+      kMiPendingPi,
+      "cop0_timer_ownership_write_pi_mask");
+  require_cop0_register_equals(
+      machine,
+      kCauseAllPendingReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp0 | kCop0CauseIp2 | kCop0CauseIp7,
+      "cop0_timer_ownership_all_pending_compose");
+
+  write_cop0_register_through_cpu(
+      machine,
+      kCompareClearAddress,
+      kTimerSourceIndex,
+      kCop0CompareRegisterIndex,
+      0x00000100u,
+      "cop0_timer_ownership_compare_clears_only_timer");
+  require_cop0_register_equals(
+      machine,
+      kCauseAfterCompareReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp0 | kCop0CauseIp2,
+      "cop0_timer_ownership_compare_preserved_other_pending");
+
+  write_cop0_register_through_cpu(
+      machine,
+      kCauseClearSoftwareAddress,
+      kCauseSourceIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_timer_ownership_clear_software");
+  require_cop0_register_equals(
+      machine,
+      kCauseIp2OnlyReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp2,
+      "cop0_timer_ownership_cause_cleared_only_software");
+
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiPendingAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptPendingRegisterOffset,
+      kMiPendingPi,
+      "cop0_timer_ownership_clear_mi");
+  require_cop0_register_equals(
+      machine,
+      kCauseAllClearReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_timer_ownership_all_clear");
+}
+
+void run_cop0_timer_interrupt_entry_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: timer IP7 enters the local interrupt vector\n";
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kTimerSourceIndex = 4;
+  constexpr std::size_t kStatusSourceIndex = 5;
+  constexpr std::size_t kInterruptedIndex = 6;
+  constexpr std::size_t kEpcReadIndex = 7;
+  constexpr std::size_t kStatusReadIndex = 8;
+  constexpr RdramOffset kTimerLatchBase = 0x00002960u;
+  constexpr RdramOffset kCop0StatusWriteAddress = 0x0000296cu;
+  constexpr RdramOffset kInterruptedInstructionAddress = 0x00002980u;
+  constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+  constexpr std::uint32_t kEntryStatus =
+      kCop0StatusIe | kCop0StatusInterruptMask7;
+  constexpr std::uint32_t kEnteredStatus =
+      kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask7;
+
+  machine.stage_rdram_u32_be(
+      kInterruptedInstructionAddress,
+      encode_ori(static_cast<std::uint8_t>(kInterruptedIndex), 0, 0x7070u));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress,
+      encode_mfc0(static_cast<std::uint8_t>(kEpcReadIndex), kCop0EpcRegisterIndex));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress + 4u,
+      encode_mfc0(static_cast<std::uint8_t>(kStatusReadIndex), kCop0StatusRegisterIndex));
+  machine.stage_rdram_u32_be(kVectorInstructionAddress + 8u, encode_break());
+
+  latch_timer_pending_for_cop0_demo(machine, kTimerLatchBase, kTimerSourceIndex);
+  write_cop0_register_through_cpu(
+      machine,
+      kCop0StatusWriteAddress,
+      kStatusSourceIndex,
+      kCop0StatusRegisterIndex,
+      kEntryStatus,
+      "cop0_timer_interrupt_entry_write_status");
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedInstructionAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedInstructionAddress + 4u));
+  require_interrupted(machine.step_cpu_instruction(), "cop0_timer_interrupt_entry_delivered");
+  require_gpr_equals(machine, kInterruptedIndex, 0, "cop0_timer_interrupt_entry_skipped");
+  if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+      machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+    throw std::runtime_error("cop0_timer_interrupt_entry did not enter vector");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "cop0_timer_interrupt_entry_vector_epc");
+  require_gpr_equals(
+      machine,
+      kEpcReadIndex,
+      cpu_value_from_sign_extended_u32(cpu_rdram_alias(kInterruptedInstructionAddress)),
+      "cop0_timer_interrupt_entry_epc");
+  require_stepped(machine.step_cpu_instruction(), "cop0_timer_interrupt_entry_vector_status");
+  require_gpr_equals(
+      machine,
+      kStatusReadIndex,
+      kEnteredStatus,
+      "cop0_timer_interrupt_entry_status");
+  require_stopped(machine.step_cpu_instruction(), "cop0_timer_interrupt_entry_vector_break");
+}
+
+void run_cop0_timer_gate_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: timer delivery obeys Status IE/IM7/EXL gates\n";
+
+  const auto require_gate_blocks_delivery =
+      [](const char* label,
+         std::uint32_t status_value,
+         RdramOffset instruction_base) {
+        auto machine_storage = std::make_unique<Machine>(Cartridge{});
+        Machine& machine = *machine_storage;
+
+        constexpr std::size_t kTimerSourceIndex = 4;
+        constexpr std::size_t kStatusSourceIndex = 5;
+        constexpr std::size_t kOrdinaryIndex = 6;
+        constexpr std::size_t kCauseReadIndex = 7;
+        constexpr std::size_t kEpcReadIndex = 8;
+        const RdramOffset kTimerLatchBase = instruction_base;
+        const RdramOffset kStatusWriteAddress = instruction_base + 0x0cu;
+        const RdramOffset kCauseReadAddress = instruction_base + 0x10u;
+        const RdramOffset kOrdinaryInstructionAddress = instruction_base + 0x14u;
+        const RdramOffset kEpcReadAddress = instruction_base + 0x18u;
+
+        latch_timer_pending_for_cop0_demo(machine, kTimerLatchBase, kTimerSourceIndex);
+        write_cop0_register_through_cpu(
+            machine,
+            kStatusWriteAddress,
+            kStatusSourceIndex,
+            kCop0StatusRegisterIndex,
+            status_value,
+            label);
+        require_cop0_register_equals(
+            machine,
+            kCauseReadAddress,
+            kCauseReadIndex,
+            kCop0CauseRegisterIndex,
+            kCop0CauseIp7,
+            label);
+
+        machine.stage_rdram_u32_be(
+            kOrdinaryInstructionAddress,
+            encode_ori(static_cast<std::uint8_t>(kOrdinaryIndex), 0, 0x7979u));
+        machine.stage_cpu_pc(cpu_rdram_alias(kOrdinaryInstructionAddress));
+        machine.stage_cpu_next_pc(cpu_rdram_alias(kOrdinaryInstructionAddress + 4u));
+        require_stepped(machine.step_cpu_instruction(), label);
+        require_gpr_equals(machine, kOrdinaryIndex, 0x7979u, label);
+
+        require_cop0_register_equals(
+            machine,
+            kEpcReadAddress,
+            kEpcReadIndex,
+            kCop0EpcRegisterIndex,
+            0,
+            label);
+      };
+
+  require_gate_blocks_delivery(
+      "cop0_timer_gate_ie_clear",
+      kCop0StatusInterruptMask7,
+      0x000029a0u);
+  require_gate_blocks_delivery(
+      "cop0_timer_gate_im7_clear",
+      kCop0StatusIe,
+      0x000029c0u);
+  require_gate_blocks_delivery(
+      "cop0_timer_gate_exl_set",
+      kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask7,
+      0x000029e0u);
+}
+
+void run_cop0_timer_eret_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: ERET does not acknowledge timer IP7\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kTimerSourceIndex = 4;
+    constexpr std::size_t kStatusSourceIndex = 5;
+    constexpr std::size_t kCompareSourceIndex = 6;
+    constexpr std::size_t kInterruptedIndex = 7;
+    constexpr std::size_t kCauseReadIndex = 8;
+    constexpr RdramOffset kTimerLatchBase = 0x00002a20u;
+    constexpr RdramOffset kStatusWriteAddress = 0x00002a2cu;
+    constexpr RdramOffset kInterruptedInstructionAddress = 0x00002a40u;
+    constexpr RdramOffset kCauseReadAddress = 0x00002a44u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr std::uint32_t kEntryStatus =
+        kCop0StatusIe | kCop0StatusInterruptMask7;
+
+    machine.stage_rdram_u32_be(
+        kInterruptedInstructionAddress,
+        encode_ori(static_cast<std::uint8_t>(kInterruptedIndex), 0, 0x6161u));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mtc0(static_cast<std::uint8_t>(kCompareSourceIndex), kCop0CompareRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 4u, encode_cop0_eret());
+
+    latch_timer_pending_for_cop0_demo(machine, kTimerLatchBase, kTimerSourceIndex);
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kEntryStatus,
+        "cop0_timer_eret_clear_write_status");
+    machine.stage_cpu_gpr(kCompareSourceIndex, 0x00000100u);
+
+    machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedInstructionAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedInstructionAddress + 4u));
+    require_interrupted(machine.step_cpu_instruction(), "cop0_timer_eret_clear_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_timer_eret_clear_compare");
+    require_stepped(machine.step_cpu_instruction(), "cop0_timer_eret_clear_eret");
+    require_stepped(machine.step_cpu_instruction(), "cop0_timer_eret_clear_resume");
+    require_gpr_equals(machine, kInterruptedIndex, 0x6161u, "cop0_timer_eret_clear_resume");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_timer_eret_clear_pending_by_compare");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+
+    constexpr std::size_t kTimerSourceIndex = 4;
+    constexpr std::size_t kStatusSourceIndex = 5;
+    constexpr std::size_t kInterruptedIndex = 6;
+    constexpr std::size_t kCauseReadIndex = 7;
+    constexpr RdramOffset kTimerLatchBase = 0x00002aa0u;
+    constexpr RdramOffset kStatusWriteAddress = 0x00002aacu;
+    constexpr RdramOffset kInterruptedInstructionAddress = 0x00002ac0u;
+    constexpr RdramOffset kCauseReadAddress = 0x00002ac4u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr std::uint32_t kEntryStatus =
+        kCop0StatusIe | kCop0StatusInterruptMask7;
+
+    machine.stage_rdram_u32_be(
+        kInterruptedInstructionAddress,
+        encode_ori(static_cast<std::uint8_t>(kInterruptedIndex), 0, 0x6262u));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress, encode_cop0_eret());
+
+    latch_timer_pending_for_cop0_demo(machine, kTimerLatchBase, kTimerSourceIndex);
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kEntryStatus,
+        "cop0_timer_eret_reentry_write_status");
+
+    machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedInstructionAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedInstructionAddress + 4u));
+    require_interrupted(machine.step_cpu_instruction(), "cop0_timer_eret_reentry_first");
+    require_stepped(machine.step_cpu_instruction(), "cop0_timer_eret_reentry_eret");
+    require_interrupted(machine.step_cpu_instruction(), "cop0_timer_eret_reentry_second");
+    require_gpr_equals(machine, kInterruptedIndex, 0, "cop0_timer_eret_reentry_skipped");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp7,
+        "cop0_timer_eret_reentry_timer_pending_preserved");
+  }
+}
+
 void run_cop0_interrupt_entry_demo() {
   std::cout << "fn64 bootstrap COP0 demo: local interrupt entry vectors without executing interrupted instruction\n";
 
@@ -8251,24 +9025,40 @@ void run_cop0_unsupported_no_ghost_demo() {
         Machine& machine = *machine_storage;
         constexpr std::size_t kStatusSourceIndex = 4;
         constexpr std::size_t kPreservedIndex = 5;
-        constexpr std::size_t kStatusReadIndex = 6;
-        constexpr std::size_t kEpcReadIndex = 7;
-        constexpr std::size_t kCauseReadIndex = 8;
+        constexpr std::size_t kCountSourceIndex = 6;
+        constexpr std::size_t kCauseSourceIndex = 7;
+        constexpr std::size_t kCountReadIndex = 8;
+        constexpr std::size_t kStatusReadIndex = 9;
+        constexpr std::size_t kEpcReadIndex = 10;
+        constexpr std::size_t kCauseReadIndex = 11;
+        constexpr std::size_t kCompareReadIndex = 12;
         constexpr RdramOffset kStatusWriteAddress = 0x00002140u;
-        constexpr RdramOffset kUnsupportedAddress = 0x00002144u;
-        constexpr RdramOffset kStatusReadAddress = 0x00002148u;
-        constexpr RdramOffset kEpcReadAddress = 0x0000214cu;
-        constexpr RdramOffset kCauseReadAddress = 0x00002150u;
+        constexpr RdramOffset kCauseWriteAddress = 0x00002144u;
+        constexpr RdramOffset kUnsupportedAddress = 0x00002148u;
+        constexpr RdramOffset kCountReadAddress = 0x0000214cu;
+        constexpr RdramOffset kStatusReadAddress = 0x00002150u;
+        constexpr RdramOffset kEpcReadAddress = 0x00002154u;
+        constexpr RdramOffset kCauseReadAddress = 0x00002158u;
+        constexpr RdramOffset kCompareReadAddress = 0x0000215cu;
+        constexpr RdramOffset kTimerLatchBase = 0x00002160u;
         constexpr CpuRegisterValue kPreservedValue = 0x1122334455667788ull;
         constexpr std::uint32_t kStatusValue =
             kCop0StatusIe | kCop0StatusInterruptMask2;
 
+        latch_timer_pending_for_cop0_demo(machine, kTimerLatchBase, kCountSourceIndex);
         write_cop0_register_through_cpu(
             machine,
             kStatusWriteAddress,
             kStatusSourceIndex,
             kCop0StatusRegisterIndex,
             kStatusValue,
+            label);
+        write_cop0_register_through_cpu(
+            machine,
+            kCauseWriteAddress,
+            kCauseSourceIndex,
+            kCop0CauseRegisterIndex,
+            kCop0CauseIp0,
             label);
         machine.stage_rdram_u32_be(kUnsupportedAddress, instruction);
         machine.stage_cpu_pc(cpu_rdram_alias(kUnsupportedAddress));
@@ -8282,6 +9072,13 @@ void run_cop0_unsupported_no_ghost_demo() {
           throw std::runtime_error(std::string(label) + " changed pc/next_pc");
         }
         require_gpr_equals(machine, kPreservedIndex, kPreservedValue, label);
+        require_cop0_register_equals(
+            machine,
+            kCountReadAddress,
+            kCountReadIndex,
+            kCop0CountRegisterIndex,
+            5,
+            label);
         require_cop0_register_equals(
             machine,
             kStatusReadAddress,
@@ -8301,7 +9098,14 @@ void run_cop0_unsupported_no_ghost_demo() {
             kCauseReadAddress,
             kCauseReadIndex,
             kCop0CauseRegisterIndex,
-            0,
+            kCop0CauseIp0 | kCop0CauseIp7,
+            label);
+        require_cop0_register_equals(
+            machine,
+            kCompareReadAddress,
+            kCompareReadIndex,
+            kCop0CompareRegisterIndex,
+            3,
             label);
       };
 
@@ -9655,12 +10459,19 @@ void run_data_demos(Machine& machine) {
   run_cop0_cause_mi_observation_demo();
   run_cop0_cause_software_observation_demo();
   run_cop0_cause_mi_boundary_demo();
+  run_cop0_timer_observation_demo();
+  run_cop0_timer_count_cadence_demo();
+  run_cop0_timer_pending_demo();
+  run_cop0_timer_ownership_demo();
   run_cop0_epc_observation_demo();
   run_cop0_interrupt_entry_demo();
   run_cop0_interrupt_gate_demo();
   run_cop0_software_interrupt_entry_demo();
   run_cop0_software_interrupt_gate_demo();
   run_cop0_software_interrupt_eret_demo();
+  run_cop0_timer_interrupt_entry_demo();
+  run_cop0_timer_gate_demo();
+  run_cop0_timer_eret_demo();
   run_cop0_interrupt_invalid_pc_demo();
   run_cop0_interrupt_cadence_demo();
   run_cop0_eret_return_demo();
