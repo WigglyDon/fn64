@@ -4472,6 +4472,290 @@ void run_cpu_driven_pi_dma_execution_demo() {
       "cpu_driven_pi_dma_cartridge_range_not_mapped");
 }
 
+void run_cpu_driven_pi_sp_dma_chain_demo() {
+  std::cout << "fn64 bootstrap PI/SP DMA demo: CPU loader chains PI DMA into SP IMEM data loads\n";
+
+  constexpr std::size_t kPiBaseIndex = 4;
+  constexpr std::size_t kValueIndex = 5;
+  constexpr std::size_t kSpBaseIndex = 6;
+  constexpr std::size_t kSpMemoryBaseIndex = 7;
+  constexpr std::size_t kImemHighIndex = 8;
+  constexpr std::size_t kImemLowIndex = 9;
+  constexpr std::size_t kDmemBaseIndex = 10;
+  constexpr std::size_t kDmemProbeIndex = 11;
+  constexpr std::size_t kCartFaultBaseIndex = 12;
+  constexpr std::size_t kCartFaultTargetIndex = 13;
+
+  constexpr RdramOffset kLoaderBase = 0x00001a00u;
+  constexpr RdramOffset kPiDmaRdramDestination = 0x00000300u;
+  constexpr CartridgeOffset kPayloadCartridgeOffset = 0x00000040u;
+  constexpr PiCartAddress kPayloadPiCartAddress =
+      pi_cart_rom_address(kPayloadCartridgeOffset);
+  constexpr std::uint32_t kLengthRegisterValue = 7u;
+  constexpr std::uint32_t kPayloadHigh = 0x11223344u;
+  constexpr std::uint32_t kPayloadLow = 0x55667788u;
+  constexpr std::uint16_t kSpImemOffset = 0x0020u;
+  constexpr std::uint32_t kSpImemDmaAddress = 0x00001020u;
+  constexpr CpuAddress kSpImemDataAlias = sp_imem_uncached_alias(kSpImemOffset);
+  constexpr CpuAddress kSpDmemDataAlias = sp_dmem_uncached_alias(kSpImemOffset);
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(
+          make_bootstrap_cartridge_staging_rom(kPayloadHigh, kPayloadLow),
+          cartridge,
+          error)) {
+    throw std::runtime_error("CPU-driven PI/SP DMA chain proof could not load synthetic cartridge: " + error);
+  }
+
+  auto machine_storage = std::make_unique<Machine>(std::move(cartridge));
+  Machine& machine = *machine_storage;
+
+  constexpr RdramOffset kLuiPiBaseAddress = kLoaderBase + 0x00u;
+  constexpr RdramOffset kOriPiDramAddress = kLoaderBase + 0x04u;
+  constexpr RdramOffset kSwPiDramAddress = kLoaderBase + 0x08u;
+  constexpr RdramOffset kLuiPiCartAddress = kLoaderBase + 0x0cu;
+  constexpr RdramOffset kOriPiCartAddress = kLoaderBase + 0x10u;
+  constexpr RdramOffset kSwPiCartAddress = kLoaderBase + 0x14u;
+  constexpr RdramOffset kOriPiLengthAddress = kLoaderBase + 0x18u;
+  constexpr RdramOffset kSwPiLengthAddress = kLoaderBase + 0x1cu;
+  constexpr RdramOffset kLuiSpBaseAddress = kLoaderBase + 0x20u;
+  constexpr RdramOffset kOriSpMemoryAddress = kLoaderBase + 0x24u;
+  constexpr RdramOffset kSwSpMemoryAddress = kLoaderBase + 0x28u;
+  constexpr RdramOffset kOriSpDramAddress = kLoaderBase + 0x2cu;
+  constexpr RdramOffset kSwSpDramAddress = kLoaderBase + 0x30u;
+  constexpr RdramOffset kOriSpLengthAddress = kLoaderBase + 0x34u;
+  constexpr RdramOffset kSwSpReadLengthAddress = kLoaderBase + 0x38u;
+  constexpr RdramOffset kLuiSpImemAliasAddress = kLoaderBase + 0x3cu;
+  constexpr RdramOffset kOriSpImemAliasAddress = kLoaderBase + 0x40u;
+  constexpr RdramOffset kLwImemHighAddress = kLoaderBase + 0x44u;
+  constexpr RdramOffset kLwImemLowAddress = kLoaderBase + 0x48u;
+  constexpr RdramOffset kLuiSpDmemAliasAddress = kLoaderBase + 0x4cu;
+  constexpr RdramOffset kOriSpDmemAliasAddress = kLoaderBase + 0x50u;
+  constexpr RdramOffset kLwDmemProbeAddress = kLoaderBase + 0x54u;
+  constexpr RdramOffset kBreakAddress = kLoaderBase + 0x58u;
+  constexpr RdramOffset kCartridgeLoadProbeAddress = kLoaderBase + 0x5cu;
+
+  machine.stage_rdram_u32_be(
+      kLuiPiBaseAddress,
+      encode_lui(static_cast<std::uint8_t>(kPiBaseIndex), 0xa460u));
+  machine.stage_rdram_u32_be(
+      kOriPiDramAddress,
+      encode_ori(static_cast<std::uint8_t>(kValueIndex), 0, kPiDmaRdramDestination));
+  stage_pi_sw_instruction(
+      machine,
+      kSwPiDramAddress,
+      static_cast<std::uint8_t>(kValueIndex),
+      static_cast<std::uint8_t>(kPiBaseIndex),
+      kPiDramRegisterOffset);
+  machine.stage_rdram_u32_be(
+      kLuiPiCartAddress,
+      encode_lui(static_cast<std::uint8_t>(kValueIndex), 0x1000u));
+  machine.stage_rdram_u32_be(
+      kOriPiCartAddress,
+      encode_ori(
+          static_cast<std::uint8_t>(kValueIndex),
+          static_cast<std::uint8_t>(kValueIndex),
+          static_cast<std::uint16_t>(kPayloadCartridgeOffset)));
+  stage_pi_sw_instruction(
+      machine,
+      kSwPiCartAddress,
+      static_cast<std::uint8_t>(kValueIndex),
+      static_cast<std::uint8_t>(kPiBaseIndex),
+      kPiCartRegisterOffset);
+  machine.stage_rdram_u32_be(
+      kOriPiLengthAddress,
+      encode_ori(static_cast<std::uint8_t>(kValueIndex), 0, kLengthRegisterValue));
+  stage_pi_sw_instruction(
+      machine,
+      kSwPiLengthAddress,
+      static_cast<std::uint8_t>(kValueIndex),
+      static_cast<std::uint8_t>(kPiBaseIndex),
+      kPiCartToRdramLengthRegisterOffset);
+
+  machine.stage_rdram_u32_be(
+      kLuiSpBaseAddress,
+      encode_lui(static_cast<std::uint8_t>(kSpBaseIndex), 0xa404u));
+  machine.stage_rdram_u32_be(
+      kOriSpMemoryAddress,
+      encode_ori(static_cast<std::uint8_t>(kValueIndex), 0, kSpImemDmaAddress));
+  stage_sp_sw_instruction(
+      machine,
+      kSwSpMemoryAddress,
+      static_cast<std::uint8_t>(kValueIndex),
+      static_cast<std::uint8_t>(kSpBaseIndex),
+      kSpMemoryRegisterOffset);
+  machine.stage_rdram_u32_be(
+      kOriSpDramAddress,
+      encode_ori(static_cast<std::uint8_t>(kValueIndex), 0, kPiDmaRdramDestination));
+  stage_sp_sw_instruction(
+      machine,
+      kSwSpDramAddress,
+      static_cast<std::uint8_t>(kValueIndex),
+      static_cast<std::uint8_t>(kSpBaseIndex),
+      kSpDramRegisterOffset);
+  machine.stage_rdram_u32_be(
+      kOriSpLengthAddress,
+      encode_ori(static_cast<std::uint8_t>(kValueIndex), 0, kLengthRegisterValue));
+  stage_sp_sw_instruction(
+      machine,
+      kSwSpReadLengthAddress,
+      static_cast<std::uint8_t>(kValueIndex),
+      static_cast<std::uint8_t>(kSpBaseIndex),
+      kSpReadLengthRegisterOffset);
+
+  machine.stage_rdram_u32_be(
+      kLuiSpImemAliasAddress,
+      encode_lui(static_cast<std::uint8_t>(kSpMemoryBaseIndex), 0xa400u));
+  machine.stage_rdram_u32_be(
+      kOriSpImemAliasAddress,
+      encode_ori(
+          static_cast<std::uint8_t>(kSpMemoryBaseIndex),
+          static_cast<std::uint8_t>(kSpMemoryBaseIndex),
+          0x1020u));
+  machine.stage_rdram_u32_be(
+      kLwImemHighAddress,
+      encode_lw(
+          static_cast<std::uint8_t>(kImemHighIndex),
+          static_cast<std::uint8_t>(kSpMemoryBaseIndex),
+          0));
+  machine.stage_rdram_u32_be(
+      kLwImemLowAddress,
+      encode_lw(
+          static_cast<std::uint8_t>(kImemLowIndex),
+          static_cast<std::uint8_t>(kSpMemoryBaseIndex),
+          4));
+
+  machine.stage_rdram_u32_be(
+      kLuiSpDmemAliasAddress,
+      encode_lui(static_cast<std::uint8_t>(kDmemBaseIndex), 0xa400u));
+  machine.stage_rdram_u32_be(
+      kOriSpDmemAliasAddress,
+      encode_ori(
+          static_cast<std::uint8_t>(kDmemBaseIndex),
+          static_cast<std::uint8_t>(kDmemBaseIndex),
+          kSpImemOffset));
+  machine.stage_rdram_u32_be(
+      kLwDmemProbeAddress,
+      encode_lw(
+          static_cast<std::uint8_t>(kDmemProbeIndex),
+          static_cast<std::uint8_t>(kDmemBaseIndex),
+          0));
+  machine.stage_rdram_u32_be(kBreakAddress, encode_break());
+  machine.stage_rdram_u32_be(
+      kCartridgeLoadProbeAddress,
+      encode_lw(
+          static_cast<std::uint8_t>(kCartFaultTargetIndex),
+          static_cast<std::uint8_t>(kCartFaultBaseIndex),
+          0));
+
+  if (machine.inspect_rdram_u32_be(kPiDmaRdramDestination) != 0 ||
+      machine.inspect_rdram_u32_be(kPiDmaRdramDestination + 4u) != 0) {
+    throw std::runtime_error("CPU-driven PI/SP DMA chain proof RDRAM destination was not blank before DMA");
+  }
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kLoaderBase));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kLoaderBase + 4u));
+
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lui_pi_base");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_pi_dram");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_sw_pi_dram");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lui_pi_cart");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_pi_cart");
+  require_gpr_equals(
+      machine,
+      kValueIndex,
+      kPayloadPiCartAddress,
+      "cpu_driven_pi_sp_dma_ori_pi_cart");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_sw_pi_cart");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_pi_length");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_sw_pi_length");
+
+  require_rdram_word_equals(
+      machine,
+      kPiDmaRdramDestination,
+      kPayloadHigh,
+      "cpu_driven_pi_sp_dma_pi_high");
+  require_rdram_word_equals(
+      machine,
+      kPiDmaRdramDestination + 4u,
+      kPayloadLow,
+      "cpu_driven_pi_sp_dma_pi_low");
+
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lui_sp_base");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_sp_memory");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_sw_sp_memory");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_sp_dram");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_sw_sp_dram");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_sp_length");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_sw_sp_read_length");
+
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lui_sp_imem_alias");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_sp_imem_alias");
+  require_gpr_equals(
+      machine,
+      kSpMemoryBaseIndex,
+      cpu_value_from_sign_extended_u32(kSpImemDataAlias),
+      "cpu_driven_pi_sp_dma_ori_sp_imem_alias");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lw_imem_high");
+  require_gpr_equals(
+      machine,
+      kImemHighIndex,
+      cpu_value_from_sign_extended_u32(kPayloadHigh),
+      "cpu_driven_pi_sp_dma_lw_imem_high");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lw_imem_low");
+  require_gpr_equals(
+      machine,
+      kImemLowIndex,
+      cpu_value_from_sign_extended_u32(kPayloadLow),
+      "cpu_driven_pi_sp_dma_lw_imem_low");
+
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lui_sp_dmem_alias");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_ori_sp_dmem_alias");
+  require_gpr_equals(
+      machine,
+      kDmemBaseIndex,
+      cpu_value_from_sign_extended_u32(kSpDmemDataAlias),
+      "cpu_driven_pi_sp_dma_ori_sp_dmem_alias");
+  require_stepped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_lw_dmem_probe");
+  require_gpr_equals(machine, kDmemProbeIndex, 0, "cpu_driven_pi_sp_dma_lw_dmem_probe");
+
+  require_stopped(machine.step_cpu_instruction(), "cpu_driven_pi_sp_dma_break");
+
+  machine.stage_cpu_pc(kSpImemDataAlias);
+  machine.stage_cpu_next_pc(kSpImemDataAlias + 4u);
+  require_step_machine_fault(
+      machine,
+      "cpu_driven_pi_sp_dma_fetch_sp_imem_rejected",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+  require_gpr_equals(
+      machine,
+      kImemHighIndex,
+      cpu_value_from_sign_extended_u32(kPayloadHigh),
+      "cpu_driven_pi_sp_dma_fetch_sp_imem_rejected");
+  require_gpr_equals(
+      machine,
+      kImemLowIndex,
+      cpu_value_from_sign_extended_u32(kPayloadLow),
+      "cpu_driven_pi_sp_dma_fetch_sp_imem_rejected");
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kCartridgeLoadProbeAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kCartridgeLoadProbeAddress + 4u));
+  machine.stage_cpu_gpr(kCartFaultBaseIndex, 0xb0000040u);
+  machine.stage_cpu_gpr(kCartFaultTargetIndex, 0x123456789abcdef0ull);
+  require_step_machine_fault(
+      machine,
+      "cpu_driven_pi_sp_dma_cartridge_range_not_mapped",
+      MachineFaultKind::kCpuRdramAddressRejected,
+      4);
+  require_gpr_equals(
+      machine,
+      kCartFaultTargetIndex,
+      0x123456789abcdef0ull,
+      "cpu_driven_pi_sp_dma_cartridge_range_not_mapped");
+}
+
 void run_pi_mmio_dma_success_demo() {
   std::cout << "fn64 bootstrap PI MMIO demo: local immediate cartridge-to-RDRAM DMA subset\n";
 
@@ -6727,6 +7011,7 @@ void run_data_demos(Machine& machine) {
   run_sp_dma_reservation_demo();
   run_sp_mmio_fault_demo();
   run_cpu_driven_pi_dma_execution_demo();
+  run_cpu_driven_pi_sp_dma_chain_demo();
   run_pi_mmio_dma_success_demo();
   run_pi_dma_reservation_demo();
   run_pi_dma_failure_demo();
