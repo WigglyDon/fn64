@@ -7,7 +7,7 @@
 namespace fn64 {
 namespace {
 
-[[noreturn]] void fail_cpu_rdram_address(
+[[noreturn]] void fail_cpu_direct_rdram_address(
     const char* operation,
     CpuAddress cpu_address,
     std::size_t width) {
@@ -17,6 +17,21 @@ namespace {
       cpu_address,
       width,
       std::string("RDRAM access out of range through CPU address: operation=") +
+          operation +
+          " address=" + std::to_string(cpu_address) +
+          " width=" + std::to_string(width));
+}
+
+[[noreturn]] void fail_cpu_data_address_rejected(
+    const char* operation,
+    CpuAddress cpu_address,
+    std::size_t width) {
+  throw MachineFault(
+      MachineFaultKind::kCpuRdramAddressRejected,
+      operation,
+      cpu_address,
+      width,
+      std::string("CPU data address has no supported local target: operation=") +
           operation +
           " address=" + std::to_string(cpu_address) +
           " width=" + std::to_string(width));
@@ -503,7 +518,7 @@ RdramOffset Machine::require_cpu_rdram_address(
     std::size_t width) {
   RdramOffset rdram_address = 0;
   if (!translate_cpu_rdram_address(cpu_address, width, rdram_address)) {
-    fail_cpu_rdram_address(operation, cpu_address, width);
+    fail_cpu_direct_rdram_address(operation, cpu_address, width);
   }
 
   return rdram_address;
@@ -515,7 +530,7 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
     std::size_t width) {
   CpuPhysicalAddress physical_address = 0;
   if (!translate_direct_cpu_physical_address(cpu_address, physical_address)) {
-    fail_cpu_rdram_address(operation, cpu_address, width);
+    fail_cpu_data_address_rejected(operation, cpu_address, width);
   }
 
   RdramOffset rdram_address = 0;
@@ -569,7 +584,7 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
     };
   }
 
-  fail_cpu_rdram_address(operation, cpu_address, width);
+  fail_cpu_data_address_rejected(operation, cpu_address, width);
 }
 
 const std::array<std::uint8_t, Machine::kSpMemorySizeBytes>& Machine::sp_memory_for_kind(

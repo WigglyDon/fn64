@@ -19,6 +19,8 @@ using CartridgeOffset = std::uint32_t;
 using PiCartAddress = std::uint32_t;
 
 enum class MachineFaultKind {
+  // Current local address-rejection fault for direct-RDRAM fetch/data gates and
+  // data-dispatch misses. This is not COP0 address-error delivery.
   kCpuRdramAddressRejected,
   kUnsupportedCpuDataAccess,
   kUnalignedInstructionFetch,
