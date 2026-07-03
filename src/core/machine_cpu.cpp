@@ -58,12 +58,6 @@ namespace {
       std::to_string(length_register_value));
 }
 
-[[noreturn]] void fail_sp_dma_length_overflow(std::uint32_t length_register_value) {
-  throw std::out_of_range(
-      "SP DMA length overflows 32-bit byte count: register=" +
-      std::to_string(length_register_value));
-}
-
 [[noreturn]] void fail_sp_dma_sp_memory_span_out_of_range(
     const char* operation,
     std::uint32_t sp_memory_address,
@@ -753,28 +747,30 @@ void Machine::write_sp_register_u32(
   }
 }
 
-bool Machine::translate_sp_memory_dma_span(
+Machine::SpDmaLengthCommand Machine::decode_sp_dma_length_command(
+    std::uint32_t length_register_value) noexcept {
+  SpDmaLengthCommand command;
+  command.length = length_register_value & 0x00000fffu;
+  command.count = (length_register_value >> 12) & 0x000000ffu;
+  command.skip = (length_register_value >> 20) & 0x00000fffu;
+  command.transfer_length_per_block = command.length + 1u;
+  command.block_count = command.count + 1u;
+  return command;
+}
+
+bool Machine::translate_sp_memory_dma_base(
     std::uint32_t sp_memory_address,
-    std::uint32_t byte_count,
     CpuDataTargetKind& out_kind,
     std::uint32_t& out_sp_offset) noexcept {
   constexpr std::uint32_t kSpMemorySelectorBit = 0x1000u;
   constexpr std::uint32_t kSpMemorySupportedMask = 0x1fffu;
   constexpr std::uint32_t kSpMemoryOffsetMask = 0x0fffu;
 
-  if (byte_count == 0 || byte_count > kSpMemorySizeBytes) {
-    return false;
-  }
-
   if ((sp_memory_address & ~kSpMemorySupportedMask) != 0) {
     return false;
   }
 
   const std::uint32_t offset = sp_memory_address & kSpMemoryOffsetMask;
-  if (static_cast<std::size_t>(offset) > kSpMemorySizeBytes - byte_count) {
-    return false;
-  }
-
   out_kind = ((sp_memory_address & kSpMemorySelectorBit) == 0)
                  ? CpuDataTargetKind::kSpDmem
                  : CpuDataTargetKind::kSpImem;
@@ -782,17 +778,32 @@ bool Machine::translate_sp_memory_dma_span(
   return true;
 }
 
-Machine::CpuDataTarget Machine::require_sp_memory_dma_span(
+Machine::CpuDataTarget Machine::require_sp_memory_dma_blocks(
     const char* operation,
     std::uint32_t sp_memory_address,
-    std::uint32_t byte_count) {
+    const SpDmaLengthCommand& command) {
   CpuDataTargetKind kind = CpuDataTargetKind::kSpDmem;
   std::uint32_t offset = 0;
-  if (!translate_sp_memory_dma_span(sp_memory_address, byte_count, kind, offset)) {
+  if (!translate_sp_memory_dma_base(sp_memory_address, kind, offset)) {
     fail_sp_dma_sp_memory_span_out_of_range(
         operation,
         sp_memory_address,
-        byte_count);
+        command.transfer_length_per_block);
+  }
+
+  for (std::uint32_t block = 0; block < command.block_count; ++block) {
+    const std::uint64_t block_offset =
+        static_cast<std::uint64_t>(offset) +
+        static_cast<std::uint64_t>(block) *
+            static_cast<std::uint64_t>(command.transfer_length_per_block);
+    if (block_offset > static_cast<std::uint64_t>(kSpMemorySizeBytes) ||
+        static_cast<std::uint64_t>(command.transfer_length_per_block) >
+            static_cast<std::uint64_t>(kSpMemorySizeBytes) - block_offset) {
+      fail_sp_dma_sp_memory_span_out_of_range(
+          operation,
+          sp_memory_address,
+          command.transfer_length_per_block);
+    }
   }
 
   return CpuDataTarget{
@@ -805,66 +816,93 @@ Machine::CpuDataTarget Machine::require_sp_memory_dma_span(
   };
 }
 
-RdramOffset Machine::require_sp_dma_rdram_span(
+RdramOffset Machine::require_sp_dma_rdram_blocks(
     const char* operation,
     RdramOffset rdram_address,
-    std::uint32_t byte_count) {
-  RdramOffset translated_rdram_address = 0;
-  if (!translate_cpu_physical_rdram_address(
-          static_cast<CpuPhysicalAddress>(rdram_address),
-          byte_count,
-          translated_rdram_address)) {
-    fail_sp_dma_rdram_span_out_of_range(operation, rdram_address, byte_count);
+    const SpDmaLengthCommand& command) {
+  RdramOffset first_rdram_address = 0;
+  for (std::uint32_t block = 0; block < command.block_count; ++block) {
+    const std::uint64_t block_address =
+        static_cast<std::uint64_t>(rdram_address) +
+        static_cast<std::uint64_t>(block) *
+            static_cast<std::uint64_t>(
+                command.transfer_length_per_block + command.skip);
+    if (block_address > 0xffffffffull) {
+      fail_sp_dma_rdram_span_out_of_range(
+          operation,
+          rdram_address,
+          command.transfer_length_per_block);
+    }
+
+    RdramOffset translated_rdram_address = 0;
+    if (!translate_cpu_physical_rdram_address(
+            static_cast<CpuPhysicalAddress>(block_address),
+            command.transfer_length_per_block,
+            translated_rdram_address)) {
+      fail_sp_dma_rdram_span_out_of_range(
+          operation,
+          rdram_address,
+          command.transfer_length_per_block);
+    }
+
+    if (block == 0) {
+      first_rdram_address = translated_rdram_address;
+    }
   }
 
-  return translated_rdram_address;
+  return first_rdram_address;
 }
 
 void Machine::perform_sp_read_dma(std::uint32_t length_register_value) {
-  const std::uint64_t transfer_count =
-      static_cast<std::uint64_t>(length_register_value) + 1ull;
-  if (transfer_count > 0xffffffffull) {
-    fail_sp_dma_length_overflow(length_register_value);
-  }
-
-  const std::uint32_t byte_count = static_cast<std::uint32_t>(transfer_count);
+  const SpDmaLengthCommand command =
+      decode_sp_dma_length_command(length_register_value);
   const RdramOffset rdram_address =
-      require_sp_dma_rdram_span("SP read DMA RDRAM source", sp_dram_address_, byte_count);
+      require_sp_dma_rdram_blocks("SP read DMA RDRAM source", sp_dram_address_, command);
   const CpuDataTarget sp_target =
-      require_sp_memory_dma_span("SP read DMA memory destination", sp_mem_address_, byte_count);
+      require_sp_memory_dma_blocks("SP read DMA memory destination", sp_mem_address_, command);
 
-  // Local SP subset: SP read DMA copies exactly length+1 bytes from physical
-  // RDRAM into local SP memory immediately. Timing, busy state, interrupts,
-  // count/skip repetition, SP registers beyond this subset, and RSP execution
-  // are not modeled here.
-  for (std::uint32_t i = 0; i < byte_count; ++i) {
-    write_sp_memory_u8(
-        sp_target.kind,
-        sp_target.sp_memory_offset + i,
-        read_rdram_u8(rdram_address + i));
+  // Local SP subset: SP read DMA decodes length/count/skip and immediately
+  // copies deterministic blocks from physical RDRAM into local SP memory.
+  // Timing, busy state, interrupts, SP registers beyond this subset, and RSP
+  // execution are not modeled here.
+  for (std::uint32_t block = 0; block < command.block_count; ++block) {
+    const std::uint32_t sp_block_offset =
+        sp_target.sp_memory_offset + block * command.transfer_length_per_block;
+    const RdramOffset rdram_block_address =
+        rdram_address +
+        block * (command.transfer_length_per_block + command.skip);
+    for (std::uint32_t i = 0; i < command.transfer_length_per_block; ++i) {
+      write_sp_memory_u8(
+          sp_target.kind,
+          sp_block_offset + i,
+          read_rdram_u8(rdram_block_address + i));
+    }
   }
 }
 
 void Machine::perform_sp_write_dma(std::uint32_t length_register_value) {
-  const std::uint64_t transfer_count =
-      static_cast<std::uint64_t>(length_register_value) + 1ull;
-  if (transfer_count > 0xffffffffull) {
-    fail_sp_dma_length_overflow(length_register_value);
-  }
-
-  const std::uint32_t byte_count = static_cast<std::uint32_t>(transfer_count);
+  const SpDmaLengthCommand command =
+      decode_sp_dma_length_command(length_register_value);
   const CpuDataTarget sp_source =
-      require_sp_memory_dma_span("SP write DMA memory source", sp_mem_address_, byte_count);
+      require_sp_memory_dma_blocks("SP write DMA memory source", sp_mem_address_, command);
   const RdramOffset rdram_address =
-      require_sp_dma_rdram_span("SP write DMA RDRAM destination", sp_dram_address_, byte_count);
+      require_sp_dma_rdram_blocks("SP write DMA RDRAM destination", sp_dram_address_, command);
 
-  // Local SP subset: SP write DMA copies exactly length+1 bytes from local SP
-  // memory into physical RDRAM immediately. RDRAM writes use the existing
-  // helpers, so overlapping local LL/SC reservations are invalidated.
-  for (std::uint32_t i = 0; i < byte_count; ++i) {
-    write_rdram_u8(
-        rdram_address + i,
-        read_sp_memory_u8(sp_source.kind, sp_source.sp_memory_offset + i));
+  // Local SP subset: SP write DMA decodes length/count/skip and immediately
+  // copies deterministic blocks from local SP memory into physical RDRAM.
+  // RDRAM writes use the existing helpers, so overlapping local LL/SC
+  // reservations are invalidated.
+  for (std::uint32_t block = 0; block < command.block_count; ++block) {
+    const std::uint32_t sp_block_offset =
+        sp_source.sp_memory_offset + block * command.transfer_length_per_block;
+    const RdramOffset rdram_block_address =
+        rdram_address +
+        block * (command.transfer_length_per_block + command.skip);
+    for (std::uint32_t i = 0; i < command.transfer_length_per_block; ++i) {
+      write_rdram_u8(
+          rdram_block_address + i,
+          read_sp_memory_u8(sp_source.kind, sp_block_offset + i));
+    }
   }
 }
 

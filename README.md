@@ -99,7 +99,7 @@ This is not PI timing, DMA scheduling, MI interrupts, boot, cartridge CPU mappin
 
 CPU data load/store can access Machine-owned 4 KiB SP DMEM and 4 KiB SP IMEM byte memories through direct aliases. Instruction fetch still remains RDRAM-only.
 
-The current CPU data path also recognizes a tiny local SP register window for aligned 32-bit loads and stores. Writing the local SP read/write length registers immediately copies exact bytes between physical RDRAM and local SP memory.
+The current CPU data path also recognizes a tiny local SP register window for aligned 32-bit loads and stores. Writing the local SP read/write length registers immediately performs a deterministic local length/count/skip block copy between physical RDRAM and local SP memory.
 
 This is not full SP register behavior, SP status/timing/interrupt fidelity, RSP execution, COP2, renderer/audio, or game compatibility.
 

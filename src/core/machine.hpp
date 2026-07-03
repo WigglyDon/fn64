@@ -167,6 +167,14 @@ private:
     std::uint32_t pi_register_offset = 0;
   };
 
+  struct SpDmaLengthCommand {
+    std::uint32_t length = 0;
+    std::uint32_t count = 0;
+    std::uint32_t skip = 0;
+    std::uint32_t transfer_length_per_block = 0;
+    std::uint32_t block_count = 0;
+  };
+
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
@@ -430,19 +438,20 @@ private:
       CpuPhysicalAddress physical_address,
       CpuAddress cpu_address,
       std::uint32_t value);
-  static bool translate_sp_memory_dma_span(
+  static SpDmaLengthCommand decode_sp_dma_length_command(
+      std::uint32_t length_register_value) noexcept;
+  static bool translate_sp_memory_dma_base(
       std::uint32_t sp_memory_address,
-      std::uint32_t byte_count,
       CpuDataTargetKind& out_kind,
       std::uint32_t& out_sp_offset) noexcept;
-  static CpuDataTarget require_sp_memory_dma_span(
+  static CpuDataTarget require_sp_memory_dma_blocks(
       const char* operation,
       std::uint32_t sp_memory_address,
-      std::uint32_t byte_count);
-  static RdramOffset require_sp_dma_rdram_span(
+      const SpDmaLengthCommand& command);
+  static RdramOffset require_sp_dma_rdram_blocks(
       const char* operation,
       RdramOffset rdram_address,
-      std::uint32_t byte_count);
+      const SpDmaLengthCommand& command);
   void perform_sp_read_dma(std::uint32_t length_register_value);
   void perform_sp_write_dma(std::uint32_t length_register_value);
 

@@ -4210,6 +4210,15 @@ constexpr CpuAddress sp_imem_uncached_alias(std::uint16_t offset) {
   return kSyntheticSpImemKseg1Base + offset;
 }
 
+constexpr std::uint32_t encode_sp_dma_length_command(
+    std::uint32_t length,
+    std::uint32_t count,
+    std::uint32_t skip) {
+  return (length & 0x00000fffu) |
+         ((count & 0x000000ffu) << 12) |
+         ((skip & 0x00000fffu) << 20);
+}
+
 std::unique_ptr<Machine> make_pi_dma_proof_machine() {
   Cartridge cartridge;
   std::string error;
@@ -5121,11 +5130,16 @@ void run_sp_mmio_dma_success_demo() {
   constexpr RdramOffset kImemReadSource = 0x00001808u;
   constexpr RdramOffset kDmemWriteDestination = 0x00001820u;
   constexpr RdramOffset kImemWriteDestination = 0x00001830u;
+  constexpr RdramOffset kDmemBlockReadSource = 0x00001840u;
+  constexpr RdramOffset kImemBlockReadSource = 0x00001850u;
+  constexpr RdramOffset kDmemBlockWriteDestination = 0x00001870u;
   constexpr std::uint32_t kDmemAddress = 0x00000100u;
   constexpr std::uint32_t kImemAddress = 0x00001020u;
   constexpr std::uint32_t kDmemWriteAddress = 0x00000180u;
   constexpr std::uint32_t kImemWriteAddress = 0x00001040u;
   constexpr std::uint32_t kLengthRegisterValue = 7u;
+  constexpr std::uint32_t kBlockSkipCommand =
+      encode_sp_dma_length_command(3u, 1u, 4u);
 
   stage_sp_sw_instruction(
       machine,
@@ -5197,6 +5211,12 @@ void run_sp_mmio_dma_success_demo() {
   machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
   stage_rdram_u64_be(machine, kDmemReadSource, 0x1122334455667788ull);
   stage_rdram_u64_be(machine, kImemReadSource, 0x99aabbccddeeff00ull);
+  machine.stage_rdram_u32_be(kDmemBlockReadSource, 0x01020304u);
+  machine.stage_rdram_u32_be(kDmemBlockReadSource + 4u, 0xaabbccddu);
+  machine.stage_rdram_u32_be(kDmemBlockReadSource + 8u, 0x05060708u);
+  machine.stage_rdram_u32_be(kImemBlockReadSource, 0x11223344u);
+  machine.stage_rdram_u32_be(kImemBlockReadSource + 4u, 0xaabbccddu);
+  machine.stage_rdram_u32_be(kImemBlockReadSource + 8u, 0x55667788u);
 
   machine.stage_cpu_gpr(kValueIndex, kDmemAddress);
   step_at(machine, kSwSpMemAddress, "sp_mmio_success_demo_sw_dmem_address");
@@ -5225,6 +5245,34 @@ void run_sp_mmio_dma_success_demo() {
       kSpMemoryReadIndex,
       0x99aabbccddeeff00ull,
       "sp_mmio_success_demo_load_imem");
+
+  machine.stage_cpu_gpr(kValueIndex, kDmemAddress + 0x0200u);
+  step_at(machine, kSwSpMemAddress, "sp_mmio_success_demo_sw_dmem_block_address");
+  machine.stage_cpu_gpr(kValueIndex, kDmemBlockReadSource);
+  step_at(machine, kSwDramAddress, "sp_mmio_success_demo_sw_dmem_block_read_dram");
+  machine.stage_cpu_gpr(kValueIndex, kBlockSkipCommand);
+  step_at(machine, kSwReadLengthAddress, "sp_mmio_success_demo_sw_dmem_block_read_length");
+  machine.stage_cpu_gpr(kSpMemoryBaseIndex, sp_dmem_uncached_alias(0x0300u));
+  step_at(machine, kLoadSpAddress, "sp_mmio_success_demo_load_dmem_block");
+  require_gpr_equals(
+      machine,
+      kSpMemoryReadIndex,
+      0x0102030405060708ull,
+      "sp_mmio_success_demo_load_dmem_block");
+
+  machine.stage_cpu_gpr(kValueIndex, kImemAddress + 0x0200u);
+  step_at(machine, kSwSpMemAddress, "sp_mmio_success_demo_sw_imem_block_address");
+  machine.stage_cpu_gpr(kValueIndex, kImemBlockReadSource);
+  step_at(machine, kSwDramAddress, "sp_mmio_success_demo_sw_imem_block_read_dram");
+  machine.stage_cpu_gpr(kValueIndex, kBlockSkipCommand);
+  step_at(machine, kSwReadLengthAddress, "sp_mmio_success_demo_sw_imem_block_read_length");
+  machine.stage_cpu_gpr(kSpMemoryBaseIndex, sp_imem_uncached_alias(0x0220u));
+  step_at(machine, kLoadSpAddress, "sp_mmio_success_demo_load_imem_block");
+  require_gpr_equals(
+      machine,
+      kSpMemoryReadIndex,
+      0x1122334455667788ull,
+      "sp_mmio_success_demo_load_imem_block");
 
   machine.stage_cpu_gpr(kSpMemoryBaseIndex, sp_dmem_uncached_alias(0x0180u));
   machine.stage_cpu_gpr(kSpMemorySourceIndex, 0xaabbccddeeff0011ull);
@@ -5256,29 +5304,57 @@ void run_sp_mmio_dma_success_demo() {
       0x0102030405060708ull,
       "sp_mmio_success_demo_write_imem");
 
+  machine.stage_cpu_gpr(kSpMemoryBaseIndex, sp_dmem_uncached_alias(0x0380u));
+  machine.stage_cpu_gpr(kSpMemorySourceIndex, 0x2233445566778899ull);
+  step_at(machine, kStoreSpAddress, "sp_mmio_success_demo_seed_dmem_block");
+  machine.stage_rdram_u32_be(kDmemBlockWriteDestination, 0xaaaaaaaau);
+  machine.stage_rdram_u32_be(kDmemBlockWriteDestination + 4u, 0xbbbbbbbbu);
+  machine.stage_rdram_u32_be(kDmemBlockWriteDestination + 8u, 0xccccccccu);
+  machine.stage_cpu_gpr(kValueIndex, 0x00000380u);
+  step_at(machine, kSwSpMemAddress, "sp_mmio_success_demo_sw_dmem_block_write_address");
+  machine.stage_cpu_gpr(kValueIndex, kDmemBlockWriteDestination);
+  step_at(machine, kSwDramAddress, "sp_mmio_success_demo_sw_dmem_block_write_dram");
+  machine.stage_cpu_gpr(kValueIndex, kBlockSkipCommand);
+  step_at(machine, kSwWriteLengthAddress, "sp_mmio_success_demo_sw_dmem_block_write_length");
+  require_rdram_word_equals(
+      machine,
+      kDmemBlockWriteDestination,
+      0x22334455u,
+      "sp_mmio_success_demo_write_dmem_block_high");
+  require_rdram_word_equals(
+      machine,
+      kDmemBlockWriteDestination + 4u,
+      0xbbbbbbbbu,
+      "sp_mmio_success_demo_write_dmem_block_gap");
+  require_rdram_word_equals(
+      machine,
+      kDmemBlockWriteDestination + 8u,
+      0x66778899u,
+      "sp_mmio_success_demo_write_dmem_block_low");
+
   step_at(machine, kLwSpMemAddress, "sp_mmio_success_demo_lw_mem_address");
   require_gpr_equals(
       machine,
       kRegisterReadIndex,
-      kImemWriteAddress,
+      0x00000380u,
       "sp_mmio_success_demo_lw_mem_address");
   step_at(machine, kLwDramAddress, "sp_mmio_success_demo_lw_dram_address");
   require_gpr_equals(
       machine,
       kRegisterReadIndex,
-      kImemWriteDestination,
+      kDmemBlockWriteDestination,
       "sp_mmio_success_demo_lw_dram_address");
   step_at(machine, kLwReadLengthAddress, "sp_mmio_success_demo_lw_read_length");
   require_gpr_equals(
       machine,
       kRegisterReadIndex,
-      kLengthRegisterValue,
+      kBlockSkipCommand,
       "sp_mmio_success_demo_lw_read_length");
   step_at(machine, kLwWriteLengthAddress, "sp_mmio_success_demo_lw_write_length");
   require_gpr_equals(
       machine,
       kRegisterReadIndex,
-      kLengthRegisterValue,
+      kBlockSkipCommand,
       "sp_mmio_success_demo_lw_write_length");
   step_at(machine, kLwStatusAddress, "sp_mmio_success_demo_lw_status");
   require_gpr_equals(machine, kRegisterReadIndex, 0, "sp_mmio_success_demo_lw_status");
@@ -5286,6 +5362,10 @@ void run_sp_mmio_dma_success_demo() {
 
 void run_sp_dma_failure_demo() {
   std::cout << "fn64 bootstrap SP MMIO demo: failed DMA preflight is no-ghost\n";
+
+  constexpr std::uint32_t kSingleEightByteBlockCommand = 7u;
+  constexpr std::uint32_t kTwoFourByteBlocksNoSkipCommand =
+      encode_sp_dma_length_command(3u, 1u, 0u);
 
   const auto require_failed_sp_dma_preserves_state =
       [](const char* label,
@@ -5400,33 +5480,51 @@ void run_sp_dma_failure_demo() {
       false,
       0x00000ffcu,
       0x00001940u,
-      7u);
+      kSingleEightByteBlockCommand);
   require_failed_sp_dma_preserves_state(
       "sp_dma_failure_demo_read_sp_destination_out_of_range",
       false,
       0x00002000u,
       0x00001940u,
-      7u);
+      kSingleEightByteBlockCommand);
+  require_failed_sp_dma_preserves_state(
+      "sp_dma_failure_demo_read_later_sp_block_crosses_region",
+      false,
+      0x00000ffcu,
+      0x00001940u,
+      kTwoFourByteBlocksNoSkipCommand);
   require_failed_sp_dma_preserves_state(
       "sp_dma_failure_demo_read_rdram_source_out_of_range",
       false,
       0x00000100u,
       0x003ffffcu,
-      7u);
+      kSingleEightByteBlockCommand);
+  require_failed_sp_dma_preserves_state(
+      "sp_dma_failure_demo_read_later_rdram_block_out_of_range",
+      false,
+      0x00000100u,
+      0x003ffffcu,
+      kTwoFourByteBlocksNoSkipCommand);
   require_failed_sp_dma_preserves_state(
       "sp_dma_failure_demo_write_sp_source_crosses_region",
       true,
       0x00000ffcu,
       0x00001940u,
-      7u);
+      kSingleEightByteBlockCommand);
   require_failed_sp_dma_preserves_state(
       "sp_dma_failure_demo_write_rdram_destination_out_of_range",
       true,
       0x00000100u,
       0x003ffffcu,
-      7u);
+      kSingleEightByteBlockCommand);
   require_failed_sp_dma_preserves_state(
-      "sp_dma_failure_demo_length_overflow",
+      "sp_dma_failure_demo_write_later_rdram_block_out_of_range",
+      true,
+      0x00000100u,
+      0x003ffffcu,
+      kTwoFourByteBlocksNoSkipCommand);
+  require_failed_sp_dma_preserves_state(
+      "sp_dma_failure_demo_large_command_span_out_of_range",
       false,
       0x00000100u,
       0x00001940u,
@@ -5435,6 +5533,9 @@ void run_sp_dma_failure_demo() {
 
 void run_sp_dma_reservation_demo() {
   std::cout << "fn64 bootstrap SP MMIO demo: DMA preserves the local RDRAM reservation domain\n";
+
+  constexpr std::uint32_t kBlockSkipCommand =
+      encode_sp_dma_length_command(3u, 1u, 4u);
 
   {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
@@ -5504,17 +5605,22 @@ void run_sp_dma_reservation_demo() {
     step_at(machine, kSwMemAddress, "sp_dma_reservation_demo_overlap_sw_mem");
     machine.stage_cpu_gpr(kValueIndex, kReservedAddress);
     step_at(machine, kSwDramAddress, "sp_dma_reservation_demo_overlap_sw_dram");
-    machine.stage_cpu_gpr(kValueIndex, 7u);
+    machine.stage_cpu_gpr(kValueIndex, kBlockSkipCommand);
     step_at(machine, kSwWriteLengthAddress, "sp_dma_reservation_demo_overlap_sw_length");
 
     machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
     step_at(machine, kScAddress, "sp_dma_reservation_demo_overlap_sc");
     require_gpr_equals(machine, kScSourceIndex, 0, "sp_dma_reservation_demo_overlap_sc");
-    require_rdram_doubleword_equals(
+    require_rdram_word_equals(
         machine,
         kReservedAddress,
-        0x0102030405060708ull,
-        "sp_dma_reservation_demo_overlap_sc");
+        0x01020304u,
+        "sp_dma_reservation_demo_overlap_sc_high");
+    require_rdram_word_equals(
+        machine,
+        kReservedAddress + 8u,
+        0x05060708u,
+        "sp_dma_reservation_demo_overlap_sc_low");
   }
 
   {
