@@ -67,6 +67,8 @@ public:
   // instructions; proof-backed unsupported paths roll back visible step state.
   // kInterrupted is a local interrupt-entry result; no instruction was fetched
   // or executed from the interrupted PC.
+  // kException is a local COP0 exception-entry result for an explicitly earned
+  // exception source; the faulting instruction did not commit.
   // Local Machine step faults throw MachineFault; unrelated public API
   // precondition failures may still use standard C++ exceptions.
   enum class CpuInstructionStepResult {
@@ -78,6 +80,8 @@ public:
     kUnsupported,
     // A local interrupt entry completed without executing the interrupted instruction.
     kInterrupted,
+    // A local COP0 exception entry completed without committing the faulting instruction.
+    kException,
   };
 
   explicit Machine(Cartridge cartridge);
@@ -374,6 +378,10 @@ private:
   static constexpr std::uint32_t kCop0SupportedInterruptPendingBits =
       kCop0SoftwareInterruptPendingBits | kCop0CauseInterruptPending2 |
       kCop0CauseInterruptPending7;
+  static constexpr std::uint32_t kCop0CauseExceptionCodeShift = 2;
+  static constexpr std::uint32_t kCop0CauseExceptionCodeMask = 0x0000007cu;
+  static constexpr std::uint8_t kCop0ExceptionCodeInterrupt = 0;
+  static constexpr std::uint8_t kCop0ExceptionCodeSignedOverflow = 12;
   static constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
   static constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
   static constexpr CpuPhysicalAddress kPiPhysicalBase = 0x04600000u;
@@ -526,6 +534,10 @@ private:
   bool local_interrupt_enabled() const noexcept;
   bool current_pc_allows_local_interrupt_entry() const noexcept;
   bool try_enter_local_interrupt() noexcept;
+  bool local_signed_overflow_exception_entry_allowed(
+      CpuAddress pc,
+      CpuAddress next_pc) const noexcept;
+  void enter_local_signed_overflow_exception(CpuAddress faulting_pc) noexcept;
   bool local_eret_can_return() const noexcept;
   void return_from_local_interrupt_entry();
 
@@ -599,6 +611,7 @@ private:
   std::uint32_t cop0_status_ = 0;
   std::uint32_t cop0_software_interrupt_pending_ = 0;
   CpuAddress cop0_epc_ = 0;
+  std::uint8_t cop0_exception_code_ = 0;
   RdramOffset pi_dram_address_ = 0;
   PiCartAddress pi_cart_address_ = 0;
   std::uint32_t pi_cart_to_rdram_length_ = 0;

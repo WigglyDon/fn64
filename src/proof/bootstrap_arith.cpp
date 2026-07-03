@@ -25,6 +25,38 @@ void require_signed_overflow_fault(
   }
 }
 
+constexpr std::uint8_t kCop0StatusRegisterIndex = 12;
+constexpr std::uint8_t kCop0StatusSourceIndex = 31;
+constexpr std::uint32_t kCop0StatusExl = 0x00000002u;
+
+constexpr CpuInstructionWord encode_cop0_transfer(
+    std::uint8_t rs,
+    std::uint8_t rt,
+    std::uint8_t rd) {
+  return (0x10u << 26) |
+         (static_cast<CpuInstructionWord>(rs & 0x1fu) << 21) |
+         (static_cast<CpuInstructionWord>(rt & 0x1fu) << 16) |
+         (static_cast<CpuInstructionWord>(rd & 0x1fu) << 11);
+}
+
+constexpr CpuInstructionWord encode_mtc0(std::uint8_t rt, std::uint8_t rd) {
+  return encode_cop0_transfer(0x04, rt, rd);
+}
+
+void stage_local_exl_for_overflow_fault_demo(
+    Machine& machine,
+    RdramOffset instruction_address,
+    const char* label) {
+  machine.stage_cpu_gpr(kCop0StatusSourceIndex, kCop0StatusExl);
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_mtc0(kCop0StatusSourceIndex, kCop0StatusRegisterIndex));
+  machine.stage_cpu_pc(cpu_rdram_alias(instruction_address));
+  require_stepped(
+      machine.step_cpu_instruction(),
+      std::string(label) + "_set_exl_for_local_fault");
+}
+
 void run_register_immediate_arithmetic_compare_demo(Machine& machine) {
   constexpr std::size_t kAddiSourceIndex = 4;
   constexpr std::size_t kAddiResultIndex = 5;
@@ -179,6 +211,7 @@ void run_add_positive_overflow_demo(Machine& machine) {
 
   constexpr std::uint32_t kAddAddress = 0x00000420u;
   constexpr std::uint32_t kAfterAddAddress = 0x00000424u;
+  constexpr std::uint32_t kExlSetupAddress = 0x00000b20u;
   constexpr std::uint32_t kAddInstruction = encode_special(
       static_cast<std::uint8_t>(kLhsIndex),
       static_cast<std::uint8_t>(kRhsIndex),
@@ -192,6 +225,11 @@ void run_add_positive_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
 
   machine.stage_rdram_u32_be(kAddAddress, kAddInstruction);
+  stage_local_exl_for_overflow_fault_demo(
+      machine,
+      kExlSetupAddress,
+      "add_positive_overflow_demo");
+  machine.stage_cpu_pc(cpu_rdram_alias(kAddAddress));
 
   std::cout << "fn64 bootstrap register arithmetic demo: ADD positive overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -239,6 +277,7 @@ void run_sub_negative_overflow_demo(Machine& machine) {
 
   constexpr std::uint32_t kSubAddress = 0x00000430u;
   constexpr std::uint32_t kAfterSubAddress = 0x00000434u;
+  constexpr std::uint32_t kExlSetupAddress = 0x00000b30u;
   constexpr std::uint32_t kSubInstruction = encode_special(
       static_cast<std::uint8_t>(kLhsIndex),
       static_cast<std::uint8_t>(kRhsIndex),
@@ -252,6 +291,11 @@ void run_sub_negative_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
 
   machine.stage_rdram_u32_be(kSubAddress, kSubInstruction);
+  stage_local_exl_for_overflow_fault_demo(
+      machine,
+      kExlSetupAddress,
+      "sub_negative_overflow_demo");
+  machine.stage_cpu_pc(cpu_rdram_alias(kSubAddress));
 
   std::cout << "fn64 bootstrap register arithmetic demo: SUB negative overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -298,6 +342,7 @@ void run_addi_positive_overflow_demo(Machine& machine) {
 
   constexpr std::uint32_t kAddiAddress = 0x00000460u;
   constexpr std::uint32_t kAfterAddiAddress = 0x00000464u;
+  constexpr std::uint32_t kExlSetupAddress = 0x00000b60u;
   constexpr std::uint32_t kAddiInstruction = encode_addi(
       static_cast<std::uint8_t>(kResultIndex),
       static_cast<std::uint8_t>(kSourceIndex),
@@ -308,6 +353,11 @@ void run_addi_positive_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kResultIndex, 0x2468ace0u);
 
   machine.stage_rdram_u32_be(kAddiAddress, kAddiInstruction);
+  stage_local_exl_for_overflow_fault_demo(
+      machine,
+      kExlSetupAddress,
+      "addi_positive_overflow_demo");
+  machine.stage_cpu_pc(cpu_rdram_alias(kAddiAddress));
 
   std::cout << "fn64 bootstrap reg-immediate arithmetic demo: ADDI positive overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -353,6 +403,7 @@ void run_addi_negative_overflow_demo(Machine& machine) {
 
   constexpr std::uint32_t kAddiAddress = 0x00000470u;
   constexpr std::uint32_t kAfterAddiAddress = 0x00000474u;
+  constexpr std::uint32_t kExlSetupAddress = 0x00000b70u;
   constexpr std::uint32_t kAddiInstruction = encode_addi(
       static_cast<std::uint8_t>(kResultIndex),
       static_cast<std::uint8_t>(kSourceIndex),
@@ -363,6 +414,11 @@ void run_addi_negative_overflow_demo(Machine& machine) {
   machine.stage_cpu_gpr(kResultIndex, 0x13579bdfu);
 
   machine.stage_rdram_u32_be(kAddiAddress, kAddiInstruction);
+  stage_local_exl_for_overflow_fault_demo(
+      machine,
+      kExlSetupAddress,
+      "addi_negative_overflow_demo");
+  machine.stage_cpu_pc(cpu_rdram_alias(kAddiAddress));
 
   std::cout << "fn64 bootstrap reg-immediate arithmetic demo: ADDI negative overflow fails loudly\n";
   std::cout << "before failing step:\n";
@@ -892,6 +948,11 @@ void require_d_signed_overflow_case(
   machine.stage_cpu_hi(kHiSentinel);
   machine.stage_cpu_lo(kLoSentinel);
   machine.stage_rdram_u32_be(instruction_address, instruction);
+  stage_local_exl_for_overflow_fault_demo(
+      machine,
+      instruction_address + 0x00000400u,
+      label);
+  machine.stage_cpu_pc(cpu_rdram_alias(instruction_address));
 
   std::cout << "fn64 bootstrap D signed overflow demo: " << label << '\n';
   std::cout << "before failing step:\n";

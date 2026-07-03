@@ -4204,6 +4204,10 @@ constexpr std::uint32_t kCop0CauseIp1 = 0x00000200u;
 constexpr std::uint32_t kCop0CauseIp2 = 0x00000400u;
 constexpr std::uint32_t kCop0CauseIp7 = 0x00008000u;
 constexpr std::uint32_t kCop0CauseSoftwareBits = kCop0CauseIp0 | kCop0CauseIp1;
+constexpr std::uint32_t kCop0CauseExcCodeShift = 2;
+constexpr std::uint32_t kCop0CauseExcCodeOverflow = 12;
+constexpr std::uint32_t kCop0CauseExcCodeOverflowBits =
+    kCop0CauseExcCodeOverflow << kCop0CauseExcCodeShift;
 constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
 constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
 
@@ -4451,6 +4455,12 @@ void require_step_unsupported(Machine& machine, const char* label) {
 void require_interrupted(Machine::CpuInstructionStepResult result, const char* label) {
   if (result != Machine::CpuInstructionStepResult::kInterrupted) {
     throw std::runtime_error(std::string(label) + " did not return kInterrupted");
+  }
+}
+
+void require_exception(Machine::CpuInstructionStepResult result, const char* label) {
+  if (result != Machine::CpuInstructionStepResult::kException) {
+    throw std::runtime_error(std::string(label) + " did not return kException");
   }
 }
 
@@ -9016,6 +9026,607 @@ void run_cop0_epc_observation_demo() {
   }
 }
 
+void run_cop0_signed_overflow_exception_entry_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: signed overflow enters local exception vector\n";
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  constexpr std::size_t kSourceIndex = 4;
+  constexpr std::size_t kResultIndex = 5;
+  constexpr std::size_t kEpcReadIndex = 6;
+  constexpr std::size_t kCauseReadIndex = 7;
+  constexpr std::size_t kStatusReadIndex = 8;
+  constexpr RdramOffset kCauseInitialReadAddress = 0x00002b00u;
+  constexpr RdramOffset kOverflowAddress = 0x00002b20u;
+  constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+  constexpr CpuRegisterValue kResultSentinel = 0x1122334455667788ull;
+
+  require_cop0_register_equals(
+      machine,
+      kCauseInitialReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_overflow_exception_initial_cause");
+
+  machine.stage_rdram_u32_be(
+      kOverflowAddress,
+      encode_addi(
+          static_cast<std::uint8_t>(kResultIndex),
+          static_cast<std::uint8_t>(kSourceIndex),
+          0x0001u));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress,
+      encode_mfc0(static_cast<std::uint8_t>(kEpcReadIndex), kCop0EpcRegisterIndex));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress + 4u,
+      encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress + 8u,
+      encode_mfc0(static_cast<std::uint8_t>(kStatusReadIndex), kCop0StatusRegisterIndex));
+  machine.stage_rdram_u32_be(kVectorInstructionAddress + 12u, encode_break());
+
+  machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
+  machine.stage_cpu_gpr(kResultIndex, kResultSentinel);
+  machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kOverflowAddress + 4u));
+
+  require_exception(machine.step_cpu_instruction(), "cop0_overflow_exception_entry");
+  require_gpr_equals(
+      machine,
+      kResultIndex,
+      kResultSentinel,
+      "cop0_overflow_exception_result_not_committed");
+  if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+      machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+    throw std::runtime_error("cop0_overflow_exception did not enter vector");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "cop0_overflow_exception_vector_epc");
+  require_gpr_equals(
+      machine,
+      kEpcReadIndex,
+      cpu_value_from_sign_extended_u32(cpu_rdram_alias(kOverflowAddress)),
+      "cop0_overflow_exception_epc");
+  require_stepped(machine.step_cpu_instruction(), "cop0_overflow_exception_vector_cause");
+  require_gpr_equals(
+      machine,
+      kCauseReadIndex,
+      kCop0CauseExcCodeOverflowBits,
+      "cop0_overflow_exception_cause");
+  require_stepped(machine.step_cpu_instruction(), "cop0_overflow_exception_vector_status");
+  require_gpr_equals(
+      machine,
+      kStatusReadIndex,
+      kCop0StatusExl,
+      "cop0_overflow_exception_status");
+  require_stopped(machine.step_cpu_instruction(), "cop0_overflow_exception_vector_break");
+}
+
+void run_cop0_signed_overflow_handler_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: overflow handler owns EPC retry/skip policy\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kOverflowResultIndex = 5;
+    constexpr std::size_t kFollowingResultIndex = 6;
+    constexpr std::size_t kEpcSourceIndex = 7;
+    constexpr RdramOffset kOverflowAddress = 0x00002b80u;
+    constexpr RdramOffset kFollowingAddress = kOverflowAddress + 4u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr CpuRegisterValue kOverflowSentinel = 0x99aabbccddeeff00ull;
+
+    machine.stage_rdram_u32_be(
+        kOverflowAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kOverflowResultIndex),
+            static_cast<std::uint8_t>(kSourceIndex),
+            0x0001u));
+    machine.stage_rdram_u32_be(
+        kFollowingAddress,
+        encode_ori(static_cast<std::uint8_t>(kFollowingResultIndex), 0, 0x3333u));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mtc0(static_cast<std::uint8_t>(kEpcSourceIndex), kCop0EpcRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 4u, encode_cop0_eret());
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_gpr(kOverflowResultIndex, kOverflowSentinel);
+    machine.stage_cpu_gpr(kFollowingResultIndex, 0);
+    machine.stage_cpu_gpr(kEpcSourceIndex, cpu_rdram_alias(kFollowingAddress));
+    machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kFollowingAddress));
+
+    require_exception(machine.step_cpu_instruction(), "cop0_overflow_handler_skip_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_handler_skip_write_epc");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_handler_skip_eret");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_handler_skip_following");
+    require_gpr_equals(
+        machine,
+        kOverflowResultIndex,
+        kOverflowSentinel,
+        "cop0_overflow_handler_skip_overflow_result");
+    require_gpr_equals(
+        machine,
+        kFollowingResultIndex,
+        0x3333u,
+        "cop0_overflow_handler_skip_following_result");
+    require_cop0_register_equals(
+        machine,
+        0x00002ba0u,
+        kFollowingResultIndex,
+        kCop0StatusRegisterIndex,
+        0,
+        "cop0_overflow_handler_skip_status_exl_cleared");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kResultIndex = 5;
+    constexpr RdramOffset kOverflowAddress = 0x00002bc0u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(
+        kOverflowAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kResultIndex),
+            static_cast<std::uint8_t>(kSourceIndex),
+            0x0001u));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_ori(static_cast<std::uint8_t>(kSourceIndex), 0, 0x0001u));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 4u, encode_cop0_eret());
+
+    machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_gpr(kResultIndex, 0);
+    machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kOverflowAddress + 4u));
+
+    require_exception(machine.step_cpu_instruction(), "cop0_overflow_handler_retry_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_handler_retry_fix_source");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_handler_retry_eret");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_handler_retry_original");
+    require_gpr_equals(machine, kResultIndex, 2u, "cop0_overflow_handler_retry_result");
+  }
+}
+
+void run_cop0_signed_overflow_gate_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: signed overflow exception has local gates\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kStatusSourceIndex = 4;
+    constexpr std::size_t kOverflowSourceIndex = 5;
+    constexpr std::size_t kResultIndex = 6;
+    constexpr RdramOffset kStatusWriteAddress = 0x00002c00u;
+    constexpr RdramOffset kOverflowAddress = 0x00002c20u;
+    constexpr CpuRegisterValue kResultSentinel = 0x123456789abcdef0ull;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "cop0_overflow_gate_exl_write_status");
+    machine.stage_rdram_u32_be(
+        kOverflowAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kResultIndex),
+            static_cast<std::uint8_t>(kOverflowSourceIndex),
+            0x0001u));
+    machine.stage_cpu_gpr(kOverflowSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_gpr(kResultIndex, kResultSentinel);
+    machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kOverflowAddress + 4u));
+
+    require_step_machine_fault(
+        machine,
+        "cop0_overflow_gate_exl_fault",
+        MachineFaultKind::kSignedArithmeticOverflow,
+        0);
+    require_gpr_equals(machine, kResultIndex, kResultSentinel, "cop0_overflow_gate_exl_no_result");
+    require_cop0_register_equals(
+        machine,
+        0x00002c40u,
+        kResultIndex,
+        kCop0EpcRegisterIndex,
+        0,
+        "cop0_overflow_gate_exl_epc_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x00002c44u,
+        kResultIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_overflow_gate_exl_cause_unchanged");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kOverflowSourceIndex = 4;
+    constexpr std::size_t kResultIndex = 5;
+    constexpr RdramOffset kOverflowAddress = 0x00002c80u;
+    constexpr CpuAddress kNonOrdinaryNextPc = 0x80002d00u;
+    constexpr CpuRegisterValue kResultSentinel = 0xfedcba9876543210ull;
+
+    machine.stage_rdram_u32_be(
+        kOverflowAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kResultIndex),
+            static_cast<std::uint8_t>(kOverflowSourceIndex),
+            0x0001u));
+    machine.stage_cpu_gpr(kOverflowSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_gpr(kResultIndex, kResultSentinel);
+    machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+    machine.stage_cpu_next_pc(kNonOrdinaryNextPc);
+
+    require_step_machine_fault(
+        machine,
+        "cop0_overflow_gate_nonordinary_fault",
+        MachineFaultKind::kSignedArithmeticOverflow,
+        0);
+    if (machine.cpu_pc() != cpu_rdram_alias(kOverflowAddress) ||
+        machine.cpu_next_pc() != kNonOrdinaryNextPc) {
+      throw std::runtime_error("cop0_overflow_gate_nonordinary changed pc/next_pc");
+    }
+    require_gpr_equals(
+        machine,
+        kResultIndex,
+        kResultSentinel,
+        "cop0_overflow_gate_nonordinary_no_result");
+    require_cop0_register_equals(
+        machine,
+        0x00002ca0u,
+        kResultIndex,
+        kCop0EpcRegisterIndex,
+        0,
+        "cop0_overflow_gate_nonordinary_epc_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x00002ca4u,
+        kResultIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_overflow_gate_nonordinary_cause_unchanged");
+  }
+}
+
+void run_cop0_signed_overflow_count_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: signed overflow exception does not tick Count\n";
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  constexpr std::size_t kCountSourceIndex = 4;
+  constexpr std::size_t kOverflowSourceIndex = 5;
+  constexpr std::size_t kResultIndex = 6;
+  constexpr std::size_t kCountReadIndex = 7;
+  constexpr RdramOffset kCountWriteAddress = 0x00002ce0u;
+  constexpr RdramOffset kOverflowAddress = 0x00002d00u;
+  constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+  write_cop0_register_through_cpu(
+      machine,
+      kCountWriteAddress,
+      kCountSourceIndex,
+      kCop0CountRegisterIndex,
+      100,
+      "cop0_overflow_count_write_count");
+  machine.stage_rdram_u32_be(
+      kOverflowAddress,
+      encode_addi(
+          static_cast<std::uint8_t>(kResultIndex),
+          static_cast<std::uint8_t>(kOverflowSourceIndex),
+          0x0001u));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress,
+      encode_mfc0(static_cast<std::uint8_t>(kCountReadIndex), kCop0CountRegisterIndex));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress + 4u,
+      encode_mfc0(static_cast<std::uint8_t>(kResultIndex), kCop0CountRegisterIndex));
+  machine.stage_cpu_gpr(kOverflowSourceIndex, 0x7fffffffu);
+  machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kOverflowAddress + 4u));
+
+  require_exception(machine.step_cpu_instruction(), "cop0_overflow_count_exception_no_tick");
+  require_stepped(machine.step_cpu_instruction(), "cop0_overflow_count_vector_read");
+  require_gpr_equals(machine, kCountReadIndex, 101, "cop0_overflow_count_no_exception_tick");
+  require_stepped(machine.step_cpu_instruction(), "cop0_overflow_count_vector_second_read");
+  require_gpr_equals(machine, kResultIndex, 102, "cop0_overflow_count_vector_ticks");
+}
+
+void run_cop0_signed_overflow_cause_boundary_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: overflow Cause code composes with pending lines\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kSourceIndex = 4;
+    constexpr std::size_t kResultIndex = 5;
+    constexpr RdramOffset kOverflowAddress = 0x00002d40u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(
+        kOverflowAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kResultIndex),
+            static_cast<std::uint8_t>(kSourceIndex),
+            0x0001u));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress, encode_mtc0(0, kCop0CauseRegisterIndex));
+    machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kOverflowAddress + 4u));
+
+    require_exception(machine.step_cpu_instruction(), "cop0_overflow_cause_mtc0_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_cause_mtc0_zero");
+    require_cop0_register_equals(
+        machine,
+        0x00002d60u,
+        kResultIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseExcCodeOverflowBits,
+        "cop0_overflow_cause_exc_code_preserved_by_mtc0_cause");
+    write_cop0_register_through_cpu(
+        machine,
+        0x00002d64u,
+        kSourceIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp0,
+        "cop0_overflow_cause_write_ip0");
+    require_cop0_register_equals(
+        machine,
+        0x00002d68u,
+        kResultIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseExcCodeOverflowBits | kCop0CauseIp0,
+        "cop0_overflow_cause_ip0_composes");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kStatusSourceIndex = 4;
+    constexpr std::size_t kCauseSourceIndex = 5;
+    constexpr std::size_t kCauseReadIndex = 6;
+    constexpr std::size_t kInterruptedIndex = 7;
+    constexpr RdramOffset kStatusWriteAddress = 0x00002da0u;
+    constexpr RdramOffset kCauseWriteAddress = 0x00002da4u;
+    constexpr RdramOffset kInterruptedAddress = 0x00002dc0u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(
+        kInterruptedAddress,
+        encode_ori(static_cast<std::uint8_t>(kInterruptedIndex), 0, 0x1212u));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusIe | kCop0StatusInterruptMask0,
+        "cop0_overflow_cause_interrupt_write_status");
+    write_cop0_register_through_cpu(
+        machine,
+        kCauseWriteAddress,
+        kCauseSourceIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp0,
+        "cop0_overflow_cause_interrupt_write_cause");
+    machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedAddress + 4u));
+
+    require_interrupted(machine.step_cpu_instruction(), "cop0_overflow_cause_interrupt_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_overflow_cause_interrupt_read");
+    require_gpr_equals(
+        machine,
+        kCauseReadIndex,
+        kCop0CauseIp0,
+        "cop0_overflow_cause_interrupt_exc_code_zero");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kCauseSourceIndex = 4;
+    constexpr std::size_t kOverflowSourceIndex = 5;
+    constexpr std::size_t kResultIndex = 6;
+    constexpr RdramOffset kCauseWriteAddress = 0x00002de0u;
+    constexpr RdramOffset kOverflowAddress = 0x00002e00u;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCauseWriteAddress,
+        kCauseSourceIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp0,
+        "cop0_overflow_cause_pending_write_ip0");
+    machine.stage_rdram_u32_be(
+        kOverflowAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kResultIndex),
+            static_cast<std::uint8_t>(kOverflowSourceIndex),
+            0x0001u));
+    machine.stage_cpu_gpr(kOverflowSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kOverflowAddress + 4u));
+
+    require_exception(machine.step_cpu_instruction(), "cop0_overflow_cause_pending_entry");
+    require_cop0_register_equals(
+        machine,
+        0x00002e20u,
+        kResultIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseExcCodeOverflowBits | kCop0CauseIp0,
+        "cop0_overflow_cause_pending_composes");
+  }
+}
+
+void run_cop0_signed_overflow_fault_boundary_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: other local faults are not COP0 exceptions\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    machine.stage_cpu_pc(0x00000100u);
+    machine.stage_cpu_next_pc(0x00000104u);
+    require_step_machine_fault(
+        machine,
+        "cop0_overflow_boundary_fetch_fault",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    require_cop0_register_equals(
+        machine,
+        0x00002e40u,
+        4,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_overflow_boundary_fetch_fault_cause");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr RdramOffset kLwAddress = 0x00002e80u;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kTargetIndex = 5;
+    machine.stage_rdram_u32_be(
+        kLwAddress,
+        encode_lw(
+            static_cast<std::uint8_t>(kTargetIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            0));
+    machine.stage_cpu_gpr(kBaseIndex, 0x00000100u);
+    machine.stage_cpu_pc(cpu_rdram_alias(kLwAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kLwAddress + 4u));
+    require_step_machine_fault(
+        machine,
+        "cop0_overflow_boundary_data_address_fault",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    require_cop0_register_equals(
+        machine,
+        0x00002ea0u,
+        kTargetIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_overflow_boundary_data_address_cause");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr RdramOffset kLwAddress = 0x00002ec0u;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kTargetIndex = 5;
+    machine.stage_rdram_u32_be(
+        kLwAddress,
+        encode_lw(
+            static_cast<std::uint8_t>(kTargetIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            1));
+    machine.stage_cpu_gpr(kBaseIndex, 0x80000000u);
+    machine.stage_cpu_pc(cpu_rdram_alias(kLwAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kLwAddress + 4u));
+    require_step_machine_fault(
+        machine,
+        "cop0_overflow_boundary_unaligned_data_fault",
+        MachineFaultKind::kUnalignedCpuMemoryAccess,
+        4);
+    require_cop0_register_equals(
+        machine,
+        0x00002ee0u,
+        kTargetIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_overflow_boundary_unaligned_data_cause");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr RdramOffset kJrAddress = 0x00002f00u;
+    constexpr std::size_t kTargetIndex = 4;
+    machine.stage_rdram_u32_be(kJrAddress, encode_jr(static_cast<std::uint8_t>(kTargetIndex)));
+    machine.stage_cpu_gpr(kTargetIndex, 0x80000002u);
+    machine.stage_cpu_pc(cpu_rdram_alias(kJrAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kJrAddress + 4u));
+    require_step_machine_fault(
+        machine,
+        "cop0_overflow_boundary_control_fault",
+        MachineFaultKind::kUnalignedControlTransferTarget,
+        4);
+    require_cop0_register_equals(
+        machine,
+        0x00002f20u,
+        kTargetIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_overflow_boundary_control_cause");
+  }
+}
+
+void run_cop0_signed_overflow_unsupported_no_ghost_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: unsupported forms preserve overflow exception state\n";
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+  constexpr std::size_t kSourceIndex = 4;
+  constexpr std::size_t kResultIndex = 5;
+  constexpr RdramOffset kOverflowAddress = 0x00002f40u;
+  constexpr RdramOffset kUnsupportedAddress = 0x00000180u;
+
+  machine.stage_rdram_u32_be(
+      kOverflowAddress,
+      encode_addi(
+          static_cast<std::uint8_t>(kResultIndex),
+          static_cast<std::uint8_t>(kSourceIndex),
+          0x0001u));
+  machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
+  machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kOverflowAddress + 4u));
+  require_exception(machine.step_cpu_instruction(), "cop0_overflow_unsupported_state_entry");
+
+  machine.stage_rdram_u32_be(
+      kUnsupportedAddress,
+      encode_mfc0(static_cast<std::uint8_t>(kResultIndex), kCop0UnsupportedRegisterIndex));
+  machine.stage_cpu_pc(kLocalInterruptVectorPc);
+  machine.stage_cpu_next_pc(kLocalInterruptVectorNextPc);
+  require_step_unsupported(machine, "cop0_overflow_unsupported_state_no_ghost");
+  if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+      machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+    throw std::runtime_error("cop0_overflow_unsupported_state changed pc/next_pc");
+  }
+  require_cop0_register_equals(
+      machine,
+      0x00002f60u,
+      kResultIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseExcCodeOverflowBits,
+      "cop0_overflow_unsupported_state_cause_preserved");
+  require_cop0_register_equals(
+      machine,
+      0x00002f64u,
+      kResultIndex,
+      kCop0EpcRegisterIndex,
+      cpu_rdram_alias(kOverflowAddress),
+      "cop0_overflow_unsupported_state_epc_preserved");
+  require_cop0_register_equals(
+      machine,
+      0x00002f68u,
+      kResultIndex,
+      kCop0StatusRegisterIndex,
+      kCop0StatusExl,
+      "cop0_overflow_unsupported_state_status_preserved");
+}
+
 void run_cop0_unsupported_no_ghost_demo() {
   std::cout << "fn64 bootstrap COP0 demo: unsupported COP0 forms remain no-ghost\n";
 
@@ -10479,6 +11090,13 @@ void run_data_demos(Machine& machine) {
   run_cop0_eret_handler_written_epc_demo();
   run_cop0_eret_epc_target_guard_demo();
   run_cop0_eret_unsupported_precondition_demo();
+  run_cop0_signed_overflow_exception_entry_demo();
+  run_cop0_signed_overflow_handler_demo();
+  run_cop0_signed_overflow_gate_demo();
+  run_cop0_signed_overflow_count_demo();
+  run_cop0_signed_overflow_cause_boundary_demo();
+  run_cop0_signed_overflow_fault_boundary_demo();
+  run_cop0_signed_overflow_unsupported_no_ghost_demo();
   run_cop0_unsupported_no_ghost_demo();
   run_negative_out_of_range_guard_demo(machine);
 }

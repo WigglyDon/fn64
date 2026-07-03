@@ -981,6 +981,10 @@ std::uint32_t Machine::read_cop0_status() const noexcept {
 
 std::uint32_t Machine::read_cop0_cause() const noexcept {
   std::uint32_t cause =
+      (static_cast<std::uint32_t>(cop0_exception_code_) <<
+       kCop0CauseExceptionCodeShift) &
+      kCop0CauseExceptionCodeMask;
+  cause |=
       cop0_software_interrupt_pending_ & kCop0SoftwareInterruptPendingBits;
   if ((mi_interrupt_pending_ & mi_interrupt_mask_ & kMiSupportedInterruptBits) != 0) {
     cause |= kCop0CauseInterruptPending2;
@@ -1065,13 +1069,32 @@ bool Machine::try_enter_local_interrupt() noexcept {
   }
 
   // Minimal local interrupt entry only: no instruction is fetched/executed at
-  // the interrupted PC, no Cause exception code or BD state is modeled, and MI
-  // pending bits remain owned by MI.
+  // the interrupted PC, Cause reports interrupt ExcCode 0 with no BD state,
+  // and MI pending bits remain owned by MI.
   cop0_epc_ = cpu_pc_;
+  cop0_exception_code_ = kCop0ExceptionCodeInterrupt;
   cop0_status_ |= kCop0StatusExl;
   cpu_pc_ = kLocalInterruptVectorPc;
   cpu_next_pc_ = kLocalInterruptVectorNextPc;
   return true;
+}
+
+bool Machine::local_signed_overflow_exception_entry_allowed(
+    CpuAddress pc,
+    CpuAddress next_pc) const noexcept {
+  return next_pc == sequential_instruction_address(pc) &&
+         ((cop0_status_ & kCop0StatusExl) == 0);
+}
+
+void Machine::enter_local_signed_overflow_exception(CpuAddress faulting_pc) noexcept {
+  // Narrow local exception entry only. Signed arithmetic overflow is the first
+  // earned synchronous COP0 exception source; address faults, stop/trap paths,
+  // unsupported operations, BD state, and BadVAddr remain unmodeled here.
+  cop0_epc_ = faulting_pc;
+  cop0_exception_code_ = kCop0ExceptionCodeSignedOverflow;
+  cop0_status_ |= kCop0StatusExl;
+  cpu_pc_ = kLocalInterruptVectorPc;
+  cpu_next_pc_ = kLocalInterruptVectorNextPc;
 }
 
 bool Machine::local_eret_can_return() const noexcept {
@@ -2905,6 +2928,10 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   // kInterrupted is a local pre-fetch interrupt entry: no instruction is
   // fetched or executed from the interrupted PC, EPC stores that PC, EXL is
   // set, and pc/next_pc move to the local vector.
+  // kException is a local signed-overflow exception entry from ordinary
+  // cadence with EXL clear: the faulting instruction does not commit, Count
+  // does not advance, EPC stores the faulting PC, Cause ExcCode reports
+  // overflow, EXL is set, and pc/next_pc move to the local vector.
   // ERET is a narrow return from that local entry only. It runs before normal
   // speculative pc/next_pc movement so the support check uses the current
   // cadence, not a delay-slot/general-exception model.
@@ -2934,6 +2961,20 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   CpuInstructionExecutionResult execution_result = CpuInstructionExecutionResult::kUnsupported;
   try {
     execution_result = execute_cpu_instruction(identity, instruction);
+  } catch (const MachineFault& fault) {
+    // Restore public control-flow state before either rethrowing the local
+    // fault or converting the one earned synchronous source into local COP0
+    // exception entry.
+    cpu_pc_ = current_pc;
+    cpu_next_pc_ = current_next_pc;
+
+    if (fault.kind() == MachineFaultKind::kSignedArithmeticOverflow &&
+        local_signed_overflow_exception_entry_allowed(current_pc, current_next_pc)) {
+      enter_local_signed_overflow_exception(current_pc);
+      return CpuInstructionStepResult::kException;
+    }
+
+    throw;
   } catch (...) {
     // Restore public control-flow state before rethrowing a local Machine
     // fault or any other execution-time failure from the step boundary.
