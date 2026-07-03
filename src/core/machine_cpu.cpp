@@ -972,7 +972,8 @@ std::uint32_t Machine::read_cop0_status() const noexcept {
 }
 
 std::uint32_t Machine::read_cop0_cause() const noexcept {
-  std::uint32_t cause = 0;
+  std::uint32_t cause =
+      cop0_software_interrupt_pending_ & kCop0SoftwareInterruptPendingBits;
   if ((mi_interrupt_pending_ & mi_interrupt_mask_ & kMiSupportedInterruptBits) != 0) {
     cause |= kCop0CauseInterruptPending2;
   }
@@ -987,19 +988,34 @@ void Machine::write_cop0_status(std::uint32_t value) noexcept {
   cop0_status_ = value & kCop0SupportedStatusBits;
 }
 
+void Machine::write_cop0_cause(std::uint32_t value) noexcept {
+  cop0_software_interrupt_pending_ = value & kCop0SoftwareInterruptPendingBits;
+}
+
 void Machine::write_cop0_epc(std::uint32_t value) noexcept {
   cop0_epc_ = static_cast<CpuAddress>(value);
 }
 
-bool Machine::local_external_interrupt_pending() const noexcept {
-  return (mi_interrupt_pending_ & mi_interrupt_mask_ & kMiSupportedInterruptBits) != 0;
+std::uint32_t Machine::local_cop0_interrupt_pending_lines() const noexcept {
+  return read_cop0_cause() & kCop0SupportedInterruptPendingBits;
 }
 
-bool Machine::local_external_interrupt_enabled() const noexcept {
-  return local_external_interrupt_pending() &&
+bool Machine::local_interrupt_pending() const noexcept {
+  return local_cop0_interrupt_pending_lines() != 0;
+}
+
+bool Machine::local_interrupt_enabled() const noexcept {
+  if (!local_interrupt_pending()) {
+    return false;
+  }
+
+  const std::uint32_t enabled_pending =
+      local_cop0_interrupt_pending_lines() &
+      cop0_status_ &
+      kCop0SupportedInterruptPendingBits;
+  return enabled_pending != 0 &&
          ((cop0_status_ & kCop0StatusIe) != 0) &&
-         ((cop0_status_ & kCop0StatusExl) == 0) &&
-         ((cop0_status_ & kCop0StatusInterruptMask2) != 0);
+         ((cop0_status_ & kCop0StatusExl) == 0);
 }
 
 bool Machine::current_pc_allows_local_interrupt_entry() const noexcept {
@@ -1016,7 +1032,7 @@ bool Machine::current_pc_allows_local_interrupt_entry() const noexcept {
 }
 
 bool Machine::try_enter_local_interrupt() noexcept {
-  if (!local_external_interrupt_enabled() ||
+  if (!local_interrupt_enabled() ||
       !current_pc_allows_local_interrupt_entry()) {
     return false;
   }
@@ -1816,6 +1832,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       switch (instruction.rd) {
         case kCop0StatusRegisterIndex:
           write_cop0_status(read_cpu_gpr_word(instruction.rt));
+          return CpuInstructionExecutionResult::kExecuted;
+
+        case kCop0CauseRegisterIndex:
+          write_cop0_cause(read_cpu_gpr_word(instruction.rt));
           return CpuInstructionExecutionResult::kExecuted;
 
         case kCop0EpcRegisterIndex:

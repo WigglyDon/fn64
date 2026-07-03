@@ -48,7 +48,7 @@ The current machine state is intentionally plain:
 - the reset model is an explicit blank RDRAM power-on state, not N64 reset/PIF boot
 - CPU instruction fetch currently uses only KSEG0/KSEG1-style direct RDRAM aliases
 - CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, minimal local SP DMA MMIO, minimal local PI MMIO, plus minimal local MI pending/mask MMIO
-- the CPU can observe a tiny local COP0 Status/Cause/EPC subset and deliver only a minimal local external interrupt entry
+- the CPU can observe a tiny local COP0 Status/Cause/EPC subset and deliver/return from minimal local software or MI-derived interrupt entries
 - cartridge execution mapping is not wired yet
 
 This keeps ROM loading honest without pretending the cartridge is executing.
@@ -62,7 +62,7 @@ The CPU now reaches RDRAM through a tiny machine-local translation rule:
 Raw physical RDRAM offsets are staging/inspection addresses, not CPU addresses.
 
 This is not a bus, general memory map, TLB translation, or cartridge ROM mapping.
-The current non-RDRAM data targets are local SP DMEM/IMEM byte memories, a tiny local SP DMA MMIO subset, a tiny local PI MMIO subset, and local MI pending/mask MMIO. This is not RSP execution, COP2, timing, CPU interrupt delivery, boot, or compatibility.
+The current non-RDRAM data targets are local SP DMEM/IMEM byte memories, a tiny local SP DMA MMIO subset, a tiny local PI MMIO subset, and local MI pending/mask MMIO. This is not RSP execution, COP2, timing, general COP0 exception delivery, boot, or compatibility.
 
 ## Blank reset state
 
@@ -94,7 +94,7 @@ Normal ROM launch does not stage or execute cartridge bytes automatically.
 
 The current CPU data path recognizes a tiny local PI register window for aligned 32-bit loads and stores. Writing the local cartridge-to-RDRAM length register immediately copies from the supported local PI cart ROM address window into physical RDRAM. PI cart address 0x10000000 maps to normalized Cartridge offset 0.
 
-Successful PI DMA latches a local MI PI pending bit. This is not PI timing, DMA scheduling, CPU interrupt delivery, boot, cartridge CPU mapping, or game compatibility.
+Successful PI DMA latches a local MI PI pending bit. PI itself does not deliver CPU interrupts; delivery, when enabled, goes through the narrow local COP0 seam. This is not PI timing, DMA scheduling, boot, cartridge CPU mapping, or game compatibility.
 
 ## Local SP DMEM/IMEM data memory
 
@@ -112,9 +112,9 @@ MI pending/mask state is observable local machine state only. MI does not fetch 
 
 ## Minimal COP0 interrupt subset
 
-The current CPU instruction path supports only a tiny local COP0 MFC0/MTC0 seam for Status and EPC, Cause observation, plus a narrow ERET return from the local interrupt-entry state. Status stores supported local IE, EXL, and interrupt-mask bits. Cause composes a local IP2 bit when supported MI pending bits are also enabled in the local MI mask. EPC stores the interrupted PC for the minimal local interrupt-entry path, and local handler code can write EPC before ERET.
+The current CPU instruction path supports only a tiny local COP0 MFC0/MTC0 seam for Status, Cause, and EPC, plus a narrow ERET return from the local interrupt-entry state. Status stores supported local IE, EXL, and interrupt-mask bits. MTC0 Cause directly assigns supported local software pending bits IP0/IP1. MFC0 Cause composes those IP0/IP1 bits with a local IP2 bit when supported MI pending bits are also enabled in the local MI mask. EPC stores the interrupted PC for the minimal local interrupt-entry path, and local handler code can write EPC before ERET.
 
-A local external interrupt can enter 0x80000180 only when MI pending/mask state and COP0 Status IE/IM2/EXL allow it, and only from ordinary pc/next_pc cadence at a fetchable direct-RDRAM interrupted PC. Entry sets EXL and EPC. ERET is supported only with EXL set and ordinary pc/next_pc cadence; it validates EPC alignment, returns to EPC, and clears EXL without clearing MI pending or mask. ERET does not preflight target fetchability; the next fetch owns that rejection. Handler code must clear or mask MI through MI MMIO to avoid immediate re-entry. This is not general COP0 exception delivery or exception-return fidelity: BadVAddr, Cause exception-code behavior, TLB operations, Count/Compare timing, branch-delay BD/EPC semantics, reset/boot vectors, and compatibility behavior remain unimplemented.
+A local interrupt can enter 0x80000180 only when COP0 Status IE/EXL and the matching IM0/IM1/IM2 bit allow a pending IP0/IP1/IP2 line, and only from ordinary pc/next_pc cadence at a fetchable direct-RDRAM interrupted PC. Entry sets EXL and EPC. ERET is supported only with EXL set and ordinary pc/next_pc cadence; it validates EPC alignment, returns to EPC, and clears EXL without clearing software pending, MI pending, or MI mask. ERET does not preflight target fetchability; the next fetch owns that rejection. Handler code must clear software pending through MTC0 Cause or clear/mask MI through MI MMIO to avoid immediate re-entry. This is not general COP0 exception delivery or exception-return fidelity: BadVAddr, Cause exception-code behavior, TLB operations, Count/Compare timing, branch-delay BD/EPC semantics, reset/boot vectors, and compatibility behavior remain unimplemented.
 
 ## No-window ROM inspection
 

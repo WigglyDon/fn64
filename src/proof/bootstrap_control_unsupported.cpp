@@ -214,7 +214,7 @@ void run_unsupported_instruction_demos(Machine& machine) {
   constexpr CpuInstructionWord kCop0Dmfc0UnsupportedInstruction =
       encode_i_type(0x10, 0x01, 0, static_cast<std::uint16_t>(12u << 11));
   constexpr CpuInstructionWord kCop0Mtc0UnsupportedRegisterInstruction =
-      encode_i_type(0x10, 0x04, 23, static_cast<std::uint16_t>(13u << 11));
+      encode_i_type(0x10, 0x04, 23, 0x0000u);
   constexpr CpuInstructionWord kCop0Dmtc0UnsupportedInstruction =
       encode_i_type(0x10, 0x05, 23, static_cast<std::uint16_t>(12u << 11));
   constexpr CpuInstructionWord kCop0TlbpUnsupportedInstruction = 0x42000008u;
