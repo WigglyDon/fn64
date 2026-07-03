@@ -987,6 +987,10 @@ void Machine::write_cop0_status(std::uint32_t value) noexcept {
   cop0_status_ = value & kCop0SupportedStatusBits;
 }
 
+void Machine::write_cop0_epc(std::uint32_t value) noexcept {
+  cop0_epc_ = static_cast<CpuAddress>(value);
+}
+
 bool Machine::local_external_interrupt_pending() const noexcept {
   return (mi_interrupt_pending_ & mi_interrupt_mask_ & kMiSupportedInterruptBits) != 0;
 }
@@ -1812,6 +1816,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       switch (instruction.rd) {
         case kCop0StatusRegisterIndex:
           write_cop0_status(read_cpu_gpr_word(instruction.rt));
+          return CpuInstructionExecutionResult::kExecuted;
+
+        case kCop0EpcRegisterIndex:
+          write_cop0_epc(read_cpu_gpr_word(instruction.rt));
           return CpuInstructionExecutionResult::kExecuted;
 
         default:

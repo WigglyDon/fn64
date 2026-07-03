@@ -184,9 +184,9 @@ private:
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
-  // COP0 is only narrowly subdecoded for local MFC0/MTC0 Status observation,
-  // Cause observation, EPC observation, minimal local interrupt entry, and
-  // ERET return from that entry. COP1/COP2/COP3, CACHE, and coprocessor memory
+  // COP0 is only narrowly subdecoded for local MFC0/MTC0 Status/EPC state,
+  // Cause observation, minimal local interrupt entry, and ERET return from that
+  // entry. COP1/COP2/COP3, CACHE, and coprocessor memory
   // identities remain coarse unsupported decode boundaries. fn64 does not
   // model cache state/ops/coherence or general COP0 exception delivery from
   // these identities.
@@ -501,6 +501,7 @@ private:
   std::uint32_t read_cop0_cause() const noexcept;
   std::uint32_t read_cop0_epc() const noexcept;
   void write_cop0_status(std::uint32_t value) noexcept;
+  void write_cop0_epc(std::uint32_t value) noexcept;
   bool local_external_interrupt_pending() const noexcept;
   bool local_external_interrupt_enabled() const noexcept;
   bool current_pc_allows_local_interrupt_entry() const noexcept;
