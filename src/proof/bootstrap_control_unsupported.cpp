@@ -209,7 +209,16 @@ void run_unsupported_identity_demo(
 void run_unsupported_instruction_demos(Machine& machine) {
   run_fetch_failure_no_ghost_demo(machine);
 
-  constexpr CpuInstructionWord kCop0UnsupportedInstruction = encode_i_type(0x10, 0, 0, 0x0000u);
+  constexpr CpuInstructionWord kCop0Mfc0UnsupportedRegisterInstruction =
+      encode_i_type(0x10, 0x00, 0, 0x0000u);
+  constexpr CpuInstructionWord kCop0Dmfc0UnsupportedInstruction =
+      encode_i_type(0x10, 0x01, 0, static_cast<std::uint16_t>(12u << 11));
+  constexpr CpuInstructionWord kCop0Mtc0UnsupportedRegisterInstruction =
+      encode_i_type(0x10, 0x04, 23, static_cast<std::uint16_t>(13u << 11));
+  constexpr CpuInstructionWord kCop0Dmtc0UnsupportedInstruction =
+      encode_i_type(0x10, 0x05, 23, static_cast<std::uint16_t>(12u << 11));
+  constexpr CpuInstructionWord kCop0TlbpUnsupportedInstruction = 0x42000008u;
+  constexpr CpuInstructionWord kCop0EretUnsupportedInstruction = 0x42000018u;
   constexpr CpuInstructionWord kCop1UnsupportedInstruction = encode_i_type(0x11, 0, 0, 0x0000u);
   constexpr CpuInstructionWord kCop2UnsupportedInstruction = encode_i_type(0x12, 0, 0, 0x0000u);
   constexpr CpuInstructionWord kCop3UnsupportedInstruction = encode_i_type(0x13, 0, 0, 0x0000u);
@@ -228,38 +237,73 @@ void run_unsupported_instruction_demos(Machine& machine) {
 
   run_unsupported_identity_demo(
       machine,
-      "cop0 path returns unsupported with rollback intact",
+      "COP0 MFC0 unsupported register returns unsupported with rollback intact",
       0x000006c0u,
-      kCop0UnsupportedInstruction,
+      kCop0Mfc0UnsupportedRegisterInstruction,
       0x75c1u);
 
   run_unsupported_identity_demo(
       machine,
-      "cop1 path returns unsupported with rollback intact",
+      "COP0 DMFC0 remains unsupported with rollback intact",
+      0x000006c4u,
+      kCop0Dmfc0UnsupportedInstruction,
+      0x75c5u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "COP0 MTC0 unsupported register remains unsupported with rollback intact",
       0x000006c8u,
-      kCop1UnsupportedInstruction,
+      kCop0Mtc0UnsupportedRegisterInstruction,
       0x75c9u);
 
   run_unsupported_identity_demo(
       machine,
-      "cop2 path returns unsupported with rollback intact",
+      "COP0 DMTC0 remains unsupported with rollback intact",
+      0x000006ccu,
+      kCop0Dmtc0UnsupportedInstruction,
+      0x75cdu);
+
+  run_unsupported_identity_demo(
+      machine,
+      "COP0 TLB-shaped operation remains unsupported with rollback intact",
       0x000006d0u,
-      kCop2UnsupportedInstruction,
+      kCop0TlbpUnsupportedInstruction,
       0x75d1u);
 
   run_unsupported_identity_demo(
       machine,
-      "cop3 path returns unsupported with rollback intact",
+      "COP0 ERET remains unsupported with rollback intact",
+      0x000006d4u,
+      kCop0EretUnsupportedInstruction,
+      0x75d5u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "cop1 path returns unsupported with rollback intact",
       0x000006d8u,
-      kCop3UnsupportedInstruction,
+      kCop1UnsupportedInstruction,
       0x75d9u);
 
   run_unsupported_identity_demo(
       machine,
-      "special unknown funct returns unsupported with rollback intact",
+      "cop2 path returns unsupported with rollback intact",
+      0x000006dcu,
+      kCop2UnsupportedInstruction,
+      0x75ddu);
+
+  run_unsupported_identity_demo(
+      machine,
+      "cop3 path returns unsupported with rollback intact",
       0x000006e0u,
-      kSpecialUnknownUnsupportedInstruction,
+      kCop3UnsupportedInstruction,
       0x75e1u);
+
+  run_unsupported_identity_demo(
+      machine,
+      "special unknown funct returns unsupported with rollback intact",
+      0x000006e4u,
+      kSpecialUnknownUnsupportedInstruction,
+      0x75e5u);
 
   run_unsupported_identity_demo(
       machine,

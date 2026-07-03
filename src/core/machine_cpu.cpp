@@ -962,9 +962,25 @@ void Machine::write_mi_register_u32(
 }
 
 void Machine::latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept {
-  // Local MI state is observable MMIO only. CPU interrupt delivery, COP0
-  // Cause/Status/EPC, and exception vectors are not modeled here.
+  // Local MI state is observable MMIO only. COP0 Cause observes a derived local
+  // line; CPU interrupt delivery, EPC, and exception vectors are not modeled.
   mi_interrupt_pending_ |= pending_bit & kMiSupportedInterruptBits;
+}
+
+std::uint32_t Machine::read_cop0_status() const noexcept {
+  return cop0_status_ & kCop0SupportedStatusBits;
+}
+
+std::uint32_t Machine::read_cop0_cause() const noexcept {
+  std::uint32_t cause = 0;
+  if ((mi_interrupt_pending_ & mi_interrupt_mask_ & kMiSupportedInterruptBits) != 0) {
+    cause |= kCop0CauseInterruptPending2;
+  }
+  return cause;
+}
+
+void Machine::write_cop0_status(std::uint32_t value) noexcept {
+  cop0_status_ = value & kCop0SupportedStatusBits;
 }
 
 std::uint32_t Machine::read_pi_register_u32(
@@ -1518,7 +1534,13 @@ Machine::CpuInstructionIdentity Machine::identify_cpu_instruction(
     case 0x0d: return CpuInstructionIdentity::kOri;
     case 0x0e: return CpuInstructionIdentity::kXori;
     case 0x0f: return CpuInstructionIdentity::kLui;
-    case 0x10: return CpuInstructionIdentity::kCop0;
+    case 0x10:
+      switch (instruction.rs) {
+        case 0x00: return CpuInstructionIdentity::kCop0Mfc0;
+        case 0x04: return CpuInstructionIdentity::kCop0Mtc0;
+        default: return CpuInstructionIdentity::kCop0;
+      }
+
     case 0x11: return CpuInstructionIdentity::kCop1;
     case 0x12: return CpuInstructionIdentity::kCop2;
     case 0x13: return CpuInstructionIdentity::kCop3;
@@ -1706,6 +1728,30 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
     case CpuInstructionIdentity::kSpecialSync:
       return CpuInstructionExecutionResult::kExecuted;
+
+    case CpuInstructionIdentity::kCop0Mfc0:
+      switch (instruction.rd) {
+        case kCop0StatusRegisterIndex:
+          write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_status());
+          return CpuInstructionExecutionResult::kExecuted;
+
+        case kCop0CauseRegisterIndex:
+          write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_cause());
+          return CpuInstructionExecutionResult::kExecuted;
+
+        default:
+          return CpuInstructionExecutionResult::kUnsupported;
+      }
+
+    case CpuInstructionIdentity::kCop0Mtc0:
+      switch (instruction.rd) {
+        case kCop0StatusRegisterIndex:
+          write_cop0_status(read_cpu_gpr_word(instruction.rt));
+          return CpuInstructionExecutionResult::kExecuted;
+
+        default:
+          return CpuInstructionExecutionResult::kUnsupported;
+      }
 
     case CpuInstructionIdentity::kSpecialMfhi: {
       write_cpu_gpr_value(instruction.rd, cpu_hi());

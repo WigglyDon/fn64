@@ -180,10 +180,10 @@ private:
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
-  // COP0/COP1/COP2/COP3, CACHE, and coprocessor memory identities are coarse
-  // unsupported decode boundaries today. fn64 does not subdecode or execute
-  // coprocessor operations, model cache state/ops/coherence, or deliver COP0
-  // exceptions from these identities.
+  // COP0 is only narrowly subdecoded for the local MFC0/MTC0 Status/Cause
+  // observation seam. COP1/COP2/COP3, CACHE, and coprocessor memory identities
+  // remain coarse unsupported decode boundaries. fn64 does not model cache
+  // state/ops/coherence or deliver COP0 exceptions from these identities.
   enum class CpuInstructionIdentity {
     kUnknownPrimary,
     kSpecialUnknown,
@@ -272,6 +272,8 @@ private:
     kXori,
     kLui,
     kCop0,
+    kCop0Mfc0,
+    kCop0Mtc0,
     kCop1,
     kCop2,
     kCop3,
@@ -342,6 +344,14 @@ private:
   static constexpr std::uint32_t kMiInterruptPendingPi = 0x00000010u;
   static constexpr std::uint32_t kMiSupportedInterruptBits =
       kMiInterruptPendingSp | kMiInterruptPendingPi;
+  static constexpr std::uint8_t kCop0StatusRegisterIndex = 12;
+  static constexpr std::uint8_t kCop0CauseRegisterIndex = 13;
+  static constexpr std::uint32_t kCop0StatusIe = 0x00000001u;
+  static constexpr std::uint32_t kCop0StatusExl = 0x00000002u;
+  static constexpr std::uint32_t kCop0StatusInterruptMask = 0x0000ff00u;
+  static constexpr std::uint32_t kCop0SupportedStatusBits =
+      kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask;
+  static constexpr std::uint32_t kCop0CauseInterruptPending2 = 0x00000400u;
   static constexpr CpuPhysicalAddress kPiPhysicalBase = 0x04600000u;
   static constexpr std::uint32_t kPiRegisterWindowSize = 0x20u;
   static constexpr std::uint32_t kPiDramAddressRegisterOffset = 0x00u;
@@ -476,6 +486,9 @@ private:
       CpuAddress cpu_address,
       std::uint32_t value);
   void latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept;
+  std::uint32_t read_cop0_status() const noexcept;
+  std::uint32_t read_cop0_cause() const noexcept;
+  void write_cop0_status(std::uint32_t value) noexcept;
 
   std::uint32_t read_pi_register_u32(
       CpuPhysicalAddress physical_address,
@@ -541,6 +554,7 @@ private:
   std::uint32_t sp_status_ = 0;
   std::uint32_t mi_interrupt_pending_ = 0;
   std::uint32_t mi_interrupt_mask_ = 0;
+  std::uint32_t cop0_status_ = 0;
   RdramOffset pi_dram_address_ = 0;
   PiCartAddress pi_cart_address_ = 0;
   std::uint32_t pi_cart_to_rdram_length_ = 0;

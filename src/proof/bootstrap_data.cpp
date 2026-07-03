@@ -4184,6 +4184,50 @@ constexpr std::uint16_t kMiUnknownRegisterOffset = 0x0014u;
 constexpr std::uint32_t kMiPendingSp = 0x00000001u;
 constexpr std::uint32_t kMiPendingPi = 0x00000010u;
 constexpr std::uint32_t kMiSupportedBits = kMiPendingSp | kMiPendingPi;
+constexpr std::uint8_t kCop0StatusRegisterIndex = 12;
+constexpr std::uint8_t kCop0CauseRegisterIndex = 13;
+constexpr std::uint8_t kCop0UnsupportedRegisterIndex = 0;
+constexpr std::uint32_t kCop0StatusIe = 0x00000001u;
+constexpr std::uint32_t kCop0StatusExl = 0x00000002u;
+constexpr std::uint32_t kCop0StatusInterruptMask2 = 0x00000400u;
+constexpr std::uint32_t kCop0StatusInterruptMask = 0x0000ff00u;
+constexpr std::uint32_t kCop0SupportedStatusBits =
+    kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask;
+constexpr std::uint32_t kCop0CauseIp2 = 0x00000400u;
+
+constexpr CpuInstructionWord encode_cop0_transfer(
+    std::uint8_t rs,
+    std::uint8_t rt,
+    std::uint8_t rd) {
+  return (static_cast<std::uint32_t>(0x10u) << 26) |
+         (static_cast<std::uint32_t>(rs) << 21) |
+         (static_cast<std::uint32_t>(rt) << 16) |
+         (static_cast<std::uint32_t>(rd) << 11);
+}
+
+constexpr CpuInstructionWord encode_mfc0(std::uint8_t rt, std::uint8_t rd) {
+  return encode_cop0_transfer(0x00, rt, rd);
+}
+
+constexpr CpuInstructionWord encode_dmfc0(std::uint8_t rt, std::uint8_t rd) {
+  return encode_cop0_transfer(0x01, rt, rd);
+}
+
+constexpr CpuInstructionWord encode_mtc0(std::uint8_t rt, std::uint8_t rd) {
+  return encode_cop0_transfer(0x04, rt, rd);
+}
+
+constexpr CpuInstructionWord encode_dmtc0(std::uint8_t rt, std::uint8_t rd) {
+  return encode_cop0_transfer(0x05, rt, rd);
+}
+
+constexpr CpuInstructionWord encode_cop0_tlbp() {
+  return 0x42000008u;
+}
+
+constexpr CpuInstructionWord encode_cop0_eret() {
+  return 0x42000018u;
+}
 
 constexpr PiCartAddress pi_cart_rom_address(CartridgeOffset cartridge_offset) {
   return kSyntheticPiCartRomBase + cartridge_offset;
@@ -4351,6 +4395,41 @@ void require_mi_register_equals(
       mi_register_offset);
   step_at(machine, instruction_address, label);
   require_gpr_equals(machine, target_register, expected, label);
+}
+
+void write_cop0_register_through_cpu(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t source_register,
+    std::uint8_t cop0_register,
+    std::uint32_t value,
+    const char* label) {
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_mtc0(static_cast<std::uint8_t>(source_register), cop0_register));
+  machine.stage_cpu_gpr(source_register, value);
+  step_at(machine, instruction_address, label);
+}
+
+void require_cop0_register_equals(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t target_register,
+    std::uint8_t cop0_register,
+    std::uint32_t expected,
+    const char* label) {
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_mfc0(static_cast<std::uint8_t>(target_register), cop0_register));
+  step_at(machine, instruction_address, label);
+  require_gpr_equals(machine, target_register, expected, label);
+}
+
+void require_step_unsupported(Machine& machine, const char* label) {
+  const Machine::CpuInstructionStepResult result = machine.step_cpu_instruction();
+  if (result != Machine::CpuInstructionStepResult::kUnsupported) {
+    throw std::runtime_error(std::string(label) + " did not return kUnsupported");
+  }
 }
 
 void run_cpu_driven_pi_dma_execution_demo() {
@@ -6341,6 +6420,344 @@ void run_mi_mmio_fault_demo() {
   }
 }
 
+void run_cop0_status_observation_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: local Status is CPU-readable and writable\n";
+
+  auto machine_storage = std::make_unique<Machine>(Cartridge{});
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kStatusReadIndex = 6;
+  constexpr std::size_t kStatusWriteIndex = 7;
+  constexpr RdramOffset kInitialStatusReadAddress = 0x00001f00u;
+  constexpr RdramOffset kStatusWriteAddress = 0x00001f04u;
+  constexpr RdramOffset kSupportedStatusReadAddress = 0x00001f08u;
+  constexpr RdramOffset kCauseReadAddress = 0x00001f0cu;
+  constexpr RdramOffset kZeroStatusReadAddress = 0x00001f10u;
+
+  require_cop0_register_equals(
+      machine,
+      kInitialStatusReadAddress,
+      kStatusReadIndex,
+      kCop0StatusRegisterIndex,
+      0,
+      "cop0_status_observation_initial_status");
+
+  write_cop0_register_through_cpu(
+      machine,
+      kStatusWriteAddress,
+      kStatusWriteIndex,
+      kCop0StatusRegisterIndex,
+      0xffffffffu,
+      "cop0_status_observation_write_supported_status");
+  require_cop0_register_equals(
+      machine,
+      kSupportedStatusReadAddress,
+      kStatusReadIndex,
+      kCop0StatusRegisterIndex,
+      kCop0SupportedStatusBits,
+      "cop0_status_observation_unsupported_status_bits_ignored");
+
+  require_cop0_register_equals(
+      machine,
+      kCauseReadAddress,
+      kStatusReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_status_observation_initial_cause");
+
+  machine.stage_rdram_u32_be(kZeroStatusReadAddress, encode_mfc0(0, kCop0StatusRegisterIndex));
+  step_at(machine, kZeroStatusReadAddress, "cop0_status_observation_mfc0_to_zero");
+  require_gpr_equals(machine, 0, 0, "cop0_status_observation_mfc0_to_zero");
+}
+
+void run_cop0_cause_mi_observation_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: Cause observes local MI pending/mask state\n";
+
+  auto machine_storage = make_pi_dma_proof_machine();
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kPiBaseIndex = 4;
+  constexpr std::size_t kMiBaseIndex = 5;
+  constexpr std::size_t kSpBaseIndex = 6;
+  constexpr std::size_t kValueIndex = 7;
+  constexpr std::size_t kCauseReadIndex = 8;
+  constexpr RdramOffset kCauseInitialReadAddress = 0x00001f20u;
+  constexpr RdramOffset kSwPiDramAddress = 0x00001f24u;
+  constexpr RdramOffset kSwPiCartAddress = 0x00001f28u;
+  constexpr RdramOffset kSwPiLengthAddress = 0x00001f2cu;
+  constexpr RdramOffset kCausePiUnmaskedReadAddress = 0x00001f30u;
+  constexpr RdramOffset kSwMiMaskAddress = 0x00001f34u;
+  constexpr RdramOffset kCausePiMaskedReadAddress = 0x00001f38u;
+  constexpr RdramOffset kSwMiPendingAddress = 0x00001f3cu;
+  constexpr RdramOffset kCausePiClearedReadAddress = 0x00001f40u;
+  constexpr RdramOffset kSwSpMemAddress = 0x00001f44u;
+  constexpr RdramOffset kSwSpDramAddress = 0x00001f48u;
+  constexpr RdramOffset kSwSpReadLengthAddress = 0x00001f4cu;
+  constexpr RdramOffset kCauseSpMaskedReadAddress = 0x00001f50u;
+  constexpr RdramOffset kPiDmaDestination = 0x00002000u;
+  constexpr RdramOffset kSpReadSource = 0x00002020u;
+  constexpr PiCartAddress kPiCartSource = pi_cart_rom_address(0x00000040u);
+  constexpr std::uint32_t kFourByteTransferLength = 3u;
+  constexpr std::uint32_t kSpDmemOffset = 0x00000280u;
+
+  stage_pi_sw_instruction(machine, kSwPiDramAddress, kValueIndex, kPiBaseIndex, kPiDramRegisterOffset);
+  stage_pi_sw_instruction(machine, kSwPiCartAddress, kValueIndex, kPiBaseIndex, kPiCartRegisterOffset);
+  stage_pi_sw_instruction(
+      machine,
+      kSwPiLengthAddress,
+      kValueIndex,
+      kPiBaseIndex,
+      kPiCartToRdramLengthRegisterOffset);
+  stage_sp_sw_instruction(machine, kSwSpMemAddress, kValueIndex, kSpBaseIndex, kSpMemoryRegisterOffset);
+  stage_sp_sw_instruction(machine, kSwSpDramAddress, kValueIndex, kSpBaseIndex, kSpDramRegisterOffset);
+  stage_sp_sw_instruction(
+      machine,
+      kSwSpReadLengthAddress,
+      kValueIndex,
+      kSpBaseIndex,
+      kSpReadLengthRegisterOffset);
+
+  machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+  machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+  machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
+
+  require_cop0_register_equals(
+      machine,
+      kCauseInitialReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_cause_mi_observation_initial_cause");
+
+  machine.stage_cpu_gpr(kValueIndex, kPiDmaDestination);
+  step_at(machine, kSwPiDramAddress, "cop0_cause_mi_observation_sw_pi_dram");
+  machine.stage_cpu_gpr(kValueIndex, kPiCartSource);
+  step_at(machine, kSwPiCartAddress, "cop0_cause_mi_observation_sw_pi_cart");
+  machine.stage_cpu_gpr(kValueIndex, kFourByteTransferLength);
+  step_at(machine, kSwPiLengthAddress, "cop0_cause_mi_observation_sw_pi_length");
+  require_rdram_word_equals(
+      machine,
+      kPiDmaDestination,
+      0xd1d4d7dau,
+      "cop0_cause_mi_observation_pi_copy");
+  require_cop0_register_equals(
+      machine,
+      kCausePiUnmaskedReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_cause_mi_observation_pi_pending_without_mask");
+
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiMaskAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptMaskRegisterOffset,
+      kMiPendingPi,
+      "cop0_cause_mi_observation_write_pi_mask");
+  require_cop0_register_equals(
+      machine,
+      kCausePiMaskedReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp2,
+      "cop0_cause_mi_observation_pi_pending_with_mask");
+
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiPendingAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptPendingRegisterOffset,
+      kMiPendingPi,
+      "cop0_cause_mi_observation_clear_pi_pending");
+  require_cop0_register_equals(
+      machine,
+      kCausePiClearedReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_cause_mi_observation_pi_pending_cleared");
+
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiMaskAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptMaskRegisterOffset,
+      kMiPendingSp,
+      "cop0_cause_mi_observation_write_sp_mask");
+  machine.stage_rdram_u32_be(kSpReadSource, 0x11223344u);
+  machine.stage_cpu_gpr(kValueIndex, kSpDmemOffset);
+  step_at(machine, kSwSpMemAddress, "cop0_cause_mi_observation_sw_sp_mem");
+  machine.stage_cpu_gpr(kValueIndex, kSpReadSource);
+  step_at(machine, kSwSpDramAddress, "cop0_cause_mi_observation_sw_sp_dram");
+  machine.stage_cpu_gpr(kValueIndex, kFourByteTransferLength);
+  step_at(machine, kSwSpReadLengthAddress, "cop0_cause_mi_observation_sw_sp_read_length");
+  require_cop0_register_equals(
+      machine,
+      kCauseSpMaskedReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp2,
+      "cop0_cause_mi_observation_sp_pending_with_mask");
+}
+
+void run_cop0_no_delivery_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: pending Status/Cause state does not deliver interrupts\n";
+
+  auto machine_storage = make_pi_dma_proof_machine();
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kPiBaseIndex = 4;
+  constexpr std::size_t kMiBaseIndex = 5;
+  constexpr std::size_t kValueIndex = 6;
+  constexpr std::size_t kStatusSourceIndex = 7;
+  constexpr std::size_t kStatusReadIndex = 8;
+  constexpr std::size_t kCauseReadIndex = 9;
+  constexpr std::size_t kOrdinaryIndex = 10;
+  constexpr RdramOffset kSwPiDramAddress = 0x00001f80u;
+  constexpr RdramOffset kSwPiCartAddress = 0x00001f84u;
+  constexpr RdramOffset kSwPiLengthAddress = 0x00001f88u;
+  constexpr RdramOffset kSwMiMaskAddress = 0x00001f8cu;
+  constexpr RdramOffset kCop0StatusWriteAddress = 0x00001f90u;
+  constexpr RdramOffset kCop0CauseReadAddress = 0x00001f94u;
+  constexpr RdramOffset kOrdinaryInstructionAddress = 0x00001f98u;
+  constexpr RdramOffset kCop0StatusReadAfterStepAddress = 0x00001f9cu;
+  constexpr RdramOffset kPiDmaDestination = 0x00002100u;
+  constexpr PiCartAddress kPiCartSource = pi_cart_rom_address(0x00000040u);
+  constexpr std::uint32_t kFourByteTransferLength = 3u;
+  constexpr std::uint32_t kObservableStatus =
+      kCop0StatusIe | kCop0StatusInterruptMask2;
+
+  stage_pi_sw_instruction(machine, kSwPiDramAddress, kValueIndex, kPiBaseIndex, kPiDramRegisterOffset);
+  stage_pi_sw_instruction(machine, kSwPiCartAddress, kValueIndex, kPiBaseIndex, kPiCartRegisterOffset);
+  stage_pi_sw_instruction(
+      machine,
+      kSwPiLengthAddress,
+      kValueIndex,
+      kPiBaseIndex,
+      kPiCartToRdramLengthRegisterOffset);
+  machine.stage_rdram_u32_be(
+      kOrdinaryInstructionAddress,
+      encode_ori(static_cast<std::uint8_t>(kOrdinaryIndex), 0, 0x2468u));
+
+  machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+  machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+
+  machine.stage_cpu_gpr(kValueIndex, kPiDmaDestination);
+  step_at(machine, kSwPiDramAddress, "cop0_no_delivery_sw_pi_dram");
+  machine.stage_cpu_gpr(kValueIndex, kPiCartSource);
+  step_at(machine, kSwPiCartAddress, "cop0_no_delivery_sw_pi_cart");
+  machine.stage_cpu_gpr(kValueIndex, kFourByteTransferLength);
+  step_at(machine, kSwPiLengthAddress, "cop0_no_delivery_sw_pi_length");
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiMaskAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptMaskRegisterOffset,
+      kMiPendingPi,
+      "cop0_no_delivery_write_mi_mask");
+  write_cop0_register_through_cpu(
+      machine,
+      kCop0StatusWriteAddress,
+      kStatusSourceIndex,
+      kCop0StatusRegisterIndex,
+      kObservableStatus,
+      "cop0_no_delivery_write_status");
+  require_cop0_register_equals(
+      machine,
+      kCop0CauseReadAddress,
+      kCauseReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp2,
+      "cop0_no_delivery_cause_observes_pending");
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kOrdinaryInstructionAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kOrdinaryInstructionAddress + 4u));
+  require_stepped(machine.step_cpu_instruction(), "cop0_no_delivery_ordinary_step");
+  require_gpr_equals(machine, kOrdinaryIndex, 0x2468u, "cop0_no_delivery_ordinary_step");
+  if (machine.cpu_pc() != cpu_rdram_alias(kOrdinaryInstructionAddress + 4u) ||
+      machine.cpu_next_pc() != cpu_rdram_alias(kOrdinaryInstructionAddress + 8u)) {
+    throw std::runtime_error("cop0_no_delivery changed pc/next_pc cadence");
+  }
+
+  require_cop0_register_equals(
+      machine,
+      kCop0StatusReadAfterStepAddress,
+      kStatusReadIndex,
+      kCop0StatusRegisterIndex,
+      kObservableStatus,
+      "cop0_no_delivery_status_unchanged_after_step");
+}
+
+void run_cop0_unsupported_no_ghost_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: unsupported COP0 forms remain no-ghost\n";
+
+  const auto require_cop0_unsupported_no_ghost =
+      [](const char* label, CpuInstructionWord instruction) {
+        auto machine_storage = std::make_unique<Machine>(Cartridge{});
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kStatusSourceIndex = 4;
+        constexpr std::size_t kPreservedIndex = 5;
+        constexpr std::size_t kStatusReadIndex = 6;
+        constexpr RdramOffset kStatusWriteAddress = 0x00002140u;
+        constexpr RdramOffset kUnsupportedAddress = 0x00002144u;
+        constexpr RdramOffset kStatusReadAddress = 0x00002148u;
+        constexpr CpuRegisterValue kPreservedValue = 0x1122334455667788ull;
+        constexpr std::uint32_t kStatusValue =
+            kCop0StatusIe | kCop0StatusInterruptMask2;
+
+        write_cop0_register_through_cpu(
+            machine,
+            kStatusWriteAddress,
+            kStatusSourceIndex,
+            kCop0StatusRegisterIndex,
+            kStatusValue,
+            label);
+        machine.stage_rdram_u32_be(kUnsupportedAddress, instruction);
+        machine.stage_cpu_pc(cpu_rdram_alias(kUnsupportedAddress));
+        machine.stage_cpu_next_pc(cpu_rdram_alias(kUnsupportedAddress + 4u));
+        machine.stage_cpu_gpr(kPreservedIndex, kPreservedValue);
+
+        require_step_unsupported(machine, label);
+
+        if (machine.cpu_pc() != cpu_rdram_alias(kUnsupportedAddress) ||
+            machine.cpu_next_pc() != cpu_rdram_alias(kUnsupportedAddress + 4u)) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc");
+        }
+        require_gpr_equals(machine, kPreservedIndex, kPreservedValue, label);
+        require_cop0_register_equals(
+            machine,
+            kStatusReadAddress,
+            kStatusReadIndex,
+            kCop0StatusRegisterIndex,
+            kStatusValue,
+            label);
+      };
+
+  require_cop0_unsupported_no_ghost(
+      "cop0_unsupported_mfc0_register_no_ghost",
+      encode_mfc0(5, kCop0UnsupportedRegisterIndex));
+  require_cop0_unsupported_no_ghost(
+      "cop0_unsupported_mtc0_cause_no_ghost",
+      encode_mtc0(5, kCop0CauseRegisterIndex));
+  require_cop0_unsupported_no_ghost(
+      "cop0_unsupported_dmfc0_no_ghost",
+      encode_dmfc0(5, kCop0StatusRegisterIndex));
+  require_cop0_unsupported_no_ghost(
+      "cop0_unsupported_dmtc0_no_ghost",
+      encode_dmtc0(5, kCop0StatusRegisterIndex));
+  require_cop0_unsupported_no_ghost(
+      "cop0_unsupported_tlbp_no_ghost",
+      encode_cop0_tlbp());
+  require_cop0_unsupported_no_ghost(
+      "cop0_unsupported_eret_no_ghost",
+      encode_cop0_eret());
+}
+
 void run_sp_memory_data_demo() {
   std::cout << "fn64 bootstrap SP memory demo: CPU data reaches local DMEM/IMEM only\n";
 
@@ -7670,6 +8087,10 @@ void run_data_demos(Machine& machine) {
   run_mi_dma_pending_demo();
   run_mi_dma_failure_demo();
   run_mi_mmio_fault_demo();
+  run_cop0_status_observation_demo();
+  run_cop0_cause_mi_observation_demo();
+  run_cop0_no_delivery_demo();
+  run_cop0_unsupported_no_ghost_demo();
   run_negative_out_of_range_guard_demo(machine);
 }
 

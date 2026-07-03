@@ -116,6 +116,7 @@ void Machine::reset_to_blank_rdram_power_on_state() {
   sp_status_ = 0;
   mi_interrupt_pending_ = 0;
   mi_interrupt_mask_ = 0;
+  cop0_status_ = 0;
   pi_dram_address_ = 0;
   pi_cart_address_ = 0;
   pi_cart_to_rdram_length_ = 0;

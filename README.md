@@ -48,6 +48,7 @@ The current machine state is intentionally plain:
 - the reset model is an explicit blank RDRAM power-on state, not N64 reset/PIF boot
 - CPU instruction fetch currently uses only KSEG0/KSEG1-style direct RDRAM aliases
 - CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, minimal local SP DMA MMIO, minimal local PI MMIO, plus minimal local MI pending/mask MMIO
+- the CPU can read/write a tiny local COP0 Status/Cause observation subset, without exception delivery
 - cartridge execution mapping is not wired yet
 
 This keeps ROM loading honest without pretending the cartridge is executing.
@@ -107,7 +108,13 @@ This is not full SP register behavior, SP status/timing/interrupt fidelity, RSP 
 
 The current CPU data path recognizes a tiny local MI register window for aligned 32-bit loads and stores. It exposes local SP/PI pending bits and local SP/PI mask bits. Successful PI DMA latches the PI pending bit, and successful SP read/write DMA latches the SP pending bit. CPU writes clear supported pending bits with write-one-to-clear and assign supported mask bits directly.
 
-MI pending/mask state is observable local machine state only. It does not deliver CPU interrupts, does not inspect or mutate COP0 Status/Cause/EPC, does not fetch exception vectors, and does not change pc/next_pc.
+MI pending/mask state is observable local machine state only. It does not deliver CPU interrupts, does not fetch exception vectors, and does not change pc/next_pc.
+
+## Minimal COP0 observation subset
+
+The current CPU instruction path supports only a tiny local COP0 MFC0/MTC0 seam for Status and Cause. Status stores supported local IE, EXL, and interrupt-mask bits. Cause composes a local IP2 bit when supported MI pending bits are also enabled in the local MI mask.
+
+This COP0 state is observational only. It does not deliver interrupts, write EPC or BadVAddr, enter exception vectors, implement ERET, implement TLB operations, model Count/Compare timing, or claim reset/boot compatibility.
 
 ## No-window ROM inspection
 
