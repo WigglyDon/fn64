@@ -218,7 +218,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
   constexpr CpuInstructionWord kCop0Dmtc0UnsupportedInstruction =
       encode_i_type(0x10, 0x05, 23, static_cast<std::uint16_t>(12u << 11));
   constexpr CpuInstructionWord kCop0TlbpUnsupportedInstruction = 0x42000008u;
-  constexpr CpuInstructionWord kCop0EretUnsupportedInstruction = 0x42000018u;
   constexpr CpuInstructionWord kCop1UnsupportedInstruction = encode_i_type(0x11, 0, 0, 0x0000u);
   constexpr CpuInstructionWord kCop2UnsupportedInstruction = encode_i_type(0x12, 0, 0, 0x0000u);
   constexpr CpuInstructionWord kCop3UnsupportedInstruction = encode_i_type(0x13, 0, 0, 0x0000u);
@@ -269,13 +268,6 @@ void run_unsupported_instruction_demos(Machine& machine) {
       0x000006d0u,
       kCop0TlbpUnsupportedInstruction,
       0x75d1u);
-
-  run_unsupported_identity_demo(
-      machine,
-      "COP0 ERET remains unsupported with rollback intact",
-      0x000006d4u,
-      kCop0EretUnsupportedInstruction,
-      0x75d5u);
 
   run_unsupported_identity_demo(
       machine,

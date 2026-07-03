@@ -185,10 +185,11 @@ private:
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
   // COP0 is only narrowly subdecoded for local MFC0/MTC0 Status observation,
-  // Cause observation, EPC observation, and the minimal local interrupt-entry
-  // seam. COP1/COP2/COP3, CACHE, and coprocessor memory identities remain
-  // coarse unsupported decode boundaries. fn64 does not model cache
-  // state/ops/coherence or general COP0 exception delivery from these identities.
+  // Cause observation, EPC observation, minimal local interrupt entry, and
+  // ERET return from that entry. COP1/COP2/COP3, CACHE, and coprocessor memory
+  // identities remain coarse unsupported decode boundaries. fn64 does not
+  // model cache state/ops/coherence or general COP0 exception delivery from
+  // these identities.
   enum class CpuInstructionIdentity {
     kUnknownPrimary,
     kSpecialUnknown,
@@ -279,6 +280,7 @@ private:
     kCop0,
     kCop0Mfc0,
     kCop0Mtc0,
+    kCop0Eret,
     kCop1,
     kCop2,
     kCop3,
@@ -503,6 +505,8 @@ private:
   bool local_external_interrupt_enabled() const noexcept;
   bool current_pc_allows_local_interrupt_entry() const noexcept;
   bool try_enter_local_interrupt() noexcept;
+  bool local_eret_can_return() const noexcept;
+  void return_from_local_interrupt_entry();
 
   std::uint32_t read_pi_register_u32(
       CpuPhysicalAddress physical_address,

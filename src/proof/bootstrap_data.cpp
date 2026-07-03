@@ -6969,6 +6969,257 @@ void run_cop0_interrupt_cadence_demo() {
       "cop0_interrupt_cadence_epc_after_deferred_entry");
 }
 
+void run_cop0_eret_return_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: ERET returns from local interrupt entry after handler clears MI pending\n";
+
+  auto machine_storage = make_pi_dma_proof_machine();
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kPiBaseIndex = 4;
+  constexpr std::size_t kMiBaseIndex = 5;
+  constexpr std::size_t kValueIndex = 6;
+  constexpr std::size_t kStatusSourceIndex = 7;
+  constexpr std::size_t kInterruptedIndex = 8;
+  constexpr std::size_t kStatusReadIndex = 9;
+  constexpr std::size_t kEpcReadIndex = 10;
+  constexpr std::size_t kMiPendingReadIndex = 11;
+  constexpr RdramOffset kPiPendingInstructionBase = 0x00002480u;
+  constexpr RdramOffset kSwMiMaskAddress = 0x0000248cu;
+  constexpr RdramOffset kCop0StatusWriteAddress = 0x00002490u;
+  constexpr RdramOffset kInterruptedInstructionAddress = 0x000024a0u;
+  constexpr RdramOffset kStatusReadAfterReturnAddress = 0x000024a4u;
+  constexpr RdramOffset kEpcReadAfterReturnAddress = 0x000024a8u;
+  constexpr RdramOffset kMiPendingReadAfterReturnAddress = 0x000024acu;
+  constexpr RdramOffset kPiDmaDestination = 0x000024c0u;
+  constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+  constexpr std::uint32_t kEntryStatus =
+      kCop0StatusIe | kCop0StatusInterruptMask2;
+
+  machine.stage_rdram_u32_be(
+      kInterruptedInstructionAddress,
+      encode_ori(static_cast<std::uint8_t>(kInterruptedIndex), 0, 0x7777u));
+  machine.stage_rdram_u32_be(
+      kVectorInstructionAddress,
+      encode_sw(
+          static_cast<std::uint8_t>(kValueIndex),
+          static_cast<std::uint8_t>(kMiBaseIndex),
+          kMiInterruptPendingRegisterOffset));
+  machine.stage_rdram_u32_be(kVectorInstructionAddress + 4u, encode_cop0_eret());
+
+  machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+  latch_pi_pending_for_cop0_demo(
+      machine,
+      kPiPendingInstructionBase,
+      kPiDmaDestination,
+      kPiBaseIndex,
+      kValueIndex);
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiMaskAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptMaskRegisterOffset,
+      kMiPendingPi,
+      "cop0_eret_return_write_mi_mask");
+  write_cop0_register_through_cpu(
+      machine,
+      kCop0StatusWriteAddress,
+      kStatusSourceIndex,
+      kCop0StatusRegisterIndex,
+      kEntryStatus,
+      "cop0_eret_return_write_status");
+  machine.stage_cpu_gpr(kValueIndex, kMiPendingPi);
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedInstructionAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedInstructionAddress + 4u));
+  require_interrupted(machine.step_cpu_instruction(), "cop0_eret_return_interrupt_entry");
+  require_gpr_equals(
+      machine,
+      kInterruptedIndex,
+      0,
+      "cop0_eret_return_interrupted_instruction_not_executed");
+
+  require_stepped(machine.step_cpu_instruction(), "cop0_eret_return_vector_clear_pending");
+  require_stepped(machine.step_cpu_instruction(), "cop0_eret_return_eret");
+  if (machine.cpu_pc() != cpu_rdram_alias(kInterruptedInstructionAddress) ||
+      machine.cpu_next_pc() != cpu_rdram_alias(kInterruptedInstructionAddress + 4u)) {
+    throw std::runtime_error("cop0_eret_return did not return to EPC cadence");
+  }
+
+  require_stepped(machine.step_cpu_instruction(), "cop0_eret_return_resumed_instruction");
+  require_gpr_equals(
+      machine,
+      kInterruptedIndex,
+      0x7777u,
+      "cop0_eret_return_resumed_instruction");
+  if (machine.cpu_pc() != cpu_rdram_alias(kInterruptedInstructionAddress + 4u) ||
+      machine.cpu_next_pc() != cpu_rdram_alias(kInterruptedInstructionAddress + 8u)) {
+    throw std::runtime_error("cop0_eret_return resumed instruction changed cadence");
+  }
+
+  require_cop0_register_equals(
+      machine,
+      kStatusReadAfterReturnAddress,
+      kStatusReadIndex,
+      kCop0StatusRegisterIndex,
+      kEntryStatus,
+      "cop0_eret_return_status_exl_cleared");
+  require_cop0_register_equals(
+      machine,
+      kEpcReadAfterReturnAddress,
+      kEpcReadIndex,
+      kCop0EpcRegisterIndex,
+      cpu_rdram_alias(kInterruptedInstructionAddress),
+      "cop0_eret_return_epc_preserved");
+  require_mi_register_equals(
+      machine,
+      kMiPendingReadAfterReturnAddress,
+      kMiPendingReadIndex,
+      kMiBaseIndex,
+      kMiInterruptPendingRegisterOffset,
+      0,
+      "cop0_eret_return_handler_cleared_mi_pending");
+}
+
+void run_cop0_eret_reentry_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: ERET does not clear MI pending and can re-enter immediately\n";
+
+  auto machine_storage = make_pi_dma_proof_machine();
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kPiBaseIndex = 4;
+  constexpr std::size_t kMiBaseIndex = 5;
+  constexpr std::size_t kValueIndex = 6;
+  constexpr std::size_t kStatusSourceIndex = 7;
+  constexpr std::size_t kInterruptedIndex = 8;
+  constexpr std::size_t kMiPendingReadIndex = 9;
+  constexpr RdramOffset kPiPendingInstructionBase = 0x00002500u;
+  constexpr RdramOffset kSwMiMaskAddress = 0x0000250cu;
+  constexpr RdramOffset kCop0StatusWriteAddress = 0x00002510u;
+  constexpr RdramOffset kInterruptedInstructionAddress = 0x00002520u;
+  constexpr RdramOffset kMiPendingReadAddress = 0x00002524u;
+  constexpr RdramOffset kPiDmaDestination = 0x00002580u;
+  constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+  constexpr std::uint32_t kEntryStatus =
+      kCop0StatusIe | kCop0StatusInterruptMask2;
+
+  machine.stage_rdram_u32_be(
+      kInterruptedInstructionAddress,
+      encode_ori(static_cast<std::uint8_t>(kInterruptedIndex), 0, 0x8888u));
+  machine.stage_rdram_u32_be(kVectorInstructionAddress, encode_cop0_eret());
+
+  machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+  latch_pi_pending_for_cop0_demo(
+      machine,
+      kPiPendingInstructionBase,
+      kPiDmaDestination,
+      kPiBaseIndex,
+      kValueIndex);
+  write_mi_register_through_cpu(
+      machine,
+      kSwMiMaskAddress,
+      kValueIndex,
+      kMiBaseIndex,
+      kMiInterruptMaskRegisterOffset,
+      kMiPendingPi,
+      "cop0_eret_reentry_write_mi_mask");
+  write_cop0_register_through_cpu(
+      machine,
+      kCop0StatusWriteAddress,
+      kStatusSourceIndex,
+      kCop0StatusRegisterIndex,
+      kEntryStatus,
+      "cop0_eret_reentry_write_status");
+
+  machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedInstructionAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedInstructionAddress + 4u));
+  require_interrupted(machine.step_cpu_instruction(), "cop0_eret_reentry_first_entry");
+  require_stepped(machine.step_cpu_instruction(), "cop0_eret_reentry_eret");
+  if (machine.cpu_pc() != cpu_rdram_alias(kInterruptedInstructionAddress) ||
+      machine.cpu_next_pc() != cpu_rdram_alias(kInterruptedInstructionAddress + 4u)) {
+    throw std::runtime_error("cop0_eret_reentry did not return to EPC cadence");
+  }
+
+  require_interrupted(machine.step_cpu_instruction(), "cop0_eret_reentry_second_entry");
+  require_gpr_equals(
+      machine,
+      kInterruptedIndex,
+      0,
+      "cop0_eret_reentry_interrupted_instruction_still_not_executed");
+  require_mi_register_equals(
+      machine,
+      kMiPendingReadAddress,
+      kMiPendingReadIndex,
+      kMiBaseIndex,
+      kMiInterruptPendingRegisterOffset,
+      kMiPendingPi,
+      "cop0_eret_reentry_mi_pending_preserved");
+}
+
+void run_cop0_eret_unsupported_precondition_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: ERET requires EXL and ordinary cadence\n";
+
+  const auto require_eret_unsupported_no_ghost =
+      [](const char* label,
+         std::uint32_t status_value,
+         CpuAddress next_pc) {
+        auto machine_storage = std::make_unique<Machine>(Cartridge{});
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kStatusSourceIndex = 4;
+        constexpr std::size_t kPreservedIndex = 5;
+        constexpr std::size_t kStatusReadIndex = 6;
+        constexpr std::size_t kEpcReadIndex = 7;
+        constexpr RdramOffset kStatusWriteAddress = 0x000025c0u;
+        constexpr RdramOffset kEretAddress = 0x000025c4u;
+        constexpr RdramOffset kStatusReadAddress = 0x000025c8u;
+        constexpr RdramOffset kEpcReadAddress = 0x000025ccu;
+        constexpr CpuRegisterValue kPreservedValue = 0x0123456789abcdefull;
+
+        write_cop0_register_through_cpu(
+            machine,
+            kStatusWriteAddress,
+            kStatusSourceIndex,
+            kCop0StatusRegisterIndex,
+            status_value,
+            label);
+        machine.stage_rdram_u32_be(kEretAddress, encode_cop0_eret());
+        machine.stage_cpu_pc(cpu_rdram_alias(kEretAddress));
+        machine.stage_cpu_next_pc(next_pc);
+        machine.stage_cpu_gpr(kPreservedIndex, kPreservedValue);
+
+        require_step_unsupported(machine, label);
+
+        if (machine.cpu_pc() != cpu_rdram_alias(kEretAddress) ||
+            machine.cpu_next_pc() != next_pc) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc");
+        }
+        require_gpr_equals(machine, kPreservedIndex, kPreservedValue, label);
+        require_cop0_register_equals(
+            machine,
+            kStatusReadAddress,
+            kStatusReadIndex,
+            kCop0StatusRegisterIndex,
+            status_value,
+            label);
+        require_cop0_register_equals(
+            machine,
+            kEpcReadAddress,
+            kEpcReadIndex,
+            kCop0EpcRegisterIndex,
+            0,
+            label);
+      };
+
+  require_eret_unsupported_no_ghost(
+      "cop0_eret_unsupported_without_exl",
+      kCop0StatusIe | kCop0StatusInterruptMask2,
+      cpu_rdram_alias(0x000025c8u));
+  require_eret_unsupported_no_ghost(
+      "cop0_eret_unsupported_nonordinary_cadence",
+      kCop0StatusExl,
+      cpu_rdram_alias(0x000025d8u));
+}
+
 void run_cop0_epc_observation_demo() {
   std::cout << "fn64 bootstrap COP0 demo: local EPC resets to zero and is CPU-readable\n";
 
@@ -7059,9 +7310,6 @@ void run_cop0_unsupported_no_ghost_demo() {
   require_cop0_unsupported_no_ghost(
       "cop0_unsupported_tlbp_no_ghost",
       encode_cop0_tlbp());
-  require_cop0_unsupported_no_ghost(
-      "cop0_unsupported_eret_no_ghost",
-      encode_cop0_eret());
 }
 
 void run_sp_memory_data_demo() {
@@ -8400,6 +8648,9 @@ void run_data_demos(Machine& machine) {
   run_cop0_interrupt_gate_demo();
   run_cop0_interrupt_invalid_pc_demo();
   run_cop0_interrupt_cadence_demo();
+  run_cop0_eret_return_demo();
+  run_cop0_eret_reentry_demo();
+  run_cop0_eret_unsupported_precondition_demo();
   run_cop0_unsupported_no_ghost_demo();
   run_negative_out_of_range_guard_demo(machine);
 }

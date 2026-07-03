@@ -112,9 +112,9 @@ MI pending/mask state is observable local machine state only. MI does not fetch 
 
 ## Minimal COP0 interrupt subset
 
-The current CPU instruction path supports only a tiny local COP0 MFC0/MTC0 seam for Status, Cause, and EPC. Status stores supported local IE, EXL, and interrupt-mask bits. Cause composes a local IP2 bit when supported MI pending bits are also enabled in the local MI mask. EPC stores the interrupted PC for the minimal local interrupt-entry path.
+The current CPU instruction path supports only a tiny local COP0 MFC0/MTC0 seam for Status, Cause, and EPC, plus a narrow ERET return from the local interrupt-entry state. Status stores supported local IE, EXL, and interrupt-mask bits. Cause composes a local IP2 bit when supported MI pending bits are also enabled in the local MI mask. EPC stores the interrupted PC for the minimal local interrupt-entry path.
 
-A local external interrupt can enter 0x80000180 only when MI pending/mask state and COP0 Status IE/IM2/EXL allow it, and only from ordinary pc/next_pc cadence at a fetchable direct-RDRAM interrupted PC. Entry sets EXL and EPC. This is not general COP0 exception delivery: BadVAddr, ERET, TLB operations, Count/Compare timing, branch-delay BD/EPC semantics, reset/boot vectors, and compatibility behavior remain unimplemented.
+A local external interrupt can enter 0x80000180 only when MI pending/mask state and COP0 Status IE/IM2/EXL allow it, and only from ordinary pc/next_pc cadence at a fetchable direct-RDRAM interrupted PC. Entry sets EXL and EPC. ERET is supported only with EXL set and ordinary pc/next_pc cadence; it returns to EPC and clears EXL without clearing MI pending or mask. Handler code must clear or mask MI through MI MMIO to avoid immediate re-entry. This is not general COP0 exception delivery or exception-return fidelity: BadVAddr, TLB operations, Count/Compare timing, branch-delay BD/EPC semantics, reset/boot vectors, and compatibility behavior remain unimplemented.
 
 ## No-window ROM inspection
 

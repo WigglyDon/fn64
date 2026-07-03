@@ -1027,6 +1027,18 @@ bool Machine::try_enter_local_interrupt() noexcept {
   return true;
 }
 
+bool Machine::local_eret_can_return() const noexcept {
+  return ((cop0_status_ & kCop0StatusExl) != 0) &&
+         cpu_next_pc_ == sequential_instruction_address(cpu_pc_);
+}
+
+void Machine::return_from_local_interrupt_entry() {
+  validate_control_transfer_target_alignment("ERET", cop0_epc_);
+  cop0_status_ &= ~kCop0StatusExl;
+  cpu_pc_ = cop0_epc_;
+  cpu_next_pc_ = sequential_instruction_address(cop0_epc_);
+}
+
 std::uint32_t Machine::read_pi_register_u32(
     CpuPhysicalAddress physical_address,
     CpuAddress cpu_address) const {
@@ -1582,6 +1594,11 @@ Machine::CpuInstructionIdentity Machine::identify_cpu_instruction(
       switch (instruction.rs) {
         case 0x00: return CpuInstructionIdentity::kCop0Mfc0;
         case 0x04: return CpuInstructionIdentity::kCop0Mtc0;
+        case 0x10:
+          if (instruction.raw == 0x42000018u) {
+            return CpuInstructionIdentity::kCop0Eret;
+          }
+          return CpuInstructionIdentity::kCop0;
         default: return CpuInstructionIdentity::kCop0;
       }
 
@@ -2817,6 +2834,9 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   // kInterrupted is a local pre-fetch interrupt entry: no instruction is
   // fetched or executed from the interrupted PC, EPC stores that PC, EXL is
   // set, and pc/next_pc move to the local vector.
+  // ERET is a narrow return from that local entry only. It runs before normal
+  // speculative pc/next_pc movement so the support check uses the current
+  // cadence, not a delay-slot/general-exception model.
   if (try_enter_local_interrupt()) {
     return CpuInstructionStepResult::kInterrupted;
   }
@@ -2827,6 +2847,15 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   const std::uint32_t raw = fetch_cpu_instruction_word();
   const DecodedCpuInstructionWord instruction = decode_cpu_instruction_word(raw);
   const CpuInstructionIdentity identity = identify_cpu_instruction(instruction);
+
+  if (identity == CpuInstructionIdentity::kCop0Eret) {
+    if (!local_eret_can_return()) {
+      return CpuInstructionStepResult::kUnsupported;
+    }
+
+    return_from_local_interrupt_entry();
+    return CpuInstructionStepResult::kStepped;
+  }
 
   cpu_next_pc_ = sequential_instruction_address(current_next_pc);
 
