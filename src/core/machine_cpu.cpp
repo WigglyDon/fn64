@@ -885,8 +885,8 @@ void Machine::perform_sp_read_dma(std::uint32_t length_register_value) {
 
   // Local SP subset: SP read DMA decodes length/count/skip and immediately
   // copies deterministic blocks from physical RDRAM into local SP memory.
-  // Timing, busy state, interrupts, SP registers beyond this subset, and RSP
-  // execution are not modeled here.
+  // Timing, busy state, interrupt delivery, SP registers beyond this subset,
+  // and RSP execution are not modeled here.
   for (std::uint32_t block = 0; block < command.block_count; ++block) {
     const std::uint32_t sp_block_offset =
         sp_target.sp_memory_offset + block * command.transfer_length_per_block;
@@ -963,7 +963,7 @@ void Machine::write_mi_register_u32(
 
 void Machine::latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept {
   // Local MI state is observable MMIO only. COP0 Cause observes a derived local
-  // line; CPU interrupt delivery, EPC, and exception vectors are not modeled.
+  // line, and the narrow local interrupt-entry seam may consume that line.
   mi_interrupt_pending_ |= pending_bit & kMiSupportedInterruptBits;
 }
 
@@ -979,8 +979,52 @@ std::uint32_t Machine::read_cop0_cause() const noexcept {
   return cause;
 }
 
+std::uint32_t Machine::read_cop0_epc() const noexcept {
+  return cop0_epc_;
+}
+
 void Machine::write_cop0_status(std::uint32_t value) noexcept {
   cop0_status_ = value & kCop0SupportedStatusBits;
+}
+
+bool Machine::local_external_interrupt_pending() const noexcept {
+  return (mi_interrupt_pending_ & mi_interrupt_mask_ & kMiSupportedInterruptBits) != 0;
+}
+
+bool Machine::local_external_interrupt_enabled() const noexcept {
+  return local_external_interrupt_pending() &&
+         ((cop0_status_ & kCop0StatusIe) != 0) &&
+         ((cop0_status_ & kCop0StatusExl) == 0) &&
+         ((cop0_status_ & kCop0StatusInterruptMask2) != 0);
+}
+
+bool Machine::current_pc_allows_local_interrupt_entry() const noexcept {
+  if (cpu_next_pc_ != sequential_instruction_address(cpu_pc_)) {
+    return false;
+  }
+
+  if ((cpu_pc_ & 0x3u) != 0) {
+    return false;
+  }
+
+  RdramOffset ignored = 0;
+  return translate_cpu_rdram_address(cpu_pc_, 4, ignored);
+}
+
+bool Machine::try_enter_local_interrupt() noexcept {
+  if (!local_external_interrupt_enabled() ||
+      !current_pc_allows_local_interrupt_entry()) {
+    return false;
+  }
+
+  // Minimal local interrupt entry only: no instruction is fetched/executed at
+  // the interrupted PC, no Cause exception code or BD state is modeled, and MI
+  // pending bits remain owned by MI.
+  cop0_epc_ = cpu_pc_;
+  cop0_status_ |= kCop0StatusExl;
+  cpu_pc_ = kLocalInterruptVectorPc;
+  cpu_next_pc_ = kLocalInterruptVectorNextPc;
+  return true;
 }
 
 std::uint32_t Machine::read_pi_register_u32(
@@ -1081,8 +1125,8 @@ void Machine::perform_pi_cart_to_rdram_dma(std::uint32_t length_register_value) 
   // Local PI subset: the cart register stores a PI cart-domain ROM address
   // whose supported 0x10000000 window translates to normalized Cartridge bytes.
   // The DRAM register is a physical RdramOffset, and the trigger copies exactly
-  // length+1 bytes immediately. Timing, block rounding, interrupts, cart CPU
-  // mapping, and boot behavior are not modeled here.
+  // length+1 bytes immediately. Timing, block rounding, interrupt delivery,
+  // cart CPU mapping, and boot behavior are not modeled here.
   stage_cartridge_bytes_to_rdram(
       cartridge_offset,
       pi_dram_address_,
@@ -1737,6 +1781,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
         case kCop0CauseRegisterIndex:
           write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_cause());
+          return CpuInstructionExecutionResult::kExecuted;
+
+        case kCop0EpcRegisterIndex:
+          write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_epc());
           return CpuInstructionExecutionResult::kExecuted;
 
         default:
@@ -2766,6 +2814,13 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   // kStopped uses the same committed pc/next_pc cadence as an executed
   // instruction. Link instructions write during execute, with register-target
   // links reading the target before any link writeback.
+  // kInterrupted is a local pre-fetch interrupt entry: no instruction is
+  // fetched or executed from the interrupted PC, EPC stores that PC, EXL is
+  // set, and pc/next_pc move to the local vector.
+  if (try_enter_local_interrupt()) {
+    return CpuInstructionStepResult::kInterrupted;
+  }
+
   const std::uint32_t current_pc = cpu_pc_;
   const std::uint32_t current_next_pc = cpu_next_pc_;
 

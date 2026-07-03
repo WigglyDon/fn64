@@ -65,6 +65,8 @@ public:
   // kStopped is a local stop condition, not N64 COP0 exception delivery.
   // kUnsupported is a non-compatibility result for unknown or unsupported
   // instructions; proof-backed unsupported paths roll back visible step state.
+  // kInterrupted is a local interrupt-entry result; no instruction was fetched
+  // or executed from the interrupted PC.
   // Local Machine step faults throw MachineFault; unrelated public API
   // precondition failures may still use standard C++ exceptions.
   enum class CpuInstructionStepResult {
@@ -74,6 +76,8 @@ public:
     kStopped,
     // An unknown or unsupported instruction was reported without committing a step.
     kUnsupported,
+    // A local interrupt entry completed without executing the interrupted instruction.
+    kInterrupted,
   };
 
   explicit Machine(Cartridge cartridge);
@@ -180,10 +184,11 @@ private:
   // D/MIPS64-style identities are decoded so the step path can either execute
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
-  // COP0 is only narrowly subdecoded for the local MFC0/MTC0 Status/Cause
-  // observation seam. COP1/COP2/COP3, CACHE, and coprocessor memory identities
-  // remain coarse unsupported decode boundaries. fn64 does not model cache
-  // state/ops/coherence or deliver COP0 exceptions from these identities.
+  // COP0 is only narrowly subdecoded for local MFC0/MTC0 Status observation,
+  // Cause observation, EPC observation, and the minimal local interrupt-entry
+  // seam. COP1/COP2/COP3, CACHE, and coprocessor memory identities remain
+  // coarse unsupported decode boundaries. fn64 does not model cache
+  // state/ops/coherence or general COP0 exception delivery from these identities.
   enum class CpuInstructionIdentity {
     kUnknownPrimary,
     kSpecialUnknown,
@@ -346,12 +351,16 @@ private:
       kMiInterruptPendingSp | kMiInterruptPendingPi;
   static constexpr std::uint8_t kCop0StatusRegisterIndex = 12;
   static constexpr std::uint8_t kCop0CauseRegisterIndex = 13;
+  static constexpr std::uint8_t kCop0EpcRegisterIndex = 14;
   static constexpr std::uint32_t kCop0StatusIe = 0x00000001u;
   static constexpr std::uint32_t kCop0StatusExl = 0x00000002u;
+  static constexpr std::uint32_t kCop0StatusInterruptMask2 = 0x00000400u;
   static constexpr std::uint32_t kCop0StatusInterruptMask = 0x0000ff00u;
   static constexpr std::uint32_t kCop0SupportedStatusBits =
       kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask;
   static constexpr std::uint32_t kCop0CauseInterruptPending2 = 0x00000400u;
+  static constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
+  static constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
   static constexpr CpuPhysicalAddress kPiPhysicalBase = 0x04600000u;
   static constexpr std::uint32_t kPiRegisterWindowSize = 0x20u;
   static constexpr std::uint32_t kPiDramAddressRegisterOffset = 0x00u;
@@ -488,7 +497,12 @@ private:
   void latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept;
   std::uint32_t read_cop0_status() const noexcept;
   std::uint32_t read_cop0_cause() const noexcept;
+  std::uint32_t read_cop0_epc() const noexcept;
   void write_cop0_status(std::uint32_t value) noexcept;
+  bool local_external_interrupt_pending() const noexcept;
+  bool local_external_interrupt_enabled() const noexcept;
+  bool current_pc_allows_local_interrupt_entry() const noexcept;
+  bool try_enter_local_interrupt() noexcept;
 
   std::uint32_t read_pi_register_u32(
       CpuPhysicalAddress physical_address,
@@ -555,6 +569,7 @@ private:
   std::uint32_t mi_interrupt_pending_ = 0;
   std::uint32_t mi_interrupt_mask_ = 0;
   std::uint32_t cop0_status_ = 0;
+  CpuAddress cop0_epc_ = 0;
   RdramOffset pi_dram_address_ = 0;
   PiCartAddress pi_cart_address_ = 0;
   std::uint32_t pi_cart_to_rdram_length_ = 0;

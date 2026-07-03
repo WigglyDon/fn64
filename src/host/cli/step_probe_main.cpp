@@ -148,6 +148,8 @@ const char* step_result_name(fn64::Machine::CpuInstructionStepResult result) {
       return "kStopped";
     case fn64::Machine::CpuInstructionStepResult::kUnsupported:
       return "kUnsupported";
+    case fn64::Machine::CpuInstructionStepResult::kInterrupted:
+      return "kInterrupted";
   }
 
   return "unknown";
