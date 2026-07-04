@@ -47,7 +47,7 @@ The current machine state is intentionally plain:
 - CPU pc / next_pc exist
 - the reset model is an explicit blank RDRAM power-on state, not N64 reset/PIF boot
 - CPU instruction fetch currently uses only KSEG0/KSEG1-style direct RDRAM aliases
-- CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, minimal local SP DMA MMIO, minimal local PI MMIO, minimal local SI/PIF DMA MMIO, plus minimal local MI pending/mask MMIO
+- CPU data load/store currently reaches direct RDRAM, local SP DMEM/IMEM byte memories, minimal local SP DMA MMIO, minimal local PI MMIO, minimal local SI/PIF DMA MMIO, minimal local AI MMIO, plus minimal local MI pending/mask MMIO
 - the CPU can observe a tiny local COP0 Status/Count/Compare/Cause/EPC/BadVAddr subset, deliver/return from minimal local software, MI-derived, or Count/Compare timer interrupt entries, and enter the same local vector for signed arithmetic overflow, unaligned fetch/data/control-transfer address-error exceptions, eligible CPU data addresses with no supported local target, or eligible aligned direct-alias instruction-fetch target misses
 - cartridge execution mapping is not wired yet
 
@@ -62,7 +62,7 @@ The CPU now reaches RDRAM through a tiny machine-local translation rule:
 Raw physical RDRAM offsets are staging/inspection addresses, not CPU addresses.
 
 This is not a bus, general memory map, TLB translation, or cartridge ROM mapping.
-The current non-RDRAM data targets are local SP DMEM/IMEM byte memories, a tiny local SP DMA MMIO subset, a tiny local PI MMIO subset, a tiny local SI MMIO subset, and local MI pending/mask MMIO. Cartridge-like CPU data addresses remain unmapped; eligible CPU data reads/writes with no supported local target now report through the narrow local COP0 address-error seam. PIF RAM and PIF ROM are not CPU fetch/data mapped. This is not RSP execution, COP2, timing, general COP0 exception delivery, boot, or compatibility.
+The current non-RDRAM data targets are local SP DMEM/IMEM byte memories, a tiny local SP DMA MMIO subset, a tiny local PI MMIO subset, a tiny local SI MMIO subset, a tiny local AI MMIO subset, and local MI pending/mask MMIO. Cartridge-like CPU data addresses remain unmapped; eligible CPU data reads/writes with no supported local target now report through the narrow local COP0 address-error seam. PIF RAM and PIF ROM are not CPU fetch/data mapped. This is not RSP execution, COP2, timing, general COP0 exception delivery, boot, or compatibility.
 
 ## Blank reset state
 
@@ -104,6 +104,12 @@ Writing the local SI PIF-to-RDRAM trigger immediately copies exactly 64 bytes fr
 
 Successful SI DMA latches a local SI status pending bit and a local MI SI pending bit. Writing the local SI status clear command acknowledges SI by clearing the SI status bit and MI SI pending; MI MMIO write-one-to-clear remains available for MI pending and does not clear SI local status. SI itself does not deliver CPU interrupts; delivery, when enabled, goes through the already-earned MI/COP0 interrupt seam. This is not real SI timing/status fidelity, PIF boot ROM, CIC/security behavior, controller protocol, busy delay, boot, cartridge CPU mapping, a public bus, or game compatibility.
 
+## Minimal AI MMIO subset
+
+The current CPU data path recognizes a tiny local AI register window for aligned 32-bit loads and stores. Writing the local AI length register immediately consumes a preflighted physical RDRAM byte span from the local AI DRAM address register. The bytes are only read by Machine; there is no public audio buffer, host audio, DAC behavior, FIFO, scheduling, timing, sample-rate fidelity, or VI/audio synchronization.
+
+Successful nonzero AI DMA consumption latches a local AI status pending bit and a local MI AI pending bit. Zero-length writes update the local length shadow but do not latch pending. Failed AI DMA is preflighted/no-ghost: it leaves completion status, MI pending, RDRAM, and the local RDRAM reservation unchanged. Writing the local AI status clear command acknowledges AI by clearing the AI status bit and MI AI pending; MI MMIO write-one-to-clear remains available for MI pending and does not clear AI local status. AI MMIO is CPU data-addressable only and not instruction-fetchable. This is not host audio, renderer/audio, timing/FIFO/DAC/sample-rate fidelity, boot, cartridge CPU mapping, a public bus, a full memory map, or game compatibility.
+
 ## Local SP DMEM/IMEM data memory
 
 CPU data load/store can access Machine-owned 4 KiB SP DMEM and 4 KiB SP IMEM byte memories through direct aliases. Instruction fetch still remains RDRAM-only.
@@ -114,7 +120,7 @@ This is not full SP register behavior, SP status/timing/interrupt fidelity, RSP 
 
 ## Minimal MI MMIO subset
 
-The current CPU data path recognizes a tiny local MI register window for aligned 32-bit loads and stores. It exposes local SP/SI/PI pending bits and local SP/SI/PI mask bits. Successful PI DMA latches the PI pending bit, successful SI DMA latches the SI pending bit, and successful SP read/write DMA latches the SP pending bit. CPU writes clear supported pending bits with write-one-to-clear and assign supported mask bits directly. Device status acknowledgement can also clear only that device's own MI pending bit for SP/SI/PI; it does not alter unrelated pending bits or DMA state.
+The current CPU data path recognizes a tiny local MI register window for aligned 32-bit loads and stores. It exposes local SP/SI/AI/PI pending bits and local SP/SI/AI/PI mask bits. Successful PI DMA latches the PI pending bit, successful SI DMA latches the SI pending bit, successful nonzero AI DMA consumption latches the AI pending bit, and successful SP read/write DMA latches the SP pending bit. CPU writes clear supported pending bits with write-one-to-clear and assign supported mask bits directly. Device status acknowledgement can also clear only that device's own MI pending bit for SP/SI/AI/PI; it does not alter unrelated pending bits or DMA state.
 
 MI pending/mask state is observable local machine state only. MI does not fetch exception vectors or change pc/next_pc by itself; the narrow COP0 seam below is the only local interrupt-entry path currently earned.
 

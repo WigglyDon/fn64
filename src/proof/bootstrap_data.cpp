@@ -4312,8 +4312,11 @@ constexpr std::uint16_t kMiInterruptMaskRegisterOffset = 0x000cu;
 constexpr std::uint16_t kMiUnknownRegisterOffset = 0x0014u;
 constexpr std::uint32_t kMiPendingSp = 0x00000001u;
 constexpr std::uint32_t kMiPendingSi = 0x00000002u;
+constexpr std::uint32_t kMiPendingAi = 0x00000004u;
 constexpr std::uint32_t kMiPendingPi = 0x00000010u;
-constexpr std::uint32_t kMiSupportedBits = kMiPendingSp | kMiPendingSi | kMiPendingPi;
+constexpr std::uint32_t kMiUnsupportedBit = 0x00000008u;
+constexpr std::uint32_t kMiSupportedBits =
+    kMiPendingSp | kMiPendingSi | kMiPendingAi | kMiPendingPi;
 constexpr std::uint8_t kCop0BadVaddrRegisterIndex = 8;
 constexpr std::uint8_t kCop0CountRegisterIndex = 9;
 constexpr std::uint8_t kCop0CompareRegisterIndex = 11;
@@ -4413,6 +4416,14 @@ constexpr std::uint16_t kSiStatusRegisterOffset = 0x0018u;
 constexpr std::uint32_t kSiSupportedPifRamAddress = 0x1fc007c0u;
 constexpr std::uint32_t kSiStatusInterruptPending = 0x00001000u;
 constexpr std::uint32_t kSiStatusUnsupportedBits = 0x00002000u;
+constexpr CpuAddress kSyntheticAiMmioCpuBase = 0xa4500000u;
+constexpr std::uint16_t kAiDramRegisterOffset = 0x0000u;
+constexpr std::uint16_t kAiLengthRegisterOffset = 0x0004u;
+constexpr std::uint16_t kAiUnknownRegisterOffset = 0x0008u;
+constexpr std::uint16_t kAiStatusRegisterOffset = 0x000cu;
+constexpr std::uint32_t kAiStatusInterruptPending = 0x00000004u;
+constexpr std::uint32_t kAiStatusInterruptClear = 0x00000001u;
+constexpr std::uint32_t kAiStatusUnsupportedBits = 0x00000002u;
 
 constexpr CpuAddress sp_dmem_cached_alias(std::uint16_t offset) {
   return kSyntheticSpDmemKseg0Base + offset;
@@ -4623,6 +4634,28 @@ void stage_si_lw_instruction(
       encode_lw(target_register, base_register, si_register_offset));
 }
 
+void stage_ai_sw_instruction(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::uint8_t source_register,
+    std::uint8_t base_register,
+    std::uint16_t ai_register_offset) {
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_sw(source_register, base_register, ai_register_offset));
+}
+
+void stage_ai_lw_instruction(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::uint8_t target_register,
+    std::uint8_t base_register,
+    std::uint16_t ai_register_offset) {
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_lw(target_register, base_register, ai_register_offset));
+}
+
 void write_mi_register_through_cpu(
     Machine& machine,
     RdramOffset instruction_address,
@@ -4691,6 +4724,42 @@ void require_si_register_equals(
       static_cast<std::uint8_t>(target_register),
       static_cast<std::uint8_t>(base_register),
       si_register_offset);
+  step_at(machine, instruction_address, label);
+  require_gpr_equals(machine, target_register, expected, label);
+}
+
+void write_ai_register_through_cpu(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t source_register,
+    std::size_t base_register,
+    std::uint16_t ai_register_offset,
+    std::uint32_t value,
+    const char* label) {
+  stage_ai_sw_instruction(
+      machine,
+      instruction_address,
+      static_cast<std::uint8_t>(source_register),
+      static_cast<std::uint8_t>(base_register),
+      ai_register_offset);
+  machine.stage_cpu_gpr(source_register, value);
+  step_at(machine, instruction_address, label);
+}
+
+void require_ai_register_equals(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t target_register,
+    std::size_t base_register,
+    std::uint16_t ai_register_offset,
+    std::uint32_t expected,
+    const char* label) {
+  stage_ai_lw_instruction(
+      machine,
+      instruction_address,
+      static_cast<std::uint8_t>(target_register),
+      static_cast<std::uint8_t>(base_register),
+      ai_register_offset);
   step_at(machine, instruction_address, label);
   require_gpr_equals(machine, target_register, expected, label);
 }
@@ -7187,6 +7256,743 @@ void run_si_mmio_fault_demo() {
   }
 }
 
+void run_ai_dma_status_demo() {
+  std::cout << "fn64 bootstrap AI MMIO demo: local DMA consumption and status acknowledgement\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kAiBaseIndex = 4;
+    constexpr std::size_t kMiBaseIndex = 5;
+    constexpr std::size_t kValueIndex = 6;
+    constexpr std::size_t kReadIndex = 7;
+    constexpr RdramOffset kReadBase = 0x00004300u;
+    constexpr RdramOffset kSwDramAddress = 0x00004310u;
+    constexpr RdramOffset kSwLengthAddress = 0x00004314u;
+    constexpr RdramOffset kSourceAddress = 0x00004400u;
+
+    machine.stage_cpu_gpr(kAiBaseIndex, kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    require_ai_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        0,
+        "ai_dma_status_initial_dram");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        0,
+        "ai_dma_status_initial_length");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        0,
+        "ai_dma_status_initial_status");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 12u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "ai_dma_status_initial_mi_pending");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 16u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        0,
+        "ai_dma_status_initial_mi_mask");
+
+    write_ai_register_through_cpu(
+        machine,
+        kSwDramAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kSourceAddress,
+        "ai_dma_status_write_dram");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 20u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kSourceAddress,
+        "ai_dma_status_read_dram");
+    write_ai_register_through_cpu(
+        machine,
+        kSwLengthAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        0,
+        "ai_dma_status_zero_length");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 24u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        0,
+        "ai_dma_status_zero_length_readback");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 28u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        0,
+        "ai_dma_status_zero_length_status_clear");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 32u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "ai_dma_status_zero_length_no_pending");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kAiBaseIndex = 5;
+    constexpr std::size_t kMiBaseIndex = 6;
+    constexpr std::size_t kValueIndex = 7;
+    constexpr std::size_t kReadIndex = 8;
+    constexpr std::size_t kLlTargetIndex = 9;
+    constexpr std::size_t kScSourceIndex = 10;
+    constexpr RdramOffset kLlAddress = 0x00004340u;
+    constexpr RdramOffset kScAddress = 0x00004344u;
+    constexpr RdramOffset kSwDramAddress = 0x00004348u;
+    constexpr RdramOffset kSwLengthAddress = 0x0000434cu;
+    constexpr RdramOffset kReadBase = 0x00004350u;
+    constexpr RdramOffset kSourceAddress = 0x00004440u;
+    constexpr std::uint32_t kSourceWord = 0x11223344u;
+
+    machine.stage_rdram_u32_be(kLlAddress, encode_ll(kLlTargetIndex, kBaseIndex, 0));
+    machine.stage_rdram_u32_be(kScAddress, encode_sc(kScSourceIndex, kBaseIndex, 0));
+    machine.stage_rdram_u32_be(kSourceAddress, kSourceWord);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kSourceAddress));
+    machine.stage_cpu_gpr(kAiBaseIndex, kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+
+    step_at(machine, kLlAddress, "ai_dma_status_success_ll");
+    write_ai_register_through_cpu(
+        machine,
+        kSwDramAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kSourceAddress,
+        "ai_dma_status_success_write_dram");
+    write_ai_register_through_cpu(
+        machine,
+        kSwLengthAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        4,
+        "ai_dma_status_success_length");
+    require_ai_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        4,
+        "ai_dma_status_success_length_readback");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        kAiStatusInterruptPending,
+        "ai_dma_status_success_status_pending");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingAi,
+        "ai_dma_status_success_mi_pending");
+    require_rdram_word_equals(machine, kSourceAddress, kSourceWord, "ai_dma_status_success_rdram_unchanged");
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+    step_at(machine, kScAddress, "ai_dma_status_success_sc");
+    require_gpr_equals(machine, kScSourceIndex, 1, "ai_dma_status_success_sc");
+    require_rdram_word_equals(machine, kSourceAddress, 0xaabbccddu, "ai_dma_status_success_sc_write");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kAiBaseIndex = 5;
+    constexpr std::size_t kMiBaseIndex = 6;
+    constexpr std::size_t kValueIndex = 7;
+    constexpr std::size_t kReadIndex = 8;
+    constexpr std::size_t kLlTargetIndex = 9;
+    constexpr std::size_t kScSourceIndex = 10;
+    constexpr RdramOffset kLlAddress = 0x00004380u;
+    constexpr RdramOffset kScAddress = 0x00004384u;
+    constexpr RdramOffset kSwDramAddress = 0x00004388u;
+    constexpr RdramOffset kSwLengthAddress = 0x0000438cu;
+    constexpr RdramOffset kReadBase = 0x00004390u;
+    constexpr RdramOffset kReservedAddress = 0x00004480u;
+    constexpr RdramOffset kBadSourceAddress = 0x003ffffcu;
+
+    machine.stage_rdram_u32_be(kLlAddress, encode_ll(kLlTargetIndex, kBaseIndex, 0));
+    machine.stage_rdram_u32_be(kScAddress, encode_sc(kScSourceIndex, kBaseIndex, 0));
+    machine.stage_rdram_u32_be(kReservedAddress, 0x11112222u);
+    machine.stage_rdram_u32_be(kBadSourceAddress, 0x33334444u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kReservedAddress));
+    machine.stage_cpu_gpr(kAiBaseIndex, kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+
+    step_at(machine, kLlAddress, "ai_dma_status_failure_ll");
+    write_ai_register_through_cpu(
+        machine,
+        kSwDramAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kBadSourceAddress,
+        "ai_dma_status_failure_write_bad_dram");
+    machine.stage_rdram_u32_be(
+        kSwLengthAddress,
+        encode_sw(static_cast<std::uint8_t>(kValueIndex), static_cast<std::uint8_t>(kAiBaseIndex), kAiLengthRegisterOffset));
+    machine.stage_cpu_gpr(kValueIndex, 8u);
+    machine.stage_cpu_pc(cpu_rdram_alias(kSwLengthAddress));
+    require_step_out_of_range(machine, "ai_dma_status_failure_bad_span");
+    require_ai_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        0,
+        "ai_dma_status_failure_length_unchanged");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        0,
+        "ai_dma_status_failure_status_clear");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "ai_dma_status_failure_no_mi_pending");
+    require_rdram_word_equals(machine, kBadSourceAddress, 0x33334444u, "ai_dma_status_failure_rdram_unchanged");
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+    step_at(machine, kScAddress, "ai_dma_status_failure_sc");
+    require_gpr_equals(machine, kScSourceIndex, 1, "ai_dma_status_failure_sc");
+    require_rdram_word_equals(machine, kReservedAddress, 0xaabbccddu, "ai_dma_status_failure_sc_write");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kAiBaseIndex = 4;
+    constexpr std::size_t kSiBaseIndex = 5;
+    constexpr std::size_t kMiBaseIndex = 6;
+    constexpr std::size_t kValueIndex = 7;
+    constexpr std::size_t kReadIndex = 8;
+    constexpr RdramOffset kSwAiDramAddress = 0x000043c0u;
+    constexpr RdramOffset kSwAiLengthAddress = 0x000043c4u;
+    constexpr RdramOffset kSwAiStatusAddress = 0x000043c8u;
+    constexpr RdramOffset kSwSiDramAddress = 0x000043ccu;
+    constexpr RdramOffset kSwSiDramToPifAddress = 0x000043d0u;
+    constexpr RdramOffset kSwMiMaskAddress = 0x000043d4u;
+    constexpr RdramOffset kSwMiPendingAddress = 0x000043d8u;
+    constexpr RdramOffset kReadBase = 0x000043dcu;
+    constexpr RdramOffset kAiSourceAddress = 0x000044c0u;
+    constexpr RdramOffset kSiSourceAddress = 0x00004540u;
+
+    machine.stage_cpu_gpr(kAiBaseIndex, kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_gpr(kSiBaseIndex, kSyntheticSiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    machine.stage_rdram_u32_be(kAiSourceAddress, 0x01020304u);
+    stage_si_dma_pattern(machine, kSiSourceAddress, 0x91u);
+
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiDramAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kAiSourceAddress,
+        "ai_dma_status_ack_write_dram");
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiLengthAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        4,
+        "ai_dma_status_ack_dma");
+    write_si_register_through_cpu(
+        machine,
+        kSwSiDramAddress,
+        kValueIndex,
+        kSiBaseIndex,
+        kSiDramRegisterOffset,
+        kSiSourceAddress,
+        "ai_dma_status_ack_si_write_dram");
+    write_si_register_through_cpu(
+        machine,
+        kSwSiDramToPifAddress,
+        kValueIndex,
+        kSiBaseIndex,
+        kSiDramToPifRegisterOffset,
+        kSiSupportedPifRamAddress,
+        "ai_dma_status_ack_si_dma");
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiMaskAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiSupportedBits,
+        "ai_dma_status_ack_write_all_mask");
+
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiStatusAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        0,
+        "ai_dma_status_ack_zero_noop");
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiStatusAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        kAiStatusUnsupportedBits,
+        "ai_dma_status_ack_unsupported_noop");
+    require_ai_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        kAiStatusInterruptPending,
+        "ai_dma_status_ack_noop_status_left");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingAi | kMiPendingSi,
+        "ai_dma_status_ack_noop_mi_left");
+
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiStatusAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        kAiStatusInterruptClear,
+        "ai_dma_status_ack_clear");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        0,
+        "ai_dma_status_ack_status_cleared");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 12u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingSi,
+        "ai_dma_status_ack_preserved_si");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 16u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiSupportedBits,
+        "ai_dma_status_ack_mask_unchanged");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 20u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kAiSourceAddress,
+        "ai_dma_status_ack_dram_unchanged");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 24u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        4,
+        "ai_dma_status_ack_length_unchanged");
+    require_rdram_word_equals(machine, kAiSourceAddress, 0x01020304u, "ai_dma_status_ack_rdram_unchanged");
+
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiPendingAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingSi,
+        "ai_dma_status_ack_clear_si_for_later");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kAiBaseIndex = 4;
+    constexpr std::size_t kMiBaseIndex = 5;
+    constexpr std::size_t kValueIndex = 6;
+    constexpr std::size_t kReadIndex = 7;
+    constexpr RdramOffset kSwAiDramAddress = 0x00004400u;
+    constexpr RdramOffset kSwAiLengthAddress = 0x00004404u;
+    constexpr RdramOffset kSwAiStatusAddress = 0x00004408u;
+    constexpr RdramOffset kSwMiPendingAddress = 0x0000440cu;
+    constexpr RdramOffset kReadBase = 0x00004410u;
+    constexpr RdramOffset kAiSourceAddress = 0x000045c0u;
+
+    machine.stage_cpu_gpr(kAiBaseIndex, kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    machine.stage_rdram_u32_be(kAiSourceAddress, 0x55667788u);
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiDramAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kAiSourceAddress,
+        "ai_dma_status_mi_clear_write_dram");
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiLengthAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        4,
+        "ai_dma_status_mi_clear_dma");
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiPendingAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingAi,
+        "ai_dma_status_mi_clear_pending");
+    require_mi_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "ai_dma_status_mi_clear_mi_cleared");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        kAiStatusInterruptPending,
+        "ai_dma_status_mi_clear_status_left");
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiStatusAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        kAiStatusInterruptClear,
+        "ai_dma_status_mi_clear_ack_status");
+    require_ai_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kAiBaseIndex,
+        kAiStatusRegisterOffset,
+        0,
+        "ai_dma_status_mi_clear_status_cleared");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kAiBaseIndex = 4;
+    constexpr std::size_t kMiBaseIndex = 5;
+    constexpr std::size_t kValueIndex = 6;
+    constexpr std::size_t kCauseReadIndex = 7;
+    constexpr std::size_t kOrdinaryIndex = 8;
+    constexpr std::size_t kReadIndex = 9;
+    constexpr RdramOffset kSwAiDramAddress = 0x00004440u;
+    constexpr RdramOffset kSwAiLengthAddress = 0x00004444u;
+    constexpr RdramOffset kSwMiMaskAddress = 0x00004448u;
+    constexpr RdramOffset kCauseReadAddress = 0x0000444cu;
+    constexpr RdramOffset kStatusWriteAddress = 0x00004450u;
+    constexpr RdramOffset kLwMiPendingAddress = 0x00004454u;
+    constexpr RdramOffset kOrdinaryAddress = 0x00004458u;
+    constexpr RdramOffset kVectorAckAddress = 0x00000180u;
+    constexpr RdramOffset kVectorEretAddress = 0x00000184u;
+    constexpr RdramOffset kAiSourceAddress = 0x00004600u;
+
+    machine.stage_cpu_gpr(kAiBaseIndex, kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    machine.stage_rdram_u32_be(kAiSourceAddress, 0xabcdef12u);
+    machine.stage_rdram_u32_be(kOrdinaryAddress, encode_ori(kOrdinaryIndex, 0, 0x7a7au));
+    stage_ai_sw_instruction(machine, kVectorAckAddress, kValueIndex, kAiBaseIndex, kAiStatusRegisterOffset);
+    machine.stage_rdram_u32_be(kVectorEretAddress, encode_cop0_eret());
+
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiDramAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kAiSourceAddress,
+        "ai_dma_status_interrupt_write_dram");
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiLengthAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiLengthRegisterOffset,
+        4,
+        "ai_dma_status_interrupt_dma");
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiMaskAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiPendingAi,
+        "ai_dma_status_interrupt_write_mask");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp2,
+        "ai_dma_status_interrupt_cause_ip2");
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kValueIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusIe | kCop0StatusInterruptMask2,
+        "ai_dma_status_interrupt_write_status");
+    machine.stage_cpu_gpr(kValueIndex, kAiStatusInterruptClear);
+    machine.stage_cpu_pc(cpu_rdram_alias(kOrdinaryAddress));
+    require_interrupted(machine.step_cpu_instruction(), "ai_dma_status_interrupt_entry");
+    require_gpr_equals(machine, kOrdinaryIndex, 0, "ai_dma_status_interrupt_no_ordinary");
+    if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+        machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+      throw std::runtime_error("ai_dma_status_interrupt did not enter local vector");
+    }
+    require_stepped(machine.step_cpu_instruction(), "ai_dma_status_interrupt_vector_ack");
+    require_stepped(machine.step_cpu_instruction(), "ai_dma_status_interrupt_eret");
+    require_stepped(machine.step_cpu_instruction(), "ai_dma_status_interrupt_resumed");
+    require_gpr_equals(machine, kOrdinaryIndex, 0x7a7au, "ai_dma_status_interrupt_resumed");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "ai_dma_status_interrupt_pending_cleared");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kAiBaseIndex = 4;
+    constexpr std::size_t kMiBaseIndex = 5;
+    constexpr std::size_t kValueIndex = 6;
+    constexpr std::size_t kCauseReadIndex = 7;
+    constexpr std::size_t kOrdinaryIndex = 8;
+    constexpr RdramOffset kSwAiDramAddress = 0x00004480u;
+    constexpr RdramOffset kSwAiLengthAddress = 0x00004484u;
+    constexpr RdramOffset kSwMiMaskAddress = 0x00004488u;
+    constexpr RdramOffset kCauseReadAddress = 0x0000448cu;
+    constexpr RdramOffset kStatusWriteAddress = 0x00004490u;
+    constexpr RdramOffset kOrdinaryAddress = 0x00004494u;
+    constexpr RdramOffset kBadSourceAddress = 0x003ffffcu;
+
+    machine.stage_cpu_gpr(kAiBaseIndex, kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    machine.stage_rdram_u32_be(kOrdinaryAddress, encode_ori(kOrdinaryIndex, 0, 0x6c6cu));
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiMaskAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiPendingAi,
+        "ai_dma_status_failed_interrupt_write_mask");
+    write_ai_register_through_cpu(
+        machine,
+        kSwAiDramAddress,
+        kValueIndex,
+        kAiBaseIndex,
+        kAiDramRegisterOffset,
+        kBadSourceAddress,
+        "ai_dma_status_failed_interrupt_write_dram");
+    machine.stage_rdram_u32_be(
+        kSwAiLengthAddress,
+        encode_sw(static_cast<std::uint8_t>(kValueIndex), static_cast<std::uint8_t>(kAiBaseIndex), kAiLengthRegisterOffset));
+    machine.stage_cpu_gpr(kValueIndex, 8u);
+    machine.stage_cpu_pc(cpu_rdram_alias(kSwAiLengthAddress));
+    require_step_out_of_range(machine, "ai_dma_status_failed_interrupt_bad_span");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "ai_dma_status_failed_interrupt_cause_clear");
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kValueIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusIe | kCop0StatusInterruptMask2,
+        "ai_dma_status_failed_interrupt_write_status");
+    machine.stage_cpu_pc(cpu_rdram_alias(kOrdinaryAddress));
+    require_stepped(machine.step_cpu_instruction(), "ai_dma_status_failed_interrupt_no_interrupt");
+    require_gpr_equals(machine, kOrdinaryIndex, 0x6c6cu, "ai_dma_status_failed_interrupt_no_interrupt");
+  }
+
+  const auto require_ai_machine_fault =
+      [](const char* label,
+         CpuInstructionWord instruction,
+         MachineFaultKind expected_kind,
+         std::size_t expected_access_size) {
+        auto machine_storage = std::make_unique<Machine>(Cartridge{});
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kBaseIndex = 4;
+        constexpr std::size_t kSourceIndex = 5;
+        constexpr std::size_t kTargetIndex = 6;
+        constexpr RdramOffset kInstructionAddress = 0x000044c0u;
+        constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
+
+        machine.stage_rdram_u32_be(kInstructionAddress, instruction);
+        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+        machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 4u));
+        machine.stage_cpu_gpr(kBaseIndex, kSyntheticAiMmioCpuBase);
+        machine.stage_cpu_gpr(kSourceIndex, 0x0102030405060708ull);
+        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+
+        require_step_machine_fault(machine, label, expected_kind, expected_access_size);
+
+        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
+            machine.cpu_next_pc() != cpu_rdram_alias(kInstructionAddress + 4u)) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
+        }
+        require_gpr_equals(machine, kTargetIndex, kTargetSentinel, label);
+      };
+
+  require_ai_machine_fault(
+      "ai_dma_status_fault_lb_unsupported_width",
+      encode_lb(6, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      1);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_sb_unsupported_width",
+      encode_sb(5, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      1);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_lh_unsupported_width",
+      encode_lh(6, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      2);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_sh_unsupported_width",
+      encode_sh(5, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      2);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_ld_unsupported_width",
+      encode_ld(6, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      8);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_sd_unsupported_width",
+      encode_sd(5, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      8);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_unknown_read",
+      encode_lw(6, 4, kAiUnknownRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_unknown_write",
+      encode_sw(5, 4, kAiUnknownRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_ll_rejected",
+      encode_ll(6, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_lld_rejected",
+      encode_lld(6, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      8);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_sc_rejected",
+      encode_sc(5, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      4);
+  require_ai_machine_fault(
+      "ai_dma_status_fault_scd_rejected",
+      encode_scd(5, 4, kAiDramRegisterOffset),
+      MachineFaultKind::kUnsupportedCpuDataAccess,
+      8);
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    machine.stage_cpu_pc(kSyntheticAiMmioCpuBase);
+    machine.stage_cpu_next_pc(kSyntheticAiMmioCpuBase + 4u);
+    require_fetch_address_exception_entry(
+        machine,
+        "ai_dma_status_fetch_non_executable",
+        kSyntheticAiMmioCpuBase,
+        0x00004500u);
+  }
+}
+
 void run_sp_mmio_dma_success_demo() {
   std::cout << "fn64 bootstrap SP MMIO demo: local immediate RDRAM/SP DMA subset\n";
 
@@ -8124,7 +8930,7 @@ void run_mi_dma_pending_demo() {
       kValueIndex,
       kMiBaseIndex,
       kMiInterruptPendingRegisterOffset,
-      0x00000004u,
+      kMiUnsupportedBit,
       "mi_dma_pending_demo_unsupported_clear_bits");
   require_mi_register_equals(
       machine,
@@ -16566,6 +17372,7 @@ void run_data_demos(Machine& machine) {
   run_si_pif_dma_failure_demo();
   run_si_mi_interrupt_demo();
   run_si_mmio_fault_demo();
+  run_ai_dma_status_demo();
   run_mi_mmio_mask_demo();
   run_mi_dma_pending_demo();
   run_mi_dma_failure_demo();

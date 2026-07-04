@@ -170,15 +170,17 @@ private:
   // Private CPU data access dispatch seam. It names the current
   // CpuAddress -> CpuPhysicalAddress -> target split without adding a bus or
   // full memory map. RDRAM, local SP DMEM/IMEM byte memories, minimal local SP
-  // DMA MMIO, tiny PI DMA MMIO, local MI pending/mask MMIO, and minimal local
-  // SI MMIO are the only CPU data targets today; instruction fetch remains
-  // RDRAM-only, and cartridge/PIF bytes are not CPU-addressable.
+  // DMA MMIO, tiny PI DMA MMIO, local MI pending/mask MMIO, minimal local
+  // SI MMIO, and minimal local AI MMIO are the only CPU data targets today;
+  // instruction fetch remains RDRAM-only, and cartridge/PIF bytes are not
+  // CPU-addressable.
   enum class CpuDataTargetKind {
     kRdram,
     kSpDmem,
     kSpImem,
     kSpMmio,
     kMi,
+    kAi,
     kPi,
     kSi,
   };
@@ -190,6 +192,7 @@ private:
     std::uint32_t sp_memory_offset = 0;
     std::uint32_t sp_register_offset = 0;
     std::uint32_t mi_register_offset = 0;
+    std::uint32_t ai_register_offset = 0;
     std::uint32_t pi_register_offset = 0;
     std::uint32_t si_register_offset = 0;
   };
@@ -372,9 +375,11 @@ private:
   static constexpr std::uint32_t kMiInterruptMaskRegisterOffset = 0x0cu;
   static constexpr std::uint32_t kMiInterruptPendingSp = 0x00000001u;
   static constexpr std::uint32_t kMiInterruptPendingSi = 0x00000002u;
+  static constexpr std::uint32_t kMiInterruptPendingAi = 0x00000004u;
   static constexpr std::uint32_t kMiInterruptPendingPi = 0x00000010u;
   static constexpr std::uint32_t kMiSupportedInterruptBits =
-      kMiInterruptPendingSp | kMiInterruptPendingSi | kMiInterruptPendingPi;
+      kMiInterruptPendingSp | kMiInterruptPendingSi | kMiInterruptPendingAi |
+      kMiInterruptPendingPi;
   static constexpr std::uint8_t kCop0BadVaddrRegisterIndex = 8;
   static constexpr std::uint8_t kCop0CountRegisterIndex = 9;
   static constexpr std::uint8_t kCop0CompareRegisterIndex = 11;
@@ -416,6 +421,15 @@ private:
   static constexpr std::uint32_t kPiStatusRegisterOffset = 0x10u;
   static constexpr std::uint32_t kPiStatusClearInterrupt = 0x00000002u;
   static constexpr PiCartAddress kPiCartRomBase = 0x10000000u;
+  static constexpr CpuPhysicalAddress kAiPhysicalBase = 0x04500000u;
+  static constexpr std::uint32_t kAiRegisterWindowSize = 0x20u;
+  static constexpr std::uint32_t kAiDramAddressRegisterOffset = 0x00u;
+  static constexpr std::uint32_t kAiLengthRegisterOffset = 0x04u;
+  static constexpr std::uint32_t kAiStatusRegisterOffset = 0x0cu;
+  static constexpr std::uint32_t kAiStatusInterruptPending = 0x00000004u;
+  static constexpr std::uint32_t kAiStatusInterruptClear = 0x00000001u;
+  static constexpr std::uint32_t kAiSupportedStatusBits =
+      kAiStatusInterruptPending;
   static constexpr CpuPhysicalAddress kSiPhysicalBase = 0x04800000u;
   static constexpr std::uint32_t kSiRegisterWindowSize = 0x20u;
   static constexpr std::uint32_t kSiDramAddressRegisterOffset = 0x00u;
@@ -497,6 +511,9 @@ private:
   static bool translate_cpu_physical_mi_register_address(
       CpuPhysicalAddress physical_address,
       std::uint32_t& out_register_offset) noexcept;
+  static bool translate_cpu_physical_ai_register_address(
+      CpuPhysicalAddress physical_address,
+      std::uint32_t& out_register_offset) noexcept;
   static bool translate_cpu_physical_pi_register_address(
       CpuPhysicalAddress physical_address,
       std::uint32_t& out_register_offset) noexcept;
@@ -565,6 +582,19 @@ private:
       RdramOffset rdram_address);
   void perform_si_dram_to_pif_dma(std::uint32_t pif_address);
   void perform_si_pif_to_dram_dma(std::uint32_t pif_address);
+
+  std::uint32_t read_ai_register_u32(
+      std::uint32_t register_offset,
+      CpuAddress cpu_address) const;
+  void write_ai_register_u32(
+      std::uint32_t register_offset,
+      CpuAddress cpu_address,
+      std::uint32_t value);
+  RdramOffset require_ai_dma_rdram_span(
+      const char* operation,
+      RdramOffset rdram_address,
+      std::uint32_t byte_count) const;
+  void perform_ai_rdram_dma(std::uint32_t byte_count);
 
   std::uint32_t read_mi_register_u32(
       std::uint32_t register_offset,
@@ -690,6 +720,9 @@ private:
   PiCartAddress pi_cart_address_ = 0;
   std::uint32_t pi_cart_to_rdram_length_ = 0;
   std::uint32_t pi_status_ = 0;
+  RdramOffset ai_dram_address_ = 0;
+  std::uint32_t ai_length_ = 0;
+  std::uint32_t ai_status_ = 0;
   RdramOffset si_dram_address_ = 0;
   std::uint32_t si_pif_to_dram_address_ = 0;
   std::uint32_t si_dram_to_pif_address_ = 0;
