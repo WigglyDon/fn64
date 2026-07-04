@@ -20,7 +20,9 @@ using PiCartAddress = std::uint32_t;
 
 enum class MachineFaultKind {
   // Current local address-rejection fault for direct-RDRAM fetch/data gates and
-  // data-dispatch misses. This is not COP0 address-error delivery.
+  // data-dispatch misses. Only explicitly classified CPU data-dispatch misses
+  // can enter the narrow local COP0 address-error seam; fetch rejection remains
+  // local MachineFault behavior.
   kCpuRdramAddressRejected,
   kUnsupportedCpuDataAccess,
   kUnalignedInstructionFetch,
@@ -441,7 +443,8 @@ private:
   static CpuDataTarget require_cpu_data_target(
       const char* operation,
       CpuAddress cpu_address,
-      std::size_t width);
+      std::size_t width,
+      MachineFaultAccessIntent access_intent);
 
   std::uint8_t read_cpu_memory_u8(CpuAddress cpu_address) const;
   std::uint16_t read_cpu_memory_u16_be(CpuAddress cpu_address) const;

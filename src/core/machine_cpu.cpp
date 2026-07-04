@@ -25,7 +25,8 @@ namespace {
 [[noreturn]] void fail_cpu_data_address_rejected(
     const char* operation,
     CpuAddress cpu_address,
-    std::size_t width) {
+    std::size_t width,
+    MachineFaultAccessIntent access_intent) {
   throw MachineFault(
       MachineFaultKind::kCpuRdramAddressRejected,
       operation,
@@ -34,7 +35,8 @@ namespace {
       std::string("CPU data address has no supported local target: operation=") +
           operation +
           " address=" + std::to_string(cpu_address) +
-          " width=" + std::to_string(width));
+          " width=" + std::to_string(width),
+      access_intent);
 }
 
 [[noreturn]] void fail_unsupported_cpu_data_access(
@@ -528,10 +530,11 @@ RdramOffset Machine::require_cpu_rdram_address(
 Machine::CpuDataTarget Machine::require_cpu_data_target(
     const char* operation,
     CpuAddress cpu_address,
-    std::size_t width) {
+    std::size_t width,
+    MachineFaultAccessIntent access_intent) {
   CpuPhysicalAddress physical_address = 0;
   if (!translate_direct_cpu_physical_address(cpu_address, physical_address)) {
-    fail_cpu_data_address_rejected(operation, cpu_address, width);
+    fail_cpu_data_address_rejected(operation, cpu_address, width, access_intent);
   }
 
   RdramOffset rdram_address = 0;
@@ -602,7 +605,7 @@ Machine::CpuDataTarget Machine::require_cpu_data_target(
     };
   }
 
-  fail_cpu_data_address_rejected(operation, cpu_address, width);
+  fail_cpu_data_address_rejected(operation, cpu_address, width, access_intent);
 }
 
 const std::array<std::uint8_t, Machine::kSpMemorySizeBytes>& Machine::sp_memory_for_kind(
@@ -1135,9 +1138,10 @@ void Machine::enter_local_address_error_exception(
     CpuAddress bad_vaddr,
     std::uint8_t exception_code,
     bool branch_delay) noexcept {
-  // Narrow local address-error entry only: unaligned fetch/read/write and
-  // control-transfer targets can report AdEL/AdES and BadVAddr. Address
-  // rejection, TLB, and broad exception delivery remain unearned.
+  // Narrow local address-error entry only: unaligned fetch/read/write,
+  // control-transfer targets, and CPU data target misses can report AdEL/AdES
+  // and BadVAddr. Fetch address rejection, TLB, and broad exception delivery
+  // remain unearned.
   cop0_epc_ = branch_delay ? static_cast<CpuAddress>(faulting_pc - 4u) : faulting_pc;
   cop0_bad_vaddr_ = bad_vaddr;
   cop0_exception_code_ = exception_code;
@@ -1266,7 +1270,11 @@ void Machine::perform_pi_cart_to_rdram_dma(std::uint32_t length_register_value) 
 }
 
 std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
-  const CpuDataTarget target = require_cpu_data_target("CPU byte read", cpu_address, 1);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU byte read",
+      cpu_address,
+      1,
+      MachineFaultAccessIntent::kDataRead);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u8(target.rdram_offset);
@@ -1289,7 +1297,11 @@ std::uint8_t Machine::read_cpu_memory_u8(CpuAddress cpu_address) const {
 }
 
 std::uint16_t Machine::read_cpu_memory_u16_be(CpuAddress cpu_address) const {
-  const CpuDataTarget target = require_cpu_data_target("CPU halfword read", cpu_address, 2);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU halfword read",
+      cpu_address,
+      2,
+      MachineFaultAccessIntent::kDataRead);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u16_be(target.rdram_offset);
@@ -1312,7 +1324,11 @@ std::uint16_t Machine::read_cpu_memory_u16_be(CpuAddress cpu_address) const {
 }
 
 std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
-  const CpuDataTarget target = require_cpu_data_target("CPU word read", cpu_address, 4);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU word read",
+      cpu_address,
+      4,
+      MachineFaultAccessIntent::kDataRead);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u32_be(target.rdram_offset);
@@ -1335,7 +1351,11 @@ std::uint32_t Machine::read_cpu_memory_u32_be(CpuAddress cpu_address) const {
 }
 
 CpuRegisterValue Machine::read_cpu_memory_u64_be(CpuAddress cpu_address) const {
-  const CpuDataTarget target = require_cpu_data_target("CPU doubleword read", cpu_address, 8);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU doubleword read",
+      cpu_address,
+      8,
+      MachineFaultAccessIntent::kDataRead);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       return read_rdram_u64_be(target.rdram_offset);
@@ -1358,7 +1378,11 @@ CpuRegisterValue Machine::read_cpu_memory_u64_be(CpuAddress cpu_address) const {
 }
 
 void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
-  const CpuDataTarget target = require_cpu_data_target("CPU byte write", cpu_address, 1);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU byte write",
+      cpu_address,
+      1,
+      MachineFaultAccessIntent::kDataWrite);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u8(target.rdram_offset, value);
@@ -1383,7 +1407,11 @@ void Machine::write_cpu_memory_u8(CpuAddress cpu_address, std::uint8_t value) {
 }
 
 void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t value) {
-  const CpuDataTarget target = require_cpu_data_target("CPU halfword write", cpu_address, 2);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU halfword write",
+      cpu_address,
+      2,
+      MachineFaultAccessIntent::kDataWrite);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u16_be(target.rdram_offset, value);
@@ -1408,7 +1436,11 @@ void Machine::write_cpu_memory_u16_be(CpuAddress cpu_address, std::uint16_t valu
 }
 
 void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t value) {
-  const CpuDataTarget target = require_cpu_data_target("CPU word write", cpu_address, 4);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU word write",
+      cpu_address,
+      4,
+      MachineFaultAccessIntent::kDataWrite);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u32_be(target.rdram_offset, value);
@@ -1436,7 +1468,11 @@ void Machine::write_cpu_memory_u32_be(CpuAddress cpu_address, std::uint32_t valu
 }
 
 void Machine::write_cpu_memory_u64_be(CpuAddress cpu_address, CpuRegisterValue value) {
-  const CpuDataTarget target = require_cpu_data_target("CPU doubleword write", cpu_address, 8);
+  const CpuDataTarget target = require_cpu_data_target(
+      "CPU doubleword write",
+      cpu_address,
+      8,
+      MachineFaultAccessIntent::kDataWrite);
   switch (target.kind) {
     case CpuDataTargetKind::kRdram:
       write_rdram_u64_be(target.rdram_offset, value);
@@ -2576,6 +2612,12 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t byte_offset = effective_address & 0x3u;
       const std::uint32_t byte_count = 4u - byte_offset;
 
+      static_cast<void>(require_cpu_data_target(
+          "LWL effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataRead));
+
       std::uint32_t value = read_cpu_gpr_word(instruction.rt);
       for (std::uint32_t i = 0; i < byte_count; ++i) {
         const std::uint8_t memory_byte = read_cpu_memory_u8(effective_address + i);
@@ -2617,7 +2659,11 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
             MachineFaultAccessIntent::kDataRead);
       }
 
-      const CpuDataTarget target = require_cpu_data_target("LL", effective_address, 4);
+      const CpuDataTarget target = require_cpu_data_target(
+          "LL",
+          effective_address,
+          4,
+          MachineFaultAccessIntent::kDataRead);
       switch (target.kind) {
         case CpuDataTargetKind::kRdram: {
           const std::uint32_t value = read_rdram_u32_be(target.rdram_offset);
@@ -2663,6 +2709,12 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t byte_count = byte_offset + 1u;
       const std::uint32_t first_register_byte = 4u - byte_count;
 
+      static_cast<void>(require_cpu_data_target(
+          "LWR effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataRead));
+
       const CpuRegisterValue previous_value = read_cpu_gpr_value(instruction.rt);
       std::uint32_t value = static_cast<std::uint32_t>(previous_value);
       for (std::uint32_t i = 0; i < byte_count; ++i) {
@@ -2693,6 +2745,12 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t byte_offset = effective_address & 0x7u;
       const std::uint32_t byte_count = 8u - byte_offset;
 
+      static_cast<void>(require_cpu_data_target(
+          "LDL effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataRead));
+
       CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
       for (std::uint32_t i = 0; i < byte_count; ++i) {
         const std::uint8_t memory_byte = read_cpu_memory_u8(effective_address + i);
@@ -2711,6 +2769,12 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t byte_offset = effective_address & 0x7u;
       const std::uint32_t byte_count = byte_offset + 1u;
       const std::uint32_t first_register_byte = 8u - byte_count;
+
+      static_cast<void>(require_cpu_data_target(
+          "LDR effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataRead));
 
       CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
       for (std::uint32_t i = 0; i < byte_count; ++i) {
@@ -2753,7 +2817,11 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
             MachineFaultAccessIntent::kDataRead);
       }
 
-      const CpuDataTarget target = require_cpu_data_target("LLD", effective_address, 8);
+      const CpuDataTarget target = require_cpu_data_target(
+          "LLD",
+          effective_address,
+          8,
+          MachineFaultAccessIntent::kDataRead);
       switch (target.kind) {
         case CpuDataTargetKind::kRdram: {
           const CpuRegisterValue value = read_rdram_u64_be(target.rdram_offset);
@@ -2809,8 +2877,18 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t byte_count = 4u - byte_offset;
       const std::uint32_t value = read_cpu_gpr_word(instruction.rt);
 
+      static_cast<void>(require_cpu_data_target(
+          "SWL effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataWrite));
+
       for (std::uint32_t i = 0; i < byte_count; ++i) {
-        static_cast<void>(read_cpu_memory_u8(effective_address + i));
+        static_cast<void>(require_cpu_data_target(
+            "SWL byte preflight",
+            effective_address + i,
+            1,
+            MachineFaultAccessIntent::kDataWrite));
       }
 
       for (std::uint32_t i = 0; i < byte_count; ++i) {
@@ -2851,7 +2929,11 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
             MachineFaultAccessIntent::kDataWrite);
       }
 
-      const CpuDataTarget target = require_cpu_data_target("SC", effective_address, 4);
+      const CpuDataTarget target = require_cpu_data_target(
+          "SC",
+          effective_address,
+          4,
+          MachineFaultAccessIntent::kDataWrite);
       switch (target.kind) {
         case CpuDataTargetKind::kRdram: {
           const bool reservation_matched =
@@ -2887,8 +2969,18 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t first_register_byte = 4u - byte_count;
       const std::uint32_t value = read_cpu_gpr_word(instruction.rt);
 
+      static_cast<void>(require_cpu_data_target(
+          "SWR effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataWrite));
+
       for (std::uint32_t i = 0; i < byte_count; ++i) {
-        static_cast<void>(read_cpu_memory_u8(aligned_address + i));
+        static_cast<void>(require_cpu_data_target(
+            "SWR byte preflight",
+            aligned_address + i,
+            1,
+            MachineFaultAccessIntent::kDataWrite));
       }
 
       for (std::uint32_t i = 0; i < byte_count; ++i) {
@@ -2908,8 +3000,18 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t byte_count = 8u - byte_offset;
       const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
 
+      static_cast<void>(require_cpu_data_target(
+          "SDL effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataWrite));
+
       for (std::uint32_t i = 0; i < byte_count; ++i) {
-        static_cast<void>(read_cpu_memory_u8(effective_address + i));
+        static_cast<void>(require_cpu_data_target(
+            "SDL byte preflight",
+            effective_address + i,
+            1,
+            MachineFaultAccessIntent::kDataWrite));
       }
 
       for (std::uint32_t i = 0; i < byte_count; ++i) {
@@ -2931,8 +3033,18 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t first_register_byte = 8u - byte_count;
       const CpuRegisterValue value = read_cpu_gpr_value(instruction.rt);
 
+      static_cast<void>(require_cpu_data_target(
+          "SDR effective preflight",
+          effective_address,
+          1,
+          MachineFaultAccessIntent::kDataWrite));
+
       for (std::uint32_t i = 0; i < byte_count; ++i) {
-        static_cast<void>(read_cpu_memory_u8(aligned_address + i));
+        static_cast<void>(require_cpu_data_target(
+            "SDR byte preflight",
+            aligned_address + i,
+            1,
+            MachineFaultAccessIntent::kDataWrite));
       }
 
       for (std::uint32_t i = 0; i < byte_count; ++i) {
@@ -2973,7 +3085,11 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
             MachineFaultAccessIntent::kDataWrite);
       }
 
-      const CpuDataTarget target = require_cpu_data_target("SCD", effective_address, 8);
+      const CpuDataTarget target = require_cpu_data_target(
+          "SCD",
+          effective_address,
+          8,
+          MachineFaultAccessIntent::kDataWrite);
       switch (target.kind) {
         case CpuDataTargetKind::kRdram: {
           const bool reservation_matched =
@@ -3018,7 +3134,7 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   // kInterrupted is a local pre-fetch interrupt entry: no instruction is
   // fetched or executed from the interrupted PC, EPC stores that PC, EXL is
   // set, and pc/next_pc move to the local vector.
-  // kException is a local signed-overflow or unaligned address-error exception
+  // kException is a local signed-overflow or earned address-error exception
   // entry with EXL clear: the faulting instruction does not commit, Count does
   // not advance, EPC stores the faulting PC or the preceding branch/control PC
   // for the narrow earned delay-slot case, the earned COP0 state is updated,
@@ -3089,7 +3205,8 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
       }
     }
 
-    if (fault.kind() == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+    if (fault.kind() == MachineFaultKind::kUnalignedCpuMemoryAccess ||
+        fault.kind() == MachineFaultKind::kCpuRdramAddressRejected) {
       const bool ordinary_exception_entry =
           local_synchronous_exception_entry_allowed(current_pc, current_next_pc);
       const bool delay_slot_exception_entry =
