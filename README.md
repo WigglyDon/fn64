@@ -25,7 +25,7 @@ Runs the internal CPU/RDRAM bootstrap demos and exits. This is the proof path, n
 
 fn64_inspect path/to/game.z64
 
-Loads a cartridge, prints the normalized ROM metadata and initial machine state, then exits without opening an SDL window.
+Loads a cartridge, prints the normalized ROM metadata, local cartridge entry inspection facts, and initial machine state, then exits without opening an SDL window.
 
 fn64_step_probe
 
@@ -52,6 +52,15 @@ The current machine state is intentionally plain:
 - cartridge execution mapping is not wired yet
 
 This keeps ROM loading honest without pretending the cartridge is executing.
+
+## Cartridge entry inspection seam
+
+The no-window inspection path now reports a small read-only view of normalized cartridge facts:
+- the header entry word at normalized cartridge offset 0x08
+- whether the candidate IPL3 byte span cart[0x00000040..0x00000fff] is available
+- the first candidate IPL3 word at normalized cartridge offset 0x40, when available
+
+These are cartridge byte facts only. They do not set pc/next_pc, stage IPL3, execute IPL3, map cartridge CPU fetch, emulate PIF/CIC, or claim boot.
 
 ## CPU RDRAM address aliases
 

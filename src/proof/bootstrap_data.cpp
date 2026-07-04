@@ -152,6 +152,39 @@ std::vector<std::uint8_t> make_synthetic_normalized_rom_proof_image() {
   return rom;
 }
 
+std::vector<std::uint8_t> make_synthetic_normalized_entry_inspection_rom() {
+  constexpr std::size_t kRomSize = kCartridgeCandidateIpl3EndOffsetExclusive;
+  constexpr std::uint32_t kHeaderEntryWord = 0x80701234u;
+  constexpr std::uint32_t kIpl3FirstWord = 0x3c1a8000u;
+
+  std::vector<std::uint8_t> rom(kRomSize, 0);
+  write_be_u32(rom, 0x00, 0x80371240u);
+  write_be_u32(rom, 0x04, 0x01020304u);
+  write_be_u32(rom, kCartridgeHeaderEntryWordOffset, kHeaderEntryWord);
+  write_be_u32(rom, 0x0c, 0x05060708u);
+  write_be_u32(rom, 0x10, 0x11121314u);
+  write_be_u32(rom, 0x14, 0x15161718u);
+
+  const std::string image_name = "FN64 ENTRY PROOF";
+  for (std::size_t i = 0; i < image_name.size(); ++i) {
+    rom[0x20 + i] = static_cast<std::uint8_t>(image_name[i]);
+  }
+
+  rom[0x3c] = static_cast<std::uint8_t>('E');
+  rom[0x3d] = static_cast<std::uint8_t>('I');
+  rom[0x3e] = 0x45u;
+  rom[0x3f] = 0x03u;
+
+  for (std::size_t offset = kCartridgeCandidateIpl3StartOffset;
+       offset < kCartridgeCandidateIpl3EndOffsetExclusive;
+       ++offset) {
+    rom[offset] = static_cast<std::uint8_t>((offset * 5u + 0x23u) & 0xffu);
+  }
+  write_be_u32(rom, kCartridgeCandidateIpl3StartOffset, kIpl3FirstWord);
+
+  return rom;
+}
+
 std::vector<std::uint8_t> encode_synthetic_rom_source_layout(
     std::vector<std::uint8_t> normalized_bytes,
     RomSourceLayout layout) {
@@ -291,6 +324,114 @@ void require_loaded_synthetic_rom(
 
   std::cout << "  " << label << " normalized "
             << rom_source_layout_name(cartridge.source_layout()) << '\n';
+}
+
+void require_loaded_cartridge_entry_inspection(
+    const std::vector<std::uint8_t>& normalized_bytes,
+    RomSourceLayout source_layout,
+    const char* label) {
+  const std::vector<std::uint8_t> raw_bytes =
+      encode_synthetic_rom_source_layout(normalized_bytes, source_layout);
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(raw_bytes, cartridge, error)) {
+    throw std::runtime_error(std::string(label) + " load_cartridge failed: " + error);
+  }
+
+  const CartridgeEntryInspection inspection =
+      inspect_cartridge_entry(cartridge);
+  if (!inspection.header_entry_word_available) {
+    throw std::runtime_error(std::string(label) + " header entry word unavailable");
+  }
+  if (inspection.header_entry_word != read_synthetic_be_u32(
+          normalized_bytes,
+          kCartridgeHeaderEntryWordOffset)) {
+    throw std::runtime_error(std::string(label) + " header entry word mismatch");
+  }
+
+  if (!inspection.candidate_ipl3_span_available) {
+    throw std::runtime_error(std::string(label) + " candidate IPL3 span unavailable");
+  }
+  if (inspection.candidate_ipl3_start_offset != kCartridgeCandidateIpl3StartOffset ||
+      inspection.candidate_ipl3_end_offset_exclusive !=
+          kCartridgeCandidateIpl3EndOffsetExclusive ||
+      inspection.candidate_ipl3_byte_count != kCartridgeCandidateIpl3ByteCount ||
+      inspection.candidate_ipl3_byte_count != 0x00000fc0u) {
+    throw std::runtime_error(std::string(label) + " candidate IPL3 span constants mismatch");
+  }
+
+  if (!inspection.ipl3_first_word_available) {
+    throw std::runtime_error(std::string(label) + " IPL3 first word unavailable");
+  }
+  if (inspection.ipl3_first_word != read_synthetic_be_u32(
+          normalized_bytes,
+          kCartridgeCandidateIpl3StartOffset)) {
+    throw std::runtime_error(std::string(label) + " IPL3 first word mismatch");
+  }
+
+  std::cout << "  " << label << " inspected "
+            << rom_source_layout_name(cartridge.source_layout()) << '\n';
+}
+
+void require_short_cartridge_entry_inspection() {
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_rom_proof_image();
+  const std::vector<std::uint8_t> raw_bytes =
+      encode_synthetic_rom_source_layout(
+          normalized_bytes,
+          RomSourceLayout::kBigEndian);
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(raw_bytes, cartridge, error)) {
+    throw std::runtime_error(
+        "cartridge_entry_inspection_short load_cartridge failed: " + error);
+  }
+
+  const CartridgeEntryInspection inspection =
+      inspect_cartridge_entry(cartridge);
+  if (!inspection.header_entry_word_available ||
+      inspection.header_entry_word != read_synthetic_be_u32(
+          normalized_bytes,
+          kCartridgeHeaderEntryWordOffset)) {
+    throw std::runtime_error("cartridge_entry_inspection_short header mismatch");
+  }
+
+  if (inspection.candidate_ipl3_span_available) {
+    throw std::runtime_error("cartridge_entry_inspection_short span should be unavailable");
+  }
+
+  if (!inspection.ipl3_first_word_available ||
+      inspection.ipl3_first_word != read_synthetic_be_u32(
+          normalized_bytes,
+          kCartridgeCandidateIpl3StartOffset)) {
+    throw std::runtime_error("cartridge_entry_inspection_short first word mismatch");
+  }
+
+  std::cout << "  cartridge_entry_inspection_short unavailable span stays explicit\n";
+}
+
+void run_cartridge_entry_inspection_demo() {
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_entry_inspection_rom();
+
+  std::cout
+      << "fn64 bootstrap cartridge entry inspection demo: normalized facts only, no boot\n";
+
+  require_loaded_cartridge_entry_inspection(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "cartridge_entry_inspection_z64");
+  require_loaded_cartridge_entry_inspection(
+      normalized_bytes,
+      RomSourceLayout::kByteSwapped16,
+      "cartridge_entry_inspection_v64");
+  require_loaded_cartridge_entry_inspection(
+      normalized_bytes,
+      RomSourceLayout::kLittleEndian32,
+      "cartridge_entry_inspection_n64");
+  require_short_cartridge_entry_inspection();
 }
 
 void require_empty_big_endian_cartridge(const Cartridge& cartridge, const char* label) {
@@ -17322,6 +17463,7 @@ void run_negative_out_of_range_guard_demo(Machine& machine) {
 
 void run_data_demos(Machine& machine) {
   run_synthetic_rom_normalization_rejection_demo();
+  run_cartridge_entry_inspection_demo();
   run_synthetic_cartridge_read_guard_demo();
   run_machine_construction_isolation_demo();
   run_cartridge_staging_demo();

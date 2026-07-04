@@ -84,6 +84,40 @@ void print_cartridge_summary(
       << "  revision: " << static_cast<unsigned int>(metadata.revision) << '\n';
 }
 
+void print_cartridge_entry_inspection(const fn64::Cartridge& cartridge) {
+  const fn64::CartridgeEntryInspection inspection =
+      fn64::inspect_cartridge_entry(cartridge);
+
+  std::cout << "\ncartridge entry inspection\n";
+  if (inspection.header_entry_word_available) {
+    std::cout << "  header entry word: "
+              << hex_u32(inspection.header_entry_word)
+              << " at cart[0x00000008]\n";
+  } else {
+    std::cout << "  header entry word: unavailable\n";
+  }
+
+  if (inspection.candidate_ipl3_span_available) {
+    std::cout << "  candidate IPL3 span: cart["
+              << hex_u32(inspection.candidate_ipl3_start_offset)
+              << ".."
+              << hex_u32(inspection.candidate_ipl3_end_offset_exclusive - 1u)
+              << "] (" << inspection.candidate_ipl3_byte_count << " bytes)\n";
+  } else {
+    std::cout << "  candidate IPL3 span: unavailable\n";
+  }
+
+  if (inspection.ipl3_first_word_available) {
+    std::cout << "  IPL3 first word: "
+              << hex_u32(inspection.ipl3_first_word)
+              << " at cart[0x00000040]\n";
+  } else {
+    std::cout << "  IPL3 first word: unavailable\n";
+  }
+
+  std::cout << "  observation only: no reset, boot, staging, or execution\n";
+}
+
 void print_machine_summary(const fn64::Machine& machine) {
   std::cout
       << "\n"
@@ -122,6 +156,7 @@ int main(int argc, char** argv) {
     }
 
     print_cartridge_summary(rom_path, cartridge);
+    print_cartridge_entry_inspection(cartridge);
 
     fn64::Machine machine(std::move(cartridge));
     print_machine_summary(machine);
