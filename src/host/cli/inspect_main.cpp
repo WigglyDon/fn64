@@ -123,7 +123,7 @@ void print_machine_summary(const fn64::Machine& machine) {
       << "\n"
       << "initial machine state\n"
       << "  powered on: " << (machine.powered_on() ? "yes" : "no") << '\n'
-      << "  reset model: blank RDRAM power-on state\n"
+      << "  reset model: non-boot CPU reset vector; no PIF/IPL3 execution\n"
       << "  rdram bytes: " << machine.rdram_size_bytes() << '\n'
       << "  machine cartridge bytes: " << machine.cartridge().size_bytes() << '\n'
       << "  cpu pc: " << hex_u32(machine.cpu_pc()) << '\n'

@@ -592,7 +592,7 @@ void require_machine_cartridge_matches_source(
   require_synthetic_cartridge_bytes_match(observed_cartridge, normalized_bytes, label);
 }
 
-void require_blank_machine_power_on_state(const Machine& machine, const char* label) {
+void require_non_boot_reset_power_on_state(const Machine& machine, const char* label) {
   constexpr std::size_t kExpectedRdramSizeBytes = 4u * 1024u * 1024u;
 
   if (!machine.powered_on()) {
@@ -603,9 +603,9 @@ void require_blank_machine_power_on_state(const Machine& machine, const char* la
     throw std::runtime_error(std::string(label) + " RDRAM size mismatch");
   }
 
-  if (machine.cpu_pc() != Machine::kBlankInitialCpuPc ||
-      machine.cpu_next_pc() != Machine::kBlankInitialCpuNextPc) {
-    throw std::runtime_error(std::string(label) + " initial PC mismatch");
+  if (machine.cpu_pc() != Machine::kNonBootResetVectorPc ||
+      machine.cpu_next_pc() != Machine::kNonBootResetVectorNextPc) {
+    throw std::runtime_error(std::string(label) + " reset vector mismatch");
   }
 
   if (machine.inspect_cpu_hi() != 0 || machine.inspect_cpu_lo() != 0) {
@@ -623,6 +623,28 @@ void require_blank_machine_power_on_state(const Machine& machine, const char* la
       machine.inspect_rdram_u32_be(middle_rdram_word_address(machine)) != 0 ||
       machine.inspect_rdram_u32_be(tail_rdram_word_address(machine)) != 0) {
     throw std::runtime_error(std::string(label) + " initial RDRAM mismatch");
+  }
+}
+
+void require_non_boot_reset_ignores_cartridge_entry(
+    const Machine& machine,
+    const std::vector<std::uint8_t>& normalized_bytes,
+    const char* label) {
+  const std::uint32_t cartridge_header_entry =
+      read_synthetic_be_u32(normalized_bytes, kCartridgeHeaderEntryWordOffset);
+  const std::uint32_t cartridge_ipl3_first_word =
+      read_synthetic_be_u32(normalized_bytes, kCartridgeCandidateIpl3StartOffset);
+
+  if (machine.cpu_pc() == cartridge_header_entry) {
+    throw std::runtime_error(std::string(label) + " used cartridge header entry as reset PC");
+  }
+
+  if (cartridge_ipl3_first_word == 0) {
+    throw std::runtime_error(std::string(label) + " synthetic IPL3 proof word is zero");
+  }
+
+  if (machine.inspect_rdram_u32_be(kCartridgeCandidateIpl3StartOffset) != 0) {
+    throw std::runtime_error(std::string(label) + " staged cartridge IPL3 bytes into RDRAM");
   }
 }
 
@@ -652,7 +674,7 @@ void run_machine_construction_isolation_demo() {
   }
 
   std::cout
-      << "fn64 bootstrap Machine construction demo: blank construction state and instance isolation\n";
+      << "fn64 bootstrap Machine construction demo: non-boot reset state and instance isolation\n";
 
   auto constructed_machine = std::make_unique<Machine>(cartridge);
   require_machine_cartridge_matches_source(
@@ -660,14 +682,18 @@ void run_machine_construction_isolation_demo() {
       cartridge,
       normalized_bytes,
       "machine_construction_cartridge_observation");
-  require_blank_machine_power_on_state(
+  require_non_boot_reset_power_on_state(
       *constructed_machine,
-      "machine_construction_blank_power_on_state");
+      "machine_construction_non_boot_reset_power_on_state");
+  require_non_boot_reset_ignores_cartridge_entry(
+      *constructed_machine,
+      normalized_bytes,
+      "machine_construction_non_boot_reset_cartridge_boundary");
 
   auto machine_a = std::make_unique<Machine>(cartridge);
   auto machine_b = std::make_unique<Machine>(cartridge);
-  require_blank_machine_power_on_state(*machine_a, "machine_a_initial_state");
-  require_blank_machine_power_on_state(*machine_b, "machine_b_initial_state");
+  require_non_boot_reset_power_on_state(*machine_a, "machine_a_initial_state");
+  require_non_boot_reset_power_on_state(*machine_b, "machine_b_initial_state");
 
   const std::uint32_t kMiddleRdramAddress = middle_rdram_word_address(*machine_a);
   const std::uint32_t kTailRdramAddress = tail_rdram_word_address(*machine_a);
@@ -711,7 +737,7 @@ void run_machine_construction_isolation_demo() {
     throw std::runtime_error("machine instance isolation demo did not stage RDRAM state");
   }
 
-  require_blank_machine_power_on_state(
+  require_non_boot_reset_power_on_state(
       *machine_b,
       "machine_b_after_machine_a_staging");
   require_machine_cartridge_matches_source(
@@ -4954,6 +4980,96 @@ void require_exception(Machine::CpuInstructionStepResult result, const char* lab
   if (result != Machine::CpuInstructionStepResult::kException) {
     throw std::runtime_error(std::string(label) + " did not return kException");
   }
+}
+
+void run_non_boot_reset_vector_step_demo() {
+  std::cout
+      << "fn64 bootstrap Machine reset demo: non-boot reset vector rejects without PIF ROM\n";
+
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_entry_inspection_rom();
+  const std::vector<std::uint8_t> raw_bytes =
+      encode_synthetic_rom_source_layout(
+          normalized_bytes,
+          RomSourceLayout::kBigEndian);
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(raw_bytes, cartridge, error)) {
+    throw std::runtime_error(
+        "non_boot_reset_vector_step_demo could not load generated ROM: " + error);
+  }
+
+  auto machine_storage = std::make_unique<Machine>(cartridge);
+  Machine& machine = *machine_storage;
+  constexpr std::size_t kSentinelIndex = 8;
+  constexpr CpuRegisterValue kSentinelValue = 0x0123456789abcdefull;
+  constexpr RdramOffset kCountReadAddress = 0x00004780u;
+  constexpr RdramOffset kEpcReadAddress = 0x00004784u;
+  constexpr RdramOffset kBadVaddrReadAddress = 0x00004788u;
+  constexpr RdramOffset kCauseReadAddress = 0x0000478cu;
+  constexpr RdramOffset kStatusReadAddress = 0x00004790u;
+
+  require_non_boot_reset_power_on_state(machine, "non_boot_reset_vector_initial_state");
+  require_non_boot_reset_ignores_cartridge_entry(
+      machine,
+      normalized_bytes,
+      "non_boot_reset_vector_cartridge_boundary");
+  machine.stage_cpu_gpr(kSentinelIndex, kSentinelValue);
+
+  require_exception(
+      machine.step_cpu_instruction(),
+      "non_boot_reset_vector_fetch_exception");
+  if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+      machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+    throw std::runtime_error("non_boot_reset_vector did not enter local exception vector");
+  }
+  require_gpr_equals(
+      machine,
+      kSentinelIndex,
+      kSentinelValue,
+      "non_boot_reset_vector_no_instruction_commit");
+  require_rdram_word_equals(
+      machine,
+      kCartridgeCandidateIpl3StartOffset,
+      0,
+      "non_boot_reset_vector_no_ipl3_stage_after_step");
+
+  require_cop0_register_equals(
+      machine,
+      kCountReadAddress,
+      4,
+      kCop0CountRegisterIndex,
+      0,
+      "non_boot_reset_vector_count_no_tick");
+  require_cop0_register_equals(
+      machine,
+      kEpcReadAddress,
+      5,
+      kCop0EpcRegisterIndex,
+      Machine::kNonBootResetVectorPc,
+      "non_boot_reset_vector_epc");
+  require_cop0_register_equals(
+      machine,
+      kBadVaddrReadAddress,
+      6,
+      kCop0BadVaddrRegisterIndex,
+      Machine::kNonBootResetVectorPc,
+      "non_boot_reset_vector_badvaddr");
+  require_cop0_register_equals(
+      machine,
+      kCauseReadAddress,
+      7,
+      kCop0CauseRegisterIndex,
+      kCop0CauseExcCodeAdelBits,
+      "non_boot_reset_vector_cause");
+  require_cop0_register_equals(
+      machine,
+      kStatusReadAddress,
+      9,
+      kCop0StatusRegisterIndex,
+      kCop0StatusExl,
+      "non_boot_reset_vector_status");
 }
 
 void require_fetch_address_exception_entry(
@@ -12884,9 +13000,11 @@ void run_cop0_instruction_fetch_address_exception_demo() {
   {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
+    machine.stage_cpu_pc(0x00000000u);
+    machine.stage_cpu_next_pc(0x00000004u);
     require_step_machine_fault(
         machine,
-        "cop0_fetch_address_blank_pc_stays_fault",
+        "cop0_fetch_address_raw_zero_pc_stays_fault",
         MachineFaultKind::kCpuRdramAddressRejected,
         4);
     require_cop0_register_equals(
@@ -12895,28 +13013,28 @@ void run_cop0_instruction_fetch_address_exception_demo() {
         4,
         kCop0EpcRegisterIndex,
         0,
-        "cop0_fetch_address_blank_pc_epc_unchanged");
+        "cop0_fetch_address_raw_zero_pc_epc_unchanged");
     require_cop0_register_equals(
         machine,
         0x00004684u,
         4,
         kCop0BadVaddrRegisterIndex,
         0,
-        "cop0_fetch_address_blank_pc_badvaddr_unchanged");
+        "cop0_fetch_address_raw_zero_pc_badvaddr_unchanged");
     require_cop0_register_equals(
         machine,
         0x00004688u,
         4,
         kCop0CauseRegisterIndex,
         0,
-        "cop0_fetch_address_blank_pc_cause_unchanged");
+        "cop0_fetch_address_raw_zero_pc_cause_unchanged");
     require_cop0_register_equals(
         machine,
         0x0000468cu,
         4,
         kCop0StatusRegisterIndex,
         0,
-        "cop0_fetch_address_blank_pc_status_unchanged");
+        "cop0_fetch_address_raw_zero_pc_status_unchanged");
   }
 
   {
@@ -17466,6 +17584,7 @@ void run_data_demos(Machine& machine) {
   run_cartridge_entry_inspection_demo();
   run_synthetic_cartridge_read_guard_demo();
   run_machine_construction_isolation_demo();
+  run_non_boot_reset_vector_step_demo();
   run_cartridge_staging_demo();
   run_cartridge_staging_preflight_demo();
   run_public_machine_stage_inspect_guard_demo();

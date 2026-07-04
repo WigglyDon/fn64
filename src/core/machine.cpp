@@ -106,10 +106,10 @@ MachineFaultAccessIntent MachineFault::access_intent() const noexcept {
 
 Machine::Machine(Cartridge cartridge)
     : cartridge_(std::move(cartridge)) {
-  reset_to_blank_rdram_power_on_state();
+  reset_to_non_boot_power_on_state();
 }
 
-void Machine::reset_to_blank_rdram_power_on_state() {
+void Machine::reset_to_non_boot_power_on_state() {
   powered_on_ = true;
   rdram_.fill(0);
   sp_dmem_.fill(0);
@@ -143,8 +143,8 @@ void Machine::reset_to_blank_rdram_power_on_state() {
   si_pif_to_dram_address_ = 0;
   si_dram_to_pif_address_ = 0;
   si_status_ = 0;
-  cpu_pc_ = kBlankInitialCpuPc;
-  cpu_next_pc_ = kBlankInitialCpuNextPc;
+  cpu_pc_ = kNonBootResetVectorPc;
+  cpu_next_pc_ = kNonBootResetVectorNextPc;
   cpu_hi_ = 0;
   cpu_lo_ = 0;
   cpu_gprs_.fill(0);

@@ -100,15 +100,15 @@ public:
 
   explicit Machine(Cartridge cartridge);
 
-  static constexpr CpuAddress kBlankInitialCpuPc = 0x00000000u;
-  static constexpr CpuAddress kBlankInitialCpuNextPc = 0x00000004u;
+  static constexpr CpuAddress kNonBootResetVectorPc = 0xbfc00000u;
+  static constexpr CpuAddress kNonBootResetVectorNextPc = 0xbfc00004u;
 
   // Construction owns the Cartridge and creates fn64's current local blank
-  // powered-on state: zeroed RDRAM, zeroed CPU registers, and the blank
-  // pc/next_pc values above. This is not N64 reset, PIF/BIOS boot, or
-  // cartridge execution. powered_on() is an informational local construction
-  // state today; there is no public power-off transition, and kStopped does
-  // not power the Machine off.
+  // powered-on state: zeroed RDRAM, zeroed CPU registers, and the named
+  // non-boot reset vector above. This is not N64 reset/PIF boot, IPL3
+  // execution, or cartridge execution. powered_on() is an informational local
+  // construction state today; there is no public power-off transition, and
+  // kStopped does not power the Machine off.
   // Public stage_* APIs are explicit synthetic mutation points for proof and
   // no-window hosts. stage_cartridge_bytes_to_rdram copies normalized
   // Cartridge bytes into physical RDRAM offsets; it does not map or execute
@@ -442,7 +442,7 @@ private:
   static constexpr std::uint32_t kSiSupportedStatusBits =
       kSiStatusInterruptPending;
 
-  void reset_to_blank_rdram_power_on_state();
+  void reset_to_non_boot_power_on_state();
 
   std::uint8_t read_rdram_u8(RdramOffset address) const;
   std::uint16_t read_rdram_u16_be(RdramOffset address) const;
@@ -728,8 +728,8 @@ private:
   std::uint32_t si_dram_to_pif_address_ = 0;
   std::uint32_t si_status_ = 0;
 
-  CpuAddress cpu_pc_ = kBlankInitialCpuPc;
-  CpuAddress cpu_next_pc_ = kBlankInitialCpuNextPc;
+  CpuAddress cpu_pc_ = kNonBootResetVectorPc;
+  CpuAddress cpu_next_pc_ = kNonBootResetVectorNextPc;
   CpuRegisterValue cpu_hi_ = 0;
   CpuRegisterValue cpu_lo_ = 0;
   std::array<CpuRegisterValue, kCpuGprCount> cpu_gprs_{};
