@@ -1003,6 +1003,9 @@ std::uint32_t Machine::read_cop0_cause() const noexcept {
   if (cop0_timer_interrupt_pending_) {
     cause |= kCop0CauseInterruptPending7;
   }
+  if (cop0_exception_branch_delay_) {
+    cause |= kCop0CauseBranchDelay;
+  }
   return cause;
 }
 
@@ -1084,6 +1087,7 @@ bool Machine::try_enter_local_interrupt() noexcept {
   // and MI pending bits remain owned by MI.
   cop0_epc_ = cpu_pc_;
   cop0_exception_code_ = kCop0ExceptionCodeInterrupt;
+  cop0_exception_branch_delay_ = false;
   cop0_status_ |= kCop0StatusExl;
   cpu_pc_ = kLocalInterruptVectorPc;
   cpu_next_pc_ = kLocalInterruptVectorNextPc;
@@ -1097,18 +1101,30 @@ bool Machine::local_synchronous_exception_entry_allowed(
          ((cop0_status_ & kCop0StatusExl) == 0);
 }
 
+bool Machine::local_delay_slot_synchronous_exception_entry_allowed(
+    CpuAddress pc,
+    CpuAddress next_pc) const noexcept {
+  return next_pc != sequential_instruction_address(pc) &&
+         ((cop0_status_ & kCop0StatusExl) == 0) &&
+         ((pc & 0x3u) == 0) &&
+         pc >= 4u;
+}
+
 bool Machine::local_signed_overflow_exception_entry_allowed(
     CpuAddress pc,
     CpuAddress next_pc) const noexcept {
   return local_synchronous_exception_entry_allowed(pc, next_pc);
 }
 
-void Machine::enter_local_signed_overflow_exception(CpuAddress faulting_pc) noexcept {
+void Machine::enter_local_signed_overflow_exception(
+    CpuAddress faulting_pc,
+    bool branch_delay) noexcept {
   // Narrow local exception entry only. Signed arithmetic overflow does not write
-  // BadVAddr; address rejection, stop/trap paths, unsupported operations, and BD
-  // state remain unearned here.
-  cop0_epc_ = faulting_pc;
+  // BadVAddr; address rejection, stop/trap paths, unsupported operations, and
+  // broad delay-slot fidelity remain unearned here.
+  cop0_epc_ = branch_delay ? static_cast<CpuAddress>(faulting_pc - 4u) : faulting_pc;
   cop0_exception_code_ = kCop0ExceptionCodeSignedOverflow;
+  cop0_exception_branch_delay_ = branch_delay;
   cop0_status_ |= kCop0StatusExl;
   cpu_pc_ = kLocalInterruptVectorPc;
   cpu_next_pc_ = kLocalInterruptVectorNextPc;
@@ -1117,13 +1133,15 @@ void Machine::enter_local_signed_overflow_exception(CpuAddress faulting_pc) noex
 void Machine::enter_local_address_error_exception(
     CpuAddress faulting_pc,
     CpuAddress bad_vaddr,
-    std::uint8_t exception_code) noexcept {
+    std::uint8_t exception_code,
+    bool branch_delay) noexcept {
   // Narrow local address-error entry only: unaligned fetch/read/write and
   // control-transfer targets can report AdEL/AdES and BadVAddr. Address
-  // rejection, TLB, BD state, and broad exception delivery remain unearned.
-  cop0_epc_ = faulting_pc;
+  // rejection, TLB, and broad exception delivery remain unearned.
+  cop0_epc_ = branch_delay ? static_cast<CpuAddress>(faulting_pc - 4u) : faulting_pc;
   cop0_bad_vaddr_ = bad_vaddr;
   cop0_exception_code_ = exception_code;
+  cop0_exception_branch_delay_ = branch_delay;
   cop0_status_ |= kCop0StatusExl;
   cpu_pc_ = kLocalInterruptVectorPc;
   cpu_next_pc_ = kLocalInterruptVectorNextPc;
@@ -3001,9 +3019,10 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   // fetched or executed from the interrupted PC, EPC stores that PC, EXL is
   // set, and pc/next_pc move to the local vector.
   // kException is a local signed-overflow or unaligned address-error exception
-  // entry from ordinary cadence with EXL clear: the faulting instruction does
-  // not commit, Count does not advance, EPC stores the faulting PC, the earned
-  // COP0 state is updated, EXL is set, and pc/next_pc move to the local vector.
+  // entry with EXL clear: the faulting instruction does not commit, Count does
+  // not advance, EPC stores the faulting PC or the preceding branch/control PC
+  // for the narrow earned delay-slot case, the earned COP0 state is updated,
+  // EXL is set, and pc/next_pc move to the local vector.
   // ERET is a narrow return from that local entry only. It runs before normal
   // speculative pc/next_pc movement so the support check uses the current
   // cadence, not a delay-slot/general-exception model.
@@ -3024,7 +3043,8 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
       enter_local_address_error_exception(
           current_pc,
           fault.cpu_address(),
-          kCop0ExceptionCodeAddressErrorLoad);
+          kCop0ExceptionCodeAddressErrorLoad,
+          false);
       return CpuInstructionStepResult::kException;
     }
 
@@ -3055,38 +3075,66 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
     cpu_pc_ = current_pc;
     cpu_next_pc_ = current_next_pc;
 
-    if (fault.kind() == MachineFaultKind::kSignedArithmeticOverflow &&
-        local_signed_overflow_exception_entry_allowed(current_pc, current_next_pc)) {
-      enter_local_signed_overflow_exception(current_pc);
-      return CpuInstructionStepResult::kException;
+    if (fault.kind() == MachineFaultKind::kSignedArithmeticOverflow) {
+      if (local_signed_overflow_exception_entry_allowed(current_pc, current_next_pc)) {
+        enter_local_signed_overflow_exception(current_pc, false);
+        return CpuInstructionStepResult::kException;
+      }
+
+      if (local_delay_slot_synchronous_exception_entry_allowed(
+              current_pc,
+              current_next_pc)) {
+        enter_local_signed_overflow_exception(current_pc, true);
+        return CpuInstructionStepResult::kException;
+      }
     }
 
-    if (fault.kind() == MachineFaultKind::kUnalignedCpuMemoryAccess &&
-        local_synchronous_exception_entry_allowed(current_pc, current_next_pc)) {
+    if (fault.kind() == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+      const bool ordinary_exception_entry =
+          local_synchronous_exception_entry_allowed(current_pc, current_next_pc);
+      const bool delay_slot_exception_entry =
+          local_delay_slot_synchronous_exception_entry_allowed(
+              current_pc,
+              current_next_pc);
+
       if (fault.access_intent() == MachineFaultAccessIntent::kDataRead) {
-        enter_local_address_error_exception(
-            current_pc,
-            fault.cpu_address(),
-            kCop0ExceptionCodeAddressErrorLoad);
-        return CpuInstructionStepResult::kException;
+        if (ordinary_exception_entry || delay_slot_exception_entry) {
+          enter_local_address_error_exception(
+              current_pc,
+              fault.cpu_address(),
+              kCop0ExceptionCodeAddressErrorLoad,
+              delay_slot_exception_entry);
+          return CpuInstructionStepResult::kException;
+        }
       }
 
       if (fault.access_intent() == MachineFaultAccessIntent::kDataWrite) {
-        enter_local_address_error_exception(
-            current_pc,
-            fault.cpu_address(),
-            kCop0ExceptionCodeAddressErrorStore);
-        return CpuInstructionStepResult::kException;
+        if (ordinary_exception_entry || delay_slot_exception_entry) {
+          enter_local_address_error_exception(
+              current_pc,
+              fault.cpu_address(),
+              kCop0ExceptionCodeAddressErrorStore,
+              delay_slot_exception_entry);
+          return CpuInstructionStepResult::kException;
+        }
       }
     }
 
-    if (fault.kind() == MachineFaultKind::kUnalignedControlTransferTarget &&
-        local_synchronous_exception_entry_allowed(current_pc, current_next_pc)) {
-      enter_local_address_error_exception(
-          current_pc,
-          fault.cpu_address(),
-          kCop0ExceptionCodeAddressErrorLoad);
-      return CpuInstructionStepResult::kException;
+    if (fault.kind() == MachineFaultKind::kUnalignedControlTransferTarget) {
+      const bool ordinary_exception_entry =
+          local_synchronous_exception_entry_allowed(current_pc, current_next_pc);
+      const bool delay_slot_exception_entry =
+          local_delay_slot_synchronous_exception_entry_allowed(
+              current_pc,
+              current_next_pc);
+      if (ordinary_exception_entry || delay_slot_exception_entry) {
+        enter_local_address_error_exception(
+            current_pc,
+            fault.cpu_address(),
+            kCop0ExceptionCodeAddressErrorLoad,
+            delay_slot_exception_entry);
+        return CpuInstructionStepResult::kException;
+      }
     }
 
     throw;

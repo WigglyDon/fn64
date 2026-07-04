@@ -392,6 +392,7 @@ private:
       kCop0CauseInterruptPending7;
   static constexpr std::uint32_t kCop0CauseExceptionCodeShift = 2;
   static constexpr std::uint32_t kCop0CauseExceptionCodeMask = 0x0000007cu;
+  static constexpr std::uint32_t kCop0CauseBranchDelay = 0x80000000u;
   static constexpr std::uint8_t kCop0ExceptionCodeInterrupt = 0;
   static constexpr std::uint8_t kCop0ExceptionCodeAddressErrorLoad = 4;
   static constexpr std::uint8_t kCop0ExceptionCodeAddressErrorStore = 5;
@@ -552,14 +553,20 @@ private:
   bool local_synchronous_exception_entry_allowed(
       CpuAddress pc,
       CpuAddress next_pc) const noexcept;
+  bool local_delay_slot_synchronous_exception_entry_allowed(
+      CpuAddress pc,
+      CpuAddress next_pc) const noexcept;
   bool local_signed_overflow_exception_entry_allowed(
       CpuAddress pc,
       CpuAddress next_pc) const noexcept;
-  void enter_local_signed_overflow_exception(CpuAddress faulting_pc) noexcept;
+  void enter_local_signed_overflow_exception(
+      CpuAddress faulting_pc,
+      bool branch_delay) noexcept;
   void enter_local_address_error_exception(
       CpuAddress faulting_pc,
       CpuAddress bad_vaddr,
-      std::uint8_t exception_code) noexcept;
+      std::uint8_t exception_code,
+      bool branch_delay) noexcept;
   bool local_eret_can_return() const noexcept;
   void return_from_local_interrupt_entry();
 
@@ -635,6 +642,7 @@ private:
   CpuAddress cop0_epc_ = 0;
   CpuAddress cop0_bad_vaddr_ = 0;
   std::uint8_t cop0_exception_code_ = 0;
+  bool cop0_exception_branch_delay_ = false;
   RdramOffset pi_dram_address_ = 0;
   PiCartAddress pi_cart_address_ = 0;
   std::uint32_t pi_cart_to_rdram_length_ = 0;

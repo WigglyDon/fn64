@@ -130,6 +130,7 @@ void Machine::reset_to_blank_rdram_power_on_state() {
   cop0_epc_ = 0;
   cop0_bad_vaddr_ = 0;
   cop0_exception_code_ = 0;
+  cop0_exception_branch_delay_ = false;
   pi_dram_address_ = 0;
   pi_cart_address_ = 0;
   pi_cart_to_rdram_length_ = 0;

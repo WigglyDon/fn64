@@ -4223,6 +4223,7 @@ constexpr std::uint32_t kCop0CauseExcCodeAdesBits =
     kCop0CauseExcCodeAdes << kCop0CauseExcCodeShift;
 constexpr std::uint32_t kCop0CauseExcCodeOverflowBits =
     kCop0CauseExcCodeOverflow << kCop0CauseExcCodeShift;
+constexpr std::uint32_t kCop0CauseBranchDelay = 0x80000000u;
 constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
 constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
 
@@ -5212,32 +5213,42 @@ void run_pi_mmio_fault_demo() {
         constexpr std::size_t kBaseIndex = 4;
         constexpr std::size_t kSourceIndex = 5;
         constexpr std::size_t kTargetIndex = 6;
+        constexpr RdramOffset kStatusWriteAddress = 0x000011e0u;
         constexpr RdramOffset kInstructionAddress = 0x00001200u;
         constexpr RdramOffset kSentinelAddress = 0x000013c0u;
         constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
         constexpr std::uint32_t kRdramSentinel = 0xaabbccddu;
 
-	        machine.stage_rdram_u32_be(kInstructionAddress, instruction);
-	        machine.stage_rdram_u32_be(kSentinelAddress, kRdramSentinel);
-	        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
-	        machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 4u));
-	        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
-	          machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 8u));
-	        }
-	        machine.stage_cpu_gpr(kBaseIndex, base_value);
-	        machine.stage_cpu_gpr(kSourceIndex, 0x0102030405060708ull);
-	        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+        machine.stage_rdram_u32_be(kInstructionAddress, instruction);
+        machine.stage_rdram_u32_be(kSentinelAddress, kRdramSentinel);
+        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+          write_cop0_register_through_cpu(
+              machine,
+              kStatusWriteAddress,
+              kSourceIndex,
+              kCop0StatusRegisterIndex,
+              kCop0StatusExl,
+              label);
+        }
+        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+        machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 4u));
+        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+          machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 8u));
+        }
+        machine.stage_cpu_gpr(kBaseIndex, base_value);
+        machine.stage_cpu_gpr(kSourceIndex, 0x0102030405060708ull);
+        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
 
         require_step_machine_fault(machine, label, expected_kind, expected_access_size);
 
-	        const CpuAddress expected_next_pc =
-	            expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess
-	                ? cpu_rdram_alias(kInstructionAddress + 8u)
-	                : cpu_rdram_alias(kInstructionAddress + 4u);
-	        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
-	            machine.cpu_next_pc() != expected_next_pc) {
-	          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
-	        }
+        const CpuAddress expected_next_pc =
+            expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess
+                ? cpu_rdram_alias(kInstructionAddress + 8u)
+                : cpu_rdram_alias(kInstructionAddress + 4u);
+        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
+            machine.cpu_next_pc() != expected_next_pc) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
+        }
 
         require_gpr_equals(machine, kTargetIndex, kTargetSentinel, label);
         require_rdram_word_equals(machine, kSentinelAddress, kRdramSentinel, label);
@@ -5923,29 +5934,39 @@ void run_sp_mmio_fault_demo() {
         constexpr std::size_t kBaseIndex = 4;
         constexpr std::size_t kSourceIndex = 5;
         constexpr std::size_t kTargetIndex = 6;
+        constexpr RdramOffset kStatusWriteAddress = 0x000017d0u;
         constexpr RdramOffset kInstructionAddress = 0x000017f0u;
         constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
 
-	        machine.stage_rdram_u32_be(kInstructionAddress, instruction);
-	        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
-	        machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 4u));
-	        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
-	          machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 8u));
-	        }
-	        machine.stage_cpu_gpr(kBaseIndex, kSyntheticSpMmioCpuBase);
-	        machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddeeff0011ull);
-	        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+        machine.stage_rdram_u32_be(kInstructionAddress, instruction);
+        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+          write_cop0_register_through_cpu(
+              machine,
+              kStatusWriteAddress,
+              kSourceIndex,
+              kCop0StatusRegisterIndex,
+              kCop0StatusExl,
+              label);
+        }
+        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+        machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 4u));
+        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+          machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 8u));
+        }
+        machine.stage_cpu_gpr(kBaseIndex, kSyntheticSpMmioCpuBase);
+        machine.stage_cpu_gpr(kSourceIndex, 0xaabbccddeeff0011ull);
+        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
 
         require_step_machine_fault(machine, label, expected_kind, expected_access_size);
 
-	        const CpuAddress expected_next_pc =
-	            expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess
-	                ? cpu_rdram_alias(kInstructionAddress + 8u)
-	                : cpu_rdram_alias(kInstructionAddress + 4u);
-	        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
-	            machine.cpu_next_pc() != expected_next_pc) {
-	          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
-	        }
+        const CpuAddress expected_next_pc =
+            expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess
+                ? cpu_rdram_alias(kInstructionAddress + 8u)
+                : cpu_rdram_alias(kInstructionAddress + 4u);
+        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
+            machine.cpu_next_pc() != expected_next_pc) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
+        }
 
         require_gpr_equals(machine, kTargetIndex, kTargetSentinel, label);
       };
@@ -9480,51 +9501,35 @@ void run_cop0_address_error_gate_demo() {
   {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
-    constexpr std::size_t kBaseIndex = 4;
-    constexpr std::size_t kTargetIndex = 5;
-    constexpr RdramOffset kFaultAddress = 0x00003540u;
-    constexpr RdramOffset kDataAddress = 0x00003580u;
+    constexpr std::size_t kReadIndex = 4;
+    constexpr CpuAddress kFaultingPc = 0x80003541u;
     constexpr CpuAddress kNonOrdinaryNextPc = 0x800035c0u;
-    constexpr CpuRegisterValue kTargetSentinel = 0x0badf00dfeedfaceull;
 
-    machine.stage_rdram_u32_be(
-        kFaultAddress,
-        encode_lw(
-            static_cast<std::uint8_t>(kTargetIndex),
-            static_cast<std::uint8_t>(kBaseIndex),
-            1));
-    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
-    machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
-    machine.stage_cpu_pc(cpu_rdram_alias(kFaultAddress));
+    machine.stage_cpu_pc(kFaultingPc);
     machine.stage_cpu_next_pc(kNonOrdinaryNextPc);
     require_step_machine_fault(
         machine,
-        "cop0_address_error_gate_nonordinary_fault",
-        MachineFaultKind::kUnalignedCpuMemoryAccess,
+        "cop0_address_error_gate_nonordinary_fetch_fault",
+        MachineFaultKind::kUnalignedInstructionFetch,
         4);
-    if (machine.cpu_pc() != cpu_rdram_alias(kFaultAddress) ||
+    if (machine.cpu_pc() != kFaultingPc ||
         machine.cpu_next_pc() != kNonOrdinaryNextPc) {
-      throw std::runtime_error("cop0_address_error_gate_nonordinary changed pc/next_pc");
+      throw std::runtime_error("cop0_address_error_gate_nonordinary_fetch changed pc/next_pc");
     }
-    require_gpr_equals(
-        machine,
-        kTargetIndex,
-        kTargetSentinel,
-        "cop0_address_error_gate_nonordinary_no_writeback");
     require_cop0_register_equals(
         machine,
         0x000035a0u,
-        kTargetIndex,
+        kReadIndex,
         kCop0BadVaddrRegisterIndex,
         0,
-        "cop0_address_error_gate_nonordinary_badvaddr");
+        "cop0_address_error_gate_nonordinary_fetch_badvaddr");
     require_cop0_register_equals(
         machine,
         0x000035a4u,
-        kTargetIndex,
+        kReadIndex,
         kCop0CauseRegisterIndex,
         0,
-        "cop0_address_error_gate_nonordinary_cause");
+        "cop0_address_error_gate_nonordinary_fetch_cause");
   }
 }
 
@@ -10025,24 +10030,20 @@ void run_cop0_control_transfer_alignment_gate_demo() {
   {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
-    constexpr std::size_t kTargetIndex = 4;
-    constexpr std::size_t kReadIndex = 5;
-    constexpr RdramOffset kFaultAddress = 0x00003b80u;
-    constexpr CpuAddress kBadTarget = 0x80003bc2u;
+    constexpr std::size_t kReadIndex = 4;
+    constexpr CpuAddress kFaultingPc = 0x80003b81u;
     constexpr CpuAddress kNonOrdinaryNextPc = 0x80003c00u;
 
-    machine.stage_rdram_u32_be(kFaultAddress, encode_jr(static_cast<std::uint8_t>(kTargetIndex)));
-    machine.stage_cpu_gpr(kTargetIndex, kBadTarget);
-    machine.stage_cpu_pc(cpu_rdram_alias(kFaultAddress));
+    machine.stage_cpu_pc(kFaultingPc);
     machine.stage_cpu_next_pc(kNonOrdinaryNextPc);
     require_step_machine_fault(
         machine,
-        "cop0_control_align_gate_nonordinary_fault",
-        MachineFaultKind::kUnalignedControlTransferTarget,
+        "cop0_control_align_gate_nonordinary_fetch_fault",
+        MachineFaultKind::kUnalignedInstructionFetch,
         4);
-    if (machine.cpu_pc() != cpu_rdram_alias(kFaultAddress) ||
+    if (machine.cpu_pc() != kFaultingPc ||
         machine.cpu_next_pc() != kNonOrdinaryNextPc) {
-      throw std::runtime_error("cop0_control_align_gate_nonordinary changed pc/next_pc");
+      throw std::runtime_error("cop0_control_align_gate_nonordinary_fetch changed pc/next_pc");
     }
     require_cop0_register_equals(
         machine,
@@ -10050,14 +10051,14 @@ void run_cop0_control_transfer_alignment_gate_demo() {
         kReadIndex,
         kCop0BadVaddrRegisterIndex,
         0,
-        "cop0_control_align_gate_nonordinary_badvaddr");
+        "cop0_control_align_gate_nonordinary_fetch_badvaddr");
     require_cop0_register_equals(
         machine,
         0x00003ba4u,
         kReadIndex,
         kCop0CauseRegisterIndex,
         0,
-        "cop0_control_align_gate_nonordinary_cause");
+        "cop0_control_align_gate_nonordinary_fetch_cause");
   }
 }
 
@@ -10094,6 +10095,630 @@ void run_cop0_control_transfer_alignment_boundary_demo() {
       kCop0BadVaddrRegisterIndex,
       kBadTarget,
       "cop0_control_align_cause_clear_badvaddr_preserved");
+}
+
+void run_cop0_delay_slot_exception_entry_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: delay-slot faults record local BD state\n";
+
+  require_cop0_register_equals(
+      *std::make_unique<Machine>(Cartridge{}),
+      0x00003c80u,
+      4,
+      kCop0CauseRegisterIndex,
+      0,
+      "cop0_delay_slot_initial_cause");
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kCountSourceIndex = 4;
+    constexpr std::size_t kOverflowSourceIndex = 5;
+    constexpr std::size_t kResultIndex = 6;
+    constexpr std::size_t kEpcReadIndex = 7;
+    constexpr std::size_t kCauseReadIndex = 8;
+    constexpr std::size_t kStatusReadIndex = 9;
+    constexpr std::size_t kBadVaddrReadIndex = 10;
+    constexpr std::size_t kCountReadIndex = 11;
+    constexpr std::size_t kTargetMarkerIndex = 12;
+    constexpr RdramOffset kCountWriteAddress = 0x00003ca0u;
+    constexpr RdramOffset kBranchAddress = 0x00003cc0u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00003d20u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr CpuRegisterValue kResultSentinel = 0x9988776655443322ull;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountWriteAddress,
+        kCountSourceIndex,
+        kCop0CountRegisterIndex,
+        300,
+        "cop0_delay_slot_overflow_count");
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kResultIndex),
+            static_cast<std::uint8_t>(kOverflowSourceIndex),
+            0x0001u));
+    machine.stage_rdram_u32_be(
+        kBranchTargetAddress,
+        encode_ori(static_cast<std::uint8_t>(kTargetMarkerIndex), 0, 0x6d6du));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kEpcReadIndex), kCop0EpcRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 4u,
+        encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 8u,
+        encode_mfc0(static_cast<std::uint8_t>(kStatusReadIndex), kCop0StatusRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 12u,
+        encode_mfc0(static_cast<std::uint8_t>(kBadVaddrReadIndex), kCop0BadVaddrRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 16u,
+        encode_mfc0(static_cast<std::uint8_t>(kCountReadIndex), kCop0CountRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 20u, encode_break());
+    machine.stage_cpu_gpr(kOverflowSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_gpr(kResultIndex, kResultSentinel);
+    machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_branch");
+    if (machine.cpu_pc() != cpu_rdram_alias(kDelayAddress) ||
+        machine.cpu_next_pc() != cpu_rdram_alias(kBranchTargetAddress)) {
+      throw std::runtime_error("cop0_delay_slot_overflow did not enter delay-slot cadence");
+    }
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_entry");
+    require_gpr_equals(
+        machine,
+        kResultIndex,
+        kResultSentinel,
+        "cop0_delay_slot_overflow_no_commit");
+    require_gpr_equals(machine, kTargetMarkerIndex, 0, "cop0_delay_slot_overflow_target_not_run");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_vector_epc");
+    require_gpr_equals(
+        machine,
+        kEpcReadIndex,
+        cpu_value_from_sign_extended_u32(cpu_rdram_alias(kBranchAddress)),
+        "cop0_delay_slot_overflow_epc_is_branch");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_vector_cause");
+    require_gpr_equals(
+        machine,
+        kCauseReadIndex,
+        cpu_value_from_sign_extended_u32(
+            kCop0CauseBranchDelay | kCop0CauseExcCodeOverflowBits),
+        "cop0_delay_slot_overflow_cause_bd");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_vector_status");
+    require_gpr_equals(machine, kStatusReadIndex, kCop0StatusExl, "cop0_delay_slot_overflow_status");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_vector_badvaddr");
+    require_gpr_equals(machine, kBadVaddrReadIndex, 0, "cop0_delay_slot_overflow_badvaddr");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_vector_count");
+    require_gpr_equals(machine, kCountReadIndex, 306, "cop0_delay_slot_overflow_count_no_tick");
+    require_stopped(machine.step_cpu_instruction(), "cop0_delay_slot_overflow_vector_break");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kTargetIndex = 5;
+    constexpr std::size_t kEpcReadIndex = 6;
+    constexpr std::size_t kBadVaddrReadIndex = 7;
+    constexpr std::size_t kCauseReadIndex = 8;
+    constexpr RdramOffset kBranchAddress = 0x00003d80u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00003dc0u;
+    constexpr RdramOffset kDataAddress = 0x00003de0u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr CpuAddress kBadAddress = cpu_rdram_alias(kDataAddress) + 1u;
+    constexpr CpuRegisterValue kTargetSentinel = 0x0102030405060708ull;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_lw(
+            static_cast<std::uint8_t>(kTargetIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            1));
+    machine.stage_rdram_u32_be(
+        kBranchTargetAddress,
+        encode_ori(static_cast<std::uint8_t>(kTargetIndex), 0, 0x1111u));
+    machine.stage_rdram_u32_be(kDataAddress, 0xaabbccddu);
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kEpcReadIndex), kCop0EpcRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 4u,
+        encode_mfc0(static_cast<std::uint8_t>(kBadVaddrReadIndex), kCop0BadVaddrRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 8u,
+        encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 12u, encode_break());
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_lw_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_lw_entry");
+    require_gpr_equals(machine, kTargetIndex, kTargetSentinel, "cop0_delay_slot_lw_no_commit");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_lw_vector_epc");
+    require_gpr_equals(
+        machine,
+        kEpcReadIndex,
+        cpu_value_from_sign_extended_u32(cpu_rdram_alias(kBranchAddress)),
+        "cop0_delay_slot_lw_epc_is_branch");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_lw_vector_badvaddr");
+    require_gpr_equals(
+        machine,
+        kBadVaddrReadIndex,
+        cpu_value_from_sign_extended_u32(kBadAddress),
+        "cop0_delay_slot_lw_badvaddr");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_lw_vector_cause");
+    require_gpr_equals(
+        machine,
+        kCauseReadIndex,
+        cpu_value_from_sign_extended_u32(kCop0CauseBranchDelay | kCop0CauseExcCodeAdelBits),
+        "cop0_delay_slot_lw_cause_bd");
+    require_stopped(machine.step_cpu_instruction(), "cop0_delay_slot_lw_vector_break");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kSourceIndex = 5;
+    constexpr std::size_t kBadVaddrReadIndex = 6;
+    constexpr std::size_t kCauseReadIndex = 7;
+    constexpr RdramOffset kBranchAddress = 0x00003e20u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00003e60u;
+    constexpr RdramOffset kDataAddress = 0x00003e80u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr CpuAddress kBadAddress = cpu_rdram_alias(kDataAddress) + 1u;
+    constexpr std::uint32_t kDataSentinel = 0x55667788u;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_sw(
+            static_cast<std::uint8_t>(kSourceIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            1));
+    machine.stage_rdram_u32_be(kDataAddress, kDataSentinel);
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kBadVaddrReadIndex), kCop0BadVaddrRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 4u,
+        encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 8u, encode_break());
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kSourceIndex, 0x11223344u);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_sw_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_sw_entry");
+    require_rdram_word_equals(machine, kDataAddress, kDataSentinel, "cop0_delay_slot_sw_no_store");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_sw_vector_badvaddr");
+    require_gpr_equals(
+        machine,
+        kBadVaddrReadIndex,
+        cpu_value_from_sign_extended_u32(kBadAddress),
+        "cop0_delay_slot_sw_badvaddr");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_sw_vector_cause");
+    require_gpr_equals(
+        machine,
+        kCauseReadIndex,
+        cpu_value_from_sign_extended_u32(kCop0CauseBranchDelay | kCop0CauseExcCodeAdesBits),
+        "cop0_delay_slot_sw_cause_bd");
+    require_stopped(machine.step_cpu_instruction(), "cop0_delay_slot_sw_vector_break");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kTargetIndex = 4;
+    constexpr std::size_t kLinkIndex = 5;
+    constexpr std::size_t kBadVaddrReadIndex = 6;
+    constexpr std::size_t kCauseReadIndex = 7;
+    constexpr RdramOffset kBranchAddress = 0x00003ec0u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00003f00u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr CpuAddress kBadTarget = 0x80003f42u;
+    constexpr CpuRegisterValue kLinkSentinel = 0x8877665544332211ull;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_jalr(static_cast<std::uint8_t>(kLinkIndex), static_cast<std::uint8_t>(kTargetIndex)));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kBadVaddrReadIndex), kCop0BadVaddrRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 4u,
+        encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 8u, encode_break());
+    machine.stage_cpu_gpr(kTargetIndex, kBadTarget);
+    machine.stage_cpu_gpr(kLinkIndex, kLinkSentinel);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_jalr_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_jalr_entry");
+    require_gpr_equals(machine, kLinkIndex, kLinkSentinel, "cop0_delay_slot_jalr_link_no_commit");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_jalr_vector_badvaddr");
+    require_gpr_equals(
+        machine,
+        kBadVaddrReadIndex,
+        cpu_value_from_sign_extended_u32(kBadTarget),
+        "cop0_delay_slot_jalr_badvaddr");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_jalr_vector_cause");
+    require_gpr_equals(
+        machine,
+        kCauseReadIndex,
+        cpu_value_from_sign_extended_u32(kCop0CauseBranchDelay | kCop0CauseExcCodeAdelBits),
+        "cop0_delay_slot_jalr_cause_bd");
+    require_stopped(machine.step_cpu_instruction(), "cop0_delay_slot_jalr_vector_break");
+  }
+}
+
+void run_cop0_delay_slot_exception_handler_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: delay-slot handlers own EPC recovery policy\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kFaultTargetIndex = 5;
+    constexpr std::size_t kAfterPairIndex = 6;
+    constexpr std::size_t kBranchTargetIndex = 7;
+    constexpr std::size_t kEpcSourceIndex = 8;
+    constexpr RdramOffset kBranchAddress = 0x00003f80u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kAfterPairAddress = kBranchAddress + 8u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00003fc0u;
+    constexpr RdramOffset kDataAddress = 0x00003fe0u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr CpuRegisterValue kFaultTargetSentinel = 0xa5a55a5adeadbeefull;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_lw(
+            static_cast<std::uint8_t>(kFaultTargetIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            1));
+    machine.stage_rdram_u32_be(
+        kAfterPairAddress,
+        encode_ori(static_cast<std::uint8_t>(kAfterPairIndex), 0, 0x7171u));
+    machine.stage_rdram_u32_be(
+        kBranchTargetAddress,
+        encode_ori(static_cast<std::uint8_t>(kBranchTargetIndex), 0, 0x7272u));
+    machine.stage_rdram_u32_be(kDataAddress, 0x11223344u);
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mtc0(static_cast<std::uint8_t>(kEpcSourceIndex), kCop0EpcRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 4u, encode_cop0_eret());
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kFaultTargetIndex, kFaultTargetSentinel);
+    machine.stage_cpu_gpr(kAfterPairIndex, 0);
+    machine.stage_cpu_gpr(kBranchTargetIndex, 0);
+    machine.stage_cpu_gpr(kEpcSourceIndex, cpu_rdram_alias(kAfterPairAddress));
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_skip_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_handler_skip_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_skip_write_epc");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_skip_eret");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_skip_after_pair");
+    require_gpr_equals(
+        machine,
+        kFaultTargetIndex,
+        kFaultTargetSentinel,
+        "cop0_delay_slot_handler_skip_fault_target");
+    require_gpr_equals(machine, kAfterPairIndex, 0x7171u, "cop0_delay_slot_handler_skip_after");
+    require_gpr_equals(
+        machine,
+        kBranchTargetIndex,
+        0,
+        "cop0_delay_slot_handler_skip_original_target_not_run");
+    require_cop0_register_equals(
+        machine,
+        0x00003fa0u,
+        kAfterPairIndex,
+        kCop0StatusRegisterIndex,
+        0,
+        "cop0_delay_slot_handler_skip_status_exl_cleared");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kLoadTargetIndex = 5;
+    constexpr std::size_t kBranchTargetIndex = 6;
+    constexpr RdramOffset kBranchAddress = 0x00004020u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00004060u;
+    constexpr RdramOffset kDataAddress = 0x00004080u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_lw(
+            static_cast<std::uint8_t>(kLoadTargetIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            0));
+    machine.stage_rdram_u32_be(
+        kBranchTargetAddress,
+        encode_ori(static_cast<std::uint8_t>(kBranchTargetIndex), 0, 0x7373u));
+    machine.stage_rdram_u32_be(kDataAddress, 0x01020304u);
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_lui(static_cast<std::uint8_t>(kBaseIndex), 0x8000u));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 4u,
+        encode_ori(
+            static_cast<std::uint8_t>(kBaseIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            0x4080u));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 8u, encode_cop0_eret());
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress) + 1u);
+    machine.stage_cpu_gpr(kLoadTargetIndex, 0);
+    machine.stage_cpu_gpr(kBranchTargetIndex, 0);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_fix_high");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_fix_low");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_eret");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_branch_again");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_delay");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_handler_retry_target");
+    require_gpr_equals(
+        machine,
+        kLoadTargetIndex,
+        cpu_value_from_sign_extended_u32(0x01020304u),
+        "cop0_delay_slot_handler_retry_load");
+    require_gpr_equals(machine, kBranchTargetIndex, 0x7373u, "cop0_delay_slot_handler_retry_target");
+  }
+}
+
+void run_cop0_delay_slot_exception_boundary_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: delay-slot BD ownership stays narrow\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kTargetIndex = 5;
+    constexpr std::size_t kReadIndex = 6;
+    constexpr RdramOffset kBranchAddress = 0x00004100u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00004140u;
+    constexpr RdramOffset kDataAddress = 0x00004180u;
+    constexpr RdramOffset kOrdinaryOverflowAddress = 0x000041c0u;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_lw(
+            static_cast<std::uint8_t>(kTargetIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            1));
+    machine.stage_rdram_u32_be(kDataAddress, 0x12345678u);
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_ordinary_clear_seed_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_ordinary_clear_seed");
+    require_cop0_register_equals(
+        machine,
+        0x00004120u,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseBranchDelay | kCop0CauseExcCodeAdelBits,
+        "cop0_delay_slot_ordinary_clear_seed_cause");
+
+    write_cop0_register_through_cpu(
+        machine,
+        0x00004124u,
+        kReadIndex,
+        kCop0StatusRegisterIndex,
+        0,
+        "cop0_delay_slot_ordinary_clear_status");
+    machine.stage_rdram_u32_be(
+        kOrdinaryOverflowAddress,
+        encode_addi(static_cast<std::uint8_t>(kTargetIndex), static_cast<std::uint8_t>(kBaseIndex), 1));
+    machine.stage_cpu_gpr(kBaseIndex, 0x7fffffffu);
+    machine.stage_cpu_pc(cpu_rdram_alias(kOrdinaryOverflowAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kOrdinaryOverflowAddress + 4u));
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_ordinary_clear_overflow");
+    require_cop0_register_equals(
+        machine,
+        0x00004128u,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseExcCodeOverflowBits,
+        "cop0_delay_slot_ordinary_exception_clears_bd");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kTargetIndex = 5;
+    constexpr std::size_t kReadIndex = 6;
+    constexpr RdramOffset kBranchAddress = 0x00004200u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00004240u;
+    constexpr RdramOffset kDataAddress = 0x00004280u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_lw(
+            static_cast<std::uint8_t>(kTargetIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            1));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress, encode_mtc0(0, kCop0CauseRegisterIndex));
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_cause_clear_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_cause_clear_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_cause_clear_mtc0_zero");
+    require_cop0_register_equals(
+        machine,
+        0x00004220u,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseBranchDelay | kCop0CauseExcCodeAdelBits,
+        "cop0_delay_slot_cause_clear_preserves_bd_exc_code");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kStatusSourceIndex = 4;
+    constexpr std::size_t kSourceIndex = 5;
+    constexpr std::size_t kResultIndex = 6;
+    constexpr std::size_t kReadIndex = 7;
+    constexpr RdramOffset kStatusWriteAddress = 0x000042c0u;
+    constexpr RdramOffset kBranchAddress = 0x000042e0u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00004320u;
+    constexpr CpuRegisterValue kResultSentinel = 0x1122334455667788ull;
+
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "cop0_delay_slot_exl_gate_status");
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kResultIndex),
+            static_cast<std::uint8_t>(kSourceIndex),
+            1));
+    machine.stage_cpu_gpr(kSourceIndex, 0x7fffffffu);
+    machine.stage_cpu_gpr(kResultIndex, kResultSentinel);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_exl_gate_branch");
+    require_step_machine_fault(
+        machine,
+        "cop0_delay_slot_exl_gate_fault",
+        MachineFaultKind::kSignedArithmeticOverflow,
+        0);
+    require_gpr_equals(machine, kResultIndex, kResultSentinel, "cop0_delay_slot_exl_gate_no_commit");
+    require_cop0_register_equals(
+        machine,
+        0x00004300u,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_delay_slot_exl_gate_cause_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x00004304u,
+        kReadIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "cop0_delay_slot_exl_gate_status_preserved");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kCauseSourceIndex = 4;
+    constexpr std::size_t kStatusSourceIndex = 5;
+    constexpr std::size_t kCauseReadIndex = 6;
+    constexpr RdramOffset kBranchAddress = 0x00004340u;
+    constexpr RdramOffset kDelayAddress = kBranchAddress + 4u;
+    constexpr RdramOffset kBranchTargetAddress = 0x00004380u;
+    constexpr RdramOffset kInterruptInstructionAddress = 0x000043a0u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(kBranchAddress, encode_j(cpu_rdram_alias(kBranchTargetAddress)));
+    machine.stage_rdram_u32_be(
+        kDelayAddress,
+        encode_addi(
+            static_cast<std::uint8_t>(kCauseReadIndex),
+            static_cast<std::uint8_t>(kCauseReadIndex),
+            0x0001u));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress, encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+    machine.stage_cpu_gpr(kCauseReadIndex, 0x7fffffffu);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBranchAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kDelayAddress));
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_interrupt_clear_seed_branch");
+    require_exception(machine.step_cpu_instruction(), "cop0_delay_slot_interrupt_clear_seed");
+    write_cop0_register_through_cpu(
+        machine,
+        0x00004350u,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusIe | kCop0StatusInterruptMask0,
+        "cop0_delay_slot_interrupt_clear_status");
+    write_cop0_register_through_cpu(
+        machine,
+        0x00004354u,
+        kCauseSourceIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp0,
+        "cop0_delay_slot_interrupt_clear_cause");
+    machine.stage_rdram_u32_be(
+        kInterruptInstructionAddress,
+        encode_ori(static_cast<std::uint8_t>(kStatusSourceIndex), 0, 0x7a7au));
+    machine.stage_cpu_pc(cpu_rdram_alias(kInterruptInstructionAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptInstructionAddress + 4u));
+    require_interrupted(machine.step_cpu_instruction(), "cop0_delay_slot_interrupt_clears_bd");
+    require_stepped(machine.step_cpu_instruction(), "cop0_delay_slot_interrupt_cause_read");
+    require_gpr_equals(machine, kCauseReadIndex, kCop0CauseIp0, "cop0_delay_slot_interrupt_bd_clear");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kReadIndex = 4;
+    constexpr CpuAddress kUnalignedPc = 0x800043e1u;
+    constexpr CpuAddress kNonOrdinaryNextPc = 0x80004420u;
+
+    machine.stage_cpu_pc(kUnalignedPc);
+    machine.stage_cpu_next_pc(kNonOrdinaryNextPc);
+    require_step_machine_fault(
+        machine,
+        "cop0_delay_slot_unaligned_fetch_guard",
+        MachineFaultKind::kUnalignedInstructionFetch,
+        4);
+    if (machine.cpu_pc() != kUnalignedPc ||
+        machine.cpu_next_pc() != kNonOrdinaryNextPc) {
+      throw std::runtime_error("cop0_delay_slot_unaligned_fetch_guard changed pc/next_pc");
+    }
+    require_cop0_register_equals(
+        machine,
+        0x00004400u,
+        kReadIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_delay_slot_unaligned_fetch_guard_cause");
+  }
 }
 
 void run_cop0_signed_overflow_exception_entry_demo() {
@@ -10320,51 +10945,36 @@ void run_cop0_signed_overflow_gate_demo() {
   {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
-    constexpr std::size_t kOverflowSourceIndex = 4;
-    constexpr std::size_t kResultIndex = 5;
-    constexpr RdramOffset kOverflowAddress = 0x00002c80u;
+    constexpr std::size_t kReadIndex = 4;
+    constexpr CpuAddress kFaultingPc = 0x80002c81u;
     constexpr CpuAddress kNonOrdinaryNextPc = 0x80002d00u;
-    constexpr CpuRegisterValue kResultSentinel = 0xfedcba9876543210ull;
 
-    machine.stage_rdram_u32_be(
-        kOverflowAddress,
-        encode_addi(
-            static_cast<std::uint8_t>(kResultIndex),
-            static_cast<std::uint8_t>(kOverflowSourceIndex),
-            0x0001u));
-    machine.stage_cpu_gpr(kOverflowSourceIndex, 0x7fffffffu);
-    machine.stage_cpu_gpr(kResultIndex, kResultSentinel);
-    machine.stage_cpu_pc(cpu_rdram_alias(kOverflowAddress));
+    machine.stage_cpu_pc(kFaultingPc);
     machine.stage_cpu_next_pc(kNonOrdinaryNextPc);
 
     require_step_machine_fault(
         machine,
-        "cop0_overflow_gate_nonordinary_fault",
-        MachineFaultKind::kSignedArithmeticOverflow,
-        0);
-    if (machine.cpu_pc() != cpu_rdram_alias(kOverflowAddress) ||
+        "cop0_overflow_gate_nonordinary_fetch_fault",
+        MachineFaultKind::kUnalignedInstructionFetch,
+        4);
+    if (machine.cpu_pc() != kFaultingPc ||
         machine.cpu_next_pc() != kNonOrdinaryNextPc) {
-      throw std::runtime_error("cop0_overflow_gate_nonordinary changed pc/next_pc");
+      throw std::runtime_error("cop0_overflow_gate_nonordinary_fetch changed pc/next_pc");
     }
-    require_gpr_equals(
-        machine,
-        kResultIndex,
-        kResultSentinel,
-        "cop0_overflow_gate_nonordinary_no_result");
     require_cop0_register_equals(
         machine,
         0x00002ca0u,
-        kResultIndex,
+        kReadIndex,
         kCop0EpcRegisterIndex,
         0,
-        "cop0_overflow_gate_nonordinary_epc_unchanged");
+        "cop0_overflow_gate_nonordinary_fetch_epc_unchanged");
     require_cop0_register_equals(
         machine,
         0x00002ca4u,
-        kResultIndex,
+        kReadIndex,
         kCop0CauseRegisterIndex,
         0,
-        "cop0_overflow_gate_nonordinary_cause_unchanged");
+        "cop0_overflow_gate_nonordinary_fetch_cause_unchanged");
   }
 }
 
@@ -10594,8 +11204,16 @@ void run_cop0_signed_overflow_fault_boundary_demo() {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
     constexpr RdramOffset kLwAddress = 0x00002ec0u;
+    constexpr RdramOffset kStatusWriteAddress = 0x00002eb8u;
     constexpr std::size_t kBaseIndex = 4;
     constexpr std::size_t kTargetIndex = 5;
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kBaseIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "cop0_overflow_boundary_unaligned_data_exl");
     machine.stage_rdram_u32_be(
         kLwAddress,
         encode_lw(
@@ -10623,7 +11241,15 @@ void run_cop0_signed_overflow_fault_boundary_demo() {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
     constexpr RdramOffset kJrAddress = 0x00002f00u;
+    constexpr RdramOffset kStatusWriteAddress = 0x00002ef8u;
     constexpr std::size_t kTargetIndex = 4;
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kTargetIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "cop0_overflow_boundary_control_exl");
     machine.stage_rdram_u32_be(kJrAddress, encode_jr(static_cast<std::uint8_t>(kTargetIndex)));
     machine.stage_cpu_gpr(kTargetIndex, 0x80000002u);
     machine.stage_cpu_pc(cpu_rdram_alias(kJrAddress));
@@ -11871,30 +12497,40 @@ void run_load_link_store_conditional_fault_demo() {
         Machine& machine = *machine_storage;
         constexpr std::size_t kBaseIndex = 4;
         constexpr std::size_t kTargetIndex = 7;
+        constexpr RdramOffset kStatusWriteAddress = 0x00000de0u;
         constexpr RdramOffset kInstructionAddress = 0x00000e00u;
         constexpr RdramOffset kSentinelAddress = 0x00000f00u;
         constexpr CpuRegisterValue kTargetSentinel = 0x1122334455667788ull;
         constexpr std::uint32_t kRdramSentinel = 0xaabbccddu;
 
-	        stage_atomic_instruction(machine, kInstructionAddress, instruction);
-	        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
-	        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
-	          machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 8u));
-	        }
-	        machine.stage_cpu_gpr(kBaseIndex, base_value);
-	        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
-	        machine.stage_rdram_u32_be(kSentinelAddress, kRdramSentinel);
+        stage_atomic_instruction(machine, kInstructionAddress, instruction);
+        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+          write_cop0_register_through_cpu(
+              machine,
+              kStatusWriteAddress,
+              kBaseIndex,
+              kCop0StatusRegisterIndex,
+              kCop0StatusExl,
+              label);
+        }
+        machine.stage_cpu_pc(cpu_rdram_alias(kInstructionAddress));
+        if (expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess) {
+          machine.stage_cpu_next_pc(cpu_rdram_alias(kInstructionAddress + 8u));
+        }
+        machine.stage_cpu_gpr(kBaseIndex, base_value);
+        machine.stage_cpu_gpr(kTargetIndex, kTargetSentinel);
+        machine.stage_rdram_u32_be(kSentinelAddress, kRdramSentinel);
 
         require_step_machine_fault(machine, label, expected_kind, expected_access_size);
 
-	        const CpuAddress expected_next_pc =
-	            expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess
-	                ? cpu_rdram_alias(kInstructionAddress + 8u)
-	                : cpu_rdram_alias(kInstructionAddress + 4u);
-	        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
-	            machine.cpu_next_pc() != expected_next_pc) {
-	          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
-	        }
+        const CpuAddress expected_next_pc =
+            expected_kind == MachineFaultKind::kUnalignedCpuMemoryAccess
+                ? cpu_rdram_alias(kInstructionAddress + 8u)
+                : cpu_rdram_alias(kInstructionAddress + 4u);
+        if (machine.cpu_pc() != cpu_rdram_alias(kInstructionAddress) ||
+            machine.cpu_next_pc() != expected_next_pc) {
+          throw std::runtime_error(std::string(label) + " changed pc/next_pc on fault");
+        }
 
         require_gpr_equals(machine, kTargetIndex, kTargetSentinel, label);
         require_rdram_word_equals(machine, kSentinelAddress, kRdramSentinel, label);
@@ -11955,6 +12591,7 @@ void run_load_link_store_conditional_fault_demo() {
     constexpr std::size_t kBaseIndex = 4;
     constexpr std::size_t kLlTargetIndex = 5;
     constexpr std::size_t kScSourceIndex = 7;
+    constexpr RdramOffset kStatusWriteAddress = 0x00000e3cu;
     constexpr RdramOffset kLlAddress = 0x00000e40u;
     constexpr RdramOffset kBadScAddress = 0x00000e44u;
     constexpr RdramOffset kGoodScAddress = 0x00000e48u;
@@ -11976,11 +12613,20 @@ void run_load_link_store_conditional_fault_demo() {
     machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
     machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
 
-	    step_at(machine, kLlAddress, "ll_fault_demo_sc_preserve_reservation_ll");
-	    machine.stage_cpu_pc(cpu_rdram_alias(kBadScAddress));
-	    machine.stage_cpu_next_pc(cpu_rdram_alias(kBadScAddress + 8u));
-	    require_step_machine_fault(
-	        machine,
+    step_at(machine, kLlAddress, "ll_fault_demo_sc_preserve_reservation_ll");
+    write_cop0_register_through_cpu(
+        machine,
+        kStatusWriteAddress,
+        kLlTargetIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "ll_fault_demo_sc_preserve_reservation_status");
+    machine.stage_cpu_gpr(kBaseIndex, cpu_rdram_alias(kDataAddress));
+    machine.stage_cpu_gpr(kScSourceIndex, 0xaabbccddu);
+    machine.stage_cpu_pc(cpu_rdram_alias(kBadScAddress));
+    machine.stage_cpu_next_pc(cpu_rdram_alias(kBadScAddress + 8u));
+    require_step_machine_fault(
+        machine,
         "ll_fault_demo_sc_preserve_reservation_fault",
         MachineFaultKind::kUnalignedCpuMemoryAccess,
         4);
@@ -12178,6 +12824,9 @@ void run_data_demos(Machine& machine) {
   run_cop0_control_transfer_alignment_handler_demo();
   run_cop0_control_transfer_alignment_gate_demo();
   run_cop0_control_transfer_alignment_boundary_demo();
+  run_cop0_delay_slot_exception_entry_demo();
+  run_cop0_delay_slot_exception_handler_demo();
+  run_cop0_delay_slot_exception_boundary_demo();
   run_cop0_signed_overflow_exception_entry_demo();
   run_cop0_signed_overflow_handler_demo();
   run_cop0_signed_overflow_gate_demo();
