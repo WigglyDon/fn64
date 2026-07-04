@@ -1971,6 +1971,17 @@ CpuInstructionWord Machine::fetch_cpu_instruction_word() const {
 
   RdramOffset rdram_address = 0;
   if (!translate_cpu_physical_rdram_address(physical_address, 4, rdram_address)) {
+    CpuDataTargetKind sp_kind = CpuDataTargetKind::kSpDmem;
+    std::uint32_t sp_memory_offset = 0;
+    if (translate_cpu_physical_sp_memory_address(
+            physical_address,
+            4,
+            sp_kind,
+            sp_memory_offset) &&
+        sp_kind == CpuDataTargetKind::kSpDmem) {
+      return read_sp_memory_u32_be(sp_kind, sp_memory_offset);
+    }
+
     fail_cpu_direct_rdram_address(
         "CPU instruction fetch",
         pc,

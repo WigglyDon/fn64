@@ -171,9 +171,9 @@ private:
   // CpuAddress -> CpuPhysicalAddress -> target split without adding a bus or
   // full memory map. RDRAM, local SP DMEM/IMEM byte memories, minimal local SP
   // DMA MMIO, tiny PI DMA MMIO, local MI pending/mask MMIO, minimal local
-  // SI MMIO, and minimal local AI MMIO are the only CPU data targets today;
-  // instruction fetch remains RDRAM-only, and cartridge/PIF bytes are not
-  // CPU-addressable.
+  // SI MMIO, and minimal local AI MMIO are the only CPU data targets today.
+  // Instruction fetch reaches direct RDRAM aliases and the narrow local SP
+  // DMEM direct-alias seam only; cartridge/PIF bytes are not CPU-addressable.
   enum class CpuDataTargetKind {
     kRdram,
     kSpDmem,

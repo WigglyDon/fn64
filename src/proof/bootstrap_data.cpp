@@ -16248,7 +16248,7 @@ void run_cop0_unsupported_no_ghost_demo() {
 }
 
 void run_sp_memory_data_demo() {
-  std::cout << "fn64 bootstrap SP memory demo: CPU data reaches local DMEM/IMEM only\n";
+  std::cout << "fn64 bootstrap SP memory demo: CPU data reaches local DMEM/IMEM; fetch reaches local DMEM\n";
 
   const auto stage_next =
       [](Machine& machine,
@@ -16611,13 +16611,78 @@ void run_sp_memory_data_demo() {
   {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
-    machine.stage_cpu_pc(sp_dmem_uncached_alias(0));
-    machine.stage_cpu_next_pc(sp_dmem_uncached_alias(4));
-    require_fetch_address_exception_entry(
+    constexpr std::size_t kBaseIndex = 4;
+    constexpr std::size_t kInstructionSourceIndex = 5;
+    constexpr std::size_t kSpFetchedTargetIndex = 9;
+    constexpr std::size_t kRdramFetchedTargetIndex = 10;
+    constexpr RdramOffset kSeedSwAddress = 0x00001640u;
+    constexpr RdramOffset kCountReadAddress = 0x00001644u;
+    constexpr RdramOffset kRdramDecoyAddress = 0x00000040u;
+    constexpr std::uint16_t kSpFetchOffset = 0x0040u;
+    constexpr CpuAddress kSpFetchPc = sp_dmem_uncached_alias(kSpFetchOffset);
+    constexpr CpuInstructionWord kSpInstruction =
+        encode_ori(static_cast<std::uint8_t>(kSpFetchedTargetIndex), 0, 0x5a5au);
+    constexpr CpuInstructionWord kRdramDecoyInstruction =
+        encode_ori(static_cast<std::uint8_t>(kRdramFetchedTargetIndex), 0, 0x2222u);
+
+    machine.stage_rdram_u32_be(
+        kSeedSwAddress,
+        encode_sw(
+            static_cast<std::uint8_t>(kInstructionSourceIndex),
+            static_cast<std::uint8_t>(kBaseIndex),
+            0));
+    machine.stage_cpu_gpr(kBaseIndex, kSpFetchPc);
+    machine.stage_cpu_gpr(kInstructionSourceIndex, kSpInstruction);
+    step_at(machine, kSeedSwAddress, "sp_memory_demo_seed_dmem_fetch_instruction");
+
+    machine.stage_rdram_u32_be(kRdramDecoyAddress, kRdramDecoyInstruction);
+    machine.stage_cpu_gpr(kSpFetchedTargetIndex, 0);
+    machine.stage_cpu_gpr(kRdramFetchedTargetIndex, 0);
+    machine.stage_cpu_pc(kSpFetchPc);
+    machine.stage_cpu_next_pc(kSpFetchPc + 4u);
+    require_stepped(machine.step_cpu_instruction(), "sp_memory_demo_dmem_fetch_executes");
+    require_gpr_equals(
         machine,
-        "sp_memory_demo_dmem_fetch_non_executable",
-        sp_dmem_uncached_alias(0),
-        0x00001660u);
+        kSpFetchedTargetIndex,
+        0x5a5au,
+        "sp_memory_demo_dmem_fetch_executes_sp_word");
+    require_gpr_equals(
+        machine,
+        kRdramFetchedTargetIndex,
+        0,
+        "sp_memory_demo_dmem_fetch_ignores_rdram_decoy");
+    if (machine.cpu_pc() != kSpFetchPc + 4u ||
+        machine.cpu_next_pc() != kSpFetchPc + 8u) {
+      throw std::runtime_error("sp_memory_demo_dmem_fetch_executes changed cadence");
+    }
+    require_cop0_register_equals(
+        machine,
+        kCountReadAddress,
+        11,
+        kCop0CountRegisterIndex,
+        2,
+        "sp_memory_demo_dmem_fetch_count");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr CpuAddress kUnalignedSpFetchPc = sp_dmem_uncached_alias(0x0041u);
+    constexpr RdramOffset kCountReadAddress = 0x00001660u;
+    machine.stage_cpu_pc(kUnalignedSpFetchPc);
+    machine.stage_cpu_next_pc(kUnalignedSpFetchPc + 4u);
+    require_exception(machine.step_cpu_instruction(), "sp_memory_demo_dmem_unaligned_fetch_exception");
+    if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+        machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+      throw std::runtime_error("sp_memory_demo_dmem_unaligned_fetch did not enter vector");
+    }
+    require_cop0_register_equals(
+        machine,
+        kCountReadAddress,
+        9,
+        kCop0CountRegisterIndex,
+        0,
+        "sp_memory_demo_dmem_unaligned_fetch_count_no_tick");
   }
 
   {
