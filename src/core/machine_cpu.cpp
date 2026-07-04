@@ -121,12 +121,14 @@ namespace {
       "CPU instruction fetch",
       pc,
       4,
-      "Unaligned CPU instruction fetch at PC " + std::to_string(pc));
+      "Unaligned CPU instruction fetch at PC " + std::to_string(pc),
+      MachineFaultAccessIntent::kInstructionFetch);
 }
 
 [[noreturn]] void fail_unaligned_halfword_memory_access(
     const char* operation,
-    CpuAddress address) {
+    CpuAddress address,
+    MachineFaultAccessIntent access_intent) {
   throw MachineFault(
       MachineFaultKind::kUnalignedCpuMemoryAccess,
       operation,
@@ -134,12 +136,14 @@ namespace {
       2,
       std::string(operation) +
           " requires naturally aligned halfword address: " +
-          std::to_string(address));
+          std::to_string(address),
+      access_intent);
 }
 
 [[noreturn]] void fail_unaligned_word_memory_access(
     const char* operation,
-    CpuAddress address) {
+    CpuAddress address,
+    MachineFaultAccessIntent access_intent) {
   throw MachineFault(
       MachineFaultKind::kUnalignedCpuMemoryAccess,
       operation,
@@ -147,12 +151,14 @@ namespace {
       4,
       std::string(operation) +
           " requires naturally aligned word address: " +
-          std::to_string(address));
+          std::to_string(address),
+      access_intent);
 }
 
 [[noreturn]] void fail_unaligned_doubleword_memory_access(
     const char* operation,
-    CpuAddress address) {
+    CpuAddress address,
+    MachineFaultAccessIntent access_intent) {
   throw MachineFault(
       MachineFaultKind::kUnalignedCpuMemoryAccess,
       operation,
@@ -160,7 +166,8 @@ namespace {
       8,
       std::string(operation) +
           " requires naturally aligned doubleword address: " +
-          std::to_string(address));
+          std::to_string(address),
+      access_intent);
 }
 
 [[noreturn]] void fail_unaligned_control_transfer_target(
@@ -967,6 +974,10 @@ void Machine::latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept {
   mi_interrupt_pending_ |= pending_bit & kMiSupportedInterruptBits;
 }
 
+std::uint32_t Machine::read_cop0_bad_vaddr() const noexcept {
+  return cop0_bad_vaddr_;
+}
+
 std::uint32_t Machine::read_cop0_count() const noexcept {
   return cop0_count_;
 }
@@ -1079,19 +1090,40 @@ bool Machine::try_enter_local_interrupt() noexcept {
   return true;
 }
 
-bool Machine::local_signed_overflow_exception_entry_allowed(
+bool Machine::local_synchronous_exception_entry_allowed(
     CpuAddress pc,
     CpuAddress next_pc) const noexcept {
   return next_pc == sequential_instruction_address(pc) &&
          ((cop0_status_ & kCop0StatusExl) == 0);
 }
 
+bool Machine::local_signed_overflow_exception_entry_allowed(
+    CpuAddress pc,
+    CpuAddress next_pc) const noexcept {
+  return local_synchronous_exception_entry_allowed(pc, next_pc);
+}
+
 void Machine::enter_local_signed_overflow_exception(CpuAddress faulting_pc) noexcept {
-  // Narrow local exception entry only. Signed arithmetic overflow is the first
-  // earned synchronous COP0 exception source; address faults, stop/trap paths,
-  // unsupported operations, BD state, and BadVAddr remain unmodeled here.
+  // Narrow local exception entry only. Signed arithmetic overflow does not write
+  // BadVAddr; address rejection, stop/trap paths, unsupported operations, and BD
+  // state remain unearned here.
   cop0_epc_ = faulting_pc;
   cop0_exception_code_ = kCop0ExceptionCodeSignedOverflow;
+  cop0_status_ |= kCop0StatusExl;
+  cpu_pc_ = kLocalInterruptVectorPc;
+  cpu_next_pc_ = kLocalInterruptVectorNextPc;
+}
+
+void Machine::enter_local_address_error_exception(
+    CpuAddress faulting_pc,
+    CpuAddress bad_vaddr,
+    std::uint8_t exception_code) noexcept {
+  // Narrow local address-error entry only: unaligned fetch/read/write can report
+  // AdEL/AdES and BadVAddr. Address rejection, TLB, BD state, and broad
+  // exception delivery remain unearned.
+  cop0_epc_ = faulting_pc;
+  cop0_bad_vaddr_ = bad_vaddr;
+  cop0_exception_code_ = exception_code;
   cop0_status_ |= kCop0StatusExl;
   cpu_pc_ = kLocalInterruptVectorPc;
   cpu_next_pc_ = kLocalInterruptVectorNextPc;
@@ -1862,6 +1894,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
 
     case CpuInstructionIdentity::kCop0Mfc0:
       switch (instruction.rd) {
+        case kCop0BadVaddrRegisterIndex:
+          write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_bad_vaddr());
+          return CpuInstructionExecutionResult::kExecuted;
+
         case kCop0CountRegisterIndex:
           write_cpu_gpr_word_sign_extended_result(instruction.rt, read_cop0_count());
           return CpuInstructionExecutionResult::kExecuted;
@@ -2487,7 +2523,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x1u) != 0) {
-        fail_unaligned_halfword_memory_access("LH", effective_address);
+        fail_unaligned_halfword_memory_access(
+            "LH",
+            effective_address,
+            MachineFaultAccessIntent::kDataRead);
       }
 
       const std::uint16_t value = read_cpu_memory_u16_be(effective_address);
@@ -2501,7 +2540,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x1u) != 0) {
-        fail_unaligned_halfword_memory_access("LHU", effective_address);
+        fail_unaligned_halfword_memory_access(
+            "LHU",
+            effective_address,
+            MachineFaultAccessIntent::kDataRead);
       }
 
       const std::uint16_t value = read_cpu_memory_u16_be(effective_address);
@@ -2534,7 +2576,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x3u) != 0) {
-        fail_unaligned_word_memory_access("LW", effective_address);
+        fail_unaligned_word_memory_access(
+            "LW",
+            effective_address,
+            MachineFaultAccessIntent::kDataRead);
       }
 
       const std::uint32_t value = read_cpu_memory_u32_be(effective_address);
@@ -2548,7 +2593,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x3u) != 0) {
-        fail_unaligned_word_memory_access("LL", effective_address);
+        fail_unaligned_word_memory_access(
+            "LL",
+            effective_address,
+            MachineFaultAccessIntent::kDataRead);
       }
 
       const CpuDataTarget target = require_cpu_data_target("LL", effective_address, 4);
@@ -2577,7 +2625,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x3u) != 0) {
-        fail_unaligned_word_memory_access("LWU", effective_address);
+        fail_unaligned_word_memory_access(
+            "LWU",
+            effective_address,
+            MachineFaultAccessIntent::kDataRead);
       }
 
       const std::uint32_t value = read_cpu_memory_u32_be(effective_address);
@@ -2662,7 +2713,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x7u) != 0) {
-        fail_unaligned_doubleword_memory_access("LD", effective_address);
+        fail_unaligned_doubleword_memory_access(
+            "LD",
+            effective_address,
+            MachineFaultAccessIntent::kDataRead);
       }
 
       write_cpu_gpr_value(instruction.rt, read_cpu_memory_u64_be(effective_address));
@@ -2675,7 +2729,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x7u) != 0) {
-        fail_unaligned_doubleword_memory_access("LLD", effective_address);
+        fail_unaligned_doubleword_memory_access(
+            "LLD",
+            effective_address,
+            MachineFaultAccessIntent::kDataRead);
       }
 
       const CpuDataTarget target = require_cpu_data_target("LLD", effective_address, 8);
@@ -2714,7 +2771,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x1u) != 0) {
-        fail_unaligned_halfword_memory_access("SH", effective_address);
+        fail_unaligned_halfword_memory_access(
+            "SH",
+            effective_address,
+            MachineFaultAccessIntent::kDataWrite);
       }
 
       const std::uint16_t value =
@@ -2750,7 +2810,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x3u) != 0) {
-        fail_unaligned_word_memory_access("SW", effective_address);
+        fail_unaligned_word_memory_access(
+            "SW",
+            effective_address,
+            MachineFaultAccessIntent::kDataWrite);
       }
 
       write_cpu_memory_u32_be(effective_address, read_cpu_gpr_word(instruction.rt));
@@ -2764,7 +2827,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const std::uint32_t source_value = read_cpu_gpr_word(instruction.rt);
 
       if ((effective_address & 0x3u) != 0) {
-        fail_unaligned_word_memory_access("SC", effective_address);
+        fail_unaligned_word_memory_access(
+            "SC",
+            effective_address,
+            MachineFaultAccessIntent::kDataWrite);
       }
 
       const CpuDataTarget target = require_cpu_data_target("SC", effective_address, 4);
@@ -2866,7 +2932,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
           sign_extend_u16_to_u32(instruction.immediate_u16);
 
       if ((effective_address & 0x7u) != 0) {
-        fail_unaligned_doubleword_memory_access("SD", effective_address);
+        fail_unaligned_doubleword_memory_access(
+            "SD",
+            effective_address,
+            MachineFaultAccessIntent::kDataWrite);
       }
 
       write_cpu_memory_u64_be(effective_address, read_cpu_gpr_value(instruction.rt));
@@ -2880,7 +2949,10 @@ Machine::CpuInstructionExecutionResult Machine::execute_cpu_instruction(
       const CpuRegisterValue source_value = read_cpu_gpr_value(instruction.rt);
 
       if ((effective_address & 0x7u) != 0) {
-        fail_unaligned_doubleword_memory_access("SCD", effective_address);
+        fail_unaligned_doubleword_memory_access(
+            "SCD",
+            effective_address,
+            MachineFaultAccessIntent::kDataWrite);
       }
 
       const CpuDataTarget target = require_cpu_data_target("SCD", effective_address, 8);
@@ -2928,10 +3000,10 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   // kInterrupted is a local pre-fetch interrupt entry: no instruction is
   // fetched or executed from the interrupted PC, EPC stores that PC, EXL is
   // set, and pc/next_pc move to the local vector.
-  // kException is a local signed-overflow exception entry from ordinary
-  // cadence with EXL clear: the faulting instruction does not commit, Count
-  // does not advance, EPC stores the faulting PC, Cause ExcCode reports
-  // overflow, EXL is set, and pc/next_pc move to the local vector.
+  // kException is a local signed-overflow or unaligned address-error exception
+  // entry from ordinary cadence with EXL clear: the faulting instruction does
+  // not commit, Count does not advance, EPC stores the faulting PC, the earned
+  // COP0 state is updated, EXL is set, and pc/next_pc move to the local vector.
   // ERET is a narrow return from that local entry only. It runs before normal
   // speculative pc/next_pc movement so the support check uses the current
   // cadence, not a delay-slot/general-exception model.
@@ -2942,7 +3014,22 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   const std::uint32_t current_pc = cpu_pc_;
   const std::uint32_t current_next_pc = cpu_next_pc_;
 
-  const std::uint32_t raw = fetch_cpu_instruction_word();
+  std::uint32_t raw = 0;
+  try {
+    raw = fetch_cpu_instruction_word();
+  } catch (const MachineFault& fault) {
+    if (fault.kind() == MachineFaultKind::kUnalignedInstructionFetch &&
+        fault.access_intent() == MachineFaultAccessIntent::kInstructionFetch &&
+        local_synchronous_exception_entry_allowed(current_pc, current_next_pc)) {
+      enter_local_address_error_exception(
+          current_pc,
+          fault.cpu_address(),
+          kCop0ExceptionCodeAddressErrorLoad);
+      return CpuInstructionStepResult::kException;
+    }
+
+    throw;
+  }
   const DecodedCpuInstructionWord instruction = decode_cpu_instruction_word(raw);
   const CpuInstructionIdentity identity = identify_cpu_instruction(instruction);
 
@@ -2972,6 +3059,25 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
         local_signed_overflow_exception_entry_allowed(current_pc, current_next_pc)) {
       enter_local_signed_overflow_exception(current_pc);
       return CpuInstructionStepResult::kException;
+    }
+
+    if (fault.kind() == MachineFaultKind::kUnalignedCpuMemoryAccess &&
+        local_synchronous_exception_entry_allowed(current_pc, current_next_pc)) {
+      if (fault.access_intent() == MachineFaultAccessIntent::kDataRead) {
+        enter_local_address_error_exception(
+            current_pc,
+            fault.cpu_address(),
+            kCop0ExceptionCodeAddressErrorLoad);
+        return CpuInstructionStepResult::kException;
+      }
+
+      if (fault.access_intent() == MachineFaultAccessIntent::kDataWrite) {
+        enter_local_address_error_exception(
+            current_pc,
+            fault.cpu_address(),
+            kCop0ExceptionCodeAddressErrorStore);
+        return CpuInstructionStepResult::kException;
+      }
     }
 
     throw;

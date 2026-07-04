@@ -75,12 +75,14 @@ MachineFault::MachineFault(
     std::string operation,
     CpuAddress cpu_address,
     std::size_t access_size,
-    std::string message)
+    std::string message,
+    MachineFaultAccessIntent access_intent)
     : std::runtime_error(std::move(message)),
       kind_(kind),
       operation_(std::move(operation)),
       cpu_address_(cpu_address),
-      access_size_(access_size) {}
+      access_size_(access_size),
+      access_intent_(access_intent) {}
 
 MachineFaultKind MachineFault::kind() const noexcept {
   return kind_;
@@ -96,6 +98,10 @@ CpuAddress MachineFault::cpu_address() const noexcept {
 
 std::size_t MachineFault::access_size() const noexcept {
   return access_size_;
+}
+
+MachineFaultAccessIntent MachineFault::access_intent() const noexcept {
+  return access_intent_;
 }
 
 Machine::Machine(Cartridge cartridge)
@@ -122,6 +128,7 @@ void Machine::reset_to_blank_rdram_power_on_state() {
   cop0_status_ = 0;
   cop0_software_interrupt_pending_ = 0;
   cop0_epc_ = 0;
+  cop0_bad_vaddr_ = 0;
   cop0_exception_code_ = 0;
   pi_dram_address_ = 0;
   pi_cart_address_ = 0;

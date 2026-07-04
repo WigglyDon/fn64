@@ -29,6 +29,13 @@ enum class MachineFaultKind {
   kSignedArithmeticOverflow,
 };
 
+enum class MachineFaultAccessIntent {
+  kNone,
+  kInstructionFetch,
+  kDataRead,
+  kDataWrite,
+};
+
 class MachineFault : public std::runtime_error {
 public:
   MachineFault(
@@ -36,18 +43,21 @@ public:
       std::string operation,
       CpuAddress cpu_address,
       std::size_t access_size,
-      std::string message);
+      std::string message,
+      MachineFaultAccessIntent access_intent = MachineFaultAccessIntent::kNone);
 
   MachineFaultKind kind() const noexcept;
   const std::string& operation() const noexcept;
   CpuAddress cpu_address() const noexcept;
   std::size_t access_size() const noexcept;
+  MachineFaultAccessIntent access_intent() const noexcept;
 
 private:
   MachineFaultKind kind_;
   std::string operation_;
   CpuAddress cpu_address_;
   std::size_t access_size_;
+  MachineFaultAccessIntent access_intent_;
 };
 
 class Machine {
@@ -125,9 +135,10 @@ public:
   void stage_cpu_gpr(std::size_t index, CpuRegisterValue value);
 
   // Public CPU execution creation point. A completed step commits this
-  // Machine's current pc/next_pc movement. Thrown MachineFault values are
-  // local fn64 step faults, not modeled N64 exception paths; no-ghost rollback
-  // is only claimed for paths covered by the proof suite.
+  // Machine's current pc/next_pc movement. Earned COP0 entries are reported as
+  // kInterrupted/kException; thrown MachineFault values remain local fn64 step
+  // faults. No-ghost rollback is only claimed for paths covered by the proof
+  // suite.
   CpuInstructionStepResult step_cpu_instruction();
 
 private:
@@ -355,6 +366,7 @@ private:
   static constexpr std::uint32_t kMiInterruptPendingPi = 0x00000010u;
   static constexpr std::uint32_t kMiSupportedInterruptBits =
       kMiInterruptPendingSp | kMiInterruptPendingPi;
+  static constexpr std::uint8_t kCop0BadVaddrRegisterIndex = 8;
   static constexpr std::uint8_t kCop0CountRegisterIndex = 9;
   static constexpr std::uint8_t kCop0CompareRegisterIndex = 11;
   static constexpr std::uint8_t kCop0StatusRegisterIndex = 12;
@@ -381,6 +393,8 @@ private:
   static constexpr std::uint32_t kCop0CauseExceptionCodeShift = 2;
   static constexpr std::uint32_t kCop0CauseExceptionCodeMask = 0x0000007cu;
   static constexpr std::uint8_t kCop0ExceptionCodeInterrupt = 0;
+  static constexpr std::uint8_t kCop0ExceptionCodeAddressErrorLoad = 4;
+  static constexpr std::uint8_t kCop0ExceptionCodeAddressErrorStore = 5;
   static constexpr std::uint8_t kCop0ExceptionCodeSignedOverflow = 12;
   static constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
   static constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
@@ -518,6 +532,7 @@ private:
       CpuAddress cpu_address,
       std::uint32_t value);
   void latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept;
+  std::uint32_t read_cop0_bad_vaddr() const noexcept;
   std::uint32_t read_cop0_count() const noexcept;
   std::uint32_t read_cop0_compare() const noexcept;
   std::uint32_t read_cop0_status() const noexcept;
@@ -534,10 +549,17 @@ private:
   bool local_interrupt_enabled() const noexcept;
   bool current_pc_allows_local_interrupt_entry() const noexcept;
   bool try_enter_local_interrupt() noexcept;
+  bool local_synchronous_exception_entry_allowed(
+      CpuAddress pc,
+      CpuAddress next_pc) const noexcept;
   bool local_signed_overflow_exception_entry_allowed(
       CpuAddress pc,
       CpuAddress next_pc) const noexcept;
   void enter_local_signed_overflow_exception(CpuAddress faulting_pc) noexcept;
+  void enter_local_address_error_exception(
+      CpuAddress faulting_pc,
+      CpuAddress bad_vaddr,
+      std::uint8_t exception_code) noexcept;
   bool local_eret_can_return() const noexcept;
   void return_from_local_interrupt_entry();
 
@@ -611,6 +633,7 @@ private:
   std::uint32_t cop0_status_ = 0;
   std::uint32_t cop0_software_interrupt_pending_ = 0;
   CpuAddress cop0_epc_ = 0;
+  CpuAddress cop0_bad_vaddr_ = 0;
   std::uint8_t cop0_exception_code_ = 0;
   RdramOffset pi_dram_address_ = 0;
   PiCartAddress pi_cart_address_ = 0;
