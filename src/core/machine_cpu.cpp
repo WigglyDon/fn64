@@ -10,7 +10,8 @@ namespace {
 [[noreturn]] void fail_cpu_direct_rdram_address(
     const char* operation,
     CpuAddress cpu_address,
-    std::size_t width) {
+    std::size_t width,
+    MachineFaultAccessIntent access_intent = MachineFaultAccessIntent::kNone) {
   throw MachineFault(
       MachineFaultKind::kCpuRdramAddressRejected,
       operation,
@@ -19,7 +20,8 @@ namespace {
       std::string("RDRAM access out of range through CPU address: operation=") +
           operation +
           " address=" + std::to_string(cpu_address) +
-          " width=" + std::to_string(width));
+          " width=" + std::to_string(width),
+      access_intent);
 }
 
 [[noreturn]] void fail_cpu_data_address_rejected(
@@ -1139,9 +1141,9 @@ void Machine::enter_local_address_error_exception(
     std::uint8_t exception_code,
     bool branch_delay) noexcept {
   // Narrow local address-error entry only: unaligned fetch/read/write,
-  // control-transfer targets, and CPU data target misses can report AdEL/AdES
-  // and BadVAddr. Fetch address rejection, TLB, and broad exception delivery
-  // remain unearned.
+  // control-transfer targets, CPU data target misses, and direct-alias fetch
+  // target misses can report AdEL/AdES and BadVAddr. Blank/raw/non-direct fetch
+  // rejection, TLB, and broad exception delivery remain unearned.
   cop0_epc_ = branch_delay ? static_cast<CpuAddress>(faulting_pc - 4u) : faulting_pc;
   cop0_bad_vaddr_ = bad_vaddr;
   cop0_exception_code_ = exception_code;
@@ -1633,8 +1635,24 @@ CpuInstructionWord Machine::fetch_cpu_instruction_word() const {
     fail_unaligned_instruction_fetch(pc);
   }
 
-  const RdramOffset rdram_address =
-      require_cpu_rdram_address("CPU instruction fetch", pc, 4);
+  CpuPhysicalAddress physical_address = 0;
+  if (!translate_direct_cpu_physical_address(pc, physical_address)) {
+    fail_cpu_direct_rdram_address(
+        "CPU instruction fetch",
+        pc,
+        4,
+        MachineFaultAccessIntent::kInstructionFetch);
+  }
+
+  RdramOffset rdram_address = 0;
+  if (!translate_cpu_physical_rdram_address(physical_address, 4, rdram_address)) {
+    fail_cpu_direct_rdram_address(
+        "CPU instruction fetch",
+        pc,
+        4,
+        MachineFaultAccessIntent::kInstructionFetchDirectTargetMiss);
+  }
+
   return read_rdram_u32_be(rdram_address);
 }
 
@@ -3155,6 +3173,17 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
   } catch (const MachineFault& fault) {
     if (fault.kind() == MachineFaultKind::kUnalignedInstructionFetch &&
         fault.access_intent() == MachineFaultAccessIntent::kInstructionFetch &&
+        local_synchronous_exception_entry_allowed(current_pc, current_next_pc)) {
+      enter_local_address_error_exception(
+          current_pc,
+          fault.cpu_address(),
+          kCop0ExceptionCodeAddressErrorLoad,
+          false);
+      return CpuInstructionStepResult::kException;
+    }
+
+    if (fault.kind() == MachineFaultKind::kCpuRdramAddressRejected &&
+        fault.access_intent() == MachineFaultAccessIntent::kInstructionFetchDirectTargetMiss &&
         local_synchronous_exception_entry_allowed(current_pc, current_next_pc)) {
       enter_local_address_error_exception(
           current_pc,

@@ -4554,6 +4554,47 @@ void require_exception(Machine::CpuInstructionStepResult result, const char* lab
   }
 }
 
+void require_fetch_address_exception_entry(
+    Machine& machine,
+    const char* label,
+    CpuAddress rejected_pc,
+    RdramOffset read_instruction_base) {
+  require_exception(machine.step_cpu_instruction(), label);
+  if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+      machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+    throw std::runtime_error(std::string(label) + " did not enter local vector");
+  }
+
+  require_cop0_register_equals(
+      machine,
+      read_instruction_base,
+      3,
+      kCop0EpcRegisterIndex,
+      rejected_pc,
+      label);
+  require_cop0_register_equals(
+      machine,
+      read_instruction_base + 4u,
+      3,
+      kCop0BadVaddrRegisterIndex,
+      rejected_pc,
+      label);
+  require_cop0_register_equals(
+      machine,
+      read_instruction_base + 8u,
+      3,
+      kCop0CauseRegisterIndex,
+      kCop0CauseExcCodeAdelBits,
+      label);
+  require_cop0_register_equals(
+      machine,
+      read_instruction_base + 12u,
+      3,
+      kCop0StatusRegisterIndex,
+      kCop0StatusExl,
+      label);
+}
+
 void run_cpu_driven_pi_dma_execution_demo() {
   std::cout << "fn64 bootstrap PI MMIO demo: CPU loader drives PI DMA then executes copied RDRAM code\n";
 
@@ -5000,21 +5041,28 @@ void run_cpu_driven_pi_sp_dma_chain_demo() {
 
   machine.stage_cpu_pc(kSpImemDataAlias);
   machine.stage_cpu_next_pc(kSpImemDataAlias + 4u);
-  require_step_machine_fault(
+  require_fetch_address_exception_entry(
       machine,
-      "cpu_driven_pi_sp_dma_fetch_sp_imem_rejected",
-      MachineFaultKind::kCpuRdramAddressRejected,
-      4);
+      "cpu_driven_pi_sp_dma_fetch_sp_imem_non_executable",
+      kSpImemDataAlias,
+      0x00001b00u);
   require_gpr_equals(
       machine,
       kImemHighIndex,
       cpu_value_from_sign_extended_u32(kPayloadHigh),
-      "cpu_driven_pi_sp_dma_fetch_sp_imem_rejected");
+      "cpu_driven_pi_sp_dma_fetch_sp_imem_non_executable");
   require_gpr_equals(
       machine,
       kImemLowIndex,
       cpu_value_from_sign_extended_u32(kPayloadLow),
-      "cpu_driven_pi_sp_dma_fetch_sp_imem_rejected");
+      "cpu_driven_pi_sp_dma_fetch_sp_imem_non_executable");
+  write_cop0_register_through_cpu(
+      machine,
+      0x00001b10u,
+      kValueIndex,
+      kCop0StatusRegisterIndex,
+      0,
+      "cpu_driven_pi_sp_dma_fetch_exception_clear_status");
 
   machine.stage_cpu_pc(cpu_rdram_alias(kCartridgeLoadProbeAddress));
   machine.stage_cpu_next_pc(cpu_rdram_alias(kCartridgeLoadProbeAddress + 4u));
@@ -5393,13 +5441,14 @@ void run_pi_mmio_fault_demo() {
     Machine& machine = *machine_storage;
     constexpr RdramOffset kSentinelAddress = 0x000013e0u;
     machine.stage_cpu_pc(kSyntheticPiMmioCpuBase);
+    machine.stage_cpu_next_pc(kSyntheticPiMmioCpuBase + 4u);
     machine.stage_rdram_u32_be(kSentinelAddress, 0x12345678u);
-    require_step_machine_fault(
+    require_fetch_address_exception_entry(
         machine,
-        "pi_mmio_fault_demo_fetch_rejected",
-        MachineFaultKind::kCpuRdramAddressRejected,
-        4);
-    require_rdram_word_equals(machine, kSentinelAddress, 0x12345678u, "pi_mmio_fault_demo_fetch_rejected");
+        "pi_mmio_fault_demo_fetch_non_executable",
+        kSyntheticPiMmioCpuBase,
+        0x000013f0u);
+    require_rdram_word_equals(machine, kSentinelAddress, 0x12345678u, "pi_mmio_fault_demo_fetch_non_executable");
   }
 }
 
@@ -6108,11 +6157,11 @@ void run_sp_mmio_fault_demo() {
     Machine& machine = *machine_storage;
     machine.stage_cpu_pc(kSyntheticSpMmioCpuBase);
     machine.stage_cpu_next_pc(kSyntheticSpMmioCpuBase + 4u);
-    require_step_machine_fault(
+    require_fetch_address_exception_entry(
         machine,
-        "sp_mmio_fault_demo_fetch_rejected",
-        MachineFaultKind::kCpuRdramAddressRejected,
-        4);
+        "sp_mmio_fault_demo_fetch_non_executable",
+        kSyntheticSpMmioCpuBase,
+        0x00001620u);
   }
 }
 
@@ -6586,11 +6635,11 @@ void run_mi_mmio_fault_demo() {
     Machine& machine = *machine_storage;
     machine.stage_cpu_pc(kSyntheticMiMmioCpuBase);
     machine.stage_cpu_next_pc(kSyntheticMiMmioCpuBase + 4u);
-    require_step_machine_fault(
+    require_fetch_address_exception_entry(
         machine,
-        "mi_mmio_fault_demo_fetch_rejected",
-        MachineFaultKind::kCpuRdramAddressRejected,
-        4);
+        "mi_mmio_fault_demo_fetch_non_executable",
+        kSyntheticMiMmioCpuBase,
+        0x00001640u);
   }
 }
 
@@ -7321,11 +7370,9 @@ void run_cop0_timer_count_cadence_demo() {
         "cop0_timer_count_cadence_fault_write_count");
     machine.stage_cpu_pc(kSyntheticMiMmioCpuBase);
     machine.stage_cpu_next_pc(kSyntheticMiMmioCpuBase + 4u);
-    require_step_machine_fault(
-        machine,
-        "cop0_timer_count_cadence_fetch_fault_no_tick",
-        MachineFaultKind::kCpuRdramAddressRejected,
-        4);
+    require_exception(
+        machine.step_cpu_instruction(),
+        "cop0_timer_count_cadence_fetch_exception_no_tick");
     require_cop0_register_equals(
         machine,
         kCountAfterFaultReadAddress,
@@ -8331,9 +8378,14 @@ void run_cop0_interrupt_invalid_pc_demo() {
   constexpr std::size_t kMiBaseIndex = 5;
   constexpr std::size_t kValueIndex = 6;
   constexpr std::size_t kStatusSourceIndex = 7;
+  constexpr std::size_t kReadIndex = 8;
   constexpr RdramOffset kPiPendingInstructionBase = 0x00002340u;
   constexpr RdramOffset kSwMiMaskAddress = 0x0000234cu;
   constexpr RdramOffset kCop0StatusWriteAddress = 0x00002350u;
+  constexpr RdramOffset kEpcReadAddress = 0x00002354u;
+  constexpr RdramOffset kBadVaddrReadAddress = 0x00002358u;
+  constexpr RdramOffset kCauseReadAddress = 0x0000235cu;
+  constexpr RdramOffset kStatusReadAddress = 0x00002360u;
   constexpr RdramOffset kPiDmaDestination = 0x00002380u;
 
   machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
@@ -8361,15 +8413,41 @@ void run_cop0_interrupt_invalid_pc_demo() {
 
   machine.stage_cpu_pc(kSyntheticMiMmioCpuBase);
   machine.stage_cpu_next_pc(kSyntheticMiMmioCpuBase + 4u);
-  require_step_machine_fault(
-      machine,
-      "cop0_interrupt_invalid_pc_fetch_rejected",
-      MachineFaultKind::kCpuRdramAddressRejected,
-      4);
-  if (machine.cpu_pc() != kSyntheticMiMmioCpuBase ||
-      machine.cpu_next_pc() != kSyntheticMiMmioCpuBase + 4u) {
-    throw std::runtime_error("cop0_interrupt_invalid_pc changed pc/next_pc");
+  require_exception(
+      machine.step_cpu_instruction(),
+      "cop0_interrupt_invalid_pc_fetch_exception");
+  if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+      machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+    throw std::runtime_error("cop0_interrupt_invalid_pc did not enter exception vector");
   }
+  require_cop0_register_equals(
+      machine,
+      kEpcReadAddress,
+      kReadIndex,
+      kCop0EpcRegisterIndex,
+      kSyntheticMiMmioCpuBase,
+      "cop0_interrupt_invalid_pc_epc");
+  require_cop0_register_equals(
+      machine,
+      kBadVaddrReadAddress,
+      kReadIndex,
+      kCop0BadVaddrRegisterIndex,
+      kSyntheticMiMmioCpuBase,
+      "cop0_interrupt_invalid_pc_badvaddr");
+  require_cop0_register_equals(
+      machine,
+      kCauseReadAddress,
+      kReadIndex,
+      kCop0CauseRegisterIndex,
+      kCop0CauseIp2 | kCop0CauseExcCodeAdelBits,
+      "cop0_interrupt_invalid_pc_cause");
+  require_cop0_register_equals(
+      machine,
+      kStatusReadAddress,
+      kReadIndex,
+      kCop0StatusRegisterIndex,
+      kCop0StatusIe | kCop0StatusExl | kCop0StatusInterruptMask2,
+      "cop0_interrupt_invalid_pc_status");
 }
 
 void run_cop0_interrupt_cadence_demo() {
@@ -8916,6 +8994,8 @@ void run_cop0_eret_epc_target_guard_demo() {
     constexpr RdramOffset kEretAddress = 0x00002788u;
     constexpr RdramOffset kStatusReadAddress = 0x0000278cu;
     constexpr RdramOffset kEpcReadAddress = 0x00002790u;
+    constexpr RdramOffset kBadVaddrReadAddress = 0x00002794u;
+    constexpr RdramOffset kCauseReadAddress = 0x00002798u;
     constexpr CpuAddress kUnfetchableEpc = kSyntheticMiMmioCpuBase;
 
     write_cop0_register_through_cpu(
@@ -8942,22 +9022,18 @@ void run_cop0_eret_epc_target_guard_demo() {
       throw std::runtime_error("cop0_eret_unfetchable_epc did not commit target cadence");
     }
 
-    require_step_machine_fault(
-        machine,
-        "cop0_eret_unfetchable_epc_next_fetch_rejected",
-        MachineFaultKind::kCpuRdramAddressRejected,
-        4);
-    if (machine.cpu_pc() != kUnfetchableEpc ||
-        machine.cpu_next_pc() != kUnfetchableEpc + 4u) {
-      throw std::runtime_error("cop0_eret_unfetchable_epc fetch fault changed pc/next_pc");
+    require_exception(machine.step_cpu_instruction(), "cop0_eret_unfetchable_epc_next_fetch_exception");
+    if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+        machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+      throw std::runtime_error("cop0_eret_unfetchable_epc next fetch did not enter vector");
     }
     require_cop0_register_equals(
         machine,
         kStatusReadAddress,
         kStatusReadIndex,
         kCop0StatusRegisterIndex,
-        0,
-        "cop0_eret_unfetchable_epc_status_exl_cleared");
+        kCop0StatusExl,
+        "cop0_eret_unfetchable_epc_status_exl_set_by_fetch_exception");
     require_cop0_register_equals(
         machine,
         kEpcReadAddress,
@@ -8965,6 +9041,20 @@ void run_cop0_eret_epc_target_guard_demo() {
         kCop0EpcRegisterIndex,
         kUnfetchableEpc,
         "cop0_eret_unfetchable_epc_preserved");
+    require_cop0_register_equals(
+        machine,
+        kBadVaddrReadAddress,
+        kEpcReadIndex,
+        kCop0BadVaddrRegisterIndex,
+        kUnfetchableEpc,
+        "cop0_eret_unfetchable_epc_badvaddr");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kEpcReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseExcCodeAdelBits,
+        "cop0_eret_unfetchable_epc_cause");
   }
 }
 
@@ -9251,6 +9341,363 @@ void run_cop0_unaligned_fetch_exception_demo() {
       kCop0StatusExl,
       "cop0_address_error_fetch_status");
   require_stopped(machine.step_cpu_instruction(), "cop0_address_error_fetch_vector_break");
+}
+
+void run_cop0_instruction_fetch_address_exception_demo() {
+  std::cout << "fn64 bootstrap COP0 demo: direct-alias fetch target misses enter local AdEL exception\n";
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kCountSourceIndex = 4;
+    constexpr std::size_t kEpcReadIndex = 5;
+    constexpr std::size_t kBadVaddrReadIndex = 6;
+    constexpr std::size_t kCauseReadIndex = 7;
+    constexpr std::size_t kStatusReadIndex = 8;
+    constexpr std::size_t kCountReadIndex = 9;
+    constexpr RdramOffset kCountWriteAddress = 0x00004600u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr CpuAddress kRejectedPc = cpu_rdram_alias(0x00400000u);
+
+    write_cop0_register_through_cpu(
+        machine,
+        kCountWriteAddress,
+        kCountSourceIndex,
+        kCop0CountRegisterIndex,
+        600,
+        "cop0_fetch_address_reject_count");
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mfc0(static_cast<std::uint8_t>(kEpcReadIndex), kCop0EpcRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 4u,
+        encode_mfc0(static_cast<std::uint8_t>(kBadVaddrReadIndex), kCop0BadVaddrRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 8u,
+        encode_mfc0(static_cast<std::uint8_t>(kCauseReadIndex), kCop0CauseRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 12u,
+        encode_mfc0(static_cast<std::uint8_t>(kStatusReadIndex), kCop0StatusRegisterIndex));
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress + 16u,
+        encode_mfc0(static_cast<std::uint8_t>(kCountReadIndex), kCop0CountRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 20u, encode_break());
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kRejectedPc + 4u);
+
+    require_exception(machine.step_cpu_instruction(), "cop0_fetch_address_reject_out_of_rdram_entry");
+    if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+        machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+      throw std::runtime_error("cop0_fetch_address_reject_out_of_rdram did not enter vector");
+    }
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_reject_out_of_rdram_vector_epc");
+    require_gpr_equals(
+        machine,
+        kEpcReadIndex,
+        cpu_value_from_sign_extended_u32(kRejectedPc),
+        "cop0_fetch_address_reject_out_of_rdram_epc");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_reject_out_of_rdram_vector_badvaddr");
+    require_gpr_equals(
+        machine,
+        kBadVaddrReadIndex,
+        cpu_value_from_sign_extended_u32(kRejectedPc),
+        "cop0_fetch_address_reject_out_of_rdram_badvaddr");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_reject_out_of_rdram_vector_cause");
+    require_gpr_equals(
+        machine,
+        kCauseReadIndex,
+        kCop0CauseExcCodeAdelBits,
+        "cop0_fetch_address_reject_out_of_rdram_cause");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_reject_out_of_rdram_vector_status");
+    require_gpr_equals(
+        machine,
+        kStatusReadIndex,
+        kCop0StatusExl,
+        "cop0_fetch_address_reject_out_of_rdram_status");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_reject_out_of_rdram_vector_count");
+    require_gpr_equals(
+        machine,
+        kCountReadIndex,
+        605,
+        "cop0_fetch_address_reject_out_of_rdram_count_no_tick");
+    require_stopped(machine.step_cpu_instruction(), "cop0_fetch_address_reject_out_of_rdram_vector_break");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr CpuAddress kRejectedPc = 0xb0000040u;
+    constexpr std::size_t kSentinelIndex = 4;
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kRejectedPc + 4u);
+    machine.stage_cpu_gpr(kSentinelIndex, 0xfeedfaceu);
+    require_fetch_address_exception_entry(
+        machine,
+        "cop0_fetch_address_reject_cartridge_alias",
+        kRejectedPc,
+        0x00004640u);
+    require_gpr_equals(
+        machine,
+        kSentinelIndex,
+        0xfeedfaceu,
+        "cop0_fetch_address_reject_cartridge_alias_no_execute");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    machine.stage_cpu_pc(kSyntheticMiMmioCpuBase);
+    machine.stage_cpu_next_pc(kSyntheticMiMmioCpuBase + 4u);
+    require_fetch_address_exception_entry(
+        machine,
+        "cop0_fetch_address_reject_mi_alias_non_executable",
+        kSyntheticMiMmioCpuBase,
+        0x00004660u);
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    require_step_machine_fault(
+        machine,
+        "cop0_fetch_address_blank_pc_stays_fault",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    require_cop0_register_equals(
+        machine,
+        0x00004680u,
+        4,
+        kCop0EpcRegisterIndex,
+        0,
+        "cop0_fetch_address_blank_pc_epc_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x00004684u,
+        4,
+        kCop0BadVaddrRegisterIndex,
+        0,
+        "cop0_fetch_address_blank_pc_badvaddr_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x00004688u,
+        4,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_fetch_address_blank_pc_cause_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x0000468cu,
+        4,
+        kCop0StatusRegisterIndex,
+        0,
+        "cop0_fetch_address_blank_pc_status_unchanged");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr CpuAddress kRejectedPc = 0x40000100u;
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kRejectedPc + 4u);
+    require_step_machine_fault(
+        machine,
+        "cop0_fetch_address_non_direct_stays_fault",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    require_cop0_register_equals(
+        machine,
+        0x000046a0u,
+        4,
+        kCop0EpcRegisterIndex,
+        0,
+        "cop0_fetch_address_non_direct_epc_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x000046a4u,
+        4,
+        kCop0BadVaddrRegisterIndex,
+        0,
+        "cop0_fetch_address_non_direct_badvaddr_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x000046a8u,
+        4,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_fetch_address_non_direct_cause_unchanged");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kStatusSourceIndex = 4;
+    constexpr CpuAddress kRejectedPc = 0xb0000040u;
+    write_cop0_register_through_cpu(
+        machine,
+        0x000046c0u,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "cop0_fetch_address_reject_exl_status");
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kRejectedPc + 4u);
+    require_step_machine_fault(
+        machine,
+        "cop0_fetch_address_reject_exl_fault",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    require_cop0_register_equals(
+        machine,
+        0x000046c4u,
+        kStatusSourceIndex,
+        kCop0EpcRegisterIndex,
+        0,
+        "cop0_fetch_address_reject_exl_epc_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x000046c8u,
+        kStatusSourceIndex,
+        kCop0BadVaddrRegisterIndex,
+        0,
+        "cop0_fetch_address_reject_exl_badvaddr_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x000046ccu,
+        kStatusSourceIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_fetch_address_reject_exl_cause_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x000046d0u,
+        kStatusSourceIndex,
+        kCop0StatusRegisterIndex,
+        kCop0StatusExl,
+        "cop0_fetch_address_reject_exl_status_preserved");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr CpuAddress kRejectedPc = 0xb0000040u;
+    constexpr CpuAddress kNonOrdinaryNextPc = 0xb0000080u;
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kNonOrdinaryNextPc);
+    require_step_machine_fault(
+        machine,
+        "cop0_fetch_address_reject_nonordinary_fault",
+        MachineFaultKind::kCpuRdramAddressRejected,
+        4);
+    if (machine.cpu_pc() != kRejectedPc ||
+        machine.cpu_next_pc() != kNonOrdinaryNextPc) {
+      throw std::runtime_error("cop0_fetch_address_reject_nonordinary changed pc/next_pc");
+    }
+    require_cop0_register_equals(
+        machine,
+        0x000046e0u,
+        4,
+        kCop0EpcRegisterIndex,
+        0,
+        "cop0_fetch_address_reject_nonordinary_epc_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x000046e4u,
+        4,
+        kCop0BadVaddrRegisterIndex,
+        0,
+        "cop0_fetch_address_reject_nonordinary_badvaddr_unchanged");
+    require_cop0_register_equals(
+        machine,
+        0x000046e8u,
+        4,
+        kCop0CauseRegisterIndex,
+        0,
+        "cop0_fetch_address_reject_nonordinary_cause_unchanged");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kEpcSourceIndex = 4;
+    constexpr std::size_t kTargetIndex = 5;
+    constexpr CpuAddress kRejectedPc = 0xb0000040u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+    constexpr RdramOffset kTargetAddress = 0x00004720u;
+
+    machine.stage_rdram_u32_be(
+        kVectorInstructionAddress,
+        encode_mtc0(static_cast<std::uint8_t>(kEpcSourceIndex), kCop0EpcRegisterIndex));
+    machine.stage_rdram_u32_be(kVectorInstructionAddress + 4u, encode_cop0_eret());
+    machine.stage_rdram_u32_be(
+        kTargetAddress,
+        encode_ori(static_cast<std::uint8_t>(kTargetIndex), 0, 0x5e7cu));
+    machine.stage_cpu_gpr(kEpcSourceIndex, cpu_rdram_alias(kTargetAddress));
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kRejectedPc + 4u);
+
+    require_exception(machine.step_cpu_instruction(), "cop0_fetch_address_handler_redirect_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_handler_redirect_write_epc");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_handler_redirect_eret");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_handler_redirect_target");
+    require_gpr_equals(
+        machine,
+        kTargetIndex,
+        0x5e7cu,
+        "cop0_fetch_address_handler_redirect_target_executed");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr CpuAddress kRejectedPc = 0xb0000040u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(kVectorInstructionAddress, encode_cop0_eret());
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kRejectedPc + 4u);
+
+    require_exception(machine.step_cpu_instruction(), "cop0_fetch_address_eret_same_epc_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_eret_same_epc_eret");
+    if (machine.cpu_pc() != kRejectedPc ||
+        machine.cpu_next_pc() != kRejectedPc + 4u) {
+      throw std::runtime_error("cop0_fetch_address_eret_same_epc did not return to rejected PC");
+    }
+    require_exception(machine.step_cpu_instruction(), "cop0_fetch_address_eret_same_epc_reentry");
+    require_cop0_register_equals(
+        machine,
+        0x00004740u,
+        4,
+        kCop0EpcRegisterIndex,
+        kRejectedPc,
+        "cop0_fetch_address_eret_same_epc_epc");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr CpuAddress kRejectedPc = 0xb0000040u;
+    constexpr RdramOffset kVectorInstructionAddress = 0x00000180u;
+
+    machine.stage_rdram_u32_be(kVectorInstructionAddress, encode_mtc0(0, kCop0CauseRegisterIndex));
+    machine.stage_cpu_pc(kRejectedPc);
+    machine.stage_cpu_next_pc(kRejectedPc + 4u);
+    require_exception(machine.step_cpu_instruction(), "cop0_fetch_address_cause_clear_entry");
+    require_stepped(machine.step_cpu_instruction(), "cop0_fetch_address_cause_clear_mtc0_zero");
+    require_cop0_register_equals(
+        machine,
+        0x00004760u,
+        4,
+        kCop0CauseRegisterIndex,
+        kCop0CauseExcCodeAdelBits,
+        "cop0_fetch_address_cause_clear_exc_code_preserved");
+    require_cop0_register_equals(
+        machine,
+        0x00004764u,
+        4,
+        kCop0BadVaddrRegisterIndex,
+        kRejectedPc,
+        "cop0_fetch_address_cause_clear_badvaddr_preserved");
+  }
 }
 
 void run_cop0_unaligned_data_exception_demo() {
@@ -10446,12 +10893,12 @@ void run_cop0_data_address_rejection_boundary_demo() {
     auto machine_storage = std::make_unique<Machine>(Cartridge{});
     Machine& machine = *machine_storage;
     constexpr std::size_t kReadIndex = 4;
-    constexpr CpuAddress kRejectedPc = 0xb0000040u;
+    constexpr CpuAddress kRejectedPc = 0x40000100u;
     machine.stage_cpu_pc(kRejectedPc);
     machine.stage_cpu_next_pc(kRejectedPc + 4u);
     require_step_machine_fault(
         machine,
-        "cop0_data_address_reject_fetch_stays_fault",
+        "cop0_data_address_reject_non_direct_fetch_stays_fault",
         MachineFaultKind::kCpuRdramAddressRejected,
         4);
     require_cop0_register_equals(
@@ -10460,14 +10907,14 @@ void run_cop0_data_address_rejection_boundary_demo() {
         kReadIndex,
         kCop0CauseRegisterIndex,
         0,
-        "cop0_data_address_reject_fetch_cause_unchanged");
+        "cop0_data_address_reject_non_direct_fetch_cause_unchanged");
     require_cop0_register_equals(
         machine,
         0x00004504u,
         kReadIndex,
         kCop0BadVaddrRegisterIndex,
         0,
-        "cop0_data_address_reject_fetch_badvaddr_unchanged");
+        "cop0_data_address_reject_non_direct_fetch_badvaddr_unchanged");
   }
 
   {
@@ -12622,11 +13069,11 @@ void run_sp_memory_data_demo() {
     Machine& machine = *machine_storage;
     machine.stage_cpu_pc(sp_dmem_uncached_alias(0));
     machine.stage_cpu_next_pc(sp_dmem_uncached_alias(4));
-    require_step_machine_fault(
+    require_fetch_address_exception_entry(
         machine,
-        "sp_memory_demo_dmem_fetch_rejected",
-        MachineFaultKind::kCpuRdramAddressRejected,
-        4);
+        "sp_memory_demo_dmem_fetch_non_executable",
+        sp_dmem_uncached_alias(0),
+        0x00001660u);
   }
 
   {
@@ -12634,11 +13081,11 @@ void run_sp_memory_data_demo() {
     Machine& machine = *machine_storage;
     machine.stage_cpu_pc(sp_imem_uncached_alias(0));
     machine.stage_cpu_next_pc(sp_imem_uncached_alias(4));
-    require_step_machine_fault(
+    require_fetch_address_exception_entry(
         machine,
-        "sp_memory_demo_imem_fetch_rejected",
-        MachineFaultKind::kCpuRdramAddressRejected,
-        4);
+        "sp_memory_demo_imem_fetch_non_executable",
+        sp_imem_uncached_alias(0),
+        0x00001680u);
   }
 }
 
@@ -13664,6 +14111,7 @@ void run_data_demos(Machine& machine) {
   run_cop0_eret_unsupported_precondition_demo();
   run_cop0_address_error_initial_demo();
   run_cop0_unaligned_fetch_exception_demo();
+  run_cop0_instruction_fetch_address_exception_demo();
   run_cop0_unaligned_data_exception_demo();
   run_cop0_address_error_handler_demo();
   run_cop0_address_error_gate_demo();
