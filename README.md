@@ -100,9 +100,9 @@ Successful PI DMA latches a local MI PI pending bit. PI itself does not deliver 
 
 The current CPU data path recognizes a tiny local SI register window for aligned 32-bit loads and stores. Machine owns a local 64-byte PIF RAM buffer that is reachable only through this SI DMA seam, not through CPU fetch or data mapping.
 
-Writing the local SI PIF-to-RDRAM trigger immediately copies exactly 64 bytes from local PIF RAM to physical RDRAM. Writing the local SI RDRAM-to-PIF trigger immediately copies exactly 64 bytes from physical RDRAM to local PIF RAM. The only supported local PIF RAM DMA address is 0x1fc007c0. Each transfer is preflighted before mutation; failed SI DMA leaves RDRAM and PIF RAM unchanged and does not latch MI pending.
+Writing the local SI PIF-to-RDRAM trigger immediately copies exactly 64 bytes from local PIF RAM to physical RDRAM. Writing the local SI RDRAM-to-PIF trigger immediately copies exactly 64 bytes from physical RDRAM to local PIF RAM. The only supported local PIF RAM DMA address is 0x1fc007c0. Each transfer is preflighted before mutation; failed SI DMA leaves RDRAM and PIF RAM unchanged and does not latch MI pending or SI status pending.
 
-Successful SI DMA latches a local MI SI pending bit. SI itself does not deliver CPU interrupts; delivery, when enabled, goes through the already-earned MI/COP0 interrupt seam. This is not PIF boot ROM, CIC/security behavior, controller protocol, SI timing/status fidelity, busy delay, boot, cartridge CPU mapping, a public bus, or game compatibility.
+Successful SI DMA latches a local SI status pending bit and a local MI SI pending bit. Writing the local SI status clear command acknowledges SI by clearing the SI status bit and MI SI pending; MI MMIO write-one-to-clear remains available for MI pending and does not clear SI local status. SI itself does not deliver CPU interrupts; delivery, when enabled, goes through the already-earned MI/COP0 interrupt seam. This is not real SI timing/status fidelity, PIF boot ROM, CIC/security behavior, controller protocol, busy delay, boot, cartridge CPU mapping, a public bus, or game compatibility.
 
 ## Local SP DMEM/IMEM data memory
 

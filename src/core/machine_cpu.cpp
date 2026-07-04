@@ -996,7 +996,7 @@ std::uint32_t Machine::read_si_register_u32(
       return si_dram_to_pif_address_;
 
     case kSiStatusRegisterOffset:
-      return si_status_;
+      return si_status_ & kSiSupportedStatusBits;
 
     default:
       fail_unsupported_cpu_data_access("SI word read", cpu_address, 4);
@@ -1015,20 +1015,22 @@ void Machine::write_si_register_u32(
     case kSiPifToDramRegisterOffset:
       perform_si_pif_to_dram_dma(value);
       si_pif_to_dram_address_ = value;
-      si_status_ = 0;
+      si_status_ |= kSiStatusInterruptPending;
       latch_mi_interrupt_pending(kMiInterruptPendingSi);
       return;
 
     case kSiDramToPifRegisterOffset:
       perform_si_dram_to_pif_dma(value);
       si_dram_to_pif_address_ = value;
-      si_status_ = 0;
+      si_status_ |= kSiStatusInterruptPending;
       latch_mi_interrupt_pending(kMiInterruptPendingSi);
       return;
 
     case kSiStatusRegisterOffset:
-      // Local immediate-complete SI subset: status remains idle/no-error.
-      si_status_ = 0;
+      if ((value & kSiStatusInterruptClear) != 0) {
+        si_status_ &= ~kSiStatusInterruptPending;
+        clear_mi_interrupt_pending(kMiInterruptPendingSi);
+      }
       return;
 
     default:
@@ -1125,6 +1127,10 @@ void Machine::latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept {
   // Local MI state is observable MMIO only. COP0 Cause observes a derived local
   // line, and the narrow local interrupt-entry seam may consume that line.
   mi_interrupt_pending_ |= pending_bit & kMiSupportedInterruptBits;
+}
+
+void Machine::clear_mi_interrupt_pending(std::uint32_t pending_bit) noexcept {
+  mi_interrupt_pending_ &= ~(pending_bit & kMiSupportedInterruptBits);
 }
 
 std::uint32_t Machine::read_cop0_bad_vaddr() const noexcept {

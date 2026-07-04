@@ -421,6 +421,10 @@ private:
   static constexpr std::uint32_t kSiDramToPifRegisterOffset = 0x10u;
   static constexpr std::uint32_t kSiStatusRegisterOffset = 0x18u;
   static constexpr std::uint32_t kSiSupportedPifRamAddress = 0x1fc007c0u;
+  static constexpr std::uint32_t kSiStatusInterruptPending = 0x00001000u;
+  static constexpr std::uint32_t kSiStatusInterruptClear = 0x00001000u;
+  static constexpr std::uint32_t kSiSupportedStatusBits =
+      kSiStatusInterruptPending;
 
   void reset_to_blank_rdram_power_on_state();
 
@@ -568,6 +572,7 @@ private:
       CpuAddress cpu_address,
       std::uint32_t value);
   void latch_mi_interrupt_pending(std::uint32_t pending_bit) noexcept;
+  void clear_mi_interrupt_pending(std::uint32_t pending_bit) noexcept;
   std::uint32_t read_cop0_bad_vaddr() const noexcept;
   std::uint32_t read_cop0_count() const noexcept;
   std::uint32_t read_cop0_compare() const noexcept;
