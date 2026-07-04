@@ -1118,9 +1118,9 @@ void Machine::enter_local_address_error_exception(
     CpuAddress faulting_pc,
     CpuAddress bad_vaddr,
     std::uint8_t exception_code) noexcept {
-  // Narrow local address-error entry only: unaligned fetch/read/write can report
-  // AdEL/AdES and BadVAddr. Address rejection, TLB, BD state, and broad
-  // exception delivery remain unearned.
+  // Narrow local address-error entry only: unaligned fetch/read/write and
+  // control-transfer targets can report AdEL/AdES and BadVAddr. Address
+  // rejection, TLB, BD state, and broad exception delivery remain unearned.
   cop0_epc_ = faulting_pc;
   cop0_bad_vaddr_ = bad_vaddr;
   cop0_exception_code_ = exception_code;
@@ -3078,6 +3078,15 @@ Machine::CpuInstructionStepResult Machine::step_cpu_instruction() {
             kCop0ExceptionCodeAddressErrorStore);
         return CpuInstructionStepResult::kException;
       }
+    }
+
+    if (fault.kind() == MachineFaultKind::kUnalignedControlTransferTarget &&
+        local_synchronous_exception_entry_allowed(current_pc, current_next_pc)) {
+      enter_local_address_error_exception(
+          current_pc,
+          fault.cpu_address(),
+          kCop0ExceptionCodeAddressErrorLoad);
+      return CpuInstructionStepResult::kException;
     }
 
     throw;

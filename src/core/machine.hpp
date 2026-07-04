@@ -200,8 +200,8 @@ private:
   // the small explicitly supported 64-bit cluster or report the rest as
   // unsupported; recognition here does not imply full VR4300 execution support.
   // COP0 is only narrowly subdecoded for local MFC0/MTC0 Status/Count/Compare/
-  // Cause/EPC state, minimal local interrupt entry, and ERET return from that
-  // entry. COP1/COP2/COP3, CACHE, and coprocessor memory
+  // Cause/EPC/BadVAddr state, minimal local interrupt/exception entries, and
+  // ERET return from those entries. COP1/COP2/COP3, CACHE, and coprocessor memory
   // identities remain coarse unsupported decode boundaries. fn64 does not
   // model cache state/ops/coherence or general COP0 exception delivery from
   // these identities.

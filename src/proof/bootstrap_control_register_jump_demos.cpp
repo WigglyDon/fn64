@@ -33,6 +33,7 @@ void run_jr_misaligned_target_demo(Machine& machine) {
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74a1u);
 
   machine.stage_cpu_pc(cpu_rdram_alias(kJrAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kJrAddress + 8u));
   machine.stage_cpu_gpr(kTargetRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(31, 0);
@@ -103,6 +104,7 @@ void run_jalr_rd_equals_rs_misaligned_target_demo(Machine& machine) {
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74c1u);
 
   machine.stage_cpu_pc(cpu_rdram_alias(kJalrAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kJalrAddress + 8u));
   machine.stage_cpu_gpr(kAliasedRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kTargetMarkerIndex, 0);
@@ -179,6 +181,7 @@ void run_jalr_rd31_misaligned_target_demo(Machine& machine) {
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74d1u);
 
   machine.stage_cpu_pc(cpu_rdram_alias(kJalrAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kJalrAddress + 8u));
   machine.stage_cpu_gpr(kTargetRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, kInitialLinkValue);
@@ -626,6 +629,7 @@ void run_jalr_misaligned_target_demo(Machine& machine) {
       static_cast<std::uint8_t>(kDelaySlotMarkerIndex), 0, 0x74b1u);
 
   machine.stage_cpu_pc(cpu_rdram_alias(kJalrAddress));
+  machine.stage_cpu_next_pc(cpu_rdram_alias(kJalrAddress + 8u));
   machine.stage_cpu_gpr(kTargetRegisterIndex, cpu_rdram_alias(kMisalignedTargetAddress));
   machine.stage_cpu_gpr(kDelaySlotMarkerIndex, 0);
   machine.stage_cpu_gpr(kLinkIndex, 0);
