@@ -812,8 +812,9 @@ void Machine::write_sp_register_u32(
       return;
 
     case kSpStatusRegisterOffset:
-      // Local immediate-complete SP subset: status remains idle/no-error.
-      sp_status_ = 0;
+      if ((value & kSpStatusClearInterrupt) != 0) {
+        clear_mi_interrupt_pending(kMiInterruptPendingSp);
+      }
       return;
 
     default:
@@ -1363,8 +1364,9 @@ void Machine::write_pi_register_u32(
       return;
 
     case kPiStatusRegisterOffset:
-      // Local immediate-complete PI subset: status remains idle/no-error.
-      pi_status_ = 0;
+      if ((value & kPiStatusClearInterrupt) != 0) {
+        clear_mi_interrupt_pending(kMiInterruptPendingPi);
+      }
       return;
 
     default:

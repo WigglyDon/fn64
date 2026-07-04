@@ -4303,6 +4303,8 @@ constexpr std::uint16_t kPiCartRegisterOffset = 0x0004u;
 constexpr std::uint16_t kPiCartToRdramLengthRegisterOffset = 0x000cu;
 constexpr std::uint16_t kPiStatusRegisterOffset = 0x0010u;
 constexpr std::uint16_t kPiUnknownRegisterOffset = 0x0014u;
+constexpr std::uint32_t kPiStatusClearInterrupt = 0x00000002u;
+constexpr std::uint32_t kPiStatusUnsupportedBits = 0x00000004u;
 
 constexpr CpuAddress kSyntheticMiMmioCpuBase = 0xa4300000u;
 constexpr std::uint16_t kMiInterruptPendingRegisterOffset = 0x0008u;
@@ -4396,6 +4398,9 @@ constexpr std::uint16_t kSpReadLengthRegisterOffset = 0x0008u;
 constexpr std::uint16_t kSpWriteLengthRegisterOffset = 0x000cu;
 constexpr std::uint16_t kSpStatusRegisterOffset = 0x0010u;
 constexpr std::uint16_t kSpUnknownRegisterOffset = 0x0014u;
+constexpr std::uint32_t kSpStatusClearInterrupt = 0x00000008u;
+constexpr std::uint32_t kSpStatusUnsupportedBits = 0x00000010u;
+constexpr std::uint32_t kSpStatusSetInterruptUnsupported = 0x00000040u;
 constexpr CpuAddress kSyntheticSpOutsideRegisterWindow = 0xa4040020u;
 constexpr CpuAddress kSyntheticSiMmioCpuBase = 0xa4800000u;
 constexpr CpuAddress kSyntheticPifRamCpuBase = 0xbfc007c0u;
@@ -4500,6 +4505,78 @@ void stage_sp_lw_instruction(
   machine.stage_rdram_u32_be(
       instruction_address,
       encode_lw(target_register, base_register, sp_register_offset));
+}
+
+void write_pi_register_through_cpu(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t source_register,
+    std::size_t base_register,
+    std::uint16_t pi_register_offset,
+    std::uint32_t value,
+    const char* label) {
+  stage_pi_sw_instruction(
+      machine,
+      instruction_address,
+      static_cast<std::uint8_t>(source_register),
+      static_cast<std::uint8_t>(base_register),
+      pi_register_offset);
+  machine.stage_cpu_gpr(source_register, value);
+  step_at(machine, instruction_address, label);
+}
+
+void require_pi_register_equals(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t target_register,
+    std::size_t base_register,
+    std::uint16_t pi_register_offset,
+    std::uint32_t expected,
+    const char* label) {
+  stage_pi_lw_instruction(
+      machine,
+      instruction_address,
+      static_cast<std::uint8_t>(target_register),
+      static_cast<std::uint8_t>(base_register),
+      pi_register_offset);
+  step_at(machine, instruction_address, label);
+  require_gpr_equals(machine, target_register, expected, label);
+}
+
+void write_sp_register_through_cpu(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t source_register,
+    std::size_t base_register,
+    std::uint16_t sp_register_offset,
+    std::uint32_t value,
+    const char* label) {
+  stage_sp_sw_instruction(
+      machine,
+      instruction_address,
+      static_cast<std::uint8_t>(source_register),
+      static_cast<std::uint8_t>(base_register),
+      sp_register_offset);
+  machine.stage_cpu_gpr(source_register, value);
+  step_at(machine, instruction_address, label);
+}
+
+void require_sp_register_equals(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t target_register,
+    std::size_t base_register,
+    std::uint16_t sp_register_offset,
+    std::uint32_t expected,
+    const char* label) {
+  stage_sp_lw_instruction(
+      machine,
+      instruction_address,
+      static_cast<std::uint8_t>(target_register),
+      static_cast<std::uint8_t>(base_register),
+      sp_register_offset);
+  step_at(machine, instruction_address, label);
+  require_gpr_equals(machine, target_register, expected, label);
 }
 
 void stage_mi_sw_instruction(
@@ -8192,6 +8269,750 @@ void run_mi_dma_failure_demo() {
 
   require_failed_sp_dma_no_pending("mi_dma_failure_demo_sp_read_bad_memory", false);
   require_failed_sp_dma_no_pending("mi_dma_failure_demo_sp_write_bad_memory", true);
+}
+
+void run_pi_sp_status_ack_demo() {
+  std::cout << "fn64 bootstrap PI/SP MMIO demo: local status acknowledgement clears only owned MI pending bits\n";
+
+  const auto trigger_pi_dma =
+      [](Machine& machine,
+         RdramOffset instruction_base,
+         RdramOffset destination,
+         std::size_t pi_base_register,
+         std::size_t value_register,
+         const char* label) {
+        write_pi_register_through_cpu(
+            machine,
+            instruction_base,
+            value_register,
+            pi_base_register,
+            kPiDramRegisterOffset,
+            destination,
+            label);
+        write_pi_register_through_cpu(
+            machine,
+            instruction_base + 4u,
+            value_register,
+            pi_base_register,
+            kPiCartRegisterOffset,
+            pi_cart_rom_address(0x00000040u),
+            label);
+        write_pi_register_through_cpu(
+            machine,
+            instruction_base + 8u,
+            value_register,
+            pi_base_register,
+            kPiCartToRdramLengthRegisterOffset,
+            3u,
+            label);
+      };
+
+  const auto trigger_sp_read_dma =
+      [](Machine& machine,
+         RdramOffset instruction_base,
+         RdramOffset source,
+         std::uint32_t sp_offset,
+         std::size_t sp_base_register,
+         std::size_t value_register,
+         const char* label) {
+        machine.stage_rdram_u32_be(source, 0x11223344u);
+        write_sp_register_through_cpu(
+            machine,
+            instruction_base,
+            value_register,
+            sp_base_register,
+            kSpMemoryRegisterOffset,
+            sp_offset,
+            label);
+        write_sp_register_through_cpu(
+            machine,
+            instruction_base + 4u,
+            value_register,
+            sp_base_register,
+            kSpDramRegisterOffset,
+            source,
+            label);
+        write_sp_register_through_cpu(
+            machine,
+            instruction_base + 8u,
+            value_register,
+            sp_base_register,
+            kSpReadLengthRegisterOffset,
+            3u,
+            label);
+      };
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kPiBaseIndex = 4;
+    constexpr std::size_t kSpBaseIndex = 5;
+    constexpr std::size_t kMiBaseIndex = 6;
+    constexpr std::size_t kReadIndex = 7;
+    constexpr RdramOffset kReadBase = 0x00003f00u;
+
+    machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+    machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    require_pi_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kPiBaseIndex,
+        kPiStatusRegisterOffset,
+        0,
+        "pi_sp_status_ack_initial_pi_status");
+    require_sp_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        0,
+        "pi_sp_status_ack_initial_sp_status");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "pi_sp_status_ack_initial_mi_pending");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 12u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        0,
+        "pi_sp_status_ack_initial_mi_mask");
+  }
+
+  {
+    auto machine_storage = make_pi_dma_proof_machine();
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kPiBaseIndex = 4;
+    constexpr std::size_t kMiBaseIndex = 5;
+    constexpr std::size_t kValueIndex = 6;
+    constexpr std::size_t kReadIndex = 7;
+    constexpr std::size_t kCauseReadIndex = 8;
+    constexpr RdramOffset kPiDmaInstructionBase = 0x00003f20u;
+    constexpr RdramOffset kSwPiStatusAddress = 0x00003f2cu;
+    constexpr RdramOffset kReadBase = 0x00003f30u;
+    constexpr RdramOffset kSwMiMaskAddress = 0x00003f50u;
+    constexpr RdramOffset kCauseReadAddress = 0x00003f54u;
+    constexpr RdramOffset kDmaDestination = 0x00004000u;
+
+    machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    trigger_pi_dma(
+        machine,
+        kPiDmaInstructionBase,
+        kDmaDestination,
+        kPiBaseIndex,
+        kValueIndex,
+        "pi_status_ack_demo_dma");
+    require_rdram_word_equals(machine, kDmaDestination, 0xd1d4d7dau, "pi_status_ack_demo_copy");
+    require_mi_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingPi,
+        "pi_status_ack_demo_pi_pending");
+
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiMaskAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiPendingPi,
+        "pi_status_ack_demo_write_pi_mask");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp2,
+        "pi_status_ack_demo_cause_ip2_before_ack");
+    write_pi_register_through_cpu(
+        machine,
+        kSwPiStatusAddress,
+        kValueIndex,
+        kPiBaseIndex,
+        kPiStatusRegisterOffset,
+        kPiStatusClearInterrupt,
+        "pi_status_ack_demo_ack");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "pi_status_ack_demo_pi_pending_cleared");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "pi_status_ack_demo_cause_ip2_after_ack");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiPendingPi,
+        "pi_status_ack_demo_mask_unchanged");
+    require_pi_register_equals(
+        machine,
+        kReadBase + 12u,
+        kReadIndex,
+        kPiBaseIndex,
+        kPiStatusRegisterOffset,
+        0,
+        "pi_status_ack_demo_status_idle");
+    require_pi_register_equals(
+        machine,
+        kReadBase + 16u,
+        kReadIndex,
+        kPiBaseIndex,
+        kPiDramRegisterOffset,
+        kDmaDestination,
+        "pi_status_ack_demo_dram_register_unchanged");
+    require_pi_register_equals(
+        machine,
+        kReadBase + 20u,
+        kReadIndex,
+        kPiBaseIndex,
+        kPiCartRegisterOffset,
+        pi_cart_rom_address(0x00000040u),
+        "pi_status_ack_demo_cart_register_unchanged");
+    require_pi_register_equals(
+        machine,
+        kReadBase + 24u,
+        kReadIndex,
+        kPiBaseIndex,
+        kPiCartToRdramLengthRegisterOffset,
+        3u,
+        "pi_status_ack_demo_length_register_unchanged");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kSpBaseIndex = 4;
+    constexpr std::size_t kMiBaseIndex = 5;
+    constexpr std::size_t kValueIndex = 6;
+    constexpr std::size_t kReadIndex = 7;
+    constexpr std::size_t kCauseReadIndex = 8;
+    constexpr std::size_t kSpMemoryBaseIndex = 9;
+    constexpr std::size_t kSpMemorySourceIndex = 10;
+    constexpr std::size_t kSpMemoryReadIndex = 11;
+    constexpr RdramOffset kSpReadInstructionBase = 0x00003f60u;
+    constexpr RdramOffset kSwSpWriteLengthAddress = 0x00003f6cu;
+    constexpr RdramOffset kSwSpStatusAddress = 0x00003f70u;
+    constexpr RdramOffset kReadBase = 0x00003f74u;
+    constexpr RdramOffset kSwMiMaskAddress = 0x00003f94u;
+    constexpr RdramOffset kCauseReadAddress = 0x00003f98u;
+    constexpr RdramOffset kLoadSpAddress = 0x00003f9cu;
+    constexpr RdramOffset kStoreSpAddress = 0x00003fa0u;
+    constexpr RdramOffset kSpReadSource = 0x00004080u;
+    constexpr RdramOffset kSpWriteDestination = 0x000040a0u;
+    constexpr std::uint32_t kSpDmemOffset = 0x00000200u;
+    constexpr std::uint32_t kSpWriteDmemOffset = 0x00000240u;
+
+    stage_sp_lw_instruction(machine, kLoadSpAddress, kSpMemoryReadIndex, kSpMemoryBaseIndex, 0);
+    stage_sp_sw_instruction(machine, kStoreSpAddress, kSpMemorySourceIndex, kSpMemoryBaseIndex, 0);
+    machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    trigger_sp_read_dma(
+        machine,
+        kSpReadInstructionBase,
+        kSpReadSource,
+        kSpDmemOffset,
+        kSpBaseIndex,
+        kValueIndex,
+        "sp_status_ack_demo_read_dma");
+    machine.stage_cpu_gpr(kSpMemoryBaseIndex, sp_dmem_uncached_alias(kSpDmemOffset));
+    step_at(machine, kLoadSpAddress, "sp_status_ack_demo_load_read_copy");
+    require_gpr_equals(machine, kSpMemoryReadIndex, 0x11223344u, "sp_status_ack_demo_read_copy");
+    require_mi_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingSp,
+        "sp_status_ack_demo_sp_read_pending");
+
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiMaskAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiPendingSp,
+        "sp_status_ack_demo_write_sp_mask");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        kCop0CauseIp2,
+        "sp_status_ack_demo_cause_ip2_before_ack");
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpStatusAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        kSpStatusClearInterrupt,
+        "sp_status_ack_demo_ack_read_pending");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "sp_status_ack_demo_sp_pending_cleared");
+    require_cop0_register_equals(
+        machine,
+        kCauseReadAddress,
+        kCauseReadIndex,
+        kCop0CauseRegisterIndex,
+        0,
+        "sp_status_ack_demo_cause_ip2_after_ack");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 8u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiPendingSp,
+        "sp_status_ack_demo_mask_unchanged");
+    require_sp_register_equals(
+        machine,
+        kReadBase + 12u,
+        kReadIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        0,
+        "sp_status_ack_demo_status_idle");
+    require_sp_register_equals(
+        machine,
+        kReadBase + 16u,
+        kReadIndex,
+        kSpBaseIndex,
+        kSpMemoryRegisterOffset,
+        kSpDmemOffset,
+        "sp_status_ack_demo_mem_register_unchanged");
+    require_sp_register_equals(
+        machine,
+        kReadBase + 20u,
+        kReadIndex,
+        kSpBaseIndex,
+        kSpDramRegisterOffset,
+        kSpReadSource,
+        "sp_status_ack_demo_dram_register_unchanged");
+    require_sp_register_equals(
+        machine,
+        kReadBase + 24u,
+        kReadIndex,
+        kSpBaseIndex,
+        kSpReadLengthRegisterOffset,
+        3u,
+        "sp_status_ack_demo_read_length_unchanged");
+
+    machine.stage_cpu_gpr(kSpMemoryBaseIndex, sp_dmem_uncached_alias(kSpWriteDmemOffset));
+    machine.stage_cpu_gpr(kSpMemorySourceIndex, 0xaabbccddu);
+    step_at(machine, kStoreSpAddress, "sp_status_ack_demo_seed_write_source");
+    write_sp_register_through_cpu(
+        machine,
+        kSpReadInstructionBase,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpMemoryRegisterOffset,
+        kSpWriteDmemOffset,
+        "sp_status_ack_demo_sw_write_mem");
+    write_sp_register_through_cpu(
+        machine,
+        kSpReadInstructionBase + 4u,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpDramRegisterOffset,
+        kSpWriteDestination,
+        "sp_status_ack_demo_sw_write_dram");
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpWriteLengthAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpWriteLengthRegisterOffset,
+        3u,
+        "sp_status_ack_demo_write_dma");
+    require_rdram_word_equals(machine, kSpWriteDestination, 0xaabbccddu, "sp_status_ack_demo_write_copy");
+    require_mi_register_equals(
+        machine,
+        kReadBase,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingSp,
+        "sp_status_ack_demo_sp_write_pending");
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpStatusAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        kSpStatusClearInterrupt,
+        "sp_status_ack_demo_ack_write_pending");
+    require_mi_register_equals(
+        machine,
+        kReadBase + 4u,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "sp_status_ack_demo_sp_write_pending_cleared");
+    require_rdram_word_equals(
+        machine,
+        kSpWriteDestination,
+        0xaabbccddu,
+        "sp_status_ack_demo_write_copy_preserved");
+  }
+
+  {
+    auto machine_storage = make_pi_dma_proof_machine();
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kPiBaseIndex = 4;
+    constexpr std::size_t kSpBaseIndex = 5;
+    constexpr std::size_t kMiBaseIndex = 6;
+    constexpr std::size_t kValueIndex = 7;
+    constexpr std::size_t kReadIndex = 8;
+    constexpr RdramOffset kPiDmaInstructionBase = 0x000040c0u;
+    constexpr RdramOffset kSpReadInstructionBase = 0x000040ccu;
+    constexpr RdramOffset kSwPiStatusAddress = 0x000040d8u;
+    constexpr RdramOffset kSwSpStatusAddress = 0x000040dcu;
+    constexpr RdramOffset kSwMiMaskAddress = 0x000040e0u;
+    constexpr RdramOffset kSwMiPendingAddress = 0x000040e4u;
+    constexpr RdramOffset kLwMiPendingAddress = 0x000040e8u;
+    constexpr RdramOffset kLwMiMaskAddress = 0x000040ecu;
+    constexpr RdramOffset kDmaDestination = 0x00004180u;
+    constexpr RdramOffset kSpReadSource = 0x000041a0u;
+
+    machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+    machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiMaskAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiSupportedBits,
+        "pi_sp_status_ack_preserve_demo_write_all_mask");
+    trigger_pi_dma(
+        machine,
+        kPiDmaInstructionBase,
+        kDmaDestination,
+        kPiBaseIndex,
+        kValueIndex,
+        "pi_sp_status_ack_preserve_demo_pi_dma");
+    trigger_sp_read_dma(
+        machine,
+        kSpReadInstructionBase,
+        kSpReadSource,
+        0x00000300u,
+        kSpBaseIndex,
+        kValueIndex,
+        "pi_sp_status_ack_preserve_demo_sp_dma");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingPi | kMiPendingSp,
+        "pi_sp_status_ack_preserve_demo_both_pending");
+
+    write_pi_register_through_cpu(
+        machine,
+        kSwPiStatusAddress,
+        kValueIndex,
+        kPiBaseIndex,
+        kPiStatusRegisterOffset,
+        kPiStatusClearInterrupt,
+        "pi_sp_status_ack_preserve_demo_clear_pi");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingSp,
+        "pi_sp_status_ack_preserve_demo_sp_preserved");
+    require_mi_register_equals(
+        machine,
+        kLwMiMaskAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptMaskRegisterOffset,
+        kMiSupportedBits,
+        "pi_sp_status_ack_preserve_demo_mask_unchanged_after_pi_clear");
+
+    trigger_pi_dma(
+        machine,
+        kPiDmaInstructionBase,
+        kDmaDestination + 0x20u,
+        kPiBaseIndex,
+        kValueIndex,
+        "pi_sp_status_ack_noop_demo_pi_dma_again");
+    write_pi_register_through_cpu(
+        machine,
+        kSwPiStatusAddress,
+        kValueIndex,
+        kPiBaseIndex,
+        kPiStatusRegisterOffset,
+        0,
+        "pi_status_ack_noop_demo_zero");
+    write_pi_register_through_cpu(
+        machine,
+        kSwPiStatusAddress,
+        kValueIndex,
+        kPiBaseIndex,
+        kPiStatusRegisterOffset,
+        kPiStatusUnsupportedBits,
+        "pi_status_ack_noop_demo_unsupported");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingPi | kMiPendingSp,
+        "pi_status_ack_noop_demo_pending_preserved");
+
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpStatusAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        kSpStatusClearInterrupt,
+        "sp_status_ack_preserve_demo_clear_sp");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingPi,
+        "sp_status_ack_preserve_demo_pi_preserved");
+
+    trigger_sp_read_dma(
+        machine,
+        kSpReadInstructionBase,
+        kSpReadSource + 0x20u,
+        0x00000380u,
+        kSpBaseIndex,
+        kValueIndex,
+        "sp_status_ack_noop_demo_sp_dma_again");
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpStatusAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        0,
+        "sp_status_ack_noop_demo_zero");
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpStatusAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        kSpStatusUnsupportedBits,
+        "sp_status_ack_noop_demo_unsupported");
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpStatusAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        kSpStatusSetInterruptUnsupported,
+        "sp_status_ack_noop_demo_set_interrupt_unsupported");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingPi | kMiPendingSp,
+        "sp_status_ack_noop_demo_pending_preserved");
+
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiPendingAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingPi,
+        "pi_sp_status_ack_mi_clear_demo_clear_pi");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingSp,
+        "pi_sp_status_ack_mi_clear_demo_clear_pi_only");
+    write_mi_register_through_cpu(
+        machine,
+        kSwMiPendingAddress,
+        kValueIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        kMiPendingSp,
+        "pi_sp_status_ack_mi_clear_demo_clear_sp");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "pi_sp_status_ack_mi_clear_demo_all_clear");
+  }
+
+  {
+    auto machine_storage = std::make_unique<Machine>(Cartridge{});
+    Machine& machine = *machine_storage;
+    constexpr std::size_t kSpBaseIndex = 4;
+    constexpr std::size_t kMiBaseIndex = 5;
+    constexpr std::size_t kValueIndex = 6;
+    constexpr std::size_t kReadIndex = 7;
+    constexpr RdramOffset kSwSpStatusAddress = 0x000041c0u;
+    constexpr RdramOffset kLwMiPendingAddress = 0x000041c4u;
+
+    machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
+    machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+    write_sp_register_through_cpu(
+        machine,
+        kSwSpStatusAddress,
+        kValueIndex,
+        kSpBaseIndex,
+        kSpStatusRegisterOffset,
+        kSpStatusSetInterruptUnsupported,
+        "sp_status_ack_set_interrupt_no_pending_demo");
+    require_mi_register_equals(
+        machine,
+        kLwMiPendingAddress,
+        kReadIndex,
+        kMiBaseIndex,
+        kMiInterruptPendingRegisterOffset,
+        0,
+        "sp_status_ack_set_interrupt_no_pending_demo");
+  }
+
+  const auto require_device_interrupt_resume =
+      [&](const char* label, bool use_pi_pending) {
+        auto machine_storage = make_pi_dma_proof_machine();
+        Machine& machine = *machine_storage;
+        constexpr std::size_t kPiBaseIndex = 4;
+        constexpr std::size_t kSpBaseIndex = 5;
+        constexpr std::size_t kMiBaseIndex = 6;
+        constexpr std::size_t kValueIndex = 7;
+        constexpr std::size_t kInterruptedIndex = 8;
+        constexpr std::size_t kReadIndex = 9;
+        constexpr RdramOffset kDeviceDmaInstructionBase = 0x00004200u;
+        constexpr RdramOffset kSwMiMaskAddress = 0x00004210u;
+        constexpr RdramOffset kStatusWriteAddress = 0x00004214u;
+        constexpr RdramOffset kLwMiPendingAddress = 0x00004218u;
+        constexpr RdramOffset kInterruptedAddress = 0x0000421cu;
+        constexpr RdramOffset kVectorAckAddress = 0x00000180u;
+        constexpr RdramOffset kVectorEretAddress = 0x00000184u;
+        constexpr RdramOffset kDmaDataAddress = 0x00004280u;
+
+        machine.stage_cpu_gpr(kPiBaseIndex, kSyntheticPiMmioCpuBase);
+        machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
+        machine.stage_cpu_gpr(kMiBaseIndex, kSyntheticMiMmioCpuBase);
+
+        if (use_pi_pending) {
+          trigger_pi_dma(
+              machine,
+              kDeviceDmaInstructionBase,
+              kDmaDataAddress,
+              kPiBaseIndex,
+              kValueIndex,
+              label);
+          stage_pi_sw_instruction(machine, kVectorAckAddress, kValueIndex, kPiBaseIndex, kPiStatusRegisterOffset);
+        } else {
+          trigger_sp_read_dma(
+              machine,
+              kDeviceDmaInstructionBase,
+              kDmaDataAddress,
+              0x000003c0u,
+              kSpBaseIndex,
+              kValueIndex,
+              label);
+          stage_sp_sw_instruction(machine, kVectorAckAddress, kValueIndex, kSpBaseIndex, kSpStatusRegisterOffset);
+        }
+
+        machine.stage_rdram_u32_be(kVectorEretAddress, encode_cop0_eret());
+        machine.stage_rdram_u32_be(kInterruptedAddress, encode_ori(kInterruptedIndex, 0, 0x6d6du));
+        write_mi_register_through_cpu(
+            machine,
+            kSwMiMaskAddress,
+            kValueIndex,
+            kMiBaseIndex,
+            kMiInterruptMaskRegisterOffset,
+            use_pi_pending ? kMiPendingPi : kMiPendingSp,
+            label);
+        write_cop0_register_through_cpu(
+            machine,
+            kStatusWriteAddress,
+            kValueIndex,
+            kCop0StatusRegisterIndex,
+            kCop0StatusIe | kCop0StatusInterruptMask2,
+            label);
+        machine.stage_cpu_gpr(
+            kValueIndex,
+            use_pi_pending ? kPiStatusClearInterrupt : kSpStatusClearInterrupt);
+        machine.stage_cpu_pc(cpu_rdram_alias(kInterruptedAddress));
+        machine.stage_cpu_next_pc(cpu_rdram_alias(kInterruptedAddress + 4u));
+        require_interrupted(machine.step_cpu_instruction(), label);
+        require_gpr_equals(machine, kInterruptedIndex, 0, label);
+        if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+            machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+          throw std::runtime_error(std::string(label) + " did not enter local vector");
+        }
+        require_stepped(machine.step_cpu_instruction(), label);
+        require_stepped(machine.step_cpu_instruction(), label);
+        if (machine.cpu_pc() != cpu_rdram_alias(kInterruptedAddress) ||
+            machine.cpu_next_pc() != cpu_rdram_alias(kInterruptedAddress + 4u)) {
+          throw std::runtime_error(std::string(label) + " ERET did not return to interrupted instruction");
+        }
+        require_stepped(machine.step_cpu_instruction(), label);
+        require_gpr_equals(machine, kInterruptedIndex, 0x6d6du, label);
+        require_mi_register_equals(
+            machine,
+            kLwMiPendingAddress,
+            kReadIndex,
+            kMiBaseIndex,
+            kMiInterruptPendingRegisterOffset,
+            0,
+            label);
+      };
+
+  require_device_interrupt_resume("pi_status_ack_interrupt_resume_demo", true);
+  require_device_interrupt_resume("sp_status_ack_interrupt_resume_demo", false);
 }
 
 void run_mi_mmio_fault_demo() {
@@ -15748,6 +16569,7 @@ void run_data_demos(Machine& machine) {
   run_mi_mmio_mask_demo();
   run_mi_dma_pending_demo();
   run_mi_dma_failure_demo();
+  run_pi_sp_status_ack_demo();
   run_mi_mmio_fault_demo();
   run_cop0_status_observation_demo();
   run_cop0_cause_mi_observation_demo();

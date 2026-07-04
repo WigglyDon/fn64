@@ -94,7 +94,7 @@ Normal ROM launch does not stage or execute cartridge bytes automatically.
 
 The current CPU data path recognizes a tiny local PI register window for aligned 32-bit loads and stores. Writing the local cartridge-to-RDRAM length register immediately copies from the supported local PI cart ROM address window into physical RDRAM. PI cart address 0x10000000 maps to normalized Cartridge offset 0.
 
-Successful PI DMA latches a local MI PI pending bit. PI itself does not deliver CPU interrupts; delivery, when enabled, goes through the narrow local COP0 seam. This is not PI timing, DMA scheduling, boot, cartridge CPU mapping, or game compatibility.
+Successful PI DMA latches a local MI PI pending bit. Writing the narrow local PI status clear command acknowledges PI by clearing MI PI pending only; MI MMIO write-one-to-clear remains available for MI pending. PI itself does not deliver CPU interrupts; delivery, when enabled, goes through the narrow local COP0 seam. This is not PI timing, PI status fidelity, DMA scheduling, boot, cartridge CPU mapping, or game compatibility.
 
 ## Minimal SI/PIF DMA MMIO subset
 
@@ -108,13 +108,13 @@ Successful SI DMA latches a local SI status pending bit and a local MI SI pendin
 
 CPU data load/store can access Machine-owned 4 KiB SP DMEM and 4 KiB SP IMEM byte memories through direct aliases. Instruction fetch still remains RDRAM-only.
 
-The current CPU data path also recognizes a tiny local SP register window for aligned 32-bit loads and stores. Writing the local SP read/write length registers immediately performs a deterministic local length/count/skip block copy between physical RDRAM and local SP memory.
+The current CPU data path also recognizes a tiny local SP register window for aligned 32-bit loads and stores. Writing the local SP read/write length registers immediately performs a deterministic local length/count/skip block copy between physical RDRAM and local SP memory. Writing the narrow local SP status clear command acknowledges SP by clearing MI SP pending only; MI MMIO write-one-to-clear remains available for MI pending.
 
 This is not full SP register behavior, SP status/timing/interrupt fidelity, RSP execution, COP2, renderer/audio, or game compatibility.
 
 ## Minimal MI MMIO subset
 
-The current CPU data path recognizes a tiny local MI register window for aligned 32-bit loads and stores. It exposes local SP/SI/PI pending bits and local SP/SI/PI mask bits. Successful PI DMA latches the PI pending bit, successful SI DMA latches the SI pending bit, and successful SP read/write DMA latches the SP pending bit. CPU writes clear supported pending bits with write-one-to-clear and assign supported mask bits directly.
+The current CPU data path recognizes a tiny local MI register window for aligned 32-bit loads and stores. It exposes local SP/SI/PI pending bits and local SP/SI/PI mask bits. Successful PI DMA latches the PI pending bit, successful SI DMA latches the SI pending bit, and successful SP read/write DMA latches the SP pending bit. CPU writes clear supported pending bits with write-one-to-clear and assign supported mask bits directly. Device status acknowledgement can also clear only that device's own MI pending bit for SP/SI/PI; it does not alter unrelated pending bits or DMA state.
 
 MI pending/mask state is observable local machine state only. MI does not fetch exception vectors or change pc/next_pc by itself; the narrow COP0 seam below is the only local interrupt-entry path currently earned.
 

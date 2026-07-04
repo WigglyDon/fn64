@@ -365,6 +365,7 @@ private:
   static constexpr std::uint32_t kSpReadLengthRegisterOffset = 0x08u;
   static constexpr std::uint32_t kSpWriteLengthRegisterOffset = 0x0cu;
   static constexpr std::uint32_t kSpStatusRegisterOffset = 0x10u;
+  static constexpr std::uint32_t kSpStatusClearInterrupt = 0x00000008u;
   static constexpr CpuPhysicalAddress kMiPhysicalBase = 0x04300000u;
   static constexpr std::uint32_t kMiRegisterWindowSize = 0x20u;
   static constexpr std::uint32_t kMiInterruptPendingRegisterOffset = 0x08u;
@@ -413,6 +414,7 @@ private:
   static constexpr std::uint32_t kPiCartAddressRegisterOffset = 0x04u;
   static constexpr std::uint32_t kPiCartToRdramLengthRegisterOffset = 0x0cu;
   static constexpr std::uint32_t kPiStatusRegisterOffset = 0x10u;
+  static constexpr std::uint32_t kPiStatusClearInterrupt = 0x00000002u;
   static constexpr PiCartAddress kPiCartRomBase = 0x10000000u;
   static constexpr CpuPhysicalAddress kSiPhysicalBase = 0x04800000u;
   static constexpr std::uint32_t kSiRegisterWindowSize = 0x20u;
