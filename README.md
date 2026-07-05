@@ -29,7 +29,7 @@ Loads a cartridge, prints the normalized ROM metadata, local cartridge entry ins
 
 fn64_step_probe
 
-Runs a synthetic no-window Machine step probe. It loads no ROM path, uses generated synthetic bytes only, and does not imply boot, cartridge execution, or game compatibility.
+Runs a synthetic no-window Machine step probe. It loads no ROM path, uses generated synthetic bytes only, and now also exercises the explicit staged IPL3 candidate path through SP DMEM and the named 0xa4000040 candidate entry seam. This does not imply boot, PIF/CIC emulation, cartridge execution, or game compatibility.
 
 fn64 path/to/game.z64
 
@@ -99,6 +99,7 @@ Staging does not set pc/next_pc, and entry does not stage or execute bytes. Neit
 
 The `fn64_selftest` proof path proves the seam by loading a tiny generated ROM, staging two cartridge instructions into RDRAM, setting the CPU PC to the staged KSEG0 address, and stepping ORI then BREAK.
 It also proves explicit synthetic IPL3-candidate staging by copying normalized synthetic z64/v64/n64 cartridge bytes into SP DMEM, explicitly entering the named 0xa4000040 candidate entrypoint, and stepping one supported synthetic instruction.
+The `fn64_step_probe` no-window host path also performs a bounded synthetic check of the same staged candidate path with generated cartridge bytes only. It stages the candidate span, explicitly enters 0xa4000040, steps a short straight-line SP DMEM instruction sequence, and confirms reset still returns to the non-boot reset vector instead of executing staged bytes.
 
 Normal ROM launch does not stage, enter, or execute cartridge bytes automatically.
 

@@ -91,6 +91,22 @@ constexpr fn64::CpuInstructionWord encode_break() {
   return 0x0000000du;
 }
 
+constexpr fn64::CpuInstructionWord encode_cop0_transfer(
+    std::uint8_t cop0_op,
+    std::uint8_t rt,
+    std::uint8_t rd) {
+  return (0x10u << 26) |
+         (static_cast<std::uint32_t>(cop0_op) << 21) |
+         (static_cast<std::uint32_t>(rt) << 16) |
+         (static_cast<std::uint32_t>(rd) << 11);
+}
+
+constexpr fn64::CpuInstructionWord encode_mfc0(
+    std::uint8_t rt,
+    std::uint8_t rd) {
+  return encode_cop0_transfer(0x00u, rt, rd);
+}
+
 void write_u32_be(
     std::vector<std::uint8_t>& bytes,
     std::size_t offset,
@@ -128,6 +144,29 @@ std::vector<std::uint8_t> make_synthetic_cartridge_program_bytes(
   bytes.resize(program_cartridge_offset + 8u, 0);
   write_u32_be(bytes, program_cartridge_offset, first_instruction);
   write_u32_be(bytes, program_cartridge_offset + 4u, second_instruction);
+  return bytes;
+}
+
+std::vector<std::uint8_t> make_synthetic_ipl3_candidate_cartridge_bytes(
+    fn64::CpuInstructionWord first_instruction,
+    fn64::CpuInstructionWord second_instruction,
+    fn64::CpuInstructionWord third_instruction,
+    std::uint32_t header_entry_word) {
+  std::vector<std::uint8_t> bytes = make_synthetic_cartridge_bytes();
+  bytes.resize(fn64::kCartridgeCandidateIpl3EndOffsetExclusive, 0);
+  write_u32_be(bytes, fn64::kCartridgeHeaderEntryWordOffset, header_entry_word);
+  write_u32_be(
+      bytes,
+      fn64::kCartridgeCandidateIpl3StartOffset,
+      first_instruction);
+  write_u32_be(
+      bytes,
+      fn64::kCartridgeCandidateIpl3StartOffset + 4u,
+      second_instruction);
+  write_u32_be(
+      bytes,
+      fn64::kCartridgeCandidateIpl3StartOffset + 8u,
+      third_instruction);
   return bytes;
 }
 
@@ -215,6 +254,28 @@ void require_step_result(
         " expected " + step_result_name(expected) +
         " but observed " + step_result_name(observed));
   }
+}
+
+std::uint32_t read_count_through_cpu(
+    fn64::Machine& machine,
+    fn64::RdramOffset instruction_rdram_offset,
+    std::uint8_t target_register,
+    const char* label) {
+  constexpr fn64::CpuAddress kCpuRdramAliasBase = 0x80000000u;
+  constexpr std::uint8_t kCop0CountRegisterIndex = 9;
+  const fn64::CpuAddress instruction_pc =
+      kCpuRdramAliasBase + instruction_rdram_offset;
+
+  machine.stage_rdram_u32_be(
+      instruction_rdram_offset,
+      encode_mfc0(target_register, kCop0CountRegisterIndex));
+  machine.stage_cpu_pc(instruction_pc);
+  machine.stage_cpu_next_pc(instruction_pc + 4u);
+
+  const fn64::Machine::CpuInstructionStepResult result =
+      machine.step_cpu_instruction();
+  require_step_result(label, result, fn64::Machine::CpuInstructionStepResult::kStepped);
+  return static_cast<std::uint32_t>(machine.inspect_cpu_gpr(target_register));
 }
 
 void print_usage() {
@@ -337,6 +398,280 @@ void run_synthetic_cartridge_staged_program() {
       kImmediate);
 }
 
+void run_synthetic_staged_ipl3_candidate_path() {
+  constexpr std::uint32_t kFakeHeaderEntryWord = 0x80701234u;
+  static_assert(
+      kFakeHeaderEntryWord != fn64::Machine::kSpDmemIpl3CandidateEntryPc,
+      "synthetic header entry must stay distinct from candidate entry");
+  constexpr fn64::RdramOffset kCountReadBeforeStageOffset = 0x00000200u;
+  constexpr fn64::RdramOffset kCountReadAfterStageOffset = 0x00000204u;
+  constexpr fn64::RdramOffset kCountReadAfterEntryOffset = 0x00000208u;
+  constexpr fn64::RdramOffset kCountReadAfterStepsOffset = 0x0000020cu;
+  constexpr std::uint8_t kCountRegister = 14;
+  constexpr std::uint8_t kFirstRegister = 11;
+  constexpr std::uint8_t kSecondRegister = 12;
+  constexpr std::uint8_t kThirdRegister = 13;
+  constexpr std::uint16_t kFirstImmediate = 0x1357u;
+  constexpr std::uint16_t kSecondImmediate = 0x2468u;
+  constexpr fn64::CpuRegisterValue kExpectedFirstValue = 0x00001357u;
+  constexpr fn64::CpuRegisterValue kExpectedSecondValue = 0x0000377fu;
+  constexpr fn64::CpuRegisterValue kExpectedThirdValue = 0xffffffff80000000ull;
+  constexpr fn64::CpuAddress kEntryPc = fn64::Machine::kSpDmemIpl3CandidateEntryPc;
+  constexpr fn64::CpuAddress kEntryNextPc =
+      fn64::Machine::kSpDmemIpl3CandidateEntryNextPc;
+
+  const fn64::CpuInstructionWord first_instruction =
+      encode_ori(kFirstRegister, 0, kFirstImmediate);
+  const fn64::CpuInstructionWord second_instruction =
+      encode_ori(kSecondRegister, kFirstRegister, kSecondImmediate);
+  const fn64::CpuInstructionWord third_instruction =
+      encode_lui(kThirdRegister, 0x8000u);
+
+  fn64::Cartridge cartridge;
+  std::string error;
+  if (!fn64::load_cartridge(
+          make_synthetic_ipl3_candidate_cartridge_bytes(
+              first_instruction,
+              second_instruction,
+              third_instruction,
+              kFakeHeaderEntryWord),
+          cartridge,
+          error)) {
+    throw std::runtime_error(
+        "could not create synthetic IPL3-candidate cartridge: " + error);
+  }
+
+  auto machine = std::make_unique<fn64::Machine>(std::move(cartridge));
+
+  std::cout
+      << "\nscenario 3: synthetic staged IPL3 candidate path through SP DMEM\n"
+      << "  no ROM path loaded\n"
+      << "  cartridge source layout: "
+      << fn64::rom_source_layout_name(machine->cartridge().source_layout()) << '\n'
+      << "  cartridge size: " << machine->cartridge().size_bytes() << " bytes\n"
+      << "  fake header entry word: " << hex_u32(kFakeHeaderEntryWord) << '\n'
+      << "  stage: cart[0x00000040..0x00000fff] -> "
+      << "sp_dmem[0x00000040..0x00000fff]\n"
+      << "  enter: pc=" << hex_u32(kEntryPc)
+      << " next_pc=" << hex_u32(kEntryNextPc) << '\n'
+      << "  cartridge word[0x00000040]: "
+      << hex_u32(
+             read_cartridge_u32_be(
+                 machine->cartridge(),
+                 fn64::kCartridgeCandidateIpl3StartOffset))
+      << '\n'
+      << "  cartridge word[0x00000044]: "
+      << hex_u32(
+             read_cartridge_u32_be(
+                 machine->cartridge(),
+                 fn64::kCartridgeCandidateIpl3StartOffset + 4u))
+      << '\n'
+      << "  cartridge word[0x00000048]: "
+      << hex_u32(
+             read_cartridge_u32_be(
+                 machine->cartridge(),
+                 fn64::kCartridgeCandidateIpl3StartOffset + 8u))
+      << '\n';
+
+  require_equal(
+      "synthetic header entry word",
+      read_cartridge_u32_be(
+          machine->cartridge(),
+          fn64::kCartridgeHeaderEntryWordOffset),
+      kFakeHeaderEntryWord);
+  require_equal(
+      "candidate first instruction word",
+      read_cartridge_u32_be(
+          machine->cartridge(),
+          fn64::kCartridgeCandidateIpl3StartOffset),
+      first_instruction);
+
+  const std::uint32_t count_before_stage =
+      read_count_through_cpu(
+          *machine,
+          kCountReadBeforeStageOffset,
+          kCountRegister,
+          "IPL3 candidate count read before stage");
+
+  machine->stage_cartridge_ipl3_candidate_to_sp_dmem();
+
+  if (machine->cpu_pc() == kEntryPc || machine->cpu_next_pc() == kEntryNextPc) {
+    throw std::runtime_error("IPL3 candidate staging alone selected the entry pc");
+  }
+
+  const std::uint32_t count_after_stage =
+      read_count_through_cpu(
+          *machine,
+          kCountReadAfterStageOffset,
+          kCountRegister,
+          "IPL3 candidate count read after stage");
+  require_equal(
+      "IPL3 candidate staging Count boundary",
+      count_after_stage,
+      count_before_stage + 1u);
+  std::cout
+      << "stage-only boundary: pc=" << hex_u32(machine->cpu_pc())
+      << " next_pc=" << hex_u32(machine->cpu_next_pc())
+      << " count_before_stage_read=" << hex_u32(count_before_stage)
+      << " count_after_stage_read=" << hex_u32(count_after_stage) << '\n';
+
+  machine->enter_sp_dmem_ipl3_candidate();
+
+  require_equal("IPL3 candidate entry pc", machine->cpu_pc(), kEntryPc);
+  require_equal("IPL3 candidate entry next pc", machine->cpu_next_pc(), kEntryNextPc);
+  if (machine->cpu_pc() == kFakeHeaderEntryWord) {
+    throw std::runtime_error("IPL3 candidate entry used the cartridge header word");
+  }
+
+  const std::uint32_t count_after_entry =
+      read_count_through_cpu(
+          *machine,
+          kCountReadAfterEntryOffset,
+          kCountRegister,
+          "IPL3 candidate count read after entry");
+  require_equal(
+      "IPL3 candidate entry Count boundary",
+      count_after_entry,
+      count_after_stage + 1u);
+  std::cout
+      << "entry boundary: header entry ignored, count_after_entry_read="
+      << hex_u32(count_after_entry) << '\n';
+
+  machine->enter_sp_dmem_ipl3_candidate();
+
+  const fn64::Machine::CpuInstructionStepResult first_result =
+      machine->step_cpu_instruction();
+  std::cout
+      << "staged IPL3 candidate step 1 result: "
+      << step_result_name(first_result) << '\n'
+      << "  pc: " << hex_u32(machine->cpu_pc()) << '\n'
+      << "  next pc: " << hex_u32(machine->cpu_next_pc()) << '\n'
+      << "  gpr[11]: " << hex_u64(machine->inspect_cpu_gpr(kFirstRegister)) << '\n';
+  require_step_result(
+      "staged IPL3 candidate step 1",
+      first_result,
+      fn64::Machine::CpuInstructionStepResult::kStepped);
+  require_equal("staged IPL3 candidate step 1 pc", machine->cpu_pc(), kEntryPc + 4u);
+  require_equal(
+      "staged IPL3 candidate step 1 next pc",
+      machine->cpu_next_pc(),
+      kEntryPc + 8u);
+  require_cpu_value_equal(
+      "staged IPL3 candidate step 1 gpr[11]",
+      machine->inspect_cpu_gpr(kFirstRegister),
+      kExpectedFirstValue);
+
+  const fn64::Machine::CpuInstructionStepResult second_result =
+      machine->step_cpu_instruction();
+  std::cout
+      << "staged IPL3 candidate step 2 result: "
+      << step_result_name(second_result) << '\n'
+      << "  pc: " << hex_u32(machine->cpu_pc()) << '\n'
+      << "  next pc: " << hex_u32(machine->cpu_next_pc()) << '\n'
+      << "  gpr[12]: " << hex_u64(machine->inspect_cpu_gpr(kSecondRegister)) << '\n';
+  require_step_result(
+      "staged IPL3 candidate step 2",
+      second_result,
+      fn64::Machine::CpuInstructionStepResult::kStepped);
+  require_equal("staged IPL3 candidate step 2 pc", machine->cpu_pc(), kEntryPc + 8u);
+  require_equal(
+      "staged IPL3 candidate step 2 next pc",
+      machine->cpu_next_pc(),
+      kEntryPc + 12u);
+  require_cpu_value_equal(
+      "staged IPL3 candidate step 2 gpr[12]",
+      machine->inspect_cpu_gpr(kSecondRegister),
+      kExpectedSecondValue);
+
+  const fn64::Machine::CpuInstructionStepResult third_result =
+      machine->step_cpu_instruction();
+  std::cout
+      << "staged IPL3 candidate step 3 result: "
+      << step_result_name(third_result) << '\n'
+      << "  pc: " << hex_u32(machine->cpu_pc()) << '\n'
+      << "  next pc: " << hex_u32(machine->cpu_next_pc()) << '\n'
+      << "  gpr[13]: " << hex_u64(machine->inspect_cpu_gpr(kThirdRegister)) << '\n';
+  require_step_result(
+      "staged IPL3 candidate step 3",
+      third_result,
+      fn64::Machine::CpuInstructionStepResult::kStepped);
+  require_equal("staged IPL3 candidate step 3 pc", machine->cpu_pc(), kEntryPc + 12u);
+  require_equal(
+      "staged IPL3 candidate step 3 next pc",
+      machine->cpu_next_pc(),
+      kEntryPc + 16u);
+  require_cpu_value_equal(
+      "staged IPL3 candidate step 3 gpr[13]",
+      machine->inspect_cpu_gpr(kThirdRegister),
+      kExpectedThirdValue);
+
+  const fn64::CpuAddress pc_after_steps = machine->cpu_pc();
+  const fn64::CpuAddress next_pc_after_steps = machine->cpu_next_pc();
+  const std::uint32_t count_after_steps =
+      read_count_through_cpu(
+          *machine,
+          kCountReadAfterStepsOffset,
+          kCountRegister,
+          "IPL3 candidate count read after steps");
+  require_equal(
+      "IPL3 candidate staged step Count cadence",
+      count_after_steps,
+      count_after_entry + 4u);
+
+  std::cout
+      << "staged IPL3 candidate final stepped pc: "
+      << hex_u32(pc_after_steps) << '\n'
+      << "staged IPL3 candidate final stepped next pc: "
+      << hex_u32(next_pc_after_steps) << '\n'
+      << "staged IPL3 candidate Count before final Count read: "
+      << hex_u32(count_after_steps) << '\n'
+      << "staged IPL3 candidate final gpr[11]: "
+      << hex_u64(machine->inspect_cpu_gpr(kFirstRegister)) << '\n'
+      << "staged IPL3 candidate final gpr[12]: "
+      << hex_u64(machine->inspect_cpu_gpr(kSecondRegister)) << '\n'
+      << "staged IPL3 candidate final gpr[13]: "
+      << hex_u64(machine->inspect_cpu_gpr(kThirdRegister)) << '\n';
+
+  machine->reset_to_non_boot_power_on_state();
+  require_equal(
+      "reset after staged IPL3 candidate pc",
+      machine->cpu_pc(),
+      fn64::Machine::kNonBootResetVectorPc);
+  require_equal(
+      "reset after staged IPL3 candidate next pc",
+      machine->cpu_next_pc(),
+      fn64::Machine::kNonBootResetVectorNextPc);
+
+  const fn64::Machine::CpuInstructionStepResult reset_result =
+      machine->step_cpu_instruction();
+  std::cout
+      << "reset non-boot probe after staged IPL3 candidate result: "
+      << step_result_name(reset_result) << '\n'
+      << "  pc: " << hex_u32(machine->cpu_pc()) << '\n'
+      << "  next pc: " << hex_u32(machine->cpu_next_pc()) << '\n'
+      << "  gpr[11]: " << hex_u64(machine->inspect_cpu_gpr(kFirstRegister)) << '\n'
+      << "  gpr[12]: " << hex_u64(machine->inspect_cpu_gpr(kSecondRegister)) << '\n'
+      << "  gpr[13]: " << hex_u64(machine->inspect_cpu_gpr(kThirdRegister)) << '\n';
+  require_step_result(
+      "reset after staged IPL3 candidate step",
+      reset_result,
+      fn64::Machine::CpuInstructionStepResult::kException);
+  require_equal("reset exception vector pc", machine->cpu_pc(), 0x80000180u);
+  require_equal("reset exception vector next pc", machine->cpu_next_pc(), 0x80000184u);
+  require_cpu_value_equal(
+      "reset after staged IPL3 candidate gpr[11]",
+      machine->inspect_cpu_gpr(kFirstRegister),
+      0);
+  require_cpu_value_equal(
+      "reset after staged IPL3 candidate gpr[12]",
+      machine->inspect_cpu_gpr(kSecondRegister),
+      0);
+  require_cpu_value_equal(
+      "reset after staged IPL3 candidate gpr[13]",
+      machine->inspect_cpu_gpr(kThirdRegister),
+      0);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -354,6 +689,7 @@ int main(int argc, char** argv) {
         << "  synthetic cartridge bytes generated in memory only\n"
         << "  scenario 1 stages synthetic instructions directly into RDRAM\n"
         << "  scenario 2 explicitly stages synthetic cartridge bytes into RDRAM\n"
+        << "  scenario 3 explicitly stages synthetic IPL3 candidate bytes into SP DMEM\n"
         << "  no cartridge execution mapping\n"
         << "  no boot/PIF/BIOS behavior\n"
         << "  no SDL/window runtime\n";
@@ -684,6 +1020,7 @@ int main(int argc, char** argv) {
         kHighRegisterSentinel);
 
     run_synthetic_cartridge_staged_program();
+    run_synthetic_staged_ipl3_candidate_path();
 
     std::cout << "\nprobe result: PASS\n";
     return 0;
