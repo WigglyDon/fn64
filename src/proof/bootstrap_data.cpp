@@ -4518,6 +4518,12 @@ constexpr std::uint32_t kCop0CauseExcCodeOverflowBits =
 constexpr std::uint32_t kCop0CauseBranchDelay = 0x80000000u;
 constexpr CpuAddress kLocalInterruptVectorPc = 0x80000180u;
 constexpr CpuAddress kLocalInterruptVectorNextPc = 0x80000184u;
+constexpr CpuPhysicalAddress kUnavailablePifRomResetPhysicalAddress = 0x1fc00000u;
+constexpr CpuAddress kDirectAliasOffsetMask = 0x1fffffffu;
+static_assert(
+    (Machine::kNonBootResetVectorPc & kDirectAliasOffsetMask) ==
+        kUnavailablePifRomResetPhysicalAddress,
+    "non-boot reset vector must name the unavailable PIF ROM fetch target");
 
 constexpr CpuInstructionWord encode_cop0_transfer(
     std::uint8_t rs,
@@ -4984,7 +4990,7 @@ void require_exception(Machine::CpuInstructionStepResult result, const char* lab
 
 void run_non_boot_reset_vector_step_demo() {
   std::cout
-      << "fn64 bootstrap Machine reset demo: non-boot reset vector rejects without PIF ROM\n";
+      << "fn64 bootstrap Machine reset demo: unavailable PIF ROM reset fetch seam\n";
 
   const std::vector<std::uint8_t> normalized_bytes =
       make_synthetic_normalized_entry_inspection_rom();
@@ -5017,6 +5023,10 @@ void run_non_boot_reset_vector_step_demo() {
       "non_boot_reset_vector_cartridge_boundary");
   machine.stage_cpu_gpr(kSentinelIndex, kSentinelValue);
 
+  print_hex32("  reset_fetch_origin", Machine::kNonBootResetVectorPc);
+  print_hex32("  reset_fetch_physical_target", kUnavailablePifRomResetPhysicalAddress);
+  std::cout << "  pif_rom = unavailable\n";
+
   require_exception(
       machine.step_cpu_instruction(),
       "non_boot_reset_vector_fetch_exception");
@@ -5024,6 +5034,9 @@ void run_non_boot_reset_vector_step_demo() {
       machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
     throw std::runtime_error("non_boot_reset_vector did not enter local exception vector");
   }
+  std::cout << "  reset_fetch_status = kException\n";
+  print_hex32("  reset_fetch_exception_pc", machine.cpu_pc());
+  print_hex32("  reset_fetch_exception_next_pc", machine.cpu_next_pc());
   require_gpr_equals(
       machine,
       kSentinelIndex,
@@ -5063,6 +5076,8 @@ void run_non_boot_reset_vector_step_demo() {
       kCop0CauseRegisterIndex,
       kCop0CauseExcCodeAdelBits,
       "non_boot_reset_vector_cause");
+  std::cout
+      << "  reset_fetch_cop0 = EPC/BadVAddr reset origin, Cause AdEL, EXL set\n";
   require_cop0_register_equals(
       machine,
       kStatusReadAddress,

@@ -180,6 +180,13 @@ bool Machine::translate_direct_cpu_physical_address(
   return true;
 }
 
+bool Machine::is_unavailable_pif_rom_reset_fetch(
+    CpuAddress cpu_address,
+    CpuPhysicalAddress physical_address) noexcept {
+  return cpu_address == kNonBootResetVectorPc &&
+         physical_address == kUnavailablePifRomResetPhysicalAddress;
+}
+
 bool Machine::translate_cpu_rdram_address(
     CpuAddress cpu_address,
     std::size_t width,

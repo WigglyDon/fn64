@@ -20,10 +20,11 @@ using PiCartAddress = std::uint32_t;
 
 enum class MachineFaultKind {
   // Current local address-rejection fault for direct-RDRAM fetch/data gates and
-  // data-dispatch misses. Only explicitly classified CPU data-dispatch misses
-  // and direct-alias instruction-fetch target misses can enter the narrow local
-  // COP0 address-error seam; blank/raw/non-direct fetch rejection remains local
-  // MachineFault behavior.
+  // data-dispatch misses. Only explicitly classified CPU data-dispatch misses,
+  // direct-alias instruction-fetch target misses, and the named unavailable
+  // PIF ROM reset fetch seam can enter the narrow local COP0 address-error
+  // seam; blank/raw/non-direct fetch rejection remains local MachineFault
+  // behavior.
   kCpuRdramAddressRejected,
   kUnsupportedCpuDataAccess,
   kUnalignedInstructionFetch,
@@ -371,6 +372,8 @@ private:
   static constexpr std::size_t kSpMemorySizeBytes = 4 * 1024;
   static constexpr std::size_t kPifRamSizeBytes = 64;
   static constexpr std::size_t kCpuGprCount = 32;
+  static constexpr CpuPhysicalAddress kUnavailablePifRomResetPhysicalAddress =
+      0x1fc00000u;
   static constexpr CpuPhysicalAddress kSpDmemPhysicalBase = 0x04000000u;
   static constexpr CpuPhysicalAddress kSpImemPhysicalBase = 0x04001000u;
   static constexpr CpuPhysicalAddress kSpRegisterPhysicalBase = 0x04040000u;
@@ -506,6 +509,9 @@ private:
   static bool translate_direct_cpu_physical_address(
       CpuAddress cpu_address,
       CpuPhysicalAddress& out_physical_address) noexcept;
+  static bool is_unavailable_pif_rom_reset_fetch(
+      CpuAddress cpu_address,
+      CpuPhysicalAddress physical_address) noexcept;
   static bool translate_cpu_physical_rdram_address(
       CpuPhysicalAddress physical_address,
       std::size_t width,

@@ -41,6 +41,18 @@ namespace {
       access_intent);
 }
 
+[[noreturn]] void fail_unavailable_pif_rom_reset_fetch(CpuAddress cpu_address) {
+  throw MachineFault(
+      MachineFaultKind::kCpuRdramAddressRejected,
+      "CPU instruction fetch unavailable PIF ROM reset seam",
+      cpu_address,
+      4,
+      "Unavailable PIF ROM reset instruction fetch: address=" +
+          std::to_string(cpu_address) +
+          " PIF ROM is not modeled",
+      MachineFaultAccessIntent::kInstructionFetchDirectTargetMiss);
+}
+
 [[noreturn]] void fail_unsupported_cpu_data_access(
     const char* operation,
     CpuAddress cpu_address,
@@ -1415,9 +1427,10 @@ void Machine::enter_local_address_error_exception(
     std::uint8_t exception_code,
     bool branch_delay) noexcept {
   // Narrow local address-error entry only: unaligned fetch/read/write,
-  // control-transfer targets, CPU data target misses, and direct-alias fetch
-  // target misses can report AdEL/AdES and BadVAddr. Blank/raw/non-direct fetch
-  // rejection, TLB, and broad exception delivery remain unearned.
+  // control-transfer targets, CPU data target misses, direct-alias fetch target
+  // misses, and the unavailable PIF ROM reset fetch seam can report AdEL/AdES
+  // and BadVAddr. Blank/raw/non-direct fetch rejection, TLB, and broad
+  // exception delivery remain unearned.
   cop0_epc_ = branch_delay ? static_cast<CpuAddress>(faulting_pc - 4u) : faulting_pc;
   cop0_bad_vaddr_ = bad_vaddr;
   cop0_exception_code_ = exception_code;
@@ -1980,6 +1993,10 @@ CpuInstructionWord Machine::fetch_cpu_instruction_word() const {
             sp_memory_offset) &&
         sp_kind == CpuDataTargetKind::kSpDmem) {
       return read_sp_memory_u32_be(sp_kind, sp_memory_offset);
+    }
+
+    if (is_unavailable_pif_rom_reset_fetch(pc, physical_address)) {
+      fail_unavailable_pif_rom_reset_fetch(pc);
     }
 
     fail_cpu_direct_rdram_address(

@@ -256,19 +256,19 @@ void require_step_result(
   }
 }
 
-std::uint32_t read_count_through_cpu(
+std::uint32_t read_cop0_u32_through_cpu(
     fn64::Machine& machine,
     fn64::RdramOffset instruction_rdram_offset,
     std::uint8_t target_register,
+    std::uint8_t cop0_register,
     const char* label) {
   constexpr fn64::CpuAddress kCpuRdramAliasBase = 0x80000000u;
-  constexpr std::uint8_t kCop0CountRegisterIndex = 9;
   const fn64::CpuAddress instruction_pc =
       kCpuRdramAliasBase + instruction_rdram_offset;
 
   machine.stage_rdram_u32_be(
       instruction_rdram_offset,
-      encode_mfc0(target_register, kCop0CountRegisterIndex));
+      encode_mfc0(target_register, cop0_register));
   machine.stage_cpu_pc(instruction_pc);
   machine.stage_cpu_next_pc(instruction_pc + 4u);
 
@@ -276,6 +276,20 @@ std::uint32_t read_count_through_cpu(
       machine.step_cpu_instruction();
   require_step_result(label, result, fn64::Machine::CpuInstructionStepResult::kStepped);
   return static_cast<std::uint32_t>(machine.inspect_cpu_gpr(target_register));
+}
+
+std::uint32_t read_count_through_cpu(
+    fn64::Machine& machine,
+    fn64::RdramOffset instruction_rdram_offset,
+    std::uint8_t target_register,
+    const char* label) {
+  constexpr std::uint8_t kCop0CountRegisterIndex = 9;
+  return read_cop0_u32_through_cpu(
+      machine,
+      instruction_rdram_offset,
+      target_register,
+      kCop0CountRegisterIndex,
+      label);
 }
 
 void print_usage() {
@@ -407,7 +421,19 @@ void run_synthetic_staged_ipl3_candidate_path() {
   constexpr fn64::RdramOffset kCountReadAfterStageOffset = 0x00000204u;
   constexpr fn64::RdramOffset kCountReadAfterEntryOffset = 0x00000208u;
   constexpr fn64::RdramOffset kCountReadAfterStepsOffset = 0x0000020cu;
+  constexpr fn64::RdramOffset kResetCountReadOffset = 0x00000210u;
+  constexpr fn64::RdramOffset kResetEpcReadOffset = 0x00000214u;
+  constexpr fn64::RdramOffset kResetBadVaddrReadOffset = 0x00000218u;
+  constexpr fn64::RdramOffset kResetCauseReadOffset = 0x0000021cu;
   constexpr std::uint8_t kCountRegister = 14;
+  constexpr std::uint8_t kEpcRegister = 15;
+  constexpr std::uint8_t kBadVaddrRegister = 16;
+  constexpr std::uint8_t kCauseRegister = 17;
+  constexpr std::uint8_t kCop0BadVaddrRegisterIndex = 8;
+  constexpr std::uint8_t kCop0EpcRegisterIndex = 14;
+  constexpr std::uint8_t kCop0CauseRegisterIndex = 13;
+  constexpr std::uint32_t kCop0CauseExcCodeAdelBits = 4u << 2;
+  constexpr std::uint32_t kUnavailablePifRomResetPhysicalAddress = 0x1fc00000u;
   constexpr std::uint8_t kFirstRegister = 11;
   constexpr std::uint8_t kSecondRegister = 12;
   constexpr std::uint8_t kThirdRegister = 13;
@@ -642,6 +668,14 @@ void run_synthetic_staged_ipl3_candidate_path() {
       machine->cpu_next_pc(),
       fn64::Machine::kNonBootResetVectorNextPc);
 
+  std::cout
+      << "reset non-boot probe\n"
+      << "  reset fetch origin: "
+      << hex_u32(fn64::Machine::kNonBootResetVectorPc) << '\n'
+      << "  reset fetch physical target: "
+      << hex_u32(kUnavailablePifRomResetPhysicalAddress) << '\n'
+      << "  pif_rom: unavailable\n";
+
   const fn64::Machine::CpuInstructionStepResult reset_result =
       machine->step_cpu_instruction();
   std::cout
@@ -658,6 +692,54 @@ void run_synthetic_staged_ipl3_candidate_path() {
       fn64::Machine::CpuInstructionStepResult::kException);
   require_equal("reset exception vector pc", machine->cpu_pc(), 0x80000180u);
   require_equal("reset exception vector next pc", machine->cpu_next_pc(), 0x80000184u);
+
+  const std::uint32_t reset_count =
+      read_count_through_cpu(
+          *machine,
+          kResetCountReadOffset,
+          kCountRegister,
+          "reset unavailable PIF ROM Count read");
+  const std::uint32_t reset_epc =
+      read_cop0_u32_through_cpu(
+          *machine,
+          kResetEpcReadOffset,
+          kEpcRegister,
+          kCop0EpcRegisterIndex,
+          "reset unavailable PIF ROM EPC read");
+  const std::uint32_t reset_bad_vaddr =
+      read_cop0_u32_through_cpu(
+          *machine,
+          kResetBadVaddrReadOffset,
+          kBadVaddrRegister,
+          kCop0BadVaddrRegisterIndex,
+          "reset unavailable PIF ROM BadVAddr read");
+  const std::uint32_t reset_cause =
+      read_cop0_u32_through_cpu(
+          *machine,
+          kResetCauseReadOffset,
+          kCauseRegister,
+          kCop0CauseRegisterIndex,
+          "reset unavailable PIF ROM Cause read");
+
+  require_equal("reset unavailable PIF ROM Count no tick", reset_count, 0);
+  require_equal(
+      "reset unavailable PIF ROM EPC",
+      reset_epc,
+      fn64::Machine::kNonBootResetVectorPc);
+  require_equal(
+      "reset unavailable PIF ROM BadVAddr",
+      reset_bad_vaddr,
+      fn64::Machine::kNonBootResetVectorPc);
+  require_equal(
+      "reset unavailable PIF ROM Cause",
+      reset_cause,
+      kCop0CauseExcCodeAdelBits);
+  std::cout
+      << "  reset fetch Count before Count read: " << hex_u32(reset_count) << '\n'
+      << "  reset fetch EPC: " << hex_u32(reset_epc) << '\n'
+      << "  reset fetch BadVAddr: " << hex_u32(reset_bad_vaddr) << '\n'
+      << "  reset fetch Cause: " << hex_u32(reset_cause) << '\n';
+
   require_cpu_value_equal(
       "reset after staged IPL3 candidate gpr[11]",
       machine->inspect_cpu_gpr(kFirstRegister),
