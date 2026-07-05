@@ -53,6 +53,11 @@ The current machine state is intentionally plain:
 
 This keeps ROM loading honest without pretending the cartridge is executing.
 
+The sealed boot-adjacent architecture checkpoint is in
+`docs/boot_spine_checkpoint.md`. It records the behavioral checkpoint at
+`554b01bac375cec696343ed9156dc2fc959f1af5` and the boundaries that still must
+not be blurred into boot or compatibility claims.
+
 ## Cartridge entry inspection seam
 
 The no-window inspection path now reports a small read-only view of normalized cartridge facts:
