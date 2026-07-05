@@ -513,4 +513,9 @@ void Machine::stage_cartridge_ipl3_candidate_to_sp_dmem() {
   }
 }
 
+void Machine::enter_sp_dmem_ipl3_candidate() {
+  cpu_pc_ = kSpDmemIpl3CandidateEntryPc;
+  cpu_next_pc_ = kSpDmemIpl3CandidateEntryNextPc;
+}
+
 }  // namespace fn64

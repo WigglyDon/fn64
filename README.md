@@ -89,17 +89,18 @@ This reset vector is not cartridge execution, IPL3 execution, PIF boot ROM emula
 
 The machine now has an explicit method that can copy normalized cartridge bytes into local RDRAM.
 It also has an explicit method that copies the normalized cartridge IPL3 candidate span, cart[0x00000040..0x00000fff], into Machine-owned SP DMEM[0x00000040..0x00000fff].
+It also has an explicit method that selects the SP DMEM IPL3 candidate CPU entry address, pc=0xa4000040 and next_pc=0xa4000044.
 
 This is not cartridge execution mapping.
 It is not CPU cartridge ROM mapping.
 It is not a bus.
 It is not N64 boot.
-It does not set pc/next_pc, does not reset the Machine, does not execute IPL3, and does not emulate PIF/CIC.
+Staging does not set pc/next_pc, and entry does not stage or execute bytes. Neither seam resets the Machine, executes IPL3, or emulates PIF/CIC.
 
 The `fn64_selftest` proof path proves the seam by loading a tiny generated ROM, staging two cartridge instructions into RDRAM, setting the CPU PC to the staged KSEG0 address, and stepping ORI then BREAK.
-It also proves explicit synthetic IPL3-candidate staging by copying normalized synthetic z64/v64/n64 cartridge bytes into SP DMEM, then fetching from SP DMEM only after proof code explicitly chooses the 0xa4000040 entrypoint.
+It also proves explicit synthetic IPL3-candidate staging by copying normalized synthetic z64/v64/n64 cartridge bytes into SP DMEM, explicitly entering the named 0xa4000040 candidate entrypoint, and stepping one supported synthetic instruction.
 
-Normal ROM launch does not stage or execute cartridge bytes automatically.
+Normal ROM launch does not stage, enter, or execute cartridge bytes automatically.
 
 ## Minimal PI MMIO subset
 

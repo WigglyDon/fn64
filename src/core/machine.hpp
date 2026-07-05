@@ -102,19 +102,27 @@ public:
 
   static constexpr CpuAddress kNonBootResetVectorPc = 0xbfc00000u;
   static constexpr CpuAddress kNonBootResetVectorNextPc = 0xbfc00004u;
+  static constexpr CpuAddress kSpDmemIpl3CandidateEntryPc = 0xa4000040u;
+  static constexpr CpuAddress kSpDmemIpl3CandidateEntryNextPc = 0xa4000044u;
 
   // Construction owns the Cartridge and creates fn64's current local blank
   // powered-on state: zeroed RDRAM, zeroed CPU registers, and the named
   // non-boot reset vector above. This is not N64 reset/PIF boot, IPL3
-  // execution, or cartridge execution. powered_on() is an informational local
-  // construction state today; there is no public power-off transition, and
-  // kStopped does not power the Machine off.
+  // execution, or cartridge execution. reset_to_non_boot_power_on_state()
+  // explicitly returns to that same local non-boot state; it is not PIF boot,
+  // cartridge execution, or an IPL3 handoff. powered_on() is an informational
+  // local construction state today; there is no public power-off transition,
+  // and kStopped does not power the Machine off.
   // Public stage_* APIs are explicit synthetic mutation points for proof and
   // no-window hosts. stage_cartridge_bytes_to_rdram copies normalized
   // Cartridge bytes into physical RDRAM offsets; it does not map or execute
   // cartridge memory. stage_cartridge_ipl3_candidate_to_sp_dmem copies the
   // normalized candidate IPL3 byte span into Machine-owned SP DMEM only when
   // explicitly requested; it does not reset, set PC, emulate PIF/CIC, or boot.
+  // enter_sp_dmem_ipl3_candidate() only selects the named SP DMEM candidate
+  // entry pc/next_pc; it does not stage bytes, execute, reset, emulate PIF/CIC,
+  // or boot.
+  void reset_to_non_boot_power_on_state();
   bool powered_on() const;
   const Cartridge& cartridge() const;
   std::size_t rdram_size_bytes() const noexcept;
@@ -128,6 +136,7 @@ public:
       RdramOffset rdram_address,
       std::uint32_t byte_count);
   void stage_cartridge_ipl3_candidate_to_sp_dmem();
+  void enter_sp_dmem_ipl3_candidate();
 
   CpuAddress cpu_pc() const;
   CpuAddress cpu_next_pc() const;
@@ -444,8 +453,6 @@ private:
   static constexpr std::uint32_t kSiStatusInterruptClear = 0x00001000u;
   static constexpr std::uint32_t kSiSupportedStatusBits =
       kSiStatusInterruptPending;
-
-  void reset_to_non_boot_power_on_state();
 
   std::uint8_t read_rdram_u8(RdramOffset address) const;
   std::uint16_t read_rdram_u16_be(RdramOffset address) const;
