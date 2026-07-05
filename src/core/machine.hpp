@@ -112,7 +112,9 @@ public:
   // Public stage_* APIs are explicit synthetic mutation points for proof and
   // no-window hosts. stage_cartridge_bytes_to_rdram copies normalized
   // Cartridge bytes into physical RDRAM offsets; it does not map or execute
-  // cartridge memory.
+  // cartridge memory. stage_cartridge_ipl3_candidate_to_sp_dmem copies the
+  // normalized candidate IPL3 byte span into Machine-owned SP DMEM only when
+  // explicitly requested; it does not reset, set PC, emulate PIF/CIC, or boot.
   bool powered_on() const;
   const Cartridge& cartridge() const;
   std::size_t rdram_size_bytes() const noexcept;
@@ -125,6 +127,7 @@ public:
       CartridgeOffset cartridge_offset,
       RdramOffset rdram_address,
       std::uint32_t byte_count);
+  void stage_cartridge_ipl3_candidate_to_sp_dmem();
 
   CpuAddress cpu_pc() const;
   CpuAddress cpu_next_pc() const;

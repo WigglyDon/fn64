@@ -5113,6 +5113,398 @@ void require_fetch_address_exception_entry(
       label);
 }
 
+std::unique_ptr<Machine> make_ipl3_staging_proof_machine(
+    const std::vector<std::uint8_t>& normalized_bytes,
+    RomSourceLayout source_layout,
+    const char* label) {
+  const std::vector<std::uint8_t> raw_bytes =
+      encode_synthetic_rom_source_layout(normalized_bytes, source_layout);
+
+  Cartridge cartridge;
+  std::string error;
+  if (!load_cartridge(raw_bytes, cartridge, error)) {
+    throw std::runtime_error(std::string(label) + " load_cartridge failed: " + error);
+  }
+
+  return std::make_unique<Machine>(std::move(cartridge));
+}
+
+void copy_sp_dmem_span_to_rdram_for_proof(
+    Machine& machine,
+    RdramOffset instruction_base,
+    RdramOffset rdram_destination,
+    std::uint32_t sp_dmem_offset,
+    std::uint32_t byte_count,
+    const char* label) {
+  if (byte_count == 0) {
+    throw std::runtime_error(std::string(label) + " requested an empty SP copy");
+  }
+
+  constexpr std::size_t kSpBaseIndex = 4;
+  constexpr std::size_t kValueIndex = 5;
+
+  machine.stage_cpu_gpr(kSpBaseIndex, kSyntheticSpMmioCpuBase);
+  write_sp_register_through_cpu(
+      machine,
+      instruction_base,
+      kValueIndex,
+      kSpBaseIndex,
+      kSpMemoryRegisterOffset,
+      sp_dmem_offset,
+      label);
+  write_sp_register_through_cpu(
+      machine,
+      instruction_base + 4u,
+      kValueIndex,
+      kSpBaseIndex,
+      kSpDramRegisterOffset,
+      rdram_destination,
+      label);
+  write_sp_register_through_cpu(
+      machine,
+      instruction_base + 8u,
+      kValueIndex,
+      kSpBaseIndex,
+      kSpWriteLengthRegisterOffset,
+      encode_sp_dma_length_command(byte_count - 1u, 0, 0),
+      label);
+}
+
+void require_staged_ipl3_span_matches_normalized_bytes(
+    Machine& machine,
+    const std::vector<std::uint8_t>& normalized_bytes,
+    RdramOffset copied_span_rdram_base,
+    const char* label) {
+  if ((kCartridgeCandidateIpl3StartOffset & 0x3u) != 0 ||
+      (kCartridgeCandidateIpl3ByteCount & 0x3u) != 0) {
+    throw std::runtime_error(std::string(label) + " IPL3 candidate span is not word aligned");
+  }
+
+  for (std::uint32_t offset = 0; offset < kCartridgeCandidateIpl3ByteCount; offset += 4u) {
+    const std::uint32_t expected =
+        read_synthetic_be_u32(
+            normalized_bytes,
+            kCartridgeCandidateIpl3StartOffset + offset);
+    require_rdram_word_equals(
+        machine,
+        copied_span_rdram_base + offset,
+        expected,
+        label);
+  }
+}
+
+void require_loaded_ipl3_staging_layout(
+    const std::vector<std::uint8_t>& normalized_bytes,
+    RomSourceLayout source_layout,
+    const char* label) {
+  auto machine_storage =
+      make_ipl3_staging_proof_machine(normalized_bytes, source_layout, label);
+  Machine& machine = *machine_storage;
+
+  constexpr RdramOffset kSpDumpInstructionBase = 0x00004b00u;
+  constexpr RdramOffset kSpDumpRdramBase = 0x00020000u;
+
+  machine.stage_cartridge_ipl3_candidate_to_sp_dmem();
+  copy_sp_dmem_span_to_rdram_for_proof(
+      machine,
+      kSpDumpInstructionBase,
+      kSpDumpRdramBase,
+      kCartridgeCandidateIpl3StartOffset,
+      kCartridgeCandidateIpl3ByteCount,
+      label);
+  require_staged_ipl3_span_matches_normalized_bytes(
+      machine,
+      normalized_bytes,
+      kSpDumpRdramBase,
+      label);
+
+  std::cout << "  " << label << " staged normalized "
+            << rom_source_layout_name(source_layout)
+            << " IPL3 candidate bytes into SP DMEM\n";
+}
+
+void require_short_cartridge_ipl3_staging_rejects() {
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_rom_proof_image();
+  auto machine_storage = make_ipl3_staging_proof_machine(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "cartridge_ipl3_stage_short");
+  Machine& machine = *machine_storage;
+
+  try {
+    machine.stage_cartridge_ipl3_candidate_to_sp_dmem();
+  } catch (const std::out_of_range& e) {
+    std::cout << "  cartridge_ipl3_stage_short threw: " << e.what() << '\n';
+    if (std::string(e.what()).find("cartridge IPL3 candidate source") ==
+        std::string::npos) {
+      throw std::runtime_error(
+          "cartridge_ipl3_stage_short threw unexpected exception text");
+    }
+    return;
+  } catch (const std::exception& e) {
+    throw std::runtime_error(
+        std::string("cartridge_ipl3_stage_short threw unexpected exception type: ") +
+        e.what());
+  }
+
+  throw std::runtime_error("cartridge_ipl3_stage_short did not reject unavailable span");
+}
+
+void require_sp_word_through_cpu_data_path(
+    Machine& machine,
+    RdramOffset instruction_address,
+    std::size_t base_register,
+    std::size_t target_register,
+    CpuAddress cpu_address,
+    std::uint32_t expected,
+    const char* label) {
+  machine.stage_rdram_u32_be(
+      instruction_address,
+      encode_lwu(
+          static_cast<std::uint8_t>(target_register),
+          static_cast<std::uint8_t>(base_register),
+          0));
+  machine.stage_cpu_gpr(base_register, cpu_address);
+  step_at(machine, instruction_address, label);
+  require_gpr_equals(machine, target_register, expected, label);
+}
+
+void require_cartridge_ipl3_staging_boundaries(
+    const std::vector<std::uint8_t>& normalized_bytes) {
+  auto machine_storage = make_ipl3_staging_proof_machine(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "cartridge_ipl3_stage_boundaries");
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kBaseIndex = 4;
+  constexpr std::size_t kSourceIndex = 5;
+  constexpr std::size_t kTargetIndex = 6;
+  constexpr RdramOffset kSeedDmemStoreAddress = 0x00004a00u;
+  constexpr RdramOffset kSeedImemStoreAddress = 0x00004a04u;
+  constexpr RdramOffset kCountReadAddress = 0x00004a08u;
+  constexpr RdramOffset kDmemBelowReadAddress = 0x00004a0cu;
+  constexpr RdramOffset kImemReadAddress = 0x00004a10u;
+  constexpr RdramOffset kRdramSentinelAddress = 0x00004c00u;
+  constexpr std::uint32_t kDmemBelowSentinel = 0x11223344u;
+  constexpr std::uint32_t kImemSentinel = 0x55667788u;
+  constexpr std::uint32_t kRdramSentinel = 0xaabbccddu;
+  constexpr CpuAddress kBoundaryPc = 0x80004e00u;
+  constexpr CpuAddress kBoundaryNextPc = 0x80004e04u;
+
+  machine.stage_rdram_u32_be(
+      kSeedDmemStoreAddress,
+      encode_sw(
+          static_cast<std::uint8_t>(kSourceIndex),
+          static_cast<std::uint8_t>(kBaseIndex),
+          0));
+  machine.stage_rdram_u32_be(
+      kSeedImemStoreAddress,
+      encode_sw(
+          static_cast<std::uint8_t>(kSourceIndex),
+          static_cast<std::uint8_t>(kBaseIndex),
+          0));
+
+  machine.stage_cpu_gpr(kBaseIndex, sp_dmem_uncached_alias(0x0020u));
+  machine.stage_cpu_gpr(kSourceIndex, kDmemBelowSentinel);
+  step_at(machine, kSeedDmemStoreAddress, "cartridge_ipl3_stage_seed_dmem_below");
+  machine.stage_cpu_gpr(kBaseIndex, sp_imem_uncached_alias(0x0040u));
+  machine.stage_cpu_gpr(kSourceIndex, kImemSentinel);
+  step_at(machine, kSeedImemStoreAddress, "cartridge_ipl3_stage_seed_imem");
+
+  machine.stage_rdram_u32_be(kRdramSentinelAddress, kRdramSentinel);
+  machine.stage_cpu_pc(kBoundaryPc);
+  machine.stage_cpu_next_pc(kBoundaryNextPc);
+  machine.stage_cartridge_ipl3_candidate_to_sp_dmem();
+
+  if (machine.cpu_pc() != kBoundaryPc ||
+      machine.cpu_next_pc() != kBoundaryNextPc) {
+    throw std::runtime_error("cartridge_ipl3_stage changed pc/next_pc");
+  }
+  if (machine.cpu_pc() == read_synthetic_be_u32(
+          normalized_bytes,
+          kCartridgeHeaderEntryWordOffset)) {
+    throw std::runtime_error("cartridge_ipl3_stage used cartridge header entry as PC");
+  }
+  require_rdram_word_equals(
+      machine,
+      kRdramSentinelAddress,
+      kRdramSentinel,
+      "cartridge_ipl3_stage_rdram_unchanged");
+  require_cop0_register_equals(
+      machine,
+      kCountReadAddress,
+      9,
+      kCop0CountRegisterIndex,
+      2,
+      "cartridge_ipl3_stage_count_unchanged");
+  require_sp_word_through_cpu_data_path(
+      machine,
+      kDmemBelowReadAddress,
+      kBaseIndex,
+      kTargetIndex,
+      sp_dmem_uncached_alias(0x0020u),
+      kDmemBelowSentinel,
+      "cartridge_ipl3_stage_dmem_below_unchanged");
+  require_sp_word_through_cpu_data_path(
+      machine,
+      kImemReadAddress,
+      kBaseIndex,
+      kTargetIndex,
+      sp_imem_uncached_alias(0x0040u),
+      kImemSentinel,
+      "cartridge_ipl3_stage_imem_unchanged");
+}
+
+void require_cartridge_ipl3_staged_fetch_after_explicit_entry(
+    const std::vector<std::uint8_t>& normalized_bytes) {
+  auto machine_storage = make_ipl3_staging_proof_machine(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "cartridge_ipl3_stage_explicit_fetch");
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kTargetIndex = 26;
+  constexpr CpuAddress kExplicitSpDmemPc =
+      sp_dmem_uncached_alias(kCartridgeCandidateIpl3StartOffset);
+  constexpr RdramOffset kCountReadAddress = 0x00004a40u;
+
+  machine.stage_cartridge_ipl3_candidate_to_sp_dmem();
+  machine.stage_cpu_gpr(kTargetIndex, 0);
+  machine.stage_cpu_pc(kExplicitSpDmemPc);
+  machine.stage_cpu_next_pc(kExplicitSpDmemPc + 4u);
+
+  require_stepped(
+      machine.step_cpu_instruction(),
+      "cartridge_ipl3_stage_explicit_fetch_lui");
+  require_gpr_equals(
+      machine,
+      kTargetIndex,
+      cpu_value_from_sign_extended_u32(0x80000000u),
+      "cartridge_ipl3_stage_explicit_fetch_lui");
+  if (machine.cpu_pc() != kExplicitSpDmemPc + 4u ||
+      machine.cpu_next_pc() != kExplicitSpDmemPc + 8u) {
+    throw std::runtime_error("cartridge_ipl3_stage_explicit_fetch changed cadence");
+  }
+  require_cop0_register_equals(
+      machine,
+      kCountReadAddress,
+      11,
+      kCop0CountRegisterIndex,
+      1,
+      "cartridge_ipl3_stage_explicit_fetch_count");
+}
+
+void require_cartridge_ipl3_staging_reset_remains_non_boot(
+    const std::vector<std::uint8_t>& normalized_bytes) {
+  auto machine_storage = make_ipl3_staging_proof_machine(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "cartridge_ipl3_stage_reset_non_boot");
+  Machine& machine = *machine_storage;
+
+  constexpr std::size_t kSentinelIndex = 26;
+  constexpr CpuRegisterValue kSentinel = 0x0123456789abcdefull;
+  constexpr RdramOffset kCountReadAddress = 0x00004a60u;
+  constexpr RdramOffset kEpcReadAddress = 0x00004a64u;
+  constexpr RdramOffset kBadVaddrReadAddress = 0x00004a68u;
+  constexpr RdramOffset kCauseReadAddress = 0x00004a6cu;
+
+  machine.stage_cartridge_ipl3_candidate_to_sp_dmem();
+  require_non_boot_reset_power_on_state(machine, "cartridge_ipl3_stage_reset_state");
+  require_non_boot_reset_ignores_cartridge_entry(
+      machine,
+      normalized_bytes,
+      "cartridge_ipl3_stage_reset_cartridge_boundary");
+  machine.stage_cpu_gpr(kSentinelIndex, kSentinel);
+
+  require_exception(
+      machine.step_cpu_instruction(),
+      "cartridge_ipl3_stage_reset_fetch_exception");
+  if (machine.cpu_pc() != kLocalInterruptVectorPc ||
+      machine.cpu_next_pc() != kLocalInterruptVectorNextPc) {
+    throw std::runtime_error("cartridge_ipl3_stage_reset did not enter local vector");
+  }
+  require_gpr_equals(
+      machine,
+      kSentinelIndex,
+      kSentinel,
+      "cartridge_ipl3_stage_reset_did_not_execute_sp_dmem");
+  require_cop0_register_equals(
+      machine,
+      kCountReadAddress,
+      8,
+      kCop0CountRegisterIndex,
+      0,
+      "cartridge_ipl3_stage_reset_count_no_tick");
+  require_cop0_register_equals(
+      machine,
+      kEpcReadAddress,
+      9,
+      kCop0EpcRegisterIndex,
+      Machine::kNonBootResetVectorPc,
+      "cartridge_ipl3_stage_reset_epc");
+  require_cop0_register_equals(
+      machine,
+      kBadVaddrReadAddress,
+      10,
+      kCop0BadVaddrRegisterIndex,
+      Machine::kNonBootResetVectorPc,
+      "cartridge_ipl3_stage_reset_badvaddr");
+  require_cop0_register_equals(
+      machine,
+      kCauseReadAddress,
+      11,
+      kCop0CauseRegisterIndex,
+      kCop0CauseExcCodeAdelBits,
+      "cartridge_ipl3_stage_reset_cause");
+}
+
+void require_cartridge_ipl3_staging_sp_imem_fetch_remains_rejected(
+    const std::vector<std::uint8_t>& normalized_bytes) {
+  auto machine_storage = make_ipl3_staging_proof_machine(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "cartridge_ipl3_stage_sp_imem_fetch");
+  Machine& machine = *machine_storage;
+
+  machine.stage_cartridge_ipl3_candidate_to_sp_dmem();
+  machine.stage_cpu_pc(sp_imem_uncached_alias(kCartridgeCandidateIpl3StartOffset));
+  machine.stage_cpu_next_pc(sp_imem_uncached_alias(kCartridgeCandidateIpl3StartOffset + 4u));
+  require_fetch_address_exception_entry(
+      machine,
+      "cartridge_ipl3_stage_sp_imem_fetch_non_executable",
+      sp_imem_uncached_alias(kCartridgeCandidateIpl3StartOffset),
+      0x00004a80u);
+}
+
+void run_cartridge_ipl3_candidate_staging_demo() {
+  const std::vector<std::uint8_t> normalized_bytes =
+      make_synthetic_normalized_entry_inspection_rom();
+
+  std::cout
+      << "fn64 bootstrap cartridge IPL3 candidate staging demo: explicit cart-to-SP-DMEM seam, no boot\n";
+
+  require_loaded_ipl3_staging_layout(
+      normalized_bytes,
+      RomSourceLayout::kBigEndian,
+      "cartridge_ipl3_stage_z64");
+  require_loaded_ipl3_staging_layout(
+      normalized_bytes,
+      RomSourceLayout::kByteSwapped16,
+      "cartridge_ipl3_stage_v64");
+  require_loaded_ipl3_staging_layout(
+      normalized_bytes,
+      RomSourceLayout::kLittleEndian32,
+      "cartridge_ipl3_stage_n64");
+  require_short_cartridge_ipl3_staging_rejects();
+  require_cartridge_ipl3_staging_boundaries(normalized_bytes);
+  require_cartridge_ipl3_staged_fetch_after_explicit_entry(normalized_bytes);
+  require_cartridge_ipl3_staging_reset_remains_non_boot(normalized_bytes);
+  require_cartridge_ipl3_staging_sp_imem_fetch_remains_rejected(normalized_bytes);
+}
+
 void run_cpu_driven_pi_dma_execution_demo() {
   std::cout << "fn64 bootstrap PI MMIO demo: CPU loader drives PI DMA then executes copied RDRAM code\n";
 
@@ -17652,6 +18044,7 @@ void run_data_demos(Machine& machine) {
   run_non_boot_reset_vector_step_demo();
   run_cartridge_staging_demo();
   run_cartridge_staging_preflight_demo();
+  run_cartridge_ipl3_candidate_staging_demo();
   run_public_machine_stage_inspect_guard_demo();
   run_cpu_rdram_translation_demo(machine);
   run_cpu_rdram_alias_demo(machine);

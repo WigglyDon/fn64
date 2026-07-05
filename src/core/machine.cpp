@@ -495,4 +495,22 @@ void Machine::stage_cartridge_bytes_to_rdram(
   }
 }
 
+void Machine::stage_cartridge_ipl3_candidate_to_sp_dmem() {
+  require_stage_span_inside_buffer(
+      "cartridge IPL3 candidate source",
+      kCartridgeCandidateIpl3StartOffset,
+      kCartridgeCandidateIpl3ByteCount,
+      cartridge_.size_bytes());
+  require_stage_span_inside_buffer(
+      "SP DMEM IPL3 candidate destination",
+      kCartridgeCandidateIpl3StartOffset,
+      kCartridgeCandidateIpl3ByteCount,
+      sp_dmem_.size());
+
+  for (std::uint32_t i = 0; i < kCartridgeCandidateIpl3ByteCount; ++i) {
+    sp_dmem_[kCartridgeCandidateIpl3StartOffset + i] =
+        cartridge_.read_u8(kCartridgeCandidateIpl3StartOffset + i);
+  }
+}
+
 }  // namespace fn64

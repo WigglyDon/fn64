@@ -85,16 +85,19 @@ A newly constructed machine now deliberately resets into a local non-boot state:
 
 This reset vector is not cartridge execution, IPL3 execution, PIF boot ROM emulation, or CIC/security behavior. Because no PIF boot ROM is modeled and the reset vector does not target the earned RDRAM or SP DMEM fetch seams, stepping from reset reports through the existing local fetch-address exception path instead of executing boot or cartridge bytes.
 
-## Cartridge staging seam
+## Cartridge staging seams
 
 The machine now has an explicit method that can copy normalized cartridge bytes into local RDRAM.
+It also has an explicit method that copies the normalized cartridge IPL3 candidate span, cart[0x00000040..0x00000fff], into Machine-owned SP DMEM[0x00000040..0x00000fff].
 
 This is not cartridge execution mapping.
 It is not CPU cartridge ROM mapping.
 It is not a bus.
 It is not N64 boot.
+It does not set pc/next_pc, does not reset the Machine, does not execute IPL3, and does not emulate PIF/CIC.
 
 The `fn64_selftest` proof path proves the seam by loading a tiny generated ROM, staging two cartridge instructions into RDRAM, setting the CPU PC to the staged KSEG0 address, and stepping ORI then BREAK.
+It also proves explicit synthetic IPL3-candidate staging by copying normalized synthetic z64/v64/n64 cartridge bytes into SP DMEM, then fetching from SP DMEM only after proof code explicitly chooses the 0xa4000040 entrypoint.
 
 Normal ROM launch does not stage or execute cartridge bytes automatically.
 
