@@ -1,0 +1,9 @@
+[package]
+name = "fn64-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"

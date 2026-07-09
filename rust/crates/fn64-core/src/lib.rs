@@ -1,0 +1,37 @@
+#![forbid(unsafe_code)]
+
+pub mod cartridge;
+pub mod cpu;
+pub mod machine;
+pub mod rdram;
+pub mod sp_dmem;
+
+pub use cartridge::{
+    inspect_cartridge_entry, load_cartridge, normalize_rom_image, rom_source_layout_name,
+    Cartridge, CartridgeEntryInspection, CartridgeLoadError, CartridgeReadError,
+    NormalizedRomImage, RomMetadata, RomSourceLayout, CARTRIDGE_CANDIDATE_IPL3_BYTE_COUNT,
+    CARTRIDGE_CANDIDATE_IPL3_END_OFFSET_EXCLUSIVE, CARTRIDGE_CANDIDATE_IPL3_START_OFFSET,
+    CARTRIDGE_HEADER_ENTRY_WORD_OFFSET,
+};
+pub use cpu::{
+    decode_cpu_instruction_word, identify_cpu_instruction, Cpu, CpuAddressErrorExceptionEntryError,
+    CpuAddressErrorKind, CpuDataAccessKind, CpuDataAddressError, CpuDataAlignmentError,
+    CpuDataWidth, CpuInstructionFields, CpuInstructionIdentity, CpuInstructionWord,
+    CpuRegisterIndexError, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC,
+};
+pub use machine::{
+    select_cpu_instruction_fetch_address_error, DirectRdramAccessError, Machine,
+    MachineArithmeticOverflowExceptionEntryRejection, MachineCpuInstructionFetchError,
+    MachineCpuInstructionFetchTarget, MachineCpuInstructionFetchTargetError,
+    MachineDirectRdramCpuDataAccessError, MachineDirectRdramCpuInstructionFetchError,
+    MachineInstructionFetchAddressErrorPlan, MachineInstructionFetchAddressErrorPlanError,
+    MachineInstructionFetchAddressErrorSource, MachineRepresentedStepError,
+    MachineRepresentedStepOutcome, MachineSpDmemCpuInstructionFetchError, MachineStepCadencePlan,
+    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
+    MachineStepCpuLocalInvocationRejection, MachineStepNoEffectExecutedInstruction,
+    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstruction,
+    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstruction,
+    MachineStepUnsupportedInstructionCategory,
+};
+pub use rdram::{Rdram, RdramAccessError, RDRAM_SIZE_BYTES};
+pub use sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};

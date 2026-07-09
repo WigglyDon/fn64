@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/fn64-core", "crates/fn64-inspection"]
+resolver = "2"
