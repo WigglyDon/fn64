@@ -48,11 +48,20 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - Active C++ lanes: none.
 - `cpp-reference-truth-reconstruction-v1`: canceled without provisioning; its reserved branch/worktree remain absent.
 - The earlier seam-090 and inventory-first sequences are superseded by the direct Master retirement decision.
-- Active Worker lanes: none.
-- Integration queue: empty after durable candidate/integration results were
-  recorded in the lane pages and evidence owners.
+- Active Worker lanes: `boot-frontier-sp-imem-lw-v1` is provisioned and
+  awaiting its supervisor packet; no Worker implementation has started.
+- Integration queue: one active no-candidate entry for the combined frontier
+  lane; candidate and artifact remain `UNKNOWN`, validation is `NOT_RUN`,
+  and integration remains pending and unauthorized.
 - Repository-purity cleanup is complete for its accepted non-product scope.
-- No next machine lane is provisioned or started.
+- Product Acceleration Wave 1 selected the combined
+  `boot-frontier-sp-imem-lw-v1` lane because storage/routing, aligned `Lw`,
+  bootstrap knownness, Machine step application, and boot-probe continuation
+  share direct source ownership.
+- The lane is provisioned and awaiting a supervisor packet. Worker
+  implementation has not started, no candidate exists, BOOT-2 remains the
+  highest earned checkpoint, and no new feature or compatibility fact is
+  earned by registration.
 
 ## Blockers and known unknowns
 
@@ -61,7 +70,8 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   behavior, game behavior after handoff, and host-runtime behavior remain
   unmeasured or unavailable.
 - `USER_DECISION`: the next earned pressure is Machine-owned SP IMEM, narrow
-  explicit routing for the observed region, and complete aligned `Lw`
-  semantics; it requires a separate lane decision.
+  explicit routing for the observed region, complete aligned `Lw`, and
+  bounded authentic-trace continuation. D022 authorizes that combined lane;
+  implementation has not begun.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

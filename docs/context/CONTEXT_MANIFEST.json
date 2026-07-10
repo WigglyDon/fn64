@@ -19,6 +19,7 @@
     "docs/context/subsystems/instruction-pipeline.md",
     "docs/context/subsystems/machine-core.md",
     "docs/context/subsystems/memory-and-cartridge.md",
+    "docs/lanes/boot-frontier-sp-imem-lw-v1.md",
     "docs/lanes/lane-registry.md",
     "docs/lanes/integration-queue.md",
     "docs/lanes/real-cartridge-boot-spine-v1.md",
