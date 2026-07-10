@@ -14,6 +14,8 @@ and lane implementation authority must never depend on documentation prose.
 
 Read [the context index](INDEX.md), [current state](context/CURRENT_STATE.md),
 [the context-system law](context/README.md), and the relevant subsystem page.
+Worker-topology process truth belongs in
+[WORKTREE_PROVISIONING.md](process/WORKTREE_PROVISIONING.md), not lane prose.
 Validate with `tools/fleet/context-verify` once available. Stop on conflicting
 current owners, unresolved authority, or evidence that disproves current text.
 

@@ -35,6 +35,7 @@ Update triggers: a canonical owner, stable boundary, or discovery step changes.
 - Lane registry: [lane-registry.md](lanes/lane-registry.md)
 - Integration queue view: [integration-queue.md](lanes/integration-queue.md)
 - Packet protocol: [PACKET_PROTOCOL.md](process/PACKET_PROTOCOL.md)
+- Worker worktree provisioning: [WORKTREE_PROVISIONING.md](process/WORKTREE_PROVISIONING.md)
 - Context deltas: [CONTEXT_DELTA.md](process/CONTEXT_DELTA.md)
 - Handoff and respawn: [HANDOFF_AND_RESPAWN.md](process/HANDOFF_AND_RESPAWN.md)
 - Evidence and release: [EVIDENCE_AND_RELEASE.md](process/EVIDENCE_AND_RELEASE.md)

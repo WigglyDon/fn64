@@ -15,6 +15,7 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: Rust is the forward product implementation; `./rust/verify-forward` is the sole default required forward-product gate.
 - `LIVE_REPO_FACT`: C++ source, CMake targets, no-window proofs, and an SDL host remain present as optional frozen reference truth.
 - `USER_DECISION`: C++ deletion is inactive. The drafted seam-090 deletion request is superseded by the project-context and fleet-infrastructure pass.
+- `USER_DECISION`: Master Codex alone provisions and verifies Worker Codex branches/worktrees and integrates worker commits; supervisors supply semantic packets only after provisioning.
 - `WORKER_CLAIM`: a complete C++ truth inventory was previously reported, but no committed inventory evidence exists at the starting head; it is not promoted here.
 - `USER_DECISION`: this pass may establish infrastructure/context authority but may not change represented machine behavior, add an emulator feature, or delete C++.
 
@@ -35,6 +36,7 @@ dated records; its current policy sections take precedence over superseded rows.
 - Required gate: `./rust/verify-forward`.
 - Optional reference checks: CMake configure/build plus C++ `fn64_selftest` and `fn64_step_probe`, only when an explicit reference task requires them.
 - Active worker lanes: none found from live repository evidence at infrastructure bootstrap.
+- Deferred lane: `cpp-reference-truth-reconstruction-v1` is `DEFERRED — NOT PROVISIONED`; it has no branch, worktree, launch command, candidate, or executed inventory work.
 - Planned but inactive: any future C++ deletion must receive a new explicit product packet after live inventory truth is accepted.
 - Parked donor/reference: a separate stale local clone exists outside the canonical repository; see the [lane registry](../lanes/lane-registry.md).
 
@@ -43,4 +45,5 @@ dated records; its current policy sections take precedence over superseded rows.
 - `USER_DECISION`: no emulator feature or C++ deletion may start automatically after this infrastructure pass.
 - `UNKNOWN`: the prior external C++ inventory's exact artifact and acceptance lineage are unavailable in committed repository truth.
 - `UNKNOWN`: no current active supervisor/worker session can be inferred from Git worktrees alone.
+- `LIVE_REPO_FACT`: the canceled `/tmp` C++ inventory topology and reserved future persistent topology were absent at the workflow-amendment preflight; residue classification is `NO_RESIDUE_FOUND`.
 - `LIVE_REPO_FACT`: ignored user-local artifact directories exist outside repository truth; their contents are not inspected, executed, committed, or packaged.

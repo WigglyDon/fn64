@@ -11,8 +11,10 @@ become a second project-state database.
 
 Read [the context index](../docs/INDEX.md), [current state](../docs/context/CURRENT_STATE.md),
 [fleet context](../docs/context/subsystems/fleet-operations.md), and
-[packet protocol](../docs/process/PACKET_PROTOCOL.md). Validate with the fleet
-fixture suite and the relevant tool's check mode.
+[packet protocol](../docs/process/PACKET_PROTOCOL.md). The canonical provisioning
+owner is [WORKTREE_PROVISIONING.md](../docs/process/WORKTREE_PROVISIONING.md);
+fleet tools may validate provisioned facts but must not provision a lane.
+Validate with the fleet fixture suite and the relevant tool's check mode.
 
 Stop when a tool would require a new product dependency, destructive Git
 operation, or semantic product judgment. Update this file only when tooling

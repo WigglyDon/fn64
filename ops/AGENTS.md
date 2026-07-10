@@ -9,6 +9,10 @@ may not invent SHAs, runtime facts, or authority. Human views must be generated
 from their machine-readable owner. No credential, repository object database,
 commercial ROM, proprietary blob, or build output belongs here.
 
+Queue entries record already established lane facts; they do not provision a
+branch, worktree, or launch command. Provisioning authority is owned by
+[WORKTREE_PROVISIONING.md](../docs/process/WORKTREE_PROVISIONING.md).
+
 Read [the context index](../docs/INDEX.md), [current state](../docs/context/CURRENT_STATE.md),
 [fleet context](../docs/context/subsystems/fleet-operations.md), and
 [evidence process](../docs/process/EVIDENCE_AND_RELEASE.md). Validate with the

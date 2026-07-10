@@ -14,6 +14,12 @@ architecture/sequencing; Master Codex owns live Git integration; supervisors own
 lane semantics; workers own scoped implementation. Don remains product authority
 and the physical manual packet boundary.
 
+Master Codex also solely owns worker branch/worktree provisioning under
+[WORKTREE_PROVISIONING.md](../../process/WORKTREE_PROVISIONING.md). Supervisors
+receive and transmit literal verified topology; Worker Codex verifies it and
+stops on mismatch but never creates, repairs, switches, merges, rebases, resets,
+cleans, removes, or pushes topology.
+
 Tools inspect context, packets, Git metadata, queues, and evidence. Default mode
 is read-only. Explicit repair may only configure an already-authenticated forge
 CLI and must report mutation. Reset, clean, force-push, canonical-main mutation
@@ -23,6 +29,8 @@ are forbidden.
 The machine-readable integration queue owns coordination state; its Markdown is
 generated. Git/source remain code truth. The local `/home/don/fn64-fleet` spool
 is transport convenience only and is never canonical or committed.
+Queue and lane records describe provisioned or deferred facts; neither creates
+a branch, worktree, or launch authority.
 
 Accepted proof includes deterministic fixture tests, valid/invalid packet cases,
 Context-SHA repeatability, no-mutation lane-doctor samples, generated-view

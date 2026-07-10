@@ -13,14 +13,21 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 Active worker lanes: none found from live repository evidence.
 
-The dedicated `master/infrastructure-v1` worktree is Master integration work for
-the current packet, not a worker lane, and therefore has no active-lane page.
+Master process worktrees are not worker lanes and do not receive active Worker
+lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
 - C++ deletion / former seam-090: `USER_DECISION` superseded the drafted packet.
   It has no branch, worktree, candidate SHA, or active worker. A new explicit
   product packet is required before activation.
+- `cpp-reference-truth-reconstruction-v1`: `DEFERRED — NOT PROVISIONED` by
+  `USER_DECISION`. Reserved future topology is
+  `/home/don/fn64-worktrees/cpp-reference-truth-reconstruction-v1` on
+  `worker/cpp-reference-truth-v1`, but neither exists or carries authority. No
+  launch command was issued, no integration candidate exists, and no C++
+  inventory work ran. The void `/tmp` topology had
+  [`NO_RESIDUE_FOUND`](../../ops/evidence/master-provisioned-worker-worktrees-v1/CANCELED_LANE_RESIDUE_AUDIT.md).
 
 ## Parked donor lanes
 
@@ -43,4 +50,6 @@ passes are milestones, not currently active lanes.
 - Rust forward-gate promotion: commit `df0551f87506d136717e7c2b3673580adce5869a`.
 
 Worktree existence alone never proves an active lane. Activation requires a
-literal current packet, authority, branch/worktree, goal, and Context-SHA.
+Master-provisioned and verified branch/worktree, literal launch command, current
+packet, authority, goal, and Context-SHA. See
+[Master-Provisioned Worker Worktrees](../process/WORKTREE_PROVISIONING.md).

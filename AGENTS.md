@@ -33,4 +33,10 @@ expand product authority. Stop for contradictory accepted law, data-loss risk,
 security risk, or a product/authority decision—not for routine Git mechanics or
 an ordinary compile failure.
 
+Master Codex alone [provisions and verifies worker worktrees and branches](docs/process/WORKTREE_PROVISIONING.md)
+and integrates worker commits. Worker Codex may not manage worktrees or
+branches and must stop without modification when its repository root, assigned
+branch, starting base, cleanliness, index, or Context-SHA differs from its
+Master-provisioned packet.
+
 Update this file only when standing project law or root discovery changes.

@@ -31,3 +31,9 @@ root AGENTS, every scoped AGENTS on the path, index, current state, detailed
 ownership/migration ledger, relevant subsystem, active lane page, and relevant
 contracts/evidence. Worker Codex confirms the new Context-SHA and reports
 contradictions before resuming.
+
+A context delta never grants branch/worktree management to Worker Codex and
+never treats a supervisor path recommendation as provisioned truth. Existing
+Master-provisioned topology remains unchanged unless Master Codex explicitly
+reprovisions and verifies it. Dirty or unknown local work is preserved; Don does
+not perform Git topology mechanics.

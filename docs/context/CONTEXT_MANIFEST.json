@@ -26,6 +26,7 @@
     "docs/process/EVIDENCE_AND_RELEASE.md",
     "docs/process/HANDOFF_AND_RESPAWN.md",
     "docs/process/PACKET_PROTOCOL.md",
+    "docs/process/WORKTREE_PROVISIONING.md",
     "ops/AGENTS.md",
     "ops/evidence/README.md",
     "ops/evidence/schemas/host-runtime-observation.schema.json",

@@ -19,6 +19,11 @@ observability, performance/resource state, migration/retirement changes,
 deploy performed/not, push result, recovery evidence when relevant, and known
 unknowns.
 
+Worker-lane evidence also records the Master-provisioned worktree, branch, base,
+provisioning state/exception, launch command lineage, and the Worker's
+no-topology-management authority. Evidence records provisioning; it never
+creates it.
+
 Every validation claim ties to the exact tested SHA. A repository-contained
 manifest cannot truthfully embed the hash of the commit that contains itself;
 therefore the exact final integration manifest is generated as a release
