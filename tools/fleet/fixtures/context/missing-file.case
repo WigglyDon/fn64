@@ -1,0 +1,3 @@
+source=current accepted repository context
+mutation=remove docs/context/CURRENT_STATE.md in an isolated copy
+expected=invalid

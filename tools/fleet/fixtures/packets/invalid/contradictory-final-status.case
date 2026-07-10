@@ -1,0 +1,3 @@
+source=valid-worker-final.packet
+mutation=set Final-Status to STOP while body remains ACCEPTED
+expected=invalid

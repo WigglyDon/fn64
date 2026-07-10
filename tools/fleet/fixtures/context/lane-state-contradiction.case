@@ -1,0 +1,3 @@
+source=current accepted repository context
+mutation=add the same lane ID under Active lanes and Retired lanes in an isolated copy
+expected=invalid

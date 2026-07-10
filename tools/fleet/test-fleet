@@ -1,0 +1,184 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/fn64-fleet-test.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+passes=0
+
+stage() { printf 'test: %s\n' "$1"; }
+ok() { passes=$((passes + 1)); }
+expect_fail() { if "$@" >/dev/null 2>&1; then printf 'expected failure: %s\n' "$*" >&2; exit 1; else ok; fi; }
+expect_class() {
+    expected=$1
+    shift
+    output=$($script_dir/lane-doctor --machine "$@" 2>/dev/null || true)
+    actual=$(printf '%s\n' "$output" | sed -n 's/^classification=//p')
+    [ "$actual" = "$expected" ] || { printf 'lane classification: expected %s, got %s\n' "$expected" "$actual" >&2; exit 1; }
+    ok
+}
+
+stage 'shell syntax'
+for tool in context-sha context-verify lane-doctor packet-verify supervisor-respawn-bundle integration-queue evidence-manifest test-fleet; do
+    sh -n "$script_dir/$tool"
+done
+ok
+
+stage 'context valid and deterministic'
+first=$($script_dir/context-sha --root "$root" --machine | sed -n 's/^context_sha=//p')
+second=$($script_dir/context-sha --root "$root" --machine | sed -n 's/^context_sha=//p')
+[ -n "$first" ] && [ "$first" = "$second" ]
+$script_dir/context-verify --root "$root" --machine | grep -q '^result=ok$'
+ok
+
+stage 'context invalid fixtures'
+make_context_copy() {
+    destination=$1
+    mkdir -p "$destination"
+    (cd "$root" && tar --exclude=.git --exclude=rust/target -cf - AGENTS.md docs rust/AGENTS.md rust/PARITY.md rust/crates/fn64-core/AGENTS.md rust/crates/fn64-inspection/AGENTS.md src/AGENTS.md tools ops) | (cd "$destination" && tar -xf -)
+}
+
+make_context_copy "$tmp/missing"
+rm "$tmp/missing/docs/context/CURRENT_STATE.md"
+expect_fail "$script_dir/context-verify" --root "$tmp/missing"
+
+make_context_copy "$tmp/broken"
+printf '%s\n' '[broken fixture](missing-fixture.md)' >>"$tmp/broken/docs/context/README.md"
+expect_fail "$script_dir/context-verify" --root "$tmp/broken"
+
+make_context_copy "$tmp/owner"
+sed -i 's/^Canonical for:.*/Canonical for: canonical current-state owner fixture./' "$tmp/owner/docs/context/PROJECT_HISTORY.md" "$tmp/owner/docs/context/CURRENT_STATE.md"
+expect_fail "$script_dir/context-verify" --root "$tmp/owner"
+
+make_context_copy "$tmp/lane"
+sed -i '/^## Active lanes$/a - fixture-conflict' "$tmp/lane/docs/lanes/lane-registry.md"
+sed -i '/^## Retired lanes$/a - fixture-conflict' "$tmp/lane/docs/lanes/lane-registry.md"
+expect_fail "$script_dir/context-verify" --root "$tmp/lane"
+
+make_context_copy "$tmp/placeholder"
+printf '%s\n' 'Executable value: <UNRESOLVED_VALUE>' >>"$tmp/placeholder/docs/context/README.md"
+expect_fail "$script_dir/context-verify" --root "$tmp/placeholder"
+
+stage 'packet valid fixtures'
+for packet in valid-work.packet valid-context-delta.packet valid-worker-final.packet valid-master-final.packet; do
+    $script_dir/packet-verify "$script_dir/fixtures/packets/$packet" >/dev/null
+    ok
+done
+
+stage 'packet invalid fixtures'
+packet_tmp=$tmp/packet
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i '/^Context-SHA:/d' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i '/^Reply-To:/d' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Project-ID:.*/Project-ID: another-project/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's|^Branch:.*|Branch: <UNRESOLVED_BRANCH>|' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i '/^END PROJECT PACKET$/d' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Stale-When:.*/Stale-When: always/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-worker-final.packet" "$packet_tmp"
+sed -i 's/^Final-Status:.*/Final-Status: STOP/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-worker-final.packet" "$packet_tmp"
+sed -i '/^Artifact-SHA256:/d' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-worker-final.packet" "$packet_tmp"
+sed -i 's/^Worker branches pushed:.*/Worker branches pushed: yes/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+
+stage 'respawn bundle deterministic and valid'
+respawn_args='--packet-id fn64-fixture-respawn-001 --reply-to fn64-fixture-work-001 --context-sha 1111111111111111111111111111111111111111111111111111111111111111 --lane-id fixture-lane --lane-page docs/lanes/fixture-lane.md --base df0551f87506d136717e7c2b3673580adce5869a --worktree /tmp/fn64-fixture-lane --branch fixture/lane --candidate-head df0551f87506d136717e7c2b3673580adce5869a --latest-packet fn64-fixture-work-001 --artifact NONE --goal preserve-the-existing-fixture-goal --risk none-known --next-action reread-context-and-resume --authority SUPERVISOR_SEMANTIC_AUTHORITY --prohibited push-deploy-main-mutation --proof packet-and-lane-validation --subsystems docs/context/subsystems/machine-core.md --validation ./rust/verify-forward --stale accepted-base-or-context-changes'
+# shellcheck disable=SC2086
+$script_dir/supervisor-respawn-bundle $respawn_args >"$tmp/respawn-a.packet"
+# shellcheck disable=SC2086
+$script_dir/supervisor-respawn-bundle $respawn_args >"$tmp/respawn-b.packet"
+cmp -s "$tmp/respawn-a.packet" "$tmp/respawn-b.packet"
+$script_dir/packet-verify "$tmp/respawn-a.packet" >/dev/null
+ok
+
+stage 'queue and evidence checks'
+$script_dir/integration-queue check >/dev/null
+expect_fail "$script_dir/integration-queue" check --queue "$script_dir/fixtures/integration-queue-invalid.json" --view "$root/docs/lanes/integration-queue.md"
+$script_dir/evidence-manifest check "$script_dir/fixtures/evidence-valid.json" >/dev/null
+cp "$script_dir/fixtures/evidence-valid.json" "$tmp/evidence-invalid.json"
+sed -i '/"context_sha"/d' "$tmp/evidence-invalid.json"
+expect_fail "$script_dir/evidence-manifest" check "$tmp/evidence-invalid.json"
+ok
+
+stage 'lane doctor classifications and no mutation'
+git init -q -b main "$tmp/doctor"
+git -C "$tmp/doctor" config user.name 'fn64 fixture'
+git -C "$tmp/doctor" config user.email 'fixture@fn64.invalid'
+mkdir -p "$tmp/doctor/docs/context" "$tmp/doctor/tools/fleet"
+printf '%s\n' fixture >"$tmp/doctor/state.txt"
+cp "$script_dir/context-sha" "$tmp/doctor/tools/fleet/context-sha"
+chmod +x "$tmp/doctor/tools/fleet/context-sha"
+printf '%s\n' '{' '  "schema": "fn64-context-manifest-v1",' '  "paths": [' '    "state.txt"' '  ]' '}' >"$tmp/doctor/docs/context/CONTEXT_MANIFEST.json"
+git -C "$tmp/doctor" add .
+git -C "$tmp/doctor" commit -q -m base
+base=$(git -C "$tmp/doctor" rev-parse HEAD)
+git init -q --bare "$tmp/remote.git"
+git -C "$tmp/doctor" remote add origin "$tmp/remote.git"
+git -C "$tmp/doctor" push -q -u origin main
+git -C "$tmp/remote.git" symbolic-ref HEAD refs/heads/main
+git -C "$tmp/doctor" fetch -q origin
+
+before=$(git -C "$tmp/doctor" status --porcelain; git -C "$tmp/doctor" rev-parse HEAD)
+expect_class READY --worktree "$tmp/doctor" --expected-branch main --expected-base "$base"
+after=$(git -C "$tmp/doctor" status --porcelain; git -C "$tmp/doctor" rev-parse HEAD)
+[ "$before" = "$after" ] || { printf '%s\n' 'lane-doctor mutated clean fixture' >&2; exit 1; }
+
+expect_class WRONG_BRANCH --worktree "$tmp/doctor" --expected-branch wrong --expected-base "$base"
+printf '%s\n' dirty >>"$tmp/doctor/state.txt"
+expect_class DIRTY_UNKNOWN_WORK --worktree "$tmp/doctor" --expected-branch main --expected-base "$base"
+git -C "$tmp/doctor" checkout -q -- state.txt
+expect_class CONTEXT_STALE --worktree "$tmp/doctor" --expected-branch main --expected-base "$base" --expected-context-sha 0000000000000000000000000000000000000000000000000000000000000000
+
+git init -q -b main "$tmp/no-remote"
+git -C "$tmp/no-remote" config user.name fixture
+git -C "$tmp/no-remote" config user.email fixture@fn64.invalid
+printf '%s\n' x >"$tmp/no-remote/x"
+git -C "$tmp/no-remote" add x
+git -C "$tmp/no-remote" commit -q -m base
+no_remote_base=$(git -C "$tmp/no-remote" rev-parse HEAD)
+expect_class REMOTE_AUTH_BLOCKED --worktree "$tmp/no-remote" --expected-branch main --expected-base "$no_remote_base"
+
+git clone -q "$tmp/remote.git" "$tmp/updater"
+git -C "$tmp/updater" config user.name fixture
+git -C "$tmp/updater" config user.email fixture@fn64.invalid
+printf '%s\n' remote >"$tmp/updater/remote.txt"
+git -C "$tmp/updater" add remote.txt
+git -C "$tmp/updater" commit -q -m remote
+git -C "$tmp/updater" push -q origin main
+git -C "$tmp/doctor" fetch -q origin
+expect_class FAST_FORWARD_AVAILABLE --worktree "$tmp/doctor" --expected-branch main --expected-base "$base"
+
+git -C "$tmp/doctor" checkout -q -b lane
+printf '%s\n' local >"$tmp/doctor/local.txt"
+git -C "$tmp/doctor" add local.txt
+git -C "$tmp/doctor" commit -q -m local
+expect_class LOCAL_MERGE_REQUIRED --worktree "$tmp/doctor" --expected-branch lane --expected-base "$base"
+expect_class LOCAL_REBASE_REQUIRED --worktree "$tmp/doctor" --expected-branch lane --expected-base "$base" --strategy rebase
+
+printf '%s\n' local-overlap >"$tmp/doctor/state.txt"
+git -C "$tmp/doctor" add state.txt
+git -C "$tmp/doctor" commit -q -m local-overlap
+printf '%s\n' remote-overlap >"$tmp/updater/state.txt"
+git -C "$tmp/updater" add state.txt
+git -C "$tmp/updater" commit -q -m remote-overlap
+git -C "$tmp/updater" push -q origin main
+git -C "$tmp/doctor" fetch -q origin
+expect_class DIRECT_OVERLAP --worktree "$tmp/doctor" --expected-branch lane --expected-base "$base"
+
+printf 'fleet tests: %s passed\n' "$passes"
+printf '%s\n' 'result: ok'

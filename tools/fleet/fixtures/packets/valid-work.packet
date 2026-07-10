@@ -1,0 +1,24 @@
+BEGIN PROJECT PACKET
+Packet-Version: 1.0
+Packet-ID: fn64-fixture-work-001
+Reply-To: NONE
+From: Supervisor GPT
+To: Worker Codex
+Project-ID: fn64
+Lane-ID: fixture-lane
+Goal-ID: fixture-goal
+Context-SHA: 1111111111111111111111111111111111111111111111111111111111111111
+Expected-Base: df0551f87506d136717e7c2b3673580adce5869a
+Worktree: /tmp/fn64-fixture-lane
+Branch: fixture/lane
+Authority-State: WORKER_IMPLEMENTATION_AUTHORITY
+Expected-Reply-Type: WORKER_FINAL_REPORT
+Stale-When: the expected base is not an ancestor of the lane HEAD
+Allowed-Stop-Classes: ACCEPTED,NEEDS_FIX,PARTIAL,STOP
+
+Packet-Type: SUPERVISOR_TO_WORKER_WORK
+Goal: validate the packet fixture without changing product truth.
+No-Push: required
+No-Deploy: required
+
+END PROJECT PACKET

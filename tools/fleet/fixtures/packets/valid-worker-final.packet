@@ -1,0 +1,46 @@
+BEGIN PROJECT PACKET
+Packet-Version: 1.0
+Packet-ID: fn64-fixture-worker-final-001
+Reply-To: fn64-fixture-work-001
+From: Worker Codex
+To: Supervisor GPT
+Project-ID: fn64
+Lane-ID: fixture-lane
+Goal-ID: fixture-goal
+Context-SHA: 1111111111111111111111111111111111111111111111111111111111111111
+Expected-Base: df0551f87506d136717e7c2b3673580adce5869a
+Worktree: /tmp/fn64-fixture-lane
+Branch: fixture/lane
+Authority-State: WORKER_REPORT_ONLY
+Expected-Reply-Type: WORKER_FINAL_REPORT
+Stale-When: a newer final report for this packet is accepted
+Allowed-Stop-Classes: ACCEPTED,NEEDS_FIX,PARTIAL,STOP
+Packet-Type: WORKER_FINAL_REPORT
+Artifact-SHA256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Final-Status: ACCEPTED
+
+STATUS
+ACCEPTED
+
+FILES CHANGED
+none; structural fixture only
+
+VALIDATION
+packet structure validated
+
+DIVERGENCE
+NONE
+
+OVERLAP
+NONE
+
+ARTIFACT
+/tmp/fn64-fixture.tar.gz
+
+TEACHING
+The validator checks structure, not claim truth.
+
+Worker branches pushed: no
+Manual deploy performed: no
+
+END PROJECT PACKET

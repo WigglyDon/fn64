@@ -1,0 +1,3 @@
+source=current accepted repository context
+mutation=append an angle-bracket placeholder in an isolated copy
+expected=invalid

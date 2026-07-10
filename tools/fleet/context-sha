@@ -1,0 +1,99 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+default_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+root=$default_root
+manifest=docs/context/CONTEXT_MANIFEST.json
+machine=false
+
+usage() {
+    printf '%s\n' 'usage: context-sha [--root PATH] [--manifest PATH] [--machine]'
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --root) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; root=$2; shift 2 ;;
+        --manifest) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; manifest=$2; shift 2 ;;
+        --machine) machine=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+done
+
+root=$(CDPATH= cd -- "$root" 2>/dev/null && pwd) || {
+    printf '%s\n' 'context-sha: invalid root' >&2
+    exit 1
+}
+manifest_path=$root/$manifest
+[ -f "$manifest_path" ] || {
+    printf 'context-sha: missing manifest: %s\n' "$manifest" >&2
+    exit 1
+}
+
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/fn64-context-sha.XXXXXX")
+trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
+paths=$tmp_dir/paths
+sorted=$tmp_dir/sorted
+records=$tmp_dir/records
+dirty=$tmp_dir/dirty
+
+sed -n '/"paths"[[:space:]]*:/,/^[[:space:]]*]/ {
+    s/^[[:space:]]*"\([^"]*\)"[,]*[[:space:]]*$/\1/p
+}' "$manifest_path" >"$paths"
+
+[ -s "$paths" ] || {
+    printf '%s\n' 'context-sha: manifest has no paths' >&2
+    exit 1
+}
+
+LC_ALL=C sort "$paths" >"$sorted"
+if [ "$(wc -l <"$paths" | tr -d ' ')" -ne "$(uniq "$sorted" | wc -l | tr -d ' ')" ]; then
+    printf '%s\n' 'context-sha: duplicate manifest path' >&2
+    exit 1
+fi
+
+: >"$records"
+: >"$dirty"
+while IFS= read -r path; do
+    case "$path" in
+        ''|/*|..|../*|*/../*|*/..)
+            printf 'context-sha: unsafe manifest path: %s\n' "$path" >&2
+            exit 1
+            ;;
+    esac
+    [ -f "$root/$path" ] || {
+        printf 'context-sha: missing context file: %s\n' "$path" >&2
+        exit 1
+    }
+    digest=$(sha256sum "$root/$path" | awk '{print $1}')
+    printf '%s  %s\n' "$digest" "$path" >>"$records"
+    if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git -C "$root" status --porcelain --untracked-files=all -- "$path" >>"$dirty"
+    fi
+done <"$sorted"
+
+context_sha=$(sha256sum "$records" | awk '{print $1}')
+dirty_count=$(sed '/^[[:space:]]*$/d' "$dirty" | wc -l | tr -d ' ')
+if [ "$dirty_count" -eq 0 ]; then
+    context_state=committed
+else
+    context_state=dirty
+fi
+path_count=$(wc -l <"$sorted" | tr -d ' ')
+
+if [ "$machine" = true ]; then
+    printf '%s\n' \
+        'schema=fn64-context-sha-v1' \
+        "context_sha=$context_sha" \
+        "manifest=$manifest" \
+        "path_count=$path_count" \
+        "context_state=$context_state" \
+        "dirty_context_count=$dirty_count" \
+        'result=ok'
+else
+    printf 'context-sha: %s\n' "$context_sha"
+    printf 'manifest: %s (%s paths)\n' "$manifest" "$path_count"
+    printf 'context-state: %s (%s dirty entries)\n' "$context_state" "$dirty_count"
+    printf '%s\n' 'result: ok'
+fi

@@ -1,0 +1,3 @@
+source=valid-work.packet
+mutation=remove END PROJECT PACKET
+expected=invalid

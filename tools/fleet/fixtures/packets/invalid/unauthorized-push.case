@@ -1,0 +1,3 @@
+source=valid-worker-final.packet
+mutation=set Worker branches pushed to yes
+expected=invalid

@@ -1,0 +1,3 @@
+source=valid-work.packet
+mutation=remove Context-SHA
+expected=invalid

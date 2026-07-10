@@ -1,0 +1,3 @@
+source=valid-worker-final.packet
+mutation=remove Artifact-SHA256
+expected=invalid

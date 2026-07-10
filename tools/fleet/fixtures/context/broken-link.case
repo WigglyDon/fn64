@@ -1,0 +1,3 @@
+source=current accepted repository context
+mutation=append a missing local Markdown link in an isolated copy
+expected=invalid

@@ -1,0 +1,28 @@
+BEGIN PROJECT PACKET
+Packet-Version: 1.0
+Packet-ID: fn64-fixture-context-delta-001
+Reply-To: fn64-fixture-work-001
+From: Master Codex
+To: Worker Codex
+Project-ID: fn64
+Lane-ID: fixture-lane
+Goal-ID: fixture-goal
+Context-SHA: 2222222222222222222222222222222222222222222222222222222222222222
+Expected-Base: df0551f87506d136717e7c2b3673580adce5869a
+Worktree: /tmp/fn64-fixture-lane
+Branch: fixture/lane
+Authority-State: CONTEXT_UPDATE_ONLY
+Expected-Reply-Type: WORKER_FINAL_REPORT
+Stale-When: the lane no longer exists or its goal changed
+Allowed-Stop-Classes: ACCEPTED,NEEDS_FIX,PARTIAL,STOP
+
+Packet-Type: CONTEXT_DELTA_AMENDMENT
+Old-Context-SHA: 1111111111111111111111111111111111111111111111111111111111111111
+New-Context-SHA: 2222222222222222222222222222222222222222222222222222222222222222
+Changed-Context-Files: AGENTS.md,docs/context/CURRENT_STATE.md
+Branch-Update-Instruction: merge the accepted context commit without discarding local work
+Root-To-Local-Reread-Instruction: read root and scoped AGENTS, index, current state, parity, subsystem, lane, contracts
+Contradiction-Report-Instruction: stop and report any semantic conflict before resuming
+Restart-Goal: false
+
+END PROJECT PACKET

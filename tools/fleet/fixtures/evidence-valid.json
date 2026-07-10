@@ -1,0 +1,20 @@
+{
+  "schema": "fn64-evidence-manifest-v1",
+  "integration_sha": "1111111111111111111111111111111111111111",
+  "parent_sha": "2222222222222222222222222222222222222222",
+  "context_sha": "3333333333333333333333333333333333333333333333333333333333333333",
+  "candidate_commits": [],
+  "targeted_gates": [],
+  "full_verification": {"status": "unavailable"},
+  "verification_environment": {"status": "fixture"},
+  "runtime_evidence": {"status": "unavailable"},
+  "artifacts": [{"path": "/tmp/fixture", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
+  "authority_changes": [],
+  "rollback_state": "unavailable",
+  "observability_state": "unavailable",
+  "performance_state": "unavailable",
+  "retirement_changes": [],
+  "deploy_performed": false,
+  "push_result": "not-performed",
+  "known_unknowns": []
+}

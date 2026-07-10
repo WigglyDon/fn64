@@ -1,0 +1,46 @@
+BEGIN PROJECT PACKET
+Packet-Version: 1.0
+Packet-ID: fn64-fixture-master-final-001
+Reply-To: fn64-fixture-master-work-001
+From: Master Codex
+To: Master GPT
+Project-ID: fn64
+Lane-ID: fixture-master-lane
+Goal-ID: fixture-master-goal
+Context-SHA: 1111111111111111111111111111111111111111111111111111111111111111
+Expected-Base: df0551f87506d136717e7c2b3673580adce5869a
+Worktree: /tmp/fn64-fixture-master
+Branch: fixture/master
+Authority-State: MASTER_REPORT_ONLY
+Expected-Reply-Type: MASTER_REVIEW
+Stale-When: a newer accepted integration supersedes this report
+Allowed-Stop-Classes: ACCEPTED,NEEDS_FIX,PARTIAL,STOP
+Packet-Type: MASTER_CODEX_FINAL_REPORT
+Artifact-SHA256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Final-Status: ACCEPTED
+
+STATUS
+ACCEPTED
+
+FILES CHANGED
+none; structural fixture only
+
+VALIDATION
+packet structure validated
+
+DIVERGENCE
+NONE
+
+OVERLAP
+NONE
+
+ARTIFACT
+/tmp/fn64-master-fixture.tar.gz
+
+TEACHING
+Master reports preserve evidence labels and literal state.
+
+Canonical branch pushed: no
+Manual deploy performed: no
+
+END PROJECT PACKET

@@ -1,0 +1,171 @@
+#!/bin/sh
+set -eu
+
+worktree=''
+expected_branch=''
+expected_base=''
+lane_id='UNKNOWN'
+expected_context=''
+machine=false
+repair=false
+strategy=merge
+
+usage() {
+    printf '%s\n' 'usage: lane-doctor --worktree PATH --expected-branch BRANCH --expected-base SHA [--lane-id ID] [--expected-context-sha SHA] [--strategy merge|rebase] [--machine] [--repair-gh-auth]'
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --worktree) worktree=$2; shift 2 ;; --expected-branch) expected_branch=$2; shift 2 ;;
+        --expected-base) expected_base=$2; shift 2 ;; --lane-id) lane_id=$2; shift 2 ;;
+        --expected-context-sha) expected_context=$2; shift 2 ;; --strategy) strategy=$2; shift 2 ;;
+        --machine) machine=true; shift ;; --repair-gh-auth) repair=true; shift ;;
+        -h|--help) usage; exit 0 ;; *) usage >&2; exit 2 ;;
+    esac
+done
+
+[ -n "$worktree" ] && [ -n "$expected_branch" ] && [ -n "$expected_base" ] || { usage >&2; exit 2; }
+case "$strategy" in merge|rebase) ;; *) usage >&2; exit 2 ;; esac
+
+classification=READY
+result=ok
+mutation=none
+branch=UNKNOWN
+head=UNKNOWN
+canonical=UNKNOWN
+ahead=UNKNOWN
+behind=UNKNOWN
+dirty_count=UNKNOWN
+staged_count=UNKNOWN
+untracked_count=UNKNOWN
+ignored_count=UNKNOWN
+context_sha=UNKNOWN
+context_state=UNKNOWN
+agents_count=0
+lane_page=UNKNOWN
+remote=UNKNOWN
+credential_helper=not_configured
+forge_auth=not_checked
+base_ancestor=UNKNOWN
+direct_overlap_count=0
+
+if ! root=$(git -C "$worktree" rev-parse --show-toplevel 2>/dev/null); then
+    classification=WRONG_WORKTREE
+    result=invalid
+else
+    worktree=$(CDPATH= cd -- "$worktree" && pwd)
+    branch=$(git -C "$worktree" branch --show-current)
+    [ -n "$branch" ] || branch=DETACHED
+    head=$(git -C "$worktree" rev-parse HEAD)
+    if git -C "$worktree" merge-base --is-ancestor "$expected_base" "$head" 2>/dev/null; then base_ancestor=yes; else base_ancestor=no; fi
+
+    staged_count=$(git -C "$worktree" diff --cached --name-only | sed '/^$/d' | wc -l | tr -d ' ')
+    tracked_dirty=$(git -C "$worktree" diff --name-only | sed '/^$/d' | wc -l | tr -d ' ')
+    untracked_count=$(git -C "$worktree" ls-files --others --exclude-standard | sed '/^$/d' | wc -l | tr -d ' ')
+    dirty_count=$((staged_count + tracked_dirty + untracked_count))
+    ignored_count=$(git -C "$worktree" status --short --ignored --untracked-files=normal | sed -n 's/^!! //p' | wc -l | tr -d ' ')
+
+    remote=$(git -C "$worktree" remote get-url origin 2>/dev/null || true)
+    [ -n "$remote" ] || remote=NONE
+    if git -C "$worktree" config --get credential.helper >/dev/null 2>&1; then credential_helper=configured; fi
+    if command -v gh >/dev/null 2>&1; then
+        if gh auth status >/dev/null 2>&1; then forge_auth=authenticated; else forge_auth=not_authenticated; fi
+    else
+        forge_auth=unavailable
+    fi
+
+    if [ "$repair" = true ]; then
+        if [ "$forge_auth" = authenticated ]; then
+            gh auth setup-git >/dev/null
+            mutation=gh_auth_setup_git
+        else
+            classification=REMOTE_AUTH_BLOCKED
+            result=invalid
+        fi
+    fi
+
+    canonical_ref=$(git -C "$worktree" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)
+    [ -n "$canonical_ref" ] || { git -C "$worktree" show-ref --verify --quiet refs/remotes/origin/main && canonical_ref=refs/remotes/origin/main || canonical_ref=''; }
+    if [ -n "$canonical_ref" ]; then
+        canonical=$(git -C "$worktree" rev-parse "$canonical_ref")
+        counts=$(git -C "$worktree" rev-list --left-right --count "$head...$canonical")
+        ahead=$(printf '%s\n' "$counts" | awk '{print $1}')
+        behind=$(printf '%s\n' "$counts" | awk '{print $2}')
+    fi
+
+    if [ -x "$root/tools/fleet/context-sha" ] && [ -f "$root/docs/context/CONTEXT_MANIFEST.json" ]; then
+        context_output=$($root/tools/fleet/context-sha --root "$root" --machine 2>/dev/null || true)
+        context_sha=$(printf '%s\n' "$context_output" | sed -n 's/^context_sha=//p')
+        context_state=$(printf '%s\n' "$context_output" | sed -n 's/^context_state=//p')
+        [ -n "$context_sha" ] || context_sha=UNKNOWN
+        [ -n "$context_state" ] || context_state=UNKNOWN
+    fi
+    agents_count=$(find "$root" -path "$root/.git" -prune -o -path "$root/rust/target" -prune -o -name AGENTS.md -type f -print | wc -l | tr -d ' ')
+    if [ "$lane_id" != UNKNOWN ]; then
+        match=$(grep -R -l -- "$lane_id" "$root/docs/lanes" 2>/dev/null | LC_ALL=C sort | head -n 1 || true)
+        [ -n "$match" ] && lane_page=${match#"$root/"}
+    fi
+
+    local_paths=$(mktemp "${TMPDIR:-/tmp}/fn64-lane-local.XXXXXX")
+    canonical_paths=$(mktemp "${TMPDIR:-/tmp}/fn64-lane-canonical.XXXXXX")
+    overlap=$(mktemp "${TMPDIR:-/tmp}/fn64-lane-overlap.XXXXXX")
+    trap 'rm -f "$local_paths" "$canonical_paths" "$overlap"' EXIT HUP INT TERM
+    { git -C "$worktree" diff --name-only "$expected_base..$head" 2>/dev/null || true; git -C "$worktree" diff --name-only; git -C "$worktree" diff --cached --name-only; } | sed '/^$/d' | LC_ALL=C sort -u >"$local_paths"
+    if [ "$canonical" != UNKNOWN ]; then git -C "$worktree" diff --name-only "$expected_base..$canonical" 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u >"$canonical_paths" || : >"$canonical_paths"; else : >"$canonical_paths"; fi
+    comm -12 "$local_paths" "$canonical_paths" >"$overlap"
+    direct_overlap_count=$(wc -l <"$overlap" | tr -d ' ')
+
+    if [ "$classification" = READY ]; then
+        if [ "$branch" != "$expected_branch" ]; then classification=WRONG_BRANCH; result=invalid
+        elif [ "$base_ancestor" != yes ]; then classification=RED_LINE_CONFLICT; result=invalid
+        elif [ "$direct_overlap_count" -gt 0 ]; then classification=DIRECT_OVERLAP; result=invalid
+        elif [ "$dirty_count" -gt 0 ]; then classification=DIRTY_UNKNOWN_WORK; result=invalid
+        elif [ -n "$expected_context" ] && [ "$context_sha" != "$expected_context" ]; then classification=CONTEXT_STALE; result=invalid
+        elif [ "$remote" = NONE ] && [ "$canonical" = UNKNOWN ]; then classification=REMOTE_AUTH_BLOCKED; result=invalid
+        elif [ "$ahead" != UNKNOWN ] && [ "$behind" -gt 0 ] && [ "$ahead" -eq 0 ]; then classification=FAST_FORWARD_AVAILABLE
+        elif [ "$ahead" != UNKNOWN ] && [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
+            if [ "$strategy" = rebase ]; then classification=LOCAL_REBASE_REQUIRED; else classification=LOCAL_MERGE_REQUIRED; fi
+        fi
+    fi
+fi
+
+if [ "$machine" = true ]; then
+    printf '%s\n' \
+        'schema=fn64-lane-doctor-v1' \
+        "classification=$classification" \
+        "result=$result" \
+        "worktree=$worktree" \
+        "expected_branch=$expected_branch" \
+        "branch=$branch" \
+        "head=$head" \
+        "expected_base=$expected_base" \
+        "base_ancestor=$base_ancestor" \
+        "canonical=$canonical" \
+        "ahead=$ahead" \
+        "behind=$behind" \
+        "dirty_count=$dirty_count" \
+        "staged_count=$staged_count" \
+        "untracked_count=$untracked_count" \
+        "ignored_count=$ignored_count" \
+        "direct_overlap_count=$direct_overlap_count" \
+        "context_sha=$context_sha" \
+        "context_state=$context_state" \
+        "agents_count=$agents_count" \
+        "lane_page=$lane_page" \
+        "remote=$remote" \
+        "credential_helper=$credential_helper" \
+        "forge_auth=$forge_auth" \
+        "mutation=$mutation"
+else
+    printf 'lane-doctor: %s\n' "$classification"
+    printf 'worktree: %s\n' "$worktree"
+    printf 'branch: %s (expected %s)\n' "$branch" "$expected_branch"
+    printf 'head/base: %s / %s (ancestor %s)\n' "$head" "$expected_base" "$base_ancestor"
+    printf 'canonical divergence: ahead %s, behind %s\n' "$ahead" "$behind"
+    printf 'worktree state: %s dirty, %s staged, %s untracked, %s ignored entries\n' "$dirty_count" "$staged_count" "$untracked_count" "$ignored_count"
+    printf 'context: %s (%s)\n' "$context_sha" "$context_state"
+    printf 'remote/auth: %s / forge %s\n' "$remote" "$forge_auth"
+    printf 'mutation: %s\n' "$mutation"
+    printf 'result: %s\n' "$result"
+fi
+[ "$result" = ok ]

@@ -1,0 +1,8 @@
+{
+  "schema": "fn64-integration-queue-v1",
+  "allowed_states": {},
+  "entries": [
+    {"lane_id":"duplicate-lane","candidate_head":"UNKNOWN","base":"UNKNOWN","context_sha":"UNKNOWN","artifact":"UNKNOWN","targeted_validation":"UNKNOWN","full_verify":"IMPOSSIBLE","overlap_risk":"NONE","dependency":"NONE","authority_impact":"NONE","revalidation":"PENDING","decision":"PENDING","push":"NOT_AUTHORIZED"},
+    {"lane_id":"duplicate-lane","candidate_head":"UNKNOWN","base":"UNKNOWN","context_sha":"UNKNOWN","artifact":"UNKNOWN","targeted_validation":"UNKNOWN","full_verify":"NOT_RUN","overlap_risk":"NONE","dependency":"NONE","authority_impact":"NONE","revalidation":"PENDING","decision":"PENDING","push":"NOT_AUTHORIZED"}
+  ]
+}

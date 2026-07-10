@@ -1,0 +1,134 @@
+#!/bin/sh
+set -eu
+
+machine=false
+file=''
+
+usage() {
+    printf '%s\n' 'usage: packet-verify [--machine] FILE'
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --machine) machine=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) [ -z "$file" ] || { usage >&2; exit 2; }; file=$1; shift ;;
+    esac
+done
+[ -n "$file" ] || { usage >&2; exit 2; }
+[ -f "$file" ] || { printf 'packet-verify: missing file: %s\n' "$file" >&2; exit 1; }
+
+errors=0
+checks=0
+fail_check() { checks=$((checks + 1)); errors=$((errors + 1)); printf 'packet-verify: %s\n' "$1" >&2; }
+pass_check() { checks=$((checks + 1)); }
+
+begin_count=$(grep -c '^BEGIN PROJECT PACKET$' "$file" || true)
+end_count=$(grep -c '^END PROJECT PACKET$' "$file" || true)
+if [ "$begin_count" -eq 1 ] && [ "$end_count" -eq 1 ] && [ "$(sed -n '1p' "$file")" = 'BEGIN PROJECT PACKET' ] && [ "$(tail -n 1 "$file")" = 'END PROJECT PACKET' ]; then pass_check; else fail_check 'incomplete or duplicated envelope boundary'; fi
+
+get_field() {
+    key=$1
+    sed -n "s/^$key:[[:space:]]*//p" "$file" | head -n 1
+}
+
+required='Packet-Version
+Packet-ID
+Reply-To
+From
+To
+Project-ID
+Lane-ID
+Goal-ID
+Context-SHA
+Expected-Base
+Worktree
+Branch
+Authority-State
+Expected-Reply-Type
+Stale-When
+Allowed-Stop-Classes'
+missing=''
+for field in $required; do
+    value=$(get_field "$field")
+    [ -n "$value" ] || missing="$missing $field"
+done
+if [ -z "$missing" ]; then pass_check; else fail_check "missing required field(s):$missing"; fi
+
+[ "$(get_field Packet-Version)" = '1.0' ] && pass_check || fail_check 'unsupported packet version'
+[ "$(get_field Project-ID)" = 'fn64' ] && pass_check || fail_check 'wrong Project-ID'
+
+if grep -Eq '<[^>]+>|\{\{[^}]+\}\}|\$\{[A-Za-z_][A-Za-z0-9_]*\}' "$file"; then fail_check 'unresolved placeholder'; else pass_check; fi
+
+packet_id=$(get_field Packet-ID)
+reply_to=$(get_field Reply-To)
+if [ "$reply_to" = "$packet_id" ]; then fail_check 'Reply-To cannot equal Packet-ID'; else pass_check; fi
+
+stale=$(get_field Stale-When)
+case "$stale" in
+    always|'always;'*|'STALE'|'stale') fail_check 'packet is explicitly stale' ;;
+    *) pass_check ;;
+esac
+
+expected_reply=$(get_field Expected-Reply-Type)
+packet_type=$(get_field Packet-Type)
+if [ "$packet_type" = 'CONTEXT_DELTA_AMENDMENT' ]; then
+    delta_required='Old-Context-SHA New-Context-SHA Changed-Context-Files Branch-Update-Instruction Root-To-Local-Reread-Instruction Contradiction-Report-Instruction Restart-Goal'
+    delta_missing=''
+    for field in $delta_required; do [ -n "$(get_field "$field")" ] || delta_missing="$delta_missing $field"; done
+    if [ -z "$delta_missing" ]; then pass_check; else fail_check "incomplete context delta:$delta_missing"; fi
+else
+    pass_check
+fi
+
+case "$packet_type" in
+    MASTER_REVIEW|MASTER_CODEX_FINAL_REPORT|WORKER_FINAL_REPORT|FINAL_LANE_PACKET|INTEGRATION_RESULT)
+        final_status=$(awk '/^STATUS$/ { getline; print; exit }' "$file")
+        [ -n "$final_status" ] || final_status=$(get_field Final-Status)
+        case "$final_status" in ACCEPTED|NEEDS_FIX|PARTIAL|STOP) pass_check ;; *) fail_check 'invalid or missing final status' ;; esac
+        allowed=$(get_field Allowed-Stop-Classes)
+        case ",$allowed," in *",$final_status,"*) pass_check ;; *) fail_check 'final status not allowed by packet' ;; esac
+        for heading in 'FILES CHANGED' 'VALIDATION' 'DIVERGENCE' 'OVERLAP' 'ARTIFACT' 'TEACHING'; do
+            grep -q "^$heading$" "$file" || fail_check "final report missing section: $heading"
+        done
+        checksum=$(get_field Artifact-SHA256)
+        printf '%s\n' "$checksum" | grep -Eq '^[0-9a-f]{64}$' && pass_check || fail_check 'missing or invalid artifact checksum'
+        ;;
+    *) pass_check ;;
+esac
+
+sender=$(get_field From)
+case "$sender" in
+    *Worker*|*worker*)
+        if grep -Eq '^(Worker branches pushed|Canonical branch pushed|Manual deploy performed):[[:space:]]*yes$' "$file"; then
+            fail_check 'unauthorized worker push/deploy claim'
+        elif grep -q '^Worker branches pushed:[[:space:]]*no$' "$file" && grep -q '^Manual deploy performed:[[:space:]]*no$' "$file"; then
+            pass_check
+        else
+            fail_check 'worker report lacks explicit no-push/no-deploy statements'
+        fi
+        ;;
+    *) pass_check ;;
+esac
+
+if grep -q '^Final-Status:' "$file"; then
+    header_status=$(get_field Final-Status)
+    body_status=$(awk '/^STATUS$/ { getline; print; exit }' "$file")
+    if [ -n "$body_status" ] && [ "$header_status" != "$body_status" ]; then fail_check 'contradictory final status'; else pass_check; fi
+else
+    pass_check
+fi
+
+if [ "$errors" -eq 0 ]; then result=ok; else result=invalid; fi
+if [ "$machine" = true ]; then
+    printf '%s\n' \
+        'schema=fn64-packet-verify-v1' \
+        "packet_id=${packet_id:-UNKNOWN}" \
+        "checks=$checks" \
+        "errors=$errors" \
+        "result=$result"
+else
+    printf 'packet-verify: %s checks, %s errors\n' "$checks" "$errors"
+    printf 'result: %s\n' "$result"
+fi
+[ "$errors" -eq 0 ]

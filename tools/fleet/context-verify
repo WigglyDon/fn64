@@ -1,0 +1,211 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+default_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+root=$default_root
+manifest=docs/context/CONTEXT_MANIFEST.json
+machine=false
+
+usage() {
+    printf '%s\n' 'usage: context-verify [--root PATH] [--manifest PATH] [--machine]'
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --root) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; root=$2; shift 2 ;;
+        --manifest) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; manifest=$2; shift 2 ;;
+        --machine) machine=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+done
+
+root=$(CDPATH= cd -- "$root" 2>/dev/null && pwd) || {
+    printf '%s\n' 'context-verify: invalid root' >&2
+    exit 1
+}
+manifest_path=$root/$manifest
+errors=0
+checks=0
+
+pass_check() { checks=$((checks + 1)); }
+fail_check() {
+    checks=$((checks + 1))
+    errors=$((errors + 1))
+    printf 'context-verify: %s\n' "$1" >&2
+}
+
+required_files='AGENTS.md
+docs/INDEX.md
+docs/context/README.md
+docs/context/CURRENT_STATE.md
+docs/context/PROJECT_HISTORY.md
+docs/context/DECISION_LOG.md
+docs/context/CONTEXT_MATRIX.md
+docs/context/CONTEXT_MANIFEST.json
+docs/lanes/lane-registry.md
+docs/process/PACKET_PROTOCOL.md
+docs/process/CONTEXT_DELTA.md
+docs/process/HANDOFF_AND_RESPAWN.md
+docs/process/EVIDENCE_AND_RELEASE.md'
+
+printf '%s\n' "$required_files" | while IFS= read -r path; do
+    [ -f "$root/$path" ] || printf '%s\n' "$path"
+done >"${TMPDIR:-/tmp}/fn64-context-missing.$$"
+missing_file=${TMPDIR:-/tmp}/fn64-context-missing.$$
+trap 'rm -f "$missing_file" "${TMPDIR:-/tmp}/fn64-context-paths.$$" "${TMPDIR:-/tmp}/fn64-context-owners.$$" "${TMPDIR:-/tmp}/fn64-context-links.$$"' EXIT HUP INT TERM
+if [ -s "$missing_file" ]; then
+    fail_check "missing required file(s): $(tr '\n' ' ' <"$missing_file")"
+else
+    pass_check
+fi
+
+if [ -f "$manifest_path" ]; then
+    sed -n '/"paths"[[:space:]]*:/,/^[[:space:]]*]/ {
+        s/^[[:space:]]*"\([^"]*\)"[,]*[[:space:]]*$/\1/p
+    }' "$manifest_path" >"${TMPDIR:-/tmp}/fn64-context-paths.$$"
+    manifest_paths=${TMPDIR:-/tmp}/fn64-context-paths.$$
+    if [ ! -s "$manifest_paths" ]; then
+        fail_check 'manifest has no paths'
+    elif [ "$(LC_ALL=C sort "$manifest_paths" | uniq | wc -l | tr -d ' ')" -ne "$(wc -l <"$manifest_paths" | tr -d ' ')" ]; then
+        fail_check 'manifest has duplicate paths'
+    elif grep -Eq '(^/|^\.\.?$|^\.\./|/\.\./|/\.\.$)' "$manifest_paths"; then
+        fail_check 'manifest has unsafe path'
+    else
+        manifest_missing=false
+        while IFS= read -r path; do
+            [ -f "$root/$path" ] || { printf 'context-verify: manifest path missing: %s\n' "$path" >&2; manifest_missing=true; }
+        done <"$manifest_paths"
+        if [ "$manifest_missing" = true ]; then fail_check 'manifest references missing files'; else pass_check; fi
+    fi
+else
+    manifest_paths=${TMPDIR:-/tmp}/fn64-context-paths.$$
+    : >"$manifest_paths"
+    fail_check 'manifest is absent'
+fi
+
+header_error=false
+while IFS= read -r path; do
+    case "$path" in
+        docs/AGENTS.md) ;;
+        docs/*.md)
+            for field in 'Context role:' 'Scope:' 'Canonical for:' 'Not canonical for:' 'Inherits:' 'Current-state owner:' 'Related evidence:' 'Update triggers:'; do
+                grep -q "^$field" "$root/$path" || {
+                    printf 'context-verify: missing header %s in %s\n' "$field" "$path" >&2
+                    header_error=true
+                }
+            done
+            ;;
+    esac
+done <"$manifest_paths"
+if [ "$header_error" = true ]; then fail_check 'canonical header check failed'; else pass_check; fi
+
+link_errors=${TMPDIR:-/tmp}/fn64-context-links.$$
+: >"$link_errors"
+while IFS= read -r path; do
+    case "$path" in
+        *.md)
+            base=${path%/*}
+            [ "$base" = "$path" ] && base=.
+            sed -n 's/.*](\([^)]*\)).*/\1/p' "$root/$path" | while IFS= read -r link; do
+                case "$link" in http:*|https:*|mailto:*|'#'*|'') continue ;; esac
+                target=${link%%#*}
+                case "$target" in *' '* ) continue ;; esac
+                [ -e "$root/$base/$target" ] || printf '%s\t%s\n' "$path" "$link" >>"$link_errors"
+            done
+            ;;
+    esac
+done <"$manifest_paths"
+if [ -s "$link_errors" ]; then fail_check "broken local link(s): $(tr '\n' ' ' <"$link_errors")"; else pass_check; fi
+
+agents_error=false
+find "$root" -path "$root/.git" -prune -o -path "$root/rust/target" -prune -o -name AGENTS.md -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+    [ "$file" = "$root/AGENTS.md" ] && continue
+    grep -q '^Inherits:' "$file" || printf '%s\n' "${file#"$root/"}"
+done >"${TMPDIR:-/tmp}/fn64-context-agents.$$"
+agents_file=${TMPDIR:-/tmp}/fn64-context-agents.$$
+trap 'rm -f "$missing_file" "$manifest_paths" "${TMPDIR:-/tmp}/fn64-context-owners.$$" "$link_errors" "$agents_file"' EXIT HUP INT TERM
+if [ -s "$agents_file" ]; then agents_error=true; fi
+if [ "$agents_error" = true ]; then fail_check "scoped AGENTS lacks inheritance: $(tr '\n' ' ' <"$agents_file")"; else pass_check; fi
+
+scan_files='AGENTS.md docs/AGENTS.md docs/INDEX.md docs/context docs/lanes docs/process rust/AGENTS.md rust/crates/fn64-core/AGENTS.md rust/crates/fn64-inspection/AGENTS.md src/AGENTS.md tools/AGENTS.md ops/AGENTS.md'
+placeholder_output=''
+for path in $scan_files; do
+    [ -e "$root/$path" ] || continue
+    found=$(grep -R -n -E '<[A-Za-z][^>]*>' "$root/$path" 2>/dev/null | grep -v '<!--' || true)
+    [ -z "$found" ] || placeholder_output=$found
+done
+if [ -n "$placeholder_output" ]; then fail_check 'unresolved executable placeholder found'; else pass_check; fi
+
+if grep -R -n -E 'ACTIVE_REPLACEMENT:[[:space:]]*true|DELETE_CPP:[[:space:]]*true|AUTHORITY_EXPANSION:[[:space:]]*true' "$root/docs" "$root"/AGENTS.md >/dev/null 2>&1; then
+    fail_check 'unsafe authority/replacement flag enabled'
+else
+    pass_check
+fi
+
+if grep -R -n -Ei 'override(s|d)? root law|supersede(s|d)? root law' "$root"/*/AGENTS.md "$root"/*/*/AGENTS.md "$root"/*/*/*/AGENTS.md 2>/dev/null | grep -v 'must not' >/dev/null; then
+    fail_check 'scoped law claims to override root law'
+else
+    pass_check
+fi
+
+owners=${TMPDIR:-/tmp}/fn64-context-owners.$$
+while IFS= read -r path; do
+    case "$path" in docs/*.md) sed -n "s/^Canonical for:[[:space:]]*//p" "$root/$path" ;; esac
+done <"$manifest_paths" | sed '/^nothing/d' | LC_ALL=C sort >"$owners"
+if [ "$(uniq "$owners" | wc -l | tr -d ' ')" -ne "$(wc -l <"$owners" | tr -d ' ')" ]; then
+    fail_check 'duplicate canonical-owner declaration'
+else
+    pass_check
+fi
+
+if [ -f "$root/docs/INDEX.md" ] && grep -q 'CURRENT_STATE.md' "$root/docs/INDEX.md" && grep -q 'DECISION_LOG.md' "$root/docs/INDEX.md"; then pass_check; else fail_check 'index does not link current-state and decision owners'; fi
+
+subsystem_error=false
+for file in "$root"/docs/context/subsystems/*.md; do
+    [ -e "$file" ] || continue
+    grep -q 'CURRENT_STATE.md' "$file" || subsystem_error=true
+done
+if [ "$subsystem_error" = true ]; then fail_check 'subsystem context lacks current-state link'; else pass_check; fi
+
+registry=$root/docs/lanes/lane-registry.md
+if [ -f "$registry" ]; then
+    active=$(sed -n '/^## Active lanes$/,/^## /p' "$registry" | sed -n 's/^- \([^:]*\).*/\1/p' | LC_ALL=C sort)
+    retired=$(sed -n '/^## Retired lanes$/,/^## /p' "$registry" | sed -n 's/^- \([^:]*\).*/\1/p' | LC_ALL=C sort)
+    contradiction=$(printf '%s\n%s\n' "$active" "$retired" | sed '/^$/d' | LC_ALL=C sort | uniq -d)
+    if [ -n "$contradiction" ]; then fail_check "lane active and retired: $contradiction"; else pass_check; fi
+else
+    fail_check 'lane registry unavailable'
+fi
+
+bad_label=$(grep -R -h '^Evidence-Class:' "$root/docs" 2>/dev/null | sed 's/^Evidence-Class:[[:space:]]*//' | grep -Ev '^(USER_DECISION|LIVE_REPO_FACT|RUNTIME_FACT|WORKER_CLAIM|INFERENCE|UNKNOWN)$' || true)
+if [ -n "$bad_label" ]; then fail_check 'invalid evidence label'; else pass_check; fi
+
+if [ -x "$root/tools/fleet/context-sha" ]; then
+    first=$($root/tools/fleet/context-sha --root "$root" --manifest "$manifest" --machine 2>/dev/null | sed -n 's/^context_sha=//p') || first=''
+    second=$($root/tools/fleet/context-sha --root "$root" --manifest "$manifest" --machine 2>/dev/null | sed -n 's/^context_sha=//p') || second=''
+    if [ -n "$first" ] && [ "$first" = "$second" ]; then pass_check; else fail_check 'Context-SHA is unavailable or nondeterministic'; fi
+else
+    fail_check 'context-sha tool is absent or not executable'
+fi
+
+if [ -x "$root/tools/fleet/integration-queue" ] && [ -f "$root/docs/lanes/integration-queue.md" ]; then
+    if "$root/tools/fleet/integration-queue" check >/dev/null 2>&1; then pass_check; else fail_check 'generated integration queue view is stale or invalid'; fi
+else
+    fail_check 'integration queue checker or view is absent'
+fi
+
+if [ "$errors" -eq 0 ]; then result=ok; else result=invalid; fi
+if [ "$machine" = true ]; then
+    printf '%s\n' \
+        'schema=fn64-context-verify-v1' \
+        "root=$root" \
+        "checks=$checks" \
+        "errors=$errors" \
+        "result=$result"
+else
+    printf 'context-verify: %s checks, %s errors\n' "$checks" "$errors"
+    printf 'result: %s\n' "$result"
+fi
+[ "$errors" -eq 0 ]

@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    printf '%s\n' 'usage: evidence-manifest check FILE'
+}
+
+[ "$#" -eq 2 ] || { usage >&2; exit 2; }
+[ "$1" = check ] || { usage >&2; exit 2; }
+file=$2
+[ -f "$file" ] || { printf 'evidence-manifest: missing file: %s\n' "$file" >&2; exit 1; }
+
+require_key() {
+    key=$1
+    grep -q "\"$key\"[[:space:]]*:" "$file" || {
+        printf 'evidence-manifest: missing key: %s\n' "$key" >&2
+        exit 1
+    }
+}
+
+for key in schema integration_sha parent_sha context_sha candidate_commits targeted_gates full_verification verification_environment runtime_evidence artifacts authority_changes rollback_state observability_state performance_state retirement_changes deploy_performed push_result known_unknowns; do
+    require_key "$key"
+done
+
+grep -q '"schema"[[:space:]]*:[[:space:]]*"fn64-evidence-manifest-v1"' "$file" || {
+    printf '%s\n' 'evidence-manifest: invalid schema' >&2
+    exit 1
+}
+
+for key in integration_sha parent_sha; do
+    value=$(sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | head -n 1)
+    printf '%s\n' "$value" | grep -Eq '^[0-9a-f]{40}$' || {
+        printf 'evidence-manifest: %s must be a lowercase 40-hex Git object ID\n' "$key" >&2
+        exit 1
+    }
+done
+
+context_value=$(sed -n 's/.*"context_sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n 1)
+printf '%s\n' "$context_value" | grep -Eq '^[0-9a-f]{64}$' || {
+    printf '%s\n' 'evidence-manifest: context_sha must be a lowercase 64-hex SHA-256 digest' >&2
+    exit 1
+}
+
+bad_checksum=$(sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | grep -Ev '^[0-9a-f]{64}$' || true)
+[ -z "$bad_checksum" ] || {
+    printf '%s\n' 'evidence-manifest: invalid artifact checksum' >&2
+    exit 1
+}
+
+grep -Eq '"deploy_performed"[[:space:]]*:[[:space:]]*(true|false)' "$file" || {
+    printf '%s\n' 'evidence-manifest: deploy_performed must be boolean' >&2
+    exit 1
+}
+
+printf '%s\n' 'evidence-manifest: ok'

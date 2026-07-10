@@ -1,0 +1,3 @@
+source=current accepted repository context
+mutation=duplicate an exact Canonical for declaration in an isolated copy
+expected=invalid
