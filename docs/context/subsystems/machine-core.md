@@ -1,0 +1,54 @@
+# Machine Core
+
+Context role: machine-core architecture context.
+Scope: represented Rust `Machine` ownership and lifecycle.
+Canonical for: machine authority, cause/mutation lineage, and integration boundary.
+Not canonical for: the exhaustive parity ledger or current lane status.
+Inherits: [root law](../../../AGENTS.md) and [core scope law](../../../rust/crates/fn64-core/AGENTS.md).
+Current-state owner: [CURRENT_STATE.md](../CURRENT_STATE.md).
+Related evidence: [rust/PARITY.md](../../../rust/PARITY.md) and Rust tests.
+Update triggers: Machine ownership, lifecycle, public execution, or state lineage changes.
+
+## Mission and owner
+
+`fn64-core::Machine` is the current production owner of each represented
+machine instance: cartridge, CPU, RDRAM, SP DMEM, reset/power state, and narrow
+machine-owned staging/inspection. Long-term ownership stays with the smallest
+host-independent core that actual hardware work earns.
+
+Authority forbidden here includes file paths, CLI parsing, SDL/window/audio,
+platform clocks, probe formatting, Git/fleet policy, commercial data, and
+host-owned emulator decisions. `fn64-inspection` may depend on public core APIs;
+the core must never depend on inspection.
+
+## Lineage and consistency
+
+Every represented step follows:
+
+`synthetic or owned bytes → fetch address/target → instruction word → decoded identity → classified action → one mutation owner → represented result`.
+
+Control-flow snapshots, staged sequential cadence, Count advancement, rollback,
+and exception entry remain distinct owners. A green helper test is not public
+step integration. `Machine` construction/reset preserves instance isolation;
+multiboxing means multiple independent instances.
+
+Numeric values are explicit fixed-width CPU/address/storage types where earned;
+RDRAM/SP words use source-clear big-endian access. No serialization format is a
+product contract yet.
+
+## Proof, integration, and limits
+
+Accepted proof classes are core unit tests, focused `machine_step` tests, the
+construction/reset probe, the eight-case step probe, and exact-source anchors.
+These prove only represented state and no-window output. They do not prove
+timing, full ISA, boot, cartridge execution, game compatibility, renderer,
+audio, performance, or host integration.
+
+Runtime integration is headless/no-window only. Rollback exists for represented
+unsupported/rejection paths. Observability is public read-only state plus probe
+artifacts. Performance/resource truth is `UNKNOWN` unless separately measured.
+
+Required validation: `./rust/verify-forward` and the narrow focused test for a
+changed seam. Next authority requires an explicit product packet. Known unknowns
+include unearned full machine scheduling, timing, broad memory/device routing,
+and host integration.

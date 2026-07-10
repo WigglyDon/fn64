@@ -1,0 +1,11 @@
+{
+  "schema": "fn64-integration-queue-v1",
+  "allowed_states": {
+    "full_verify": ["NOT_RUN", "PASS", "FAIL", "UNKNOWN"],
+    "overlap_risk": ["NONE", "LOW", "DIRECT_OVERLAP", "UNKNOWN"],
+    "revalidation": ["NOT_REQUIRED", "PENDING", "PASS", "FAIL", "UNKNOWN"],
+    "decision": ["PENDING", "ACCEPT", "REJECT", "PARK", "BLOCKED", "UNKNOWN"],
+    "push": ["NOT_AUTHORIZED", "NOT_PUSHED", "PUSHED", "FAILED", "UNKNOWN"]
+  },
+  "entries": []
+}

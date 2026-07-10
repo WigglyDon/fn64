@@ -5,6 +5,10 @@ implementation.
 
 Fedora is the first workbench, not the emulator's identity.
 
+Repository law, current authority, subsystem boundaries, and agent discovery
+begin at [docs/INDEX.md](docs/INDEX.md). Current status is owned there rather
+than repeated throughout this README.
+
 Current product direction:
 
 - develop the tracked Rust machine core as the forward implementation
@@ -72,8 +76,11 @@ cmake --build build
 Frozen C++ is not the required semantic oracle for newly earned Rust behavior;
 a forward Rust change is not blocked solely because C++ lacks that behavior.
 
-C++ deletion readiness has not been established because the remaining C++
-truth inventory is incomplete. The Rust implementation is not a complete N64:
+C++ deletion is currently inactive under the project-context infrastructure
+decision; the previously drafted seam-090 deletion request is superseded and
+must not resume without a new explicit product packet. A previously reported
+C++ inventory is not committed current-state evidence at this checkpoint. The
+Rust implementation is not a complete N64:
 branch/link/delay-slot behavior, branch-likely annul, load/store execution,
 COP0 instruction execution, interrupts, device routing, cartridge execution
 mapping, PIF/BIOS boot, game compatibility, and SDL/window/audio runtime remain
