@@ -16,6 +16,8 @@ delegates to that owner; producers must not enter exception state.
 Lineage is `faulting cause/address → source-specific plan → control-flow preservation/rollback → sealed exception entry → PC/next-PC and represented COP0 fields → outcome evidence`.
 Arithmetic overflow does not invent BadVAddr. Fetch AdEL writes only its sealed
 fields. Count and normal cadence do not advance on represented fault entry.
+Bootstrap unknown-GPR rejection is not an exception: it restores staged
+control flow and leaves COP0 and Count unchanged before helper invocation.
 
 Forbidden authority includes full COP0 claims, TLB/MMU, generic all-future
 exception objects, host interruption, real timing, PIF boot, and inferred

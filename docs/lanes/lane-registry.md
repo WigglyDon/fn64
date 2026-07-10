@@ -11,14 +11,7 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-- `real-cartridge-boot-spine-v1`
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Coordination owner: [lane page](real-cartridge-boot-spine-v1.md)
-  - No Worker implementation or candidate exists.
-- `rust-purity-repo-cleanup-v1`
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Coordination owner: [lane page](rust-purity-repo-cleanup-v1.md)
-  - No Worker implementation or candidate exists.
+Active worker lanes: none.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
@@ -39,6 +32,12 @@ None established from live repository evidence.
 
 ## Retired lanes
 
+- [`real-cartridge-boot-spine-v1`](real-cartridge-boot-spine-v1.md): completed,
+  integrated, and closed. BOOT-2 is accepted; BOOT-3 is not earned. Worker
+  branch/worktree remain preserved and unpushed.
+- [`rust-purity-repo-cleanup-v1`](rust-purity-repo-cleanup-v1.md): completed,
+  integrated, and closed. Its accepted non-product consolidation scope is
+  complete; worker branch/worktree remain preserved and unpushed.
 - `cpp-reference-truth-reconstruction-v1`: canceled without provisioning. Its
   reserved branch/worktree were never created, no launch command was issued,
   and no inventory work ran. The void `/tmp` topology had
@@ -52,6 +51,10 @@ None established from live repository evidence.
 - Rust forward-gate promotion: commit `df0551f87506d136717e7c2b3673580adce5869a`.
 - Frozen C++ lane retirement: direct Master operation; Git history is the only
   archive and no parity prerequisite was applied.
+- Authentic BOOT-2: worker commits `6f189716` and `8e5efc8e`; one
+  cartridge-derived `SpecialAdd` committed before the `Lw` frontier.
+- Rust-purity consolidation: worker commit `9cc16142`; current capability now
+  has one detailed owner while durable history remains discoverable.
 
 Worktree existence alone never proves an active lane. Activation requires a
 Master-provisioned and verified branch/worktree, literal launch command, current

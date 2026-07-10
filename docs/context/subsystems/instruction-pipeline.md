@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc → target classification → one instruction fetch → one raw-field decode → one identity classification → no-effect/stopped/unsupported or one CPU-local helper selection → classified action`.
+`current pc → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → bootstrap source-knownness gate when active → no-effect/stopped/unsupported or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -23,10 +23,10 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, and the eight-case step probe. It does not prove that every recognized
-identity executes through public `Machine::step`; unselected helpers/readiness
-remain distinct. Fetch rejection and rollback are observable only for sealed
-paths.
+tests, the eight-case step probe, and the bounded BOOT-2 trace. Read-only
+current-instruction inspection exposes address, fields, identity, and Machine
+source provenance without mutable state. Proof does not mean every recognized
+identity executes; `Lw` remains the explicit first unrepresented frontier.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, complete

@@ -80,6 +80,30 @@ from the current product. Green Rust tests do not imply that those historical
 behaviors were carried forward. Restoring the retired implementation as a
 product or reference lane requires a new explicit product decision.
 
+## Era 8 — Rust-purity consolidation and authentic BOOT-2 (2026-07-10)
+
+- Evidence: `USER_DECISION`, packet
+  `fn64-master-integrate-boot2-and-rust-purity-v1-2026-07-10-001`;
+  `LIVE_REPO_FACT`, worker commits `6f189716`, `8e5efc8e`, and `9cc16142`;
+  `RUNTIME_FACT`, the bounded private no-window BOOT-2 trace.
+- Prior direction: current capability remained buried inside a transition
+  transcript while no authentic cartridge-derived instruction had a complete
+  represented effect.
+- Revised direction: consolidate current capability under one ledger, preserve
+  C++ chronology only in history/decisions/Git, and accept one authentic
+  cartridge-derived `SpecialAdd` commit as BOOT-2.
+- Repair lesson: concrete zero storage is not architectural knownness. The
+  first instruction became complete only after r29 and r0 gained source-backed
+  known state, all other unstaged PIF GPRs stayed unknown, and rejection was
+  proved pre-mutation.
+- Exact boundary: BOOT-3 was not reached. The next frontier is `Lw` at
+  `0xA4000044` targeting CPU address `0xA4001000`; SP IMEM storage/routing and
+  complete aligned-load semantics remain absent.
+- Surviving law: Machine owns bytes and state; the inspection shell owns paths
+  and reporting; no game-specific patch, direct-entry bypass, generic bus, or
+  compatibility claim was introduced.
+- Status: current Rust product/capability era.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

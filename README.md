@@ -34,8 +34,10 @@ absence is the [capability ledger](rust/PARITY.md). The
 [current-state page](docs/context/CURRENT_STATE.md) owns project phase and
 authority; subsystem pages own stable architecture boundaries.
 
-Current proof does not establish cartridge boot, PIF/BIOS boot, timing
-accuracy, game compatibility, or a window/audio runtime.
+Current proof reaches BOOT-2 only: one authentic private-ROM-derived
+`SpecialAdd` commits through `Machine::step` before the explicit `Lw` frontier.
+It does not establish bootstrap handoff, cartridge entry, BOOT-3, timing
+accuracy, game compatibility, graphics, or a window/audio runtime.
 
 ## Ownership boundary
 

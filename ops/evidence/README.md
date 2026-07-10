@@ -22,6 +22,10 @@ Canonical schemas:
 - `performance-observation.schema.json`
 - `host-runtime-observation.schema.json`
 
+Current durable integration records:
+
+- [BOOT-2 and Rust-purity integration](master-integrate-boot2-and-rust-purity-v1/README.md)
+
 The lineage contract is:
 
 `cause → lawful bytes/input → address/subsystem → state change → observable result → artifact digest`.

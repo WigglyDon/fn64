@@ -13,7 +13,9 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, reset/power state, and narrow
-machine-owned staging/inspection. Long-term ownership stays with the smallest
+machine-owned staging/inspection. It now also owns the narrow normalized
+cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
+ledger that earned BOOT-2. Long-term ownership stays with the smallest
 host-independent core that actual hardware work earns.
 
 Authority forbidden here includes file paths, CLI parsing, SDL/window/audio,
@@ -27,6 +29,11 @@ Every represented step follows:
 
 `synthetic or owned bytes → fetch address/target → instruction word → decoded identity → classified action → one mutation owner → represented result`.
 
+For bootstrap execution, source provenance and consumed-GPR knownness precede
+helper invocation. Unknown-source rejection restores staged control flow and
+mutates no GPR, HI/LO, COP0, memory, or Count. A successful GPR write records
+its producing instruction lineage.
+
 Control-flow snapshots, staged sequential cadence, Count advancement, rollback,
 and exception entry remain distinct owners. A green helper test is not public
 step integration. `Machine` construction/reset preserves instance isolation;
@@ -39,10 +46,11 @@ product contract yet.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the eight-case step probe, and exact-source anchors.
-These prove only represented state and no-window output. They do not prove
-timing, full ISA, boot, cartridge execution, game compatibility, renderer,
-audio, performance, or host integration.
+construction/reset probe, the eight-case step probe, the bounded BOOT-2 probe,
+and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
+`SpecialAdd` commit only. It does not prove bootstrap handoff, BOOT-3, timing,
+full ISA, game compatibility, renderer, audio, performance, or host
+integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
@@ -51,4 +59,4 @@ artifacts. Performance/resource truth is `UNKNOWN` unless separately measured.
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-and host integration.
+host integration, SP IMEM storage/routing, and complete aligned `Lw`.

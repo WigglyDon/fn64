@@ -1,6 +1,6 @@
 # Rust Purity Repository Cleanup V1
 
-Context role: active lane coordination memory.
+Context role: completed lane coordination memory.
 Scope: non-product cleanup of obsolete C++-to-Rust transition scaffolding and current repository language.
 Canonical for: the Rust-purity cleanup lane's purpose, topology, authority boundary, overlap contract, and integration conditions.
 Not canonical for: accepted product behavior, product source, history itself, or candidate acceptance.
@@ -16,11 +16,11 @@ Update triggers: provisioning, packet launch, candidate creation, context propag
 - Supervisor role: Rust Purity Repository Cleanup Supervisor GPT
 - Worker Codex worktree: `/home/don/fn64-worktrees/rust-purity-repo-cleanup-v1`
 - Branch: `worker/rust-purity-repo-cleanup-v1`
-- Accepted base source: canonical `main` after this lane-registration commit is integrated.
-- Registration Context-SHA: `4924a0da1cc1bf36e5044e49127518a7e93ed7f0a08513c8359f9b2777d429ff`; the literal post-registration Context-SHA belongs in the Master provisioning report and first executable packet.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Accepted base source: `42321bd07d4e2fa0182bd0aeee8d4bceb10f10f5`
+- Candidate Context-SHA: `418a4eabbf1aa2a56f00ca51198f1e7a71407a399f1da877c275c39bfd74b4a4`
+- Status: **COMPLETED — INTEGRATED AND CLOSED**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
-- Launch state: not started; Don must not launch Worker Codex before Master GPT issues the matching supervisor seed.
+- Launch state: completed locally; no Worker branch push occurred.
 
 ## Authority and ownership
 
@@ -61,10 +61,31 @@ preferred integration order is first; Master then sends the boot lane a
 contradiction exists. This lane may propose coordination updates but may not
 make them.
 
-Integration requires source-scope review, preserved durable history, current
+Integration required source-scope review, preserved durable history, current
 link/context/fleet proof, Rust forward verification, and Master acceptance.
-Stop before modification on topology or Context-SHA mismatch; stop on product
-source overlap, authority expansion, historical loss, or contradictory accepted
-law. Retire after accepted integration or explicit Master decision. The next
-milestone is a complete supervisor seed; no repository cleanup is currently
-claimed.
+Those conditions passed; the lane is closed and its worker worktree/branch
+remain preserved without push.
+
+## Completion record
+
+- Accepted worker candidate: `9cc1614228397a2aad7d7bb6298fb88e5f0f4bf4`
+- Candidate tree: `011435ca6b89b414f2db20f035c21a3485194e54`
+- Candidate parent: `42321bd07d4e2fa0182bd0aeee8d4bceb10f10f5`
+- Combined cleanup merge: `d7e1da9648c463d9794d0817b73e3db8426c537c`
+- Final canonical reconciliation SHA: recorded in the external Master
+  integration artifact because a context document cannot embed its containing
+  commit hash.
+- Verified repaired artifact source:
+  `/tmp/UPLOAD_ME_fn64_rust_purity_repo_cleanup_v1.tar.gz`
+- Durable repaired artifact:
+  `/tmp/fn64-final-artifacts/UPLOAD_ME_fn64_rust_purity_repo_cleanup_v1_repaired_def244e.tar.gz`
+- Artifact SHA-256:
+  `def244e3639e64279f5e21f65d92768859d648e599f1deb0655df357de0c7b54`
+- Artifact verification: 57 manifest-owned regular files, no unsafe or
+  forbidden entry, and exact manifest/list equality.
+- Product-source immutability: no core, inspection, test, Cargo, or forward-gate
+  product path changed in the cleanup candidate.
+- Final cleanup scope: one current capability ledger, concise Rust-only
+  operational entry points, redundant historical context node removed, and
+  durable C++ history preserved in project history, decisions, and Git.
+- Workspace recommendation: `KEEP_RUST_WORKSPACE_UNDER_RUST`.

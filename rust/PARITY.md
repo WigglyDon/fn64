@@ -24,19 +24,20 @@ history.
 - `fn64-inspection` owns deterministic setup, assertions, formatting, and
   process exit only.
 - `Machine::step` is the sole public represented execution entrance.
-- The product is incomplete and headless. Nothing here claims cartridge boot,
-  game compatibility, timing accuracy, or host-runtime support.
+- The product is incomplete and headless. `BOOT-2` is the highest earned
+  cartridge checkpoint; it is not bootstrap handoff, game boot, compatibility,
+  timing accuracy, or host-runtime support.
 
 ## Represented owners
 
 | Owner | Represented truth | Explicit boundary |
 | --- | --- | --- |
-| `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, CPU mapping, boot policy, or execution |
+| `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or direct game-entry execution |
 | `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
 | `Rdram` | 4 MiB zero-filled storage and checked raw fixed-width reads | no general bus, device routing, or CPU instruction semantics |
-| `SpDmem` | 4 KiB zero-filled storage and checked read-only access used by represented instruction fetch | no SP IMEM, public write surface, DMA, RSP, or COP2 execution |
-| `Machine` | Cartridge, Cpu, Rdram, SpDmem, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
-| `fn64-inspection` | two no-window proof programs over public core APIs | no machine truth, ROM-path host, runtime loop, or compatibility authority |
+| `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no SP IMEM, public write surface, DMA, RSP, or COP2 execution |
+| `Machine` | Cartridge, Cpu, Rdram, SpDmem, bootstrap provenance/GPR-knownness state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
+| `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs | no machine truth, general runtime loop, graphics, or compatibility authority |
 
 ## Cartridge representation
 
@@ -52,9 +53,11 @@ The cartridge owner accepts in-memory bytes only. It represents:
 - inspection of the header entry word and availability of the candidate IPL3
   span.
 
-These are byte and metadata facts. They do not map cartridge bytes into the CPU
-address space, select an execution entry, model PIF/CIC behavior, or establish
-boot.
+`Machine::stage_cartridge_bootstrap` consumes the already normalized,
+Machine-owned cartridge span `[0x40, 0x1000)`, preflights it, stages it into the
+same SP DMEM offsets, and records cartridge provenance. This is a narrow
+bootstrap path, not a general cartridge mapping, PI DMA, CIC model, direct game
+entry, or complete boot.
 
 ## Machine lifecycle and state
 
@@ -70,6 +73,14 @@ Construction and `Machine::reset` establish the represented non-boot state:
 selected `pc` and establishes `next_pc = pc.wrapping_add(4)` without fetching
 or executing.
 
+`Machine::stage_cartridge_bootstrap` replaces represented CPU, RDRAM, SP DMEM,
+and reservation state only after complete source/destination preflight. It sets
+`pc / next_pc` to `0xA4000040 / 0xA4000044`, represents GPR zero as known
+architectural zero, and represents GPR29 as the known general PIF reset stack
+pointer `0xFFFFFFFFA4001FF0`. Every other unstaged PIF-produced GPR remains
+explicitly unknown even though its concrete storage is zero. Reset clears the
+staged bootstrap bytes and provenance.
+
 There is no power-off transition, boot reset, PIF byte source, broad mutable
 CPU accessor, savestate format, or serialization contract.
 
@@ -79,6 +90,10 @@ RDRAM supports checked raw `u8`, `u16_be`, `u32_be`, and `u64_be` reads.
 Machine-owned raw writes support the same widths, validate the complete span
 before mutation, write multi-byte values in big-endian order, and invalidate
 only overlapping private reservation state.
+
+SP DMEM remains 4 KiB Machine-owned storage. The bootstrap creation point has
+one private preflighted range-write seam for normalized cartridge bytes; public
+inspection remains read-only. SP IMEM storage and CPU routing do not exist.
 
 Direct CPU-address classification represents KSEG0 and KSEG1 aliases into the
 4 MiB RDRAM span. Direct fixed-width value APIs compose classification with raw
@@ -104,6 +119,8 @@ Instruction fetch represents:
 - 4-byte alignment before target access;
 - direct KSEG0/KSEG1 RDRAM word fetch;
 - read-only SP DMEM word fetch;
+- source classification that distinguishes cartridge-bootstrap SP DMEM bytes
+  from unclassified Machine storage;
 - explicit-address and current-PC composition;
 - a named unavailable reset-vector PIF target;
 - named non-direct, direct-target-miss, and lower-source rejections;
@@ -112,6 +129,9 @@ Instruction fetch represents:
 Fetch forms one big-endian instruction word. Fetch APIs do not themselves
 decode, identify, execute, advance cadence, or enter exceptions; public
 `Machine::step` owns the represented composition.
+`Machine::inspect_current_cpu_instruction` exposes the current address, decoded
+fields, identity, and source provenance without mutable CPU, COP0, memory, or
+control-flow access.
 
 ## Public represented step
 
@@ -156,6 +176,29 @@ code 12 state, and does not advance Count or BadVAddr.
 The public result types describe only these represented categories. They are
 not an all-future step result or a complete N64 execution contract.
 
+### Bootstrap knownness and earned BOOT-2
+
+While Machine-owned cartridge-bootstrap state is active, each represented
+CPU-local instruction checks every architecturally consumed GPR before helper
+invocation. An unknown PIF-produced source rejects before GPR, HI/LO, COP0,
+memory, committed `pc` / `next_pc`, or Count mutation, and restores staged
+control flow. Successful nonzero GPR writes receive explicit
+`KnownInstructionResult` lineage; writes to GPR zero remain discarded and its
+architectural-zero source remains known.
+
+The accepted private no-window proof commits one cartridge-derived
+`SpecialAdd` at `0xA4000040` through public `Machine::step`. Known r29 and r0
+produce r9=`0xFFFFFFFFA4001FF0`; r9 changes from unknown to a known instruction
+result, `pc / next_pc` become `0xA4000044 / 0xA4000048`, and Count advances
+from 0 to 1. This earns **BOOT-2 — ROM-derived instruction committed with
+complete represented state lineage**.
+
+The next instruction is `Lw` at `0xA4000044`, using known r9 to compute CPU
+address `0xA4001000`. It is rejected without partial mutation because aligned
+load execution, SP IMEM storage, and narrow routing to that target are absent.
+BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
+reached.
+
 ## Explicitly absent execution and hardware
 
 Identity classification may name instructions that the public step does not
@@ -165,9 +208,10 @@ execute. Current explicit absences include:
 - CPU load/store instructions and unaligned merge operations;
 - multiply, divide, trap, COP0 instruction, ERET, and LL/SC execution;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
-- cartridge execution mapping, PIF/BIOS execution, CIC behavior, and an
-  authentic boot path;
-- SP IMEM, RSP/COP2 execution, and SP register/control behavior;
+- completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
+  PI DMA, authentic bootstrap handoff, and cartridge-entry execution;
+- SP IMEM storage/routing, complete aligned `Lw`, RSP/COP2 execution, and SP
+  register/control behavior;
 - a broad bus or memory map, device/MMIO routing, DMA, and N64 scheduling or
   timing;
 - renderer, input, window, audio, ROM-path host, and platform event loop;
@@ -198,6 +242,15 @@ Both probes use plain text and end with `result: ok` on success. They prove only
 their named represented facts and do not launch a ROM, window, audio device, or
 runtime host.
 
+`fn64_boot_probe` is a separate bounded inspection instrument. Its host shell
+owns one input path and file read, passes owned bytes into the core, and reports
+Machine-owned staging, current-instruction provenance, committed effects, and
+the first explicit frontier. Against the accepted private input it reproduces
+BOOT-2 after two attempted steps and one commit. The input remains untracked and
+is identified externally only by digest and size; no ROM bytes are committed or
+packaged. This proof does not belong to the default forward gate and does not
+claim BOOT-3 or game compatibility.
+
 ## Required gate
 
 From repository root:
@@ -211,8 +264,9 @@ Rust tests, the machine probe, and the step probe. It ends with
 `forward gate: ok` on success.
 
 A green gate proves the bounded current Rust source at the tested commit. It
-does not prove boot, compatibility, performance, host runtime, or any absent
-capability listed above.
+does not independently prove the private BOOT-2 runtime observation,
+compatibility, performance, host runtime, or any absent capability listed
+above.
 
 ## Update rule
 

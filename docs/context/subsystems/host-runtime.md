@@ -14,10 +14,12 @@ presentation, platform event loops, shutdown, and platform error reporting.
 They must not own emulated state, execution policy, ROM-normalization truth,
 machine timing, or cross-instance globals.
 
-The current product has only no-window inspection binaries. It has no ROM-path
-shell, SDL/window/audio/game runtime, renderer, input loop, or host timing. The
-former CLI and SDL host were intentionally retired without a current
-replacement; this accepted absence creates no restoration prerequisite.
+The current product has only no-window inspection binaries. The bounded
+`fn64_boot_probe` owns one ROM path/file read for explicit evidence and then
+passes owned bytes to the core; it is not a game runtime. There is no
+SDL/window/audio runtime, renderer, input loop, or host timing. The former CLI
+and SDL host were intentionally retired without a current replacement; this
+accepted absence creates no restoration prerequisite.
 
 Allowed future direction is thin host → public Machine/inspection surface.
 Core → host, renderer → machine state, platform clock → stepping, and host-owned

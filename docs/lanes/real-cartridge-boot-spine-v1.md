@@ -1,6 +1,6 @@
 # Real Cartridge Boot Spine V1
 
-Context role: active lane coordination memory.
+Context role: completed lane coordination memory.
 Scope: authentic private-ROM boot-spine work in the Rust machine and inspection crates.
 Canonical for: the real-cartridge boot lane's purpose, topology, authority boundary, overlap contract, and integration conditions.
 Not canonical for: accepted product behavior, runtime milestones, private ROM content, or candidate acceptance.
@@ -16,11 +16,11 @@ Update triggers: provisioning, packet launch, candidate creation, context propag
 - Supervisor role: Real Cartridge Boot Supervisor GPT
 - Worker Codex worktree: `/home/don/fn64-worktrees/real-cartridge-boot-spine-v1`
 - Branch: `worker/real-cartridge-boot-spine-v1`
-- Accepted base source: canonical `main` after this lane-registration commit is integrated.
-- Registration Context-SHA: `4924a0da1cc1bf36e5044e49127518a7e93ed7f0a08513c8359f9b2777d429ff`; the literal post-registration Context-SHA belongs in the Master provisioning report and first executable packet.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Accepted base source: `42321bd07d4e2fa0182bd0aeee8d4bceb10f10f5`
+- Provisioning Context-SHA: `b3869517214d4e6869b0af245ddbcc8088ae569db2228e7c2b082b7e2b43f536`
+- Status: **COMPLETED — INTEGRATED AND CLOSED**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
-- Launch state: not started; Don must not launch Worker Codex before Master GPT issues the matching supervisor seed.
+- Launch state: completed locally; no Worker branch push occurred.
 
 ## Authority and ownership
 
@@ -59,10 +59,34 @@ scope contract. Indirect risk: the cleanup lane may change Context-SHA. If it
 integrates first, Master sends this lane a `CONTEXT_DELTA_AMENDMENT` with
 `Restart-Goal: false` unless a semantic contradiction exists.
 
-Integration requires source-scope review, authentic lineage evidence, the Rust
+Integration required source-scope review, authentic lineage evidence, the Rust
 forward gate, lane-specific proof, current-context revalidation, and Master
-acceptance. Stop before modification on topology or Context-SHA mismatch; stop
-on ROM/legal leakage, game-specific behavior, authority expansion, direct
-overlap, or contradictory accepted law. Retire after accepted integration or an
-explicit Master decision. The next milestone is a complete supervisor seed;
-no boot milestone or implementation progress is currently claimed.
+acceptance. Those conditions passed; the lane is closed and its worker
+worktree/branch remain preserved without push.
+
+## Completion record
+
+- First worker commit: `6f189716ad401cbc9996ad57a23cef4a7c3da196`
+- Accepted repaired candidate: `8e5efc8eab87e11e78f66cdef0542fe43bcd0e3f`
+- Product-truth integration SHA: `8e5efc8eab87e11e78f66cdef0542fe43bcd0e3f`
+- Combined cleanup merge: `d7e1da9648c463d9794d0817b73e3db8426c537c`
+- Final canonical reconciliation SHA: recorded in the external Master
+  integration artifact because a context document cannot embed its containing
+  commit hash.
+- Accepted checkpoint: **BOOT-2 — ROM-DERIVED INSTRUCTION COMMITTED**
+- Rejected checkpoints: BOOT-3 and above
+- Verified worker artifact source:
+  `/tmp/UPLOAD_ME_fn64_real_cartridge_boot_spine_v1_repair1.tar.gz`
+- Durable verified artifact:
+  `/tmp/fn64-final-artifacts/UPLOAD_ME_fn64_real_cartridge_boot_spine_v1_repair1_d4ceb596.tar.gz`
+- Artifact SHA-256:
+  `d4ceb59640722afbb1a86c5e4c1329487f6ffa6a6ee689ddc4a555104e9e8511`
+- Authorized private input SHA-256:
+  `c916ab315fbe82a22169bff13d6b866e9fddc907461eb6b0a227b82acdf5b506`
+- Authorized private input size: `33554432` bytes; no content was committed or
+  packaged.
+- No game-specific patch, title/cartridge selection, direct-entry bypass, ROM
+  mutation, imported trace, or host-authored success marker was found.
+- First frontier: `Lw` at `0xA4000044`, known r9 base, CPU address
+  `0xA4001000`; SP IMEM storage/routing and complete aligned-load semantics are
+  absent.

@@ -22,9 +22,16 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: `fn64-core` owns the represented machine and public
   `Machine::step`; `fn64-inspection` owns deterministic no-window proof
   plumbing only.
-- `LIVE_REPO_FACT`: represented execution is bounded and the product remains
-  incomplete and headless. It has no cartridge or PIF/BIOS boot claim, game
-  compatibility claim, or window/audio runtime.
+- `RUNTIME_FACT`: BOOT-2 is the highest earned cartridge checkpoint. One
+  authentic private-ROM-derived `SpecialAdd` committed through `Machine::step`
+  with complete represented value, provenance, `pc` / `next_pc`, and Count
+  lineage.
+- `LIVE_REPO_FACT`: the first frontier is `Lw` at `0xA4000044`, with known r9
+  producing CPU address `0xA4001000`. SP IMEM storage/routing and complete
+  aligned-load semantics are absent.
+- `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
+  BOOT-3, authentic handoff, cartridge-entry/game execution, compatibility,
+  graphics, window, and audio are not claimed.
 
 The single detailed owner for represented capability and explicit absence is
 the [represented-machine capability ledger](../../rust/PARITY.md). Stable
@@ -34,17 +41,27 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 ## Verification and lanes
 
 - Required gate: `./rust/verify-forward`.
-- `real-cartridge-boot-spine-v1`: provisioned and awaiting its supervisor packet; no Worker implementation has started and no candidate exists.
-- `rust-purity-repo-cleanup-v1`: provisioned and awaiting its supervisor packet; no Worker implementation has started and no candidate exists.
+- `real-cartridge-boot-spine-v1`: completed, integrated through Master
+  authority, and closed at accepted worker candidate `8e5efc8e`.
+- `rust-purity-repo-cleanup-v1`: completed, integrated through Master
+  authority, and closed at accepted worker candidate `9cc16142`.
 - Active C++ lanes: none.
 - `cpp-reference-truth-reconstruction-v1`: canceled without provisioning; its reserved branch/worktree remain absent.
 - The earlier seam-090 and inventory-first sequences are superseded by the direct Master retirement decision.
-- Integration queue: both provisioned lanes are registered with unknown candidate/artifact values; no candidate commit exists.
-- No cartridge-boot milestone, compatibility result, or repository-cleanup result has been earned by lane registration or provisioning.
+- Active Worker lanes: none.
+- Integration queue: empty after durable candidate/integration results were
+  recorded in the lane pages and evidence owners.
+- Repository-purity cleanup is complete for its accepted non-product scope.
+- No next machine lane is provisioned or started.
 
 ## Blockers and known unknowns
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
-- `UNKNOWN`: performance, broad hardware compatibility, cartridge boot, game behavior, and host-runtime behavior are unmeasured or unavailable.
+- `UNKNOWN`: performance, broad hardware compatibility, BOOT-3 and later boot
+  behavior, game behavior after handoff, and host-runtime behavior remain
+  unmeasured or unavailable.
+- `USER_DECISION`: the next earned pressure is Machine-owned SP IMEM, narrow
+  explicit routing for the observed region, and complete aligned `Lw`
+  semantics; it requires a separate lane decision.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

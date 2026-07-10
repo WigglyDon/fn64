@@ -30,6 +30,11 @@ therefore the exact final integration manifest is generated as a release
 artifact after the final SHA exists, while `ops/evidence/` owns schemas and
 validation law. Do not label a different commit fully verified.
 
+An authorized private-input BOOT-2 record carries only the input digest, size,
+command, bounded Machine lineage, first frontier, and explicit unavailable
+higher checkpoints. It never packages input bytes or upgrades one trace into a
+game, compatibility, PIF/BIOS, graphics, or performance claim.
+
 ## fn64 evidence families
 
 - Machine reset snapshot: producer/source/context, instance identity, lawful

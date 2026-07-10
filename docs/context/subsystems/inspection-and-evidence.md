@@ -19,13 +19,18 @@ status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
 public `Machine::step` for its eight represented cases and ends deterministically.
-Neither proves cartridge boot, commercial ROM behavior, full ISA, timing,
-window/audio/runtime, performance, or game compatibility.
+`fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
+authorized local file, passes owned bytes into public core APIs, and reports
+Machine-owned provenance, mutation lineage, and the first frontier. The
+accepted run proves BOOT-2 only—one `SpecialAdd` commit followed by an
+unrepresented `Lw`. None proves BOOT-3, full ISA, timing, window/audio/runtime,
+performance, or game compatibility.
 
 Inspection may depend on public core APIs. Core-to-inspection, private seam
 calls, mutable CPU/COP0 backdoors, host event loops, and proprietary assets are
 forbidden. Rollback and observability claims must cite the exact case.
 
-Required validation: `./rust/verify-forward`; evidence manifests additionally
-use `tools/fleet/evidence-manifest check`. Host and performance observations
-remain explicitly unavailable until measured under separate authority.
+Required validation: `./rust/verify-forward`; the boot probe and private-input
+digest/size are separate explicit evidence. Evidence manifests additionally use
+`tools/fleet/evidence-manifest check`. Graphical host and performance
+observations remain explicitly unavailable.

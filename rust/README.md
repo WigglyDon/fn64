@@ -39,11 +39,12 @@ fn64 truth owner has been earned.
 
 ## Capability boundary
 
-The workspace represents a bounded machine construction/reset, storage,
-instruction classification, and straight-line `Machine::step` subset. It does
-not claim complete CPU execution, cartridge boot, PIF/BIOS behavior, full
-device or memory routing, timing accuracy, game compatibility, or a
-window/audio host.
+The workspace represents bounded construction/reset, storage, instruction
+classification, straight-line `Machine::step`, and a narrow Machine-owned
+cartridge-bootstrap path. BOOT-2 means one authentic ROM-derived `SpecialAdd`
+committed with complete represented lineage. It does not claim BOOT-3,
+bootstrap handoff, complete CPU execution, PIF/BIOS behavior, full device or
+memory routing, timing accuracy, game compatibility, or a window/audio host.
 
 Do not infer public step support from a decoded instruction identity, a private
 helper, or a green unit test. Capability changes must update the detailed

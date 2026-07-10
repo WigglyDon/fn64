@@ -30,6 +30,12 @@ models delay-slot-relevant state without claiming unselected branch execution.
 Count advances only through the committed-step owner. Exception actions restore
 or preserve control flow before delegating to the sealed entry owner.
 
+Machine-owned bootstrap state distinguishes concrete GPR storage from known
+architectural state. Each selected CPU-local bootstrap instruction checks all
+consumed GPR sources before helper invocation. The accepted BOOT-2
+`SpecialAdd` reads known r29 and r0, writes known r9=`0xFFFFFFFFA4001FF0`, and
+commits cadence once; the following `Lw` remains unrepresented.
+
 Accepted proof: current source anchors, CPU/helper unit tests, focused Machine
 step tests, and the synthetic step probe. Historical output cannot establish
 current behavior by itself.
@@ -38,5 +44,6 @@ format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
 tests for changes. Known unknowns include complete public-step ISA integration,
-real timing, full delay-slot semantics, and performance. Next authority must be
-earned by a bounded product packet, not a generic dispatcher.
+real timing, full delay-slot semantics, aligned load execution, and
+performance. Next authority must be earned by a bounded product packet, not a
+generic dispatcher.
