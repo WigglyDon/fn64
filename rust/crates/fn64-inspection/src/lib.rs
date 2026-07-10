@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod boot_probe;
+
 use core::fmt;
 
 use fn64_core::cpu::address::CpuAddress;

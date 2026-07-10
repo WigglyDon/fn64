@@ -48,6 +48,22 @@ impl fmt::Display for SpDmemReadError {
 
 impl std::error::Error for SpDmemReadError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpDmemWriteError {
+    offset: SpDmemOffset,
+    width: usize,
+}
+
+impl SpDmemWriteError {
+    pub(crate) const fn offset(self) -> SpDmemOffset {
+        self.offset
+    }
+
+    pub(crate) const fn width(self) -> usize {
+        self.width
+    }
+}
+
 pub struct SpDmem {
     bytes: [u8; SP_DMEM_SIZE_BYTES],
 }
@@ -80,6 +96,29 @@ impl SpDmem {
         }
 
         Ok(offset_usize)
+    }
+
+    pub(crate) fn write_bytes(
+        &mut self,
+        offset: SpDmemOffset,
+        bytes: &[u8],
+    ) -> Result<(), SpDmemWriteError> {
+        let offset_usize = offset.as_usize();
+        let Some(end) = offset_usize.checked_add(bytes.len()) else {
+            return Err(SpDmemWriteError {
+                offset,
+                width: bytes.len(),
+            });
+        };
+        let Some(destination) = self.bytes.get_mut(offset_usize..end) else {
+            return Err(SpDmemWriteError {
+                offset,
+                width: bytes.len(),
+            });
+        };
+
+        destination.copy_from_slice(bytes);
+        Ok(())
     }
 
     #[cfg(test)]
@@ -161,5 +200,28 @@ mod tests {
             assert_eq!(error.offset(), SpDmemOffset::new(offset as u32));
             assert_eq!(error.width(), 4);
         }
+    }
+
+    #[test]
+    fn sp_dmem_range_write_preflights_before_mutation() {
+        let mut sp_dmem = SpDmem::default();
+        let error = sp_dmem
+            .write_bytes(
+                SpDmemOffset::new((SP_DMEM_SIZE_BYTES - 1) as u32),
+                &[0x11, 0x22],
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error.offset(),
+            SpDmemOffset::new((SP_DMEM_SIZE_BYTES - 1) as u32)
+        );
+        assert_eq!(error.width(), 2);
+        assert_eq!(
+            sp_dmem
+                .read_u8(SpDmemOffset::new((SP_DMEM_SIZE_BYTES - 1) as u32))
+                .unwrap(),
+            0
+        );
     }
 }

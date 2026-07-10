@@ -17,7 +17,16 @@ use crate::cpu::{
 use crate::rdram::{Rdram, RdramAccessError};
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
 
+mod cartridge_bootstrap;
 mod rdram_reservation;
+
+pub use cartridge_bootstrap::{
+    MachineBootstrapCpuStateKind, MachineCartridgeBootstrapError, MachineCartridgeBootstrapState,
+    MachineCpuInstructionInspection, MachineCpuInstructionSource,
+    MachineSpDmemInstructionProvenance, MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC,
+    MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC, MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
+    MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET,
+};
 
 use rdram_reservation::CpuRdramReservation;
 
@@ -1908,6 +1917,7 @@ pub struct Machine {
     rdram: Rdram,
     sp_dmem: SpDmem,
     cpu_rdram_reservation: CpuRdramReservation,
+    cartridge_bootstrap: Option<MachineCartridgeBootstrapState>,
     powered_on: bool,
 }
 
@@ -1919,6 +1929,7 @@ impl Machine {
             rdram: Rdram::default(),
             sp_dmem: SpDmem::default(),
             cpu_rdram_reservation: CpuRdramReservation::new(),
+            cartridge_bootstrap: None,
             powered_on: true,
         }
     }
@@ -1928,6 +1939,7 @@ impl Machine {
         self.rdram = Rdram::default();
         self.sp_dmem = SpDmem::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
+        self.cartridge_bootstrap = None;
         self.powered_on = true;
     }
 
