@@ -15,7 +15,7 @@ Each release/integration artifact records exact integration SHA and parent,
 accepted Context-SHA, candidate commits, targeted gates, full verification
 command/result, working directory and material environment, runtime evidence
 available/unavailable, artifact checksums, authority changes, rollback,
-observability, performance/resource state, migration/retirement changes,
+observability, performance/resource state, ownership/retirement changes,
 deploy performed/not, push result, recovery evidence when relevant, and known
 unknowns.
 
@@ -54,7 +54,7 @@ credentials, Git objects, build output, Cargo caches, or unmeasured claims.
 The Rust forward gate proves formatting, warnings-denied lint, current unit
 tests, deterministic construction/reset inspection, and the eight represented
 step-probe cases at its exact SHA. It does not prove full N64 behavior,
-cartridge boot, game compatibility, window/audio/runtime, C++ equivalence,
+cartridge boot, game compatibility, window/audio/runtime, retired-source equivalence,
 performance, or unselected Machine-step categories.
 
 Validation uses `tools/fleet/evidence-manifest check` and SHA-256 artifact

@@ -21,7 +21,7 @@ Old-Context-SHA: 111111111111111111111111111111111111111111111111111111111111111
 New-Context-SHA: 2222222222222222222222222222222222222222222222222222222222222222
 Changed-Context-Files: AGENTS.md,docs/context/CURRENT_STATE.md
 Branch-Update-Instruction: merge the accepted context commit without discarding local work
-Root-To-Local-Reread-Instruction: read root and scoped AGENTS, index, current state, parity, subsystem, lane, contracts
+Root-To-Local-Reread-Instruction: read root and scoped AGENTS, index, current state, capability ledger, subsystem, lane, contracts
 Contradiction-Report-Instruction: stop and report any semantic conflict before resuming
 Restart-Goal: false
 

@@ -19,13 +19,13 @@ fields. Count and normal cadence do not advance on represented fault entry.
 
 Forbidden authority includes full COP0 claims, TLB/MMU, generic all-future
 exception objects, host interruption, real timing, PIF boot, and inferred
-behavior from C++ names. Numerical exception codes and bits are explicit in
-source; no serialization compatibility is promised.
+behavior from retired-source names. Numerical exception codes and bits are
+explicit in source; no serialization compatibility is promised.
 
 Accepted proof is focused state-transition testing and the overflow/fetch-AdEL
 probe cases. Current observability is the public read-only CPU surface. Full
 interrupt delivery, ERET integration, delay-slot exception fidelity, and
-performance remain bounded by the detailed parity ledger and public step
+performance remain bounded by the detailed capability ledger and public step
 selection; do not infer them from readiness code.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.

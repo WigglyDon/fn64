@@ -13,21 +13,23 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 
 - `LIVE_REPO_FACT`: fn64 is one Git repository whose sole current product implementation is the tracked Cargo workspace under `rust/`.
 - `LIVE_REPO_FACT`: no active C/C++ source, header, CMake build owner, C++ proof binary, C++ host shell, or C++-only launch script remains in the current tree.
-- `USER_DECISION`: the former C++ machine, host, proof, and build lane is retired without a parity or migration prerequisite. Git history is its only archive; unported behavior is intentionally absent.
+- `USER_DECISION`: the former C++ machine, host, proof, and build lane is retired without semantic-equivalence or inventory prerequisites. Git history is its only archive; unported behavior is intentionally absent.
 - `LIVE_REPO_FACT`: `./rust/verify-forward` is the sole required product gate and has no CMake, C++, ROM, SDL/window/audio, or Git dependency.
 - `USER_DECISION`: Master Codex alone provisions Worker topology and integrates Worker commits.
 
 ## Forward machine truth
 
-- `LIVE_REPO_FACT`: `fn64-core` owns represented `Machine`, cartridge, RDRAM, SP DMEM, CPU, COP0 subset, instruction-fetch classification, reset, and machine-state staging/inspection surfaces.
-- `LIVE_REPO_FACT`: public `Machine::step` is the sole represented execution entrance. It commits the sealed straight-line CPU-local families and reports the represented no-effect, stopped, unsupported, arithmetic-overflow, fetch-address-error, and source-clear rejection outcomes.
-- `LIVE_REPO_FACT`: branch, jump/link, load/store, COP0 instruction, ERET, LL/SC, interrupt, TLB/MMU, broad device/MMIO, and cartridge/bootstrap execution remain absent from the public Rust step spine.
-- `LIVE_REPO_FACT`: `fn64_machine_probe` is deterministic construction/reset inspection only. `fn64_step_probe` calls `Machine::step` over eight synthetic cases.
-- `LIVE_REPO_FACT`: no SDL/window/audio host or game runtime exists. Cartridge boot, PIF/BIOS boot, and game compatibility are not claimed.
+- `LIVE_REPO_FACT`: `fn64-core` owns the represented machine and public
+  `Machine::step`; `fn64-inspection` owns deterministic no-window proof
+  plumbing only.
+- `LIVE_REPO_FACT`: represented execution is bounded and the product remains
+  incomplete and headless. It has no cartridge or PIF/BIOS boot claim, game
+  compatibility claim, or window/audio runtime.
 
-The detailed Rust machine ledger is [rust/PARITY.md](../../rust/PARITY.md).
-Its C++ source anchors and old commands are historical records only; they are
-not current files, runnable gates, or a parity requirement.
+The single detailed owner for represented capability and explicit absence is
+the [represented-machine capability ledger](../../rust/PARITY.md). Stable
+architecture boundaries live in the active subsystem pages; retirement
+chronology lives in [project history](PROJECT_HISTORY.md).
 
 ## Verification and lanes
 
@@ -44,5 +46,5 @@ not current files, runnable gates, or a parity requirement.
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
 - `UNKNOWN`: performance, broad hardware compatibility, cartridge boot, game behavior, and host-runtime behavior are unmeasured or unavailable.
-- `USER_DECISION`: retired C++ behavior is not a migration backlog by default. Any future Rust capability requires its own bounded product decision and proof.
+- `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

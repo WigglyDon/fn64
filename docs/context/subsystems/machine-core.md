@@ -3,7 +3,7 @@
 Context role: machine-core architecture context.
 Scope: represented Rust `Machine` ownership and lifecycle.
 Canonical for: machine authority, cause/mutation lineage, and integration boundary.
-Not canonical for: the exhaustive parity ledger or current lane status.
+Not canonical for: the detailed capability ledger or current lane status.
 Inherits: [root law](../../../AGENTS.md) and [core scope law](../../../rust/crates/fn64-core/AGENTS.md).
 Current-state owner: [CURRENT_STATE.md](../CURRENT_STATE.md).
 Related evidence: [rust/PARITY.md](../../../rust/PARITY.md) and Rust tests.

@@ -3,7 +3,7 @@
 Context role: memory/cartridge architecture context.
 Scope: normalized cartridge bytes, RDRAM, SP DMEM, and represented access seams.
 Canonical for: byte ownership, address-domain boundaries, and legal fixture policy.
-Not canonical for: exhaustive access parity or future bus design.
+Not canonical for: detailed represented access capability or future bus design.
 Inherits: [root law](../../../AGENTS.md) and [core scope law](../../../rust/crates/fn64-core/AGENTS.md).
 Current-state owner: [CURRENT_STATE.md](../CURRENT_STATE.md).
 Related evidence: [rust/PARITY.md](../../../rust/PARITY.md) and [boot checkpoint](../../boot_spine_checkpoint.md).

@@ -38,7 +38,7 @@ Update triggers: a major architectural era begins, ends, or is reinterpreted by 
 
 ## Era 4 — Rust parallel machine construction (chronology partially unavailable)
 
-- Evidence: `LIVE_REPO_FACT`, the complete Rust tree first enters Git in commit `8034b50`; `WORKER_CLAIM`, dated seam records inside `rust/PARITY.md` describe prior parallel passes.
+- Evidence: `LIVE_REPO_FACT`, the complete Rust tree first enters Git in commit `8034b50`; older revisions of `rust/PARITY.md` in Git describe the preceding incremental passes as `WORKER_CLAIM` records.
 - Direction: reconstruct represented machine ownership in Rust through small source-clear seams, culminating in public represented `Machine::step` and two no-window probes.
 - Trigger evidence: the adopted source and tests prove the resulting ownership; Git does not preserve individual pre-adoption Rust seam commits.
 - Surviving law: one owner per mutation, no generic future dispatcher, no host policy in the core.
@@ -71,6 +71,14 @@ Update triggers: a major architectural era begins, ends, or is reinterpreted by 
 - Accepted loss: unported C++ instruction, host, SDL, cartridge/bootstrap, device, CLI, and proof behavior is intentionally absent rather than migrated.
 - Remaining debt: Rust is incomplete and headless; future behavior must be earned independently under current architecture.
 - Status: current source-ownership era.
+
+The retirement decision intentionally waived semantic comparison and inventory
+prerequisites. Git history is the only retired-source archive. In particular,
+unported instruction families, cartridge/bootstrap experiments, device and DMA
+behavior, CLI output, window/event-loop plumbing, and proof coverage are absent
+from the current product. Green Rust tests do not imply that those historical
+behaviors were carried forward. Restoring the retired implementation as a
+product or reference lane requires a new explicit product decision.
 
 ## Unresolved history
 

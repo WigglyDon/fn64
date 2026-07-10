@@ -28,7 +28,7 @@ Normal behavior:
 A delta never erases lane work, expands authority, changes the goal, silently
 changes product law, or asks Don to interpret Git mechanics. The reread order is
 root AGENTS, every scoped AGENTS on the path, index, current state, detailed
-ownership/migration ledger, relevant subsystem, active lane page, and relevant
+capability ledger, relevant subsystem, active lane page, and relevant
 contracts/evidence. Worker Codex confirms the new Context-SHA and reports
 contradictions before resuming.
 
