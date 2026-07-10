@@ -35,7 +35,7 @@ fn main() -> ExitCode {
             eprintln!("fn64 boot probe");
             eprintln!("result: fail");
             eprintln!("error: {error}");
-            ExitCode::from(1)
+            ExitCode::from(error.exit_status())
         }
     }
 }

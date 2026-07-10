@@ -5,9 +5,10 @@ use std::path::PathBuf;
 
 use fn64_core::{
     load_cartridge, rom_source_layout_name, CartridgeLoadError, CpuInstructionIdentity, Machine,
-    MachineCartridgeBootstrapError, MachineCpuInstructionInspection, MachineCpuInstructionSource,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineSpDmemInstructionProvenance,
-    RomMetadata, RomSourceLayout, CPU_GPR_COUNT,
+    MachineBootstrapGprSource, MachineCartridgeBootstrapError, MachineCpuInstructionInspection,
+    MachineCpuInstructionSource, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineSpDmemInstructionProvenance, RomMetadata, RomSourceLayout, CPU_GPR_COUNT,
+    MACHINE_GENERAL_PIF_RESET_GPR29_VALUE, MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
 };
 
 pub const DEFAULT_BOOT_PROBE_MAX_STEPS: u64 = 100_000;
@@ -36,7 +37,9 @@ impl BootCheckpoint {
         match self {
             Self::Boot0 => "private cartridge input structurally validated",
             Self::Boot1 => "machine-owned bootstrap payload and CPU entry state staged",
-            Self::Boot2 => "ROM-derived instruction committed a represented machine effect",
+            Self::Boot2 => {
+                "ROM-derived instruction committed its complete known-operand architectural result"
+            }
             Self::Boot3 => "machine behavior reached the cartridge-declared program entry",
             Self::Boot4 => "program instruction after bootstrap handoff executed",
         }
@@ -172,6 +175,12 @@ impl fmt::Display for BootProbeError {
 
 impl std::error::Error for BootProbeError {}
 
+impl BootProbeError {
+    pub const fn exit_status(&self) -> u8 {
+        1
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CpuObservation {
     pc: u32,
@@ -180,6 +189,7 @@ struct CpuObservation {
     hi: u64,
     lo: u64,
     gprs: [u64; CPU_GPR_COUNT],
+    gpr_sources: [MachineBootstrapGprSource; CPU_GPR_COUNT],
 }
 
 impl CpuObservation {
@@ -191,6 +201,14 @@ impl CpuObservation {
                 .gpr(index)
                 .expect("fixed GPR observation index must be represented");
         }
+        let gpr_sources = match machine.cartridge_bootstrap_state() {
+            Some(state) => core::array::from_fn(|index| {
+                state
+                    .gpr_source(index)
+                    .expect("fixed GPR source observation index must be represented")
+            }),
+            None => [MachineBootstrapGprSource::UnknownPifProduced; CPU_GPR_COUNT],
+        };
         Self {
             pc: machine.cpu().pc(),
             next_pc: machine.cpu().next_pc(),
@@ -198,6 +216,7 @@ impl CpuObservation {
             hi: machine.cpu().hi(),
             lo: machine.cpu().lo(),
             gprs,
+            gpr_sources,
         }
     }
 }
@@ -207,6 +226,16 @@ struct LastCommittedStep {
     inspection: MachineCpuInstructionInspection,
     outcome: &'static str,
     effect: String,
+    gpr_effect: Option<CommittedGprEffect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CommittedGprEffect {
+    index: usize,
+    old_value: u64,
+    new_value: u64,
+    old_source: MachineBootstrapGprSource,
+    new_source: MachineBootstrapGprSource,
 }
 
 pub fn run_boot_probe(
@@ -226,6 +255,7 @@ pub fn run_boot_probe(
     let staging = machine
         .stage_cartridge_bootstrap()
         .map_err(BootProbeError::Bootstrap)?;
+    let staging_observation = CpuObservation::capture(&machine);
     let mut highest_checkpoint = BootCheckpoint::Boot1;
 
     let mut attempted_steps = 0;
@@ -257,6 +287,7 @@ pub fn run_boot_probe(
                             inspection,
                             outcome: represented_outcome_name(outcome),
                             effect: format_cpu_effect(&before, &after),
+                            gpr_effect: committed_gpr_effect(&before, &after),
                         });
                     }
 
@@ -278,6 +309,7 @@ pub fn run_boot_probe(
                             "represented-stop",
                             inspection,
                             outcome.identity(),
+                            &before,
                         ));
                         break;
                     }
@@ -286,6 +318,7 @@ pub fn run_boot_probe(
                             "represented-unsupported-instruction",
                             inspection,
                             outcome.identity(),
+                            &before,
                         ));
                         break;
                     }
@@ -294,6 +327,7 @@ pub fn run_boot_probe(
                             "represented-arithmetic-overflow-exception",
                             inspection,
                             outcome.identity(),
+                            &before,
                         ));
                         break;
                     }
@@ -302,6 +336,7 @@ pub fn run_boot_probe(
                             "represented-instruction-fetch-address-error",
                             inspection,
                             None,
+                            &before,
                         ));
                         break;
                     }
@@ -312,6 +347,18 @@ pub fn run_boot_probe(
                     "unrepresented-instruction",
                     inspection,
                     error.identity(),
+                    &before,
+                ));
+                break;
+            }
+            Err(error @ MachineRepresentedStepError::BootstrapCpuStateUnavailable(_)) => {
+                last_represented_outcome = "bootstrap-cpu-state-unavailable";
+                first_frontier = Some(format_bootstrap_cpu_state_frontier(
+                    inspection,
+                    error
+                        .bootstrap_cpu_state_unavailable()
+                        .expect("matched bootstrap state rejection must retain its detail"),
+                    &before,
                 ));
                 break;
             }
@@ -348,6 +395,7 @@ pub fn run_boot_probe(
         committed_steps,
         highest_checkpoint,
         staging,
+        staging_observation,
         last_committed_step: last_committed_step.as_ref(),
         last_represented_outcome,
         first_frontier: &first_frontier,
@@ -401,10 +449,18 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
 fn format_cpu_effect(before: &CpuObservation, after: &CpuObservation) -> String {
     let mut gpr_changes = Vec::new();
     for index in 0..CPU_GPR_COUNT {
-        if before.gprs[index] != after.gprs[index] {
+        if before.gprs[index] != after.gprs[index]
+            || before.gpr_sources[index] != after.gpr_sources[index]
+        {
             gpr_changes.push(format!(
-                "r{}=0x{:016X}->0x{:016X}",
-                index, before.gprs[index], after.gprs[index]
+                "r{}=0x{:016X}->0x{:016X} known={}->{} source={}->{}",
+                index,
+                before.gprs[index],
+                after.gprs[index],
+                yes_no(before.gpr_sources[index].is_known()),
+                yes_no(after.gpr_sources[index].is_known()),
+                format_gpr_source(before.gpr_sources[index]),
+                format_gpr_source(after.gpr_sources[index])
             ));
         }
     }
@@ -430,27 +486,122 @@ fn format_cpu_effect(before: &CpuObservation, after: &CpuObservation) -> String 
     )
 }
 
+fn committed_gpr_effect(
+    before: &CpuObservation,
+    after: &CpuObservation,
+) -> Option<CommittedGprEffect> {
+    (0..CPU_GPR_COUNT)
+        .find(|index| {
+            before.gprs[*index] != after.gprs[*index]
+                || before.gpr_sources[*index] != after.gpr_sources[*index]
+        })
+        .map(|index| CommittedGprEffect {
+            index,
+            old_value: before.gprs[index],
+            new_value: after.gprs[index],
+            old_source: before.gpr_sources[index],
+            new_source: after.gpr_sources[index],
+        })
+}
+
 fn format_frontier(
     classification: &str,
     inspection: Option<MachineCpuInstructionInspection>,
     identity: Option<CpuInstructionIdentity>,
+    before: &CpuObservation,
 ) -> String {
     match inspection {
-        Some(inspection) => format!(
-            "{} address=0x{:08X} identity={:?} rs={} rt={} rd={} immediate=0x{:04X} source={}",
-            classification,
-            inspection.cpu_address().value(),
-            identity.unwrap_or_else(|| inspection.identity()),
-            inspection.fields().rs(),
-            inspection.fields().rt(),
-            inspection.fields().rd(),
-            inspection.fields().immediate_u16(),
-            format_instruction_source(inspection.source())
-        ),
+        Some(inspection) => {
+            let identity = identity.unwrap_or_else(|| inspection.identity());
+            let mut result = format!(
+                "{} address=0x{:08X} identity={:?} rs={} rt={} rd={} immediate=0x{:04X} source={}",
+                classification,
+                inspection.cpu_address().value(),
+                identity,
+                inspection.fields().rs(),
+                inspection.fields().rt(),
+                inspection.fields().rd(),
+                inspection.fields().immediate_u16(),
+                format_instruction_source(inspection.source())
+            );
+            if identity == CpuInstructionIdentity::Lw {
+                let base_index = usize::from(inspection.fields().rs());
+                let base_source = before.gpr_sources[base_index];
+                if base_source.is_known() {
+                    let base_value = before.gprs[base_index];
+                    let signed_immediate = i64::from(inspection.fields().immediate_u16() as i16);
+                    let effective_address = base_value.wrapping_add_signed(signed_immediate);
+                    write!(
+                        result,
+                        " base_known=yes base_value=0x{:016X} base_source={} effective_address=0x{:016X} effective_cpu_address=0x{:08X} reason=load-execution-and-target-routing-unrepresented",
+                        base_value,
+                        format_gpr_source(base_source),
+                        effective_address,
+                        effective_address as u32
+                    )
+                    .unwrap();
+                } else {
+                    write!(
+                        result,
+                        " base_known=no base_source={} effective_address=unavailable reason=load-execution-unrepresented-and-base-state-unknown",
+                        format_gpr_source(base_source)
+                    )
+                    .unwrap();
+                }
+            }
+            result
+        }
         None => format!(
             "{} identity={:?} source=unavailable",
             classification, identity
         ),
+    }
+}
+
+fn format_bootstrap_cpu_state_frontier(
+    inspection: Option<MachineCpuInstructionInspection>,
+    unavailable: fn64_core::MachineBootstrapCpuStateUnavailable,
+    before: &CpuObservation,
+) -> String {
+    format!(
+        "{} unknown_gpr={} unknown_source={} rejected_before_mutation=yes",
+        format_frontier(
+            "bootstrap-cpu-state-unavailable",
+            inspection,
+            Some(unavailable.identity()),
+            before,
+        ),
+        unavailable.register_index(),
+        format_gpr_source(unavailable.source())
+    )
+}
+
+fn format_gpr_source(source: MachineBootstrapGprSource) -> String {
+    match source {
+        MachineBootstrapGprSource::UnknownPifProduced => "unknown-pif-produced".to_owned(),
+        MachineBootstrapGprSource::ArchitecturalZero => "architectural-zero".to_owned(),
+        MachineBootstrapGprSource::GeneralPifRomResetStackPointer => {
+            "general-pif-rom-reset-stack-pointer".to_owned()
+        }
+        MachineBootstrapGprSource::KnownInstructionResult {
+            execution_address,
+            identity,
+            source_gpr_a,
+            source_gpr_b,
+        } => format!(
+            "known-instruction-result(address=0x{:08X},identity={:?},source_a={},source_b={})",
+            execution_address.value(),
+            identity,
+            format_optional_gpr(source_gpr_a),
+            format_optional_gpr(source_gpr_b)
+        ),
+    }
+}
+
+fn format_optional_gpr(index: Option<u8>) -> String {
+    match index {
+        Some(index) => format!("r{index}"),
+        None => "none".to_owned(),
     }
 }
 
@@ -484,6 +635,7 @@ struct ReportFacts<'a> {
     committed_steps: u64,
     highest_checkpoint: BootCheckpoint,
     staging: fn64_core::MachineCartridgeBootstrapState,
+    staging_observation: CpuObservation,
     last_committed_step: Option<&'a LastCommittedStep>,
     last_represented_outcome: &'static str,
     first_frontier: &'a str,
@@ -561,6 +713,49 @@ fn format_report(facts: ReportFacts<'_>) -> String {
         yes_no(facts.staging.has_unrepresented_pif_cpu_state())
     )
     .unwrap();
+    let stack_pointer_index = usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX);
+    writeln!(
+        output,
+        "bootstrap_gpr0_value: 0x{:016X}",
+        facts.staging_observation.gprs[0]
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_gpr0_known: {}",
+        yes_no(facts.staging_observation.gpr_sources[0].is_known())
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_gpr0_source: {}",
+        format_gpr_source(facts.staging_observation.gpr_sources[0])
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_gpr29_value: 0x{:016X}",
+        facts.staging_observation.gprs[stack_pointer_index]
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_gpr29_expected_value: 0x{:016X}",
+        MACHINE_GENERAL_PIF_RESET_GPR29_VALUE
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_gpr29_known: {}",
+        yes_no(facts.staging_observation.gpr_sources[stack_pointer_index].is_known())
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_gpr29_source: {}",
+        format_gpr_source(facts.staging_observation.gpr_sources[stack_pointer_index])
+    )
+    .unwrap();
     writeln!(output, "fixed_step_budget: {}", facts.max_steps).unwrap();
     writeln!(output, "attempted_steps: {}", facts.attempted_steps).unwrap();
     writeln!(output, "committed_steps: {}", facts.committed_steps).unwrap();
@@ -598,6 +793,51 @@ fn format_report(facts: ReportFacts<'_>) -> String {
             .unwrap();
             writeln!(output, "last_committed_outcome: {}", last.outcome).unwrap();
             writeln!(output, "last_committed_effect: {}", last.effect).unwrap();
+            match last.gpr_effect {
+                Some(effect) => {
+                    writeln!(output, "last_committed_destination_gpr: {}", effect.index).unwrap();
+                    writeln!(
+                        output,
+                        "last_committed_destination_old_value: 0x{:016X}",
+                        effect.old_value
+                    )
+                    .unwrap();
+                    writeln!(
+                        output,
+                        "last_committed_destination_new_value: 0x{:016X}",
+                        effect.new_value
+                    )
+                    .unwrap();
+                    writeln!(
+                        output,
+                        "last_committed_destination_value_changed: {}",
+                        yes_no(effect.old_value != effect.new_value)
+                    )
+                    .unwrap();
+                    writeln!(
+                        output,
+                        "last_committed_destination_known: {}->{}",
+                        yes_no(effect.old_source.is_known()),
+                        yes_no(effect.new_source.is_known())
+                    )
+                    .unwrap();
+                    writeln!(
+                        output,
+                        "last_committed_destination_source: {}->{}",
+                        format_gpr_source(effect.old_source),
+                        format_gpr_source(effect.new_source)
+                    )
+                    .unwrap();
+                }
+                None => {
+                    writeln!(output, "last_committed_destination_gpr: none").unwrap();
+                    writeln!(output, "last_committed_destination_old_value: unavailable").unwrap();
+                    writeln!(output, "last_committed_destination_new_value: unavailable").unwrap();
+                    writeln!(output, "last_committed_destination_value_changed: no").unwrap();
+                    writeln!(output, "last_committed_destination_known: unavailable").unwrap();
+                    writeln!(output, "last_committed_destination_source: unavailable").unwrap();
+                }
+            }
         }
         None => {
             writeln!(output, "last_committed_address: unavailable").unwrap();
@@ -605,6 +845,12 @@ fn format_report(facts: ReportFacts<'_>) -> String {
             writeln!(output, "last_committed_source: unavailable").unwrap();
             writeln!(output, "last_committed_outcome: none").unwrap();
             writeln!(output, "last_committed_effect: none").unwrap();
+            writeln!(output, "last_committed_destination_gpr: unavailable").unwrap();
+            writeln!(output, "last_committed_destination_old_value: unavailable").unwrap();
+            writeln!(output, "last_committed_destination_new_value: unavailable").unwrap();
+            writeln!(output, "last_committed_destination_value_changed: no").unwrap();
+            writeln!(output, "last_committed_destination_known: unavailable").unwrap();
+            writeln!(output, "last_committed_destination_source: unavailable").unwrap();
         }
     }
     writeln!(
@@ -615,6 +861,7 @@ fn format_report(facts: ReportFacts<'_>) -> String {
     .unwrap();
     writeln!(output, "pc: 0x{:08X}", facts.final_observation.pc).unwrap();
     writeln!(output, "next_pc: 0x{:08X}", facts.final_observation.next_pc).unwrap();
+    writeln!(output, "count: {}", facts.final_observation.count).unwrap();
     writeln!(
         output,
         "first_unsupported_frontier: {}",
@@ -684,10 +931,21 @@ mod tests {
         bytes
     }
 
+    const fn special_add_word(rs: u8, rt: u8, rd: u8) -> u32 {
+        ((rs as u32) << 21) | ((rt as u32) << 16) | ((rd as u32) << 11) | 0x20
+    }
+
+    const fn lw_word(base: u8, rt: u8, immediate: u16) -> u32 {
+        (0x23 << 26) | ((base as u32) << 21) | ((rt as u32) << 16) | immediate as u32
+    }
+
     #[test]
-    fn boot_probe_reports_rom_derived_commit_and_expected_frontier() {
+    fn boot_probe_reports_known_special_add_mutation_and_expected_load_frontier() {
         let report = run_boot_probe(
-            make_generated_boot_fixture(0x3c08_1234, 0x8fa9_0000),
+            make_generated_boot_fixture(
+                special_add_word(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX, 0, 9),
+                lw_word(9, 8, 0x0040),
+            ),
             "generated-fixture.z64",
             100,
         )
@@ -699,17 +957,79 @@ mod tests {
         assert_eq!(report.expected_frontier_exit_status(), 0);
         assert!(report
             .first_frontier()
-            .contains("unrepresented-instruction address=0xA4000044 identity=Lw rs=29 rt=9"));
-        assert!(report.output().contains("last_committed_identity: Lui"));
+            .contains("unrepresented-instruction address=0xA4000044 identity=Lw rs=9 rt=8"));
+        assert!(report
+            .first_frontier()
+            .contains("base_known=yes base_value=0xFFFFFFFFA4001FF0"));
+        assert!(report
+            .first_frontier()
+            .contains("effective_address=0xFFFFFFFFA4002030 effective_cpu_address=0xA4002030"));
+        assert!(report
+            .output()
+            .contains("last_committed_identity: SpecialAdd"));
         assert!(report
             .output()
             .contains("last_committed_source: cartridge-bootstrap cartridge_offset=0x00000040"));
         assert!(report.output().contains(
             "last_committed_effect: pc=0xA4000040->0xA4000044 next_pc=0xA4000044->0xA4000048 count=0->1"
         ));
+        assert!(report
+            .output()
+            .contains("gpr_mutations=r9=0x0000000000000000->0xFFFFFFFFA4001FF0 known=no->yes"));
+        assert!(report
+            .output()
+            .contains("last_committed_destination_gpr: 9"));
+        assert!(report
+            .output()
+            .contains("last_committed_destination_old_value: 0x0000000000000000"));
+        assert!(report
+            .output()
+            .contains("last_committed_destination_new_value: 0xFFFFFFFFA4001FF0"));
+        assert!(report
+            .output()
+            .contains("last_committed_destination_value_changed: yes"));
+        assert!(report
+            .output()
+            .contains("last_committed_destination_known: no->yes"));
+        assert!(report
+            .output()
+            .contains("bootstrap_gpr29_value: 0xFFFFFFFFA4001FF0"));
+        assert!(report.output().contains("bootstrap_gpr29_known: yes"));
+        assert!(report
+            .output()
+            .contains("bootstrap_gpr29_source: general-pif-rom-reset-stack-pointer"));
         assert!(report.output().contains("highest_checkpoint: BOOT-2"));
         assert!(report.output().contains("probe_exit_status: 0"));
         assert!(report.output().contains("compatibility_claim: none"));
+        assert!(!report.output().contains("raw="));
+    }
+
+    #[test]
+    fn boot_probe_unknown_reset_state_rejection_is_distinct_and_uncommitted() {
+        let report = run_boot_probe(
+            make_generated_boot_fixture(special_add_word(7, 0, 8), lw_word(8, 9, 0)),
+            "generated-fixture.z64",
+            100,
+        )
+        .unwrap();
+
+        assert_eq!(report.highest_checkpoint(), BootCheckpoint::Boot1);
+        assert_eq!(report.attempted_steps(), 1);
+        assert_eq!(report.committed_steps(), 0);
+        assert!(report.first_frontier().contains(
+            "bootstrap-cpu-state-unavailable address=0xA4000040 identity=SpecialAdd rs=7 rt=0 rd=8"
+        ));
+        assert!(report.first_frontier().contains(
+            "unknown_gpr=7 unknown_source=unknown-pif-produced rejected_before_mutation=yes"
+        ));
+        assert!(report
+            .output()
+            .contains("last_represented_outcome: bootstrap-cpu-state-unavailable"));
+        assert!(report.output().contains("pc: 0xA4000040"));
+        assert!(report.output().contains("next_pc: 0xA4000044"));
+        assert!(report.output().contains("count: 0"));
+        assert!(report.output().contains("last_committed_effect: none"));
+        assert!(report.output().contains("probe_exit_status: 0"));
     }
 
     #[test]
@@ -726,6 +1046,7 @@ mod tests {
         assert!(!first.output().contains("timestamp"));
         assert!(!first.output().contains("SDL"));
         assert!(!first.output().contains("audio"));
+        assert!(!first.output().contains("raw="));
     }
 
     #[test]
@@ -768,6 +1089,17 @@ mod tests {
                 MachineCartridgeBootstrapError::CartridgeSourceRangeUnavailable { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn boot_probe_internal_machine_invariant_exit_policy_is_nonzero() {
+        let error = BootProbeError::MachineInvariant {
+            attempted_step: 1,
+            source: MachineRepresentedStepError::CompositionInvariantRejected,
+        };
+
+        assert_eq!(error.exit_status(), 1);
+        assert!(error.to_string().contains("machine invariant failed"));
     }
 
     #[test]

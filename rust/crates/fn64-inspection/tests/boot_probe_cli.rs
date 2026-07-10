@@ -8,6 +8,14 @@ fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset + 3] = value as u8;
 }
 
+const fn special_add_word(rs: u8, rt: u8, rd: u8) -> u32 {
+    ((rs as u32) << 21) | ((rt as u32) << 16) | ((rd as u32) << 11) | 0x20
+}
+
+const fn lw_word(base: u8, rt: u8, immediate: u16) -> u32 {
+    (0x23 << 26) | ((base as u32) << 21) | ((rt as u32) << 16) | immediate as u32
+}
+
 fn make_generated_boot_fixture() -> Vec<u8> {
     let mut bytes = vec![0; 0x1000];
     write_be_u32(&mut bytes, 0x00, 0x8037_1240);
@@ -21,8 +29,8 @@ fn make_generated_boot_fixture() -> Vec<u8> {
     bytes[0x3d] = b'L';
     bytes[0x3e] = 0x45;
     bytes[0x3f] = 3;
-    write_be_u32(&mut bytes, 0x40, 0x3c08_1234);
-    write_be_u32(&mut bytes, 0x44, 0x8fa9_0000);
+    write_be_u32(&mut bytes, 0x40, special_add_word(29, 0, 9));
+    write_be_u32(&mut bytes, 0x44, lw_word(9, 8, 0x0040));
     bytes
 }
 
@@ -53,7 +61,12 @@ fn boot_probe_cli_generated_local_fixture_reaches_expected_frontier_with_success
     assert!(stdout.contains("highest_checkpoint: BOOT-2"));
     assert!(stdout.contains("attempted_steps: 2"));
     assert!(stdout.contains("committed_steps: 1"));
+    assert!(stdout.contains("last_committed_identity: SpecialAdd"));
+    assert!(stdout.contains("last_committed_destination_gpr: 9"));
+    assert!(stdout.contains("last_committed_destination_value_changed: yes"));
+    assert!(stdout.contains("last_committed_destination_known: no->yes"));
     assert!(stdout.contains("identity=Lw"));
+    assert!(stdout.contains("base_known=yes"));
     assert!(stdout.contains("expected_frontier_exit_policy: success"));
     assert!(stdout.contains("no_window: yes"));
     assert!(!stdout.contains("timestamp"));

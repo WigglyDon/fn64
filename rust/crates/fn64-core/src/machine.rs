@@ -21,11 +21,13 @@ mod cartridge_bootstrap;
 mod rdram_reservation;
 
 pub use cartridge_bootstrap::{
-    MachineBootstrapCpuStateKind, MachineCartridgeBootstrapError, MachineCartridgeBootstrapState,
+    MachineBootstrapCpuStateKind, MachineBootstrapCpuStateUnavailable, MachineBootstrapGprSource,
+    MachineCartridgeBootstrapError, MachineCartridgeBootstrapState,
     MachineCpuInstructionInspection, MachineCpuInstructionSource,
     MachineSpDmemInstructionProvenance, MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC,
     MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC, MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
-    MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET,
+    MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET, MACHINE_GENERAL_PIF_RESET_GPR29_VALUE,
+    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
 };
 
 use rdram_reservation::CpuRdramReservation;
@@ -1517,6 +1519,7 @@ impl MachineCurrentPcClassifiedStepAction {
 #[allow(dead_code)]
 pub(crate) enum MachineCurrentPcClassifiedStepActionError {
     FetchFaultRethrow(MachineCpuInstructionFetchError),
+    BootstrapCpuStateUnavailable(MachineBootstrapCpuStateUnavailable),
     CpuLocalInvocation(CpuLocalExecutedHelperInvocationError),
     UnrepresentedInstruction {
         fields: CpuInstructionFields,
@@ -1529,27 +1532,45 @@ impl MachineCurrentPcClassifiedStepActionError {
     pub(crate) const fn fetch_error(self) -> Option<MachineCpuInstructionFetchError> {
         match self {
             Self::FetchFaultRethrow(fetch_error) => Some(fetch_error),
-            Self::CpuLocalInvocation(_) | Self::UnrepresentedInstruction { .. } => None,
+            Self::BootstrapCpuStateUnavailable(_)
+            | Self::CpuLocalInvocation(_)
+            | Self::UnrepresentedInstruction { .. } => None,
+        }
+    }
+
+    pub(crate) const fn bootstrap_cpu_state_unavailable(
+        self,
+    ) -> Option<MachineBootstrapCpuStateUnavailable> {
+        match self {
+            Self::BootstrapCpuStateUnavailable(error) => Some(error),
+            Self::FetchFaultRethrow(_)
+            | Self::CpuLocalInvocation(_)
+            | Self::UnrepresentedInstruction { .. } => None,
         }
     }
 
     pub(crate) const fn invocation_error(self) -> Option<CpuLocalExecutedHelperInvocationError> {
         match self {
             Self::CpuLocalInvocation(error) => Some(error),
-            Self::FetchFaultRethrow(_) | Self::UnrepresentedInstruction { .. } => None,
+            Self::FetchFaultRethrow(_)
+            | Self::BootstrapCpuStateUnavailable(_)
+            | Self::UnrepresentedInstruction { .. } => None,
         }
     }
 
     pub(crate) const fn fields(self) -> Option<CpuInstructionFields> {
         match self {
             Self::UnrepresentedInstruction { fields, .. } => Some(fields),
-            Self::FetchFaultRethrow(_) | Self::CpuLocalInvocation(_) => None,
+            Self::FetchFaultRethrow(_)
+            | Self::BootstrapCpuStateUnavailable(_)
+            | Self::CpuLocalInvocation(_) => None,
         }
     }
 
     pub(crate) const fn identity(self) -> Option<CpuInstructionIdentity> {
         match self {
             Self::UnrepresentedInstruction { identity, .. } => Some(identity),
+            Self::BootstrapCpuStateUnavailable(error) => Some(error.identity()),
             Self::FetchFaultRethrow(_) | Self::CpuLocalInvocation(_) => None,
         }
     }
@@ -1568,6 +1589,12 @@ impl fmt::Display for MachineCurrentPcClassifiedStepActionError {
                 write!(
                     f,
                     "current-PC classified step action production rejected CPU-local invocation: {error}"
+                )
+            }
+            Self::BootstrapCpuStateUnavailable(error) => {
+                write!(
+                    f,
+                    "current-PC classified step action production rejected unknown bootstrap operand: {error}"
                 )
             }
             Self::UnrepresentedInstruction { fields, identity } => {
@@ -1795,6 +1822,7 @@ impl MachineRepresentedStepOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRepresentedStepError {
     FetchRejected(MachineCpuInstructionFetchError),
+    BootstrapCpuStateUnavailable(MachineBootstrapCpuStateUnavailable),
     CpuLocalInvocationRejected(MachineStepCpuLocalInvocationRejection),
     UnrepresentedInstruction {
         fields: CpuInstructionFields,
@@ -1810,6 +1838,9 @@ impl MachineRepresentedStepError {
         match error {
             MachineCurrentPcClassifiedStepActionError::FetchFaultRethrow(fetch_error) => {
                 Self::FetchRejected(fetch_error)
+            }
+            MachineCurrentPcClassifiedStepActionError::BootstrapCpuStateUnavailable(error) => {
+                Self::BootstrapCpuStateUnavailable(error)
             }
             MachineCurrentPcClassifiedStepActionError::CpuLocalInvocation(error) => {
                 Self::CpuLocalInvocationRejected(
@@ -1857,7 +1888,8 @@ impl MachineRepresentedStepError {
     pub const fn fetch_error(self) -> Option<MachineCpuInstructionFetchError> {
         match self {
             Self::FetchRejected(fetch_error) => Some(fetch_error),
-            Self::CpuLocalInvocationRejected(_)
+            Self::BootstrapCpuStateUnavailable(_)
+            | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
@@ -1867,9 +1899,24 @@ impl MachineRepresentedStepError {
 
     pub const fn identity(self) -> Option<CpuInstructionIdentity> {
         match self {
+            Self::BootstrapCpuStateUnavailable(error) => Some(error.identity()),
             Self::CpuLocalInvocationRejected(rejection) => rejection.identity(),
             Self::UnrepresentedInstruction { identity, .. } => Some(identity),
             Self::FetchRejected(_)
+            | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::InstructionFetchAddressErrorEntryRejected(_)
+            | Self::CompositionInvariantRejected => None,
+        }
+    }
+
+    pub const fn bootstrap_cpu_state_unavailable(
+        self,
+    ) -> Option<MachineBootstrapCpuStateUnavailable> {
+        match self {
+            Self::BootstrapCpuStateUnavailable(error) => Some(error),
+            Self::FetchRejected(_)
+            | Self::CpuLocalInvocationRejected(_)
+            | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -1883,6 +1930,10 @@ impl fmt::Display for MachineRepresentedStepError {
             Self::FetchRejected(fetch_error) => {
                 write!(f, "represented Machine::step rejected fetch: {fetch_error}")
             }
+            Self::BootstrapCpuStateUnavailable(error) => write!(
+                f,
+                "represented Machine::step rejected unknown bootstrap CPU operand: {error}"
+            ),
             Self::CpuLocalInvocationRejected(rejection) => write!(
                 f,
                 "represented Machine::step rejected CPU-local invocation: {rejection:?}"
@@ -2201,13 +2252,32 @@ impl Machine {
             );
         };
 
+        let execution_address = CpuAddress::new(control_flow_snapshot.pc());
+        if let Err(error) =
+            self.require_known_bootstrap_gpr_sources(execution_address, fields, identity)
+        {
+            self.cpu.restore_control_flow(control_flow_snapshot);
+            return Err(
+                MachineCurrentPcClassifiedStepActionError::BootstrapCpuStateUnavailable(error),
+            );
+        }
+
         match self.cpu.invoke_cpu_local_executed_helper(fields, selection) {
-            Ok(outcome) => Ok(MachineCurrentPcClassifiedStepAction {
-                control_flow_snapshot,
-                action: MachineClassifiedStepAction::CpuLocal(
-                    classify_cpu_local_invocation_step_action(Ok(outcome)),
-                ),
-            }),
+            Ok(outcome) => {
+                if outcome.is_executed() {
+                    self.record_known_bootstrap_gpr_destination(
+                        execution_address,
+                        fields,
+                        identity,
+                    );
+                }
+                Ok(MachineCurrentPcClassifiedStepAction {
+                    control_flow_snapshot,
+                    action: MachineClassifiedStepAction::CpuLocal(
+                        classify_cpu_local_invocation_step_action(Ok(outcome)),
+                    ),
+                })
+            }
             Err(error) => {
                 self.cpu.restore_control_flow(control_flow_snapshot);
                 Err(MachineCurrentPcClassifiedStepActionError::CpuLocalInvocation(error))

@@ -7,7 +7,7 @@ use crate::cartridge::{
 use crate::cpu::address::{CpuAddress, RdramOffset};
 use crate::cpu::{
     decode_cpu_instruction_word, identify_cpu_instruction, Cpu, CpuInstructionFields,
-    CpuInstructionIdentity,
+    CpuInstructionIdentity, CpuRegisterIndexError, CPU_GPR_COUNT,
 };
 use crate::machine::{Machine, MachineCpuInstructionFetchError, MachineCpuInstructionFetchTarget};
 use crate::rdram::Rdram;
@@ -21,13 +21,36 @@ pub const MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET: u32 =
     CARTRIDGE_CANDIDATE_IPL3_START_OFFSET;
 pub const MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE: u32 =
     CARTRIDGE_CANDIDATE_IPL3_END_OFFSET_EXCLUSIVE;
+pub const MACHINE_GENERAL_PIF_RESET_GPR29_VALUE: u64 = 0xffff_ffff_a400_1ff0;
+pub const MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX: u8 = 29;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineBootstrapCpuStateKind {
     /// The current represented reset subset plus the IPL3 `pc / next_pc` pair.
     ///
-    /// No PIF/CIC-produced GPR, COP0, or device register state is guessed.
+    /// Architectural GPR zero and the general PIF reset stack pointer are
+    /// source-backed. Other PIF/CIC-produced GPR, COP0, or device state remains
+    /// explicitly unknown rather than being inferred from zeroed storage.
     RepresentedResetSubset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineBootstrapGprSource {
+    UnknownPifProduced,
+    ArchitecturalZero,
+    GeneralPifRomResetStackPointer,
+    KnownInstructionResult {
+        execution_address: CpuAddress,
+        identity: CpuInstructionIdentity,
+        source_gpr_a: Option<u8>,
+        source_gpr_b: Option<u8>,
+    },
+}
+
+impl MachineBootstrapGprSource {
+    pub const fn is_known(self) -> bool {
+        !matches!(self, Self::UnknownPifProduced)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +63,7 @@ pub struct MachineCartridgeBootstrapState {
     execution_pc: CpuAddress,
     next_pc: CpuAddress,
     cpu_state_kind: MachineBootstrapCpuStateKind,
+    gpr_sources: [MachineBootstrapGprSource; CPU_GPR_COUNT],
 }
 
 impl MachineCartridgeBootstrapState {
@@ -79,6 +103,15 @@ impl MachineCartridgeBootstrapState {
         true
     }
 
+    pub fn gpr_source(self, index: usize) -> Option<MachineBootstrapGprSource> {
+        self.gpr_sources.get(index).copied()
+    }
+
+    pub fn gpr_is_known(self, index: usize) -> Option<bool> {
+        self.gpr_source(index)
+            .map(MachineBootstrapGprSource::is_known)
+    }
+
     fn contains_sp_dmem_instruction(self, offset: SpDmemOffset) -> bool {
         let start = self.sp_dmem_start_offset;
         let Some(end) = offset.value().checked_add(4) else {
@@ -93,6 +126,47 @@ impl MachineCartridgeBootstrapState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineBootstrapCpuStateUnavailable {
+    cpu_address: CpuAddress,
+    identity: CpuInstructionIdentity,
+    register_index: u8,
+    source: MachineBootstrapGprSource,
+}
+
+impl MachineBootstrapCpuStateUnavailable {
+    pub const fn cpu_address(self) -> CpuAddress {
+        self.cpu_address
+    }
+
+    pub const fn identity(self) -> CpuInstructionIdentity {
+        self.identity
+    }
+
+    pub const fn register_index(self) -> u8 {
+        self.register_index
+    }
+
+    pub const fn source(self) -> MachineBootstrapGprSource {
+        self.source
+    }
+}
+
+impl fmt::Display for MachineBootstrapCpuStateUnavailable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "bootstrap CPU state unavailable: address={} identity={:?} gpr={} source={:?}",
+            self.cpu_address.value(),
+            self.identity,
+            self.register_index,
+            self.source
+        )
+    }
+}
+
+impl std::error::Error for MachineBootstrapCpuStateUnavailable {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineCartridgeBootstrapError {
     CartridgeSourceRangeUnavailable {
@@ -104,6 +178,7 @@ pub enum MachineCartridgeBootstrapError {
         start_offset: u32,
         byte_count: usize,
     },
+    CpuRegister(CpuRegisterIndexError),
 }
 
 impl fmt::Display for MachineCartridgeBootstrapError {
@@ -128,6 +203,12 @@ impl fmt::Display for MachineCartridgeBootstrapError {
                 "cartridge bootstrap SP DMEM destination unavailable: start={} width={}",
                 start_offset, byte_count
             ),
+            Self::CpuRegister(error) => {
+                write!(
+                    f,
+                    "cartridge bootstrap CPU register staging rejected: {error}"
+                )
+            }
         }
     }
 }
@@ -184,8 +265,9 @@ impl Machine {
     /// this Machine. It preflights and materializes the complete IPL3 source
     /// span before replacing represented CPU, RDRAM, SP DMEM, and reservation
     /// state. The execution PC is staged last in the replacement state. The
-    /// represented reset subset deliberately does not guess PIF/CIC-produced
-    /// register or device state.
+    /// represented reset subset stages only architectural zero and the general
+    /// PIF reset stack pointer. Other PIF/CIC-produced register or device state
+    /// remains explicitly unknown.
     pub fn stage_cartridge_bootstrap(
         &mut self,
     ) -> Result<MachineCartridgeBootstrapState, MachineCartridgeBootstrapError> {
@@ -217,7 +299,18 @@ impl Machine {
             .map_err(map_sp_dmem_write_error)?;
 
         let mut replacement_cpu = Cpu::new();
+        replacement_cpu
+            .set_gpr(
+                usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX),
+                MACHINE_GENERAL_PIF_RESET_GPR29_VALUE,
+            )
+            .map_err(MachineCartridgeBootstrapError::CpuRegister)?;
         replacement_cpu.stage_pc(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
+
+        let mut gpr_sources = [MachineBootstrapGprSource::UnknownPifProduced; CPU_GPR_COUNT];
+        gpr_sources[0] = MachineBootstrapGprSource::ArchitecturalZero;
+        gpr_sources[usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX)] =
+            MachineBootstrapGprSource::GeneralPifRomResetStackPointer;
 
         let state = MachineCartridgeBootstrapState {
             source_layout: self.cartridge.source_layout(),
@@ -228,6 +321,7 @@ impl Machine {
             execution_pc: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC),
             next_pc: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC),
             cpu_state_kind: MachineBootstrapCpuStateKind::RepresentedResetSubset,
+            gpr_sources,
         };
 
         self.cpu = replacement_cpu;
@@ -242,6 +336,61 @@ impl Machine {
 
     pub fn cartridge_bootstrap_state(&self) -> Option<MachineCartridgeBootstrapState> {
         self.cartridge_bootstrap
+    }
+
+    pub(crate) fn require_known_bootstrap_gpr_sources(
+        &self,
+        cpu_address: CpuAddress,
+        fields: CpuInstructionFields,
+        identity: CpuInstructionIdentity,
+    ) -> Result<(), MachineBootstrapCpuStateUnavailable> {
+        let Some(state) = self.cartridge_bootstrap else {
+            return Ok(());
+        };
+        let access = bootstrap_gpr_access(fields, identity);
+
+        for register_index in access.sources().into_iter().flatten() {
+            let source = state
+                .gpr_source(usize::from(register_index))
+                .unwrap_or(MachineBootstrapGprSource::UnknownPifProduced);
+            if !source.is_known() {
+                return Err(MachineBootstrapCpuStateUnavailable {
+                    cpu_address,
+                    identity,
+                    register_index,
+                    source,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn record_known_bootstrap_gpr_destination(
+        &mut self,
+        cpu_address: CpuAddress,
+        fields: CpuInstructionFields,
+        identity: CpuInstructionIdentity,
+    ) {
+        let Some(state) = self.cartridge_bootstrap.as_mut() else {
+            return;
+        };
+        let access = bootstrap_gpr_access(fields, identity);
+        let Some(destination) = access.destination else {
+            return;
+        };
+        if destination == 0 {
+            state.gpr_sources[0] = MachineBootstrapGprSource::ArchitecturalZero;
+            return;
+        }
+
+        state.gpr_sources[usize::from(destination)] =
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: cpu_address,
+                identity,
+                source_gpr_a: access.source_a,
+                source_gpr_b: access.source_b,
+            };
     }
 
     /// Reads the current instruction through Machine-owned address routing,
@@ -292,6 +441,68 @@ impl Machine {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BootstrapGprAccess {
+    source_a: Option<u8>,
+    source_b: Option<u8>,
+    destination: Option<u8>,
+}
+
+impl BootstrapGprAccess {
+    const fn sources(self) -> [Option<u8>; 2] {
+        [self.source_a, self.source_b]
+    }
+}
+
+const fn bootstrap_gpr_access(
+    fields: CpuInstructionFields,
+    identity: CpuInstructionIdentity,
+) -> BootstrapGprAccess {
+    use CpuInstructionIdentity::*;
+
+    match identity {
+        SpecialSll | SpecialSrl | SpecialSra | SpecialDsll | SpecialDsrl | SpecialDsra
+        | SpecialDsll32 | SpecialDsrl32 | SpecialDsra32 => BootstrapGprAccess {
+            source_a: Some(fields.rt()),
+            source_b: None,
+            destination: Some(fields.rd()),
+        },
+        SpecialSllv | SpecialSrlv | SpecialSrav | SpecialDsllv | SpecialDsrlv | SpecialDsrav
+        | SpecialAnd | SpecialOr | SpecialXor | SpecialNor | SpecialAddu | SpecialSubu
+        | SpecialDaddu | SpecialDsubu | SpecialSlt | SpecialSltu | SpecialAdd | SpecialSub
+        | SpecialDadd | SpecialDsub => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: Some(fields.rt()),
+            destination: Some(fields.rd()),
+        },
+        SpecialMthi | SpecialMtlo => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: None,
+            destination: None,
+        },
+        SpecialMfhi | SpecialMflo => BootstrapGprAccess {
+            source_a: None,
+            source_b: None,
+            destination: Some(fields.rd()),
+        },
+        Addi | Daddi | Addiu | Daddiu | Slti | Sltiu | Andi | Ori | Xori => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: None,
+            destination: Some(fields.rt()),
+        },
+        Lui => BootstrapGprAccess {
+            source_a: None,
+            source_b: None,
+            destination: Some(fields.rt()),
+        },
+        _ => BootstrapGprAccess {
+            source_a: None,
+            source_b: None,
+            destination: None,
+        },
+    }
+}
+
 fn map_sp_dmem_write_error(error: SpDmemWriteError) -> MachineCartridgeBootstrapError {
     MachineCartridgeBootstrapError::SpDmemDestinationRangeUnavailable {
         start_offset: error.offset().value(),
@@ -303,14 +514,70 @@ fn map_sp_dmem_write_error(error: SpDmemWriteError) -> MachineCartridgeBootstrap
 mod tests {
     use super::*;
     use crate::cartridge::load_cartridge;
-    use crate::cpu::{CpuInstructionIdentity, NON_BOOT_RESET_VECTOR_PC};
+    use crate::cpu::{CpuInstructionIdentity, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_PC};
     use crate::machine::{MachineRepresentedStepError, MachineRepresentedStepOutcome};
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct MachineArchitecturalSnapshot {
+        pc: u32,
+        next_pc: u32,
+        gprs: [u64; CPU_GPR_COUNT],
+        hi: u64,
+        lo: u64,
+        cop0_count: u32,
+        cop0_compare: u32,
+        cop0_timer_interrupt_pending: bool,
+        cop0_status: u32,
+        cop0_software_interrupt_pending: u32,
+        cop0_epc: u32,
+        cop0_bad_vaddr: u32,
+        cop0_exception_code: u8,
+        cop0_exception_branch_delay: bool,
+        rdram: Vec<u8>,
+        sp_dmem: Vec<u8>,
+        bootstrap: Option<MachineCartridgeBootstrapState>,
+    }
+
+    fn architectural_snapshot(machine: &Machine) -> MachineArchitecturalSnapshot {
+        MachineArchitecturalSnapshot {
+            pc: machine.cpu().pc(),
+            next_pc: machine.cpu().next_pc(),
+            gprs: core::array::from_fn(|index| machine.cpu().gpr(index).unwrap()),
+            hi: machine.cpu().hi(),
+            lo: machine.cpu().lo(),
+            cop0_count: machine.cpu().cop0_count(),
+            cop0_compare: machine.cpu().cop0_compare(),
+            cop0_timer_interrupt_pending: machine.cpu().cop0_timer_interrupt_pending(),
+            cop0_status: machine.cpu().cop0_status(),
+            cop0_software_interrupt_pending: machine.cpu().cop0_software_interrupt_pending(),
+            cop0_epc: machine.cpu().cop0_epc(),
+            cop0_bad_vaddr: machine.cpu().cop0_bad_vaddr(),
+            cop0_exception_code: machine.cpu().cop0_exception_code(),
+            cop0_exception_branch_delay: machine.cpu().cop0_exception_branch_delay(),
+            rdram: (0..machine.rdram().size_bytes())
+                .map(|offset| machine.rdram().read_u8(offset).unwrap())
+                .collect(),
+            sp_dmem: (0..machine.sp_dmem().size_bytes())
+                .map(|offset| {
+                    machine
+                        .sp_dmem()
+                        .read_u8(SpDmemOffset::new(offset as u32))
+                        .unwrap()
+                })
+                .collect(),
+            bootstrap: machine.cartridge_bootstrap_state(),
+        }
+    }
 
     fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset] = ((value >> 24) & 0xff) as u8;
         bytes[offset + 1] = ((value >> 16) & 0xff) as u8;
         bytes[offset + 2] = ((value >> 8) & 0xff) as u8;
         bytes[offset + 3] = (value & 0xff) as u8;
+    }
+
+    const fn special_add_word(rs: u8, rt: u8, rd: u8) -> u32 {
+        ((rs as u32) << 21) | ((rt as u32) << 16) | ((rd as u32) << 11) | 0x20
     }
 
     fn make_generated_normalized_boot_cartridge() -> Vec<u8> {
@@ -411,10 +678,39 @@ mod tests {
                 MachineBootstrapCpuStateKind::RepresentedResetSubset
             );
             assert!(state.has_unrepresented_pif_cpu_state());
+            assert_eq!(
+                state.gpr_source(0),
+                Some(MachineBootstrapGprSource::ArchitecturalZero)
+            );
+            assert_eq!(state.gpr_is_known(0), Some(true));
+            assert_eq!(
+                state.gpr_source(usize::from(
+                    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
+                )),
+                Some(MachineBootstrapGprSource::GeneralPifRomResetStackPointer)
+            );
+            assert_eq!(
+                state.gpr_is_known(usize::from(
+                    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
+                )),
+                Some(true)
+            );
+            assert_eq!(
+                state.gpr_source(7),
+                Some(MachineBootstrapGprSource::UnknownPifProduced)
+            );
+            assert_eq!(state.gpr_is_known(7), Some(false));
             assert_eq!(machine.cartridge_bootstrap_state(), Some(state));
             assert_eq!(machine.cpu().pc(), MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
             assert_eq!(machine.cpu().next_pc(), MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC);
             assert_eq!(machine.cpu().cop0_count(), 0);
+            assert_eq!(machine.cpu().gpr(0), Some(0));
+            assert_eq!(
+                machine.cpu().gpr(usize::from(
+                    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
+                )),
+                Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE)
+            );
             assert_eq!(machine.cpu().gpr(7), Some(0));
             assert_eq!(machine.rdram().read_u32_be(0x20), Ok(0));
             assert_eq!(machine.sp_dmem().read_u8(SpDmemOffset::new(0x3f)), Ok(0));
@@ -447,6 +743,13 @@ mod tests {
             .write_bytes(SpDmemOffset::new(0x40), &[0xaa, 0xbb, 0xcc, 0xdd])
             .unwrap();
         machine.cpu.set_gpr(5, 0xa5a5_5a5a).unwrap();
+        machine
+            .cpu
+            .set_gpr(
+                usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX),
+                0x1357_9bdf_2468_ace0,
+            )
+            .unwrap();
 
         assert_eq!(
             machine.stage_cartridge_bootstrap(),
@@ -460,12 +763,191 @@ mod tests {
         assert_eq!(machine.cpu().pc(), 0x8000_3000);
         assert_eq!(machine.cpu().next_pc(), 0x8000_3004);
         assert_eq!(machine.cpu().gpr(5), Some(0xa5a5_5a5a));
+        assert_eq!(
+            machine.cpu().gpr(usize::from(
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
+            )),
+            Some(0x1357_9bdf_2468_ace0)
+        );
         assert_eq!(machine.rdram().read_u32_be(0x30), Ok(0x1020_3040));
         assert_eq!(
             machine.sp_dmem().read_u32_be(SpDmemOffset::new(0x40)),
             Ok(0xaabb_ccdd)
         );
         assert_eq!(machine.cartridge_bootstrap_state(), None);
+    }
+
+    #[test]
+    fn machine_bootstrap_reset_state_lineage_stages_only_zero_and_general_pif_stack_pointer() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+
+        let state = machine.stage_cartridge_bootstrap().unwrap();
+
+        assert_eq!(machine.cpu().gpr(0), Some(0));
+        assert_eq!(
+            state.gpr_source(0),
+            Some(MachineBootstrapGprSource::ArchitecturalZero)
+        );
+        assert_eq!(state.gpr_is_known(0), Some(true));
+        assert_eq!(
+            machine.cpu().gpr(usize::from(
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
+            )),
+            Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE)
+        );
+        assert_eq!(
+            state.gpr_source(usize::from(
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
+            )),
+            Some(MachineBootstrapGprSource::GeneralPifRomResetStackPointer)
+        );
+        assert_eq!(
+            state.gpr_is_known(usize::from(
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
+            )),
+            Some(true)
+        );
+
+        for index in 1..CPU_GPR_COUNT {
+            if index == usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX) {
+                continue;
+            }
+            assert_eq!(machine.cpu().gpr(index), Some(0));
+            assert_eq!(
+                state.gpr_source(index),
+                Some(MachineBootstrapGprSource::UnknownPifProduced)
+            );
+            assert_eq!(state.gpr_is_known(index), Some(false));
+        }
+        assert_eq!(state.gpr_source(CPU_GPR_COUNT), None);
+        assert_eq!(state.gpr_is_known(CPU_GPR_COUNT), None);
+    }
+
+    #[test]
+    fn machine_bootstrap_unknown_gpr_source_rejection_has_no_partial_mutation() {
+        let mut bytes = make_generated_normalized_boot_cartridge();
+        write_be_u32(
+            &mut bytes,
+            CARTRIDGE_CANDIDATE_IPL3_START_OFFSET as usize,
+            special_add_word(7, 0, 8),
+        );
+        let cartridge = load_cartridge(bytes).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        machine.stage_cartridge_bootstrap().unwrap();
+        let before = architectural_snapshot(&machine);
+
+        let error = machine.step().unwrap_err();
+
+        let unavailable = error.bootstrap_cpu_state_unavailable().unwrap();
+        assert_eq!(
+            unavailable.cpu_address(),
+            CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC)
+        );
+        assert_eq!(unavailable.identity(), CpuInstructionIdentity::SpecialAdd);
+        assert_eq!(unavailable.register_index(), 7);
+        assert_eq!(
+            unavailable.source(),
+            MachineBootstrapGprSource::UnknownPifProduced
+        );
+        assert!(matches!(
+            error,
+            MachineRepresentedStepError::BootstrapCpuStateUnavailable(_)
+        ));
+        assert_eq!(architectural_snapshot(&machine), before);
+    }
+
+    #[test]
+    fn machine_bootstrap_known_special_add_commit_preserves_value_and_known_lineage() {
+        let cases = [
+            (
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+                0,
+                9,
+                Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE),
+            ),
+            (
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+                0,
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+                Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE),
+            ),
+            (
+                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+                0,
+                0,
+                Some(0),
+            ),
+        ];
+
+        for (rs, rt, rd, expected_destination) in cases {
+            let mut bytes = make_generated_normalized_boot_cartridge();
+            write_be_u32(
+                &mut bytes,
+                CARTRIDGE_CANDIDATE_IPL3_START_OFFSET as usize,
+                special_add_word(rs, rt, rd),
+            );
+            let cartridge = load_cartridge(bytes).unwrap();
+            let mut machine = Machine::from_cartridge(cartridge);
+            machine.stage_cartridge_bootstrap().unwrap();
+            let inspection = machine.inspect_current_cpu_instruction().unwrap();
+
+            assert_eq!(inspection.identity(), CpuInstructionIdentity::SpecialAdd);
+            assert_eq!(inspection.fields().rs(), rs);
+            assert_eq!(inspection.fields().rt(), rt);
+            assert_eq!(inspection.fields().rd(), rd);
+            assert_eq!(
+                inspection.source(),
+                MachineCpuInstructionSource::SpDmem {
+                    offset: SpDmemOffset::new(CARTRIDGE_CANDIDATE_IPL3_START_OFFSET),
+                    provenance: MachineSpDmemInstructionProvenance::CartridgeBootstrap {
+                        cartridge_offset: CARTRIDGE_CANDIDATE_IPL3_START_OFFSET,
+                    },
+                }
+            );
+            let before = machine.cartridge_bootstrap_state().unwrap();
+            assert_eq!(before.gpr_is_known(usize::from(rs)), Some(true));
+            assert_eq!(before.gpr_is_known(usize::from(rt)), Some(true));
+
+            let outcome = machine.step().unwrap();
+
+            assert!(matches!(
+                outcome,
+                MachineRepresentedStepOutcome::CpuLocalCommitted {
+                    identity: CpuInstructionIdentity::SpecialAdd,
+                    ..
+                }
+            ));
+            assert_eq!(machine.cpu().gpr(usize::from(rd)), expected_destination);
+            assert_eq!(machine.cpu().pc(), MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC);
+            assert_eq!(
+                machine.cpu().next_pc(),
+                MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC + 4
+            );
+            assert_eq!(machine.cpu().cop0_count(), 1);
+
+            let after = machine.cartridge_bootstrap_state().unwrap();
+            if rd == 0 {
+                assert_eq!(
+                    after.gpr_source(0),
+                    Some(MachineBootstrapGprSource::ArchitecturalZero)
+                );
+            } else {
+                assert_eq!(
+                    after.gpr_source(usize::from(rd)),
+                    Some(MachineBootstrapGprSource::KnownInstructionResult {
+                        execution_address: CpuAddress::new(
+                            MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC
+                        ),
+                        identity: CpuInstructionIdentity::SpecialAdd,
+                        source_gpr_a: Some(rs),
+                        source_gpr_b: Some(rt),
+                    })
+                );
+            }
+            assert_eq!(after.gpr_is_known(usize::from(rd)), Some(true));
+            assert_eq!(machine.cpu().gpr(0), Some(0));
+        }
     }
 
     #[test]
@@ -531,6 +1013,15 @@ mod tests {
             }
         );
         assert_eq!(machine.cpu().gpr(8), Some(0x0000_0000_1234_0000));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(8),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC),
+                identity: CpuInstructionIdentity::Lui,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            })
+        );
         assert_eq!(machine.cpu().pc(), 0xa400_0044);
         assert_eq!(machine.cpu().next_pc(), 0xa400_0048);
         assert_eq!(machine.cpu().cop0_count(), 1);
