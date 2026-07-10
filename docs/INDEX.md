@@ -38,6 +38,7 @@ Update triggers: a canonical owner, stable boundary, or discovery step changes.
 - Context deltas: [CONTEXT_DELTA.md](process/CONTEXT_DELTA.md)
 - Handoff and respawn: [HANDOFF_AND_RESPAWN.md](process/HANDOFF_AND_RESPAWN.md)
 - Evidence and release: [EVIDENCE_AND_RELEASE.md](process/EVIDENCE_AND_RELEASE.md)
+- Runtime evidence schemas: [ops/evidence/README.md](../ops/evidence/README.md)
 - Current verification entry point: [`./rust/verify-forward`](../rust/verify-forward)
 
 ## Subsystem context

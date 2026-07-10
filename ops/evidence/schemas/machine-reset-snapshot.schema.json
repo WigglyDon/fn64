@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fn64://evidence/machine-reset-snapshot-v1",
+  "title": "fn64 machine reset snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "producer", "source_commit", "context_sha", "machine_instance",
+    "cause", "cartridge", "rdram", "sp_dmem", "cpu", "powered_on",
+    "unavailable_facts", "artifact_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "fn64-machine-reset-snapshot-v1"},
+    "producer": {"type": "string", "minLength": 1},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "context_sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "machine_instance": {"type": "string", "minLength": 1},
+    "cause": {"type": "string", "minLength": 1},
+    "cartridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presence", "source_kind", "sha256", "source_layout", "normalization"],
+      "properties": {
+        "presence": {"enum": ["absent", "synthetic"]},
+        "source_kind": {"enum": ["none", "generated-bytes", "generated-instruction-words"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "source_layout": {"type": ["string", "null"]},
+        "normalization": {"type": ["string", "null"]}
+      }
+    },
+    "rdram": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size_bytes", "sha256"],
+      "properties": {
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "sp_dmem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sha256"],
+      "properties": {
+        "status": {"enum": ["represented", "unavailable"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "cpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reset_state", "pc", "next_pc", "gpr_summary", "hi", "lo", "cop0"],
+      "properties": {
+        "reset_state": {"type": "string"},
+        "pc": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "next_pc": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "gpr_summary": {"type": "object"},
+        "hi": {"type": "integer", "minimum": 0},
+        "lo": {"type": "integer", "minimum": 0},
+        "cop0": {"type": "object"}
+      }
+    },
+    "powered_on": {"type": "boolean"},
+    "unavailable_facts": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

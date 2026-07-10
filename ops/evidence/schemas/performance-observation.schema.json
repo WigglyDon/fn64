@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fn64://evidence/performance-observation-v1",
+  "title": "fn64 performance and resource observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "status", "command", "profile", "source_commit", "context_sha",
+    "host", "cpu", "memory", "elapsed_seconds", "cpu_seconds", "peak_rss_bytes",
+    "sample_count", "workload", "limitations", "artifact_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "fn64-performance-observation-v1"},
+    "status": {"enum": ["measured", "unavailable"]},
+    "command": {"type": ["string", "null"]},
+    "profile": {"type": ["string", "null"]},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "context_sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "host": {"type": ["object", "null"]},
+    "cpu": {"type": ["object", "null"]},
+    "memory": {"type": ["object", "null"]},
+    "elapsed_seconds": {"type": ["number", "null"], "minimum": 0},
+    "cpu_seconds": {"type": ["number", "null"], "minimum": 0},
+    "peak_rss_bytes": {"type": ["integer", "null"], "minimum": 0},
+    "sample_count": {"type": ["integer", "null"], "minimum": 1},
+    "workload": {"type": ["string", "null"]},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

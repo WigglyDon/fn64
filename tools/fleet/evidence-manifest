@@ -3,7 +3,57 @@ set -eu
 
 usage() {
     printf '%s\n' 'usage: evidence-manifest check FILE'
+    printf '%s\n' '   or: evidence-manifest create --integration-sha SHA --parent-sha SHA --context-sha SHA --candidate VALUE --full-command VALUE --full-result VALUE --environment VALUE --runtime VALUE --artifact-path PATH --artifact-sha256 SHA --authority VALUE --rollback VALUE --observability VALUE --performance VALUE --retirement VALUE --deploy true|false --push VALUE --unknowns VALUE'
 }
+
+if [ "${1:-}" = create ]; then
+    shift
+    integration_sha=''; parent_sha=''; context_sha=''; candidate=''; full_command=''; full_result=''
+    environment=''; runtime=''; artifact_path=''; artifact_sha=''; authority=''; rollback=''
+    observability=''; performance=''; retirement=''; deploy=''; push=''; unknowns=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --integration-sha) integration_sha=$2; shift 2 ;; --parent-sha) parent_sha=$2; shift 2 ;;
+            --context-sha) context_sha=$2; shift 2 ;; --candidate) candidate=$2; shift 2 ;;
+            --full-command) full_command=$2; shift 2 ;; --full-result) full_result=$2; shift 2 ;;
+            --environment) environment=$2; shift 2 ;; --runtime) runtime=$2; shift 2 ;;
+            --artifact-path) artifact_path=$2; shift 2 ;; --artifact-sha256) artifact_sha=$2; shift 2 ;;
+            --authority) authority=$2; shift 2 ;; --rollback) rollback=$2; shift 2 ;;
+            --observability) observability=$2; shift 2 ;; --performance) performance=$2; shift 2 ;;
+            --retirement) retirement=$2; shift 2 ;; --deploy) deploy=$2; shift 2 ;;
+            --push) push=$2; shift 2 ;; --unknowns) unknowns=$2; shift 2 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    for pair in "integration_sha:$integration_sha" "parent_sha:$parent_sha" "context_sha:$context_sha" "candidate:$candidate" "full_command:$full_command" "full_result:$full_result" "environment:$environment" "runtime:$runtime" "artifact_path:$artifact_path" "artifact_sha:$artifact_sha" "authority:$authority" "rollback:$rollback" "observability:$observability" "performance:$performance" "retirement:$retirement" "deploy:$deploy" "push:$push" "unknowns:$unknowns"; do
+        [ -n "${pair#*:}" ] || { printf 'evidence-manifest: missing create value: %s\n' "${pair%%:*}" >&2; exit 2; }
+    done
+    case "$deploy" in true|false) ;; *) printf '%s\n' 'evidence-manifest: deploy must be true or false' >&2; exit 2 ;; esac
+    json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+    cat <<EOF
+{
+  "schema": "fn64-evidence-manifest-v1",
+  "integration_sha": "$(json_escape "$integration_sha")",
+  "parent_sha": "$(json_escape "$parent_sha")",
+  "context_sha": "$(json_escape "$context_sha")",
+  "candidate_commits": ["$(json_escape "$candidate")"],
+  "targeted_gates": ["$(json_escape "$full_command")"],
+  "full_verification": {"command": "$(json_escape "$full_command")", "status": "$(json_escape "$full_result")"},
+  "verification_environment": {"summary": "$(json_escape "$environment")"},
+  "runtime_evidence": {"summary": "$(json_escape "$runtime")"},
+  "artifacts": [{"path": "$(json_escape "$artifact_path")", "sha256": "$(json_escape "$artifact_sha")"}],
+  "authority_changes": ["$(json_escape "$authority")"],
+  "rollback_state": "$(json_escape "$rollback")",
+  "observability_state": "$(json_escape "$observability")",
+  "performance_state": "$(json_escape "$performance")",
+  "retirement_changes": ["$(json_escape "$retirement")"],
+  "deploy_performed": $deploy,
+  "push_result": "$(json_escape "$push")",
+  "known_unknowns": ["$(json_escape "$unknowns")"]
+}
+EOF
+    exit 0
+fi
 
 [ "$#" -eq 2 ] || { usage >&2; exit 2; }
 [ "$1" = check ] || { usage >&2; exit 2; }

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fn64://evidence/machine-step-trace-v1",
+  "title": "fn64 machine step trace v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "producer", "source_commit", "context_sha", "sequence",
+    "cause", "pre_step", "fetch", "decode", "execution", "mutation_lineage",
+    "post_step", "first_divergence", "unavailable_facts", "artifact_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "fn64-machine-step-trace-v1"},
+    "producer": {"type": "string", "minLength": 1},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "context_sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sequence": {"type": "integer", "minimum": 0},
+    "cause": {"type": "string", "minLength": 1},
+    "pre_step": {
+      "type": "object",
+      "required": ["pc", "next_pc", "count"],
+      "properties": {
+        "pc": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "next_pc": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "fetch": {
+      "type": "object",
+      "required": ["address", "target_classification", "source_kind", "instruction_word"],
+      "properties": {
+        "address": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "target_classification": {"type": "string"},
+        "source_kind": {"enum": ["generated-bytes", "generated-instruction-word", "unavailable"]},
+        "instruction_word": {"type": ["integer", "null"], "minimum": 0, "maximum": 4294967295}
+      }
+    },
+    "decode": {
+      "type": "object",
+      "required": ["fields", "identity"],
+      "properties": {"fields": {"type": "object"}, "identity": {"type": ["string", "null"]}}
+    },
+    "execution": {
+      "type": "object",
+      "required": ["selected_path", "action_classification", "result"],
+      "properties": {
+        "selected_path": {"type": ["string", "null"]},
+        "action_classification": {"type": ["string", "null"]},
+        "result": {"enum": ["committed", "stopped", "unsupported", "rejected", "exception", "unavailable"]}
+      }
+    },
+    "mutation_lineage": {"type": "array", "items": {"type": "string"}},
+    "post_step": {
+      "type": "object",
+      "required": ["pc", "next_pc", "count", "register_writes", "exception_state", "memory_writes"],
+      "properties": {
+        "pc": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "next_pc": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "count": {"type": "integer", "minimum": 0},
+        "register_writes": {"type": "array", "items": {"type": "object"}},
+        "exception_state": {"type": ["object", "null"]},
+        "memory_writes": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "first_divergence": {"type": ["string", "null"]},
+    "unavailable_facts": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

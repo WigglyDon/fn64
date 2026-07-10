@@ -110,6 +110,28 @@ stage 'queue and evidence checks'
 $script_dir/integration-queue check >/dev/null
 expect_fail "$script_dir/integration-queue" check --queue "$script_dir/fixtures/integration-queue-invalid.json" --view "$root/docs/lanes/integration-queue.md"
 $script_dir/evidence-manifest check "$script_dir/fixtures/evidence-valid.json" >/dev/null
+$script_dir/evidence-manifest create \
+    --integration-sha 1111111111111111111111111111111111111111 \
+    --parent-sha 2222222222222222222222222222222222222222 \
+    --context-sha 3333333333333333333333333333333333333333333333333333333333333333 \
+    --candidate fixture-candidate --full-command ./rust/verify-forward --full-result pass \
+    --environment fixture --runtime unavailable --artifact-path /tmp/fixture \
+    --artifact-sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --authority infrastructure-only --rollback not-required --observability no-window \
+    --performance unavailable --retirement none --deploy false --push not-performed \
+    --unknowns fixture >"$tmp/evidence-generated-a.json"
+$script_dir/evidence-manifest create \
+    --integration-sha 1111111111111111111111111111111111111111 \
+    --parent-sha 2222222222222222222222222222222222222222 \
+    --context-sha 3333333333333333333333333333333333333333333333333333333333333333 \
+    --candidate fixture-candidate --full-command ./rust/verify-forward --full-result pass \
+    --environment fixture --runtime unavailable --artifact-path /tmp/fixture \
+    --artifact-sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    --authority infrastructure-only --rollback not-required --observability no-window \
+    --performance unavailable --retirement none --deploy false --push not-performed \
+    --unknowns fixture >"$tmp/evidence-generated-b.json"
+cmp -s "$tmp/evidence-generated-a.json" "$tmp/evidence-generated-b.json"
+$script_dir/evidence-manifest check "$tmp/evidence-generated-a.json" >/dev/null
 cp "$script_dir/fixtures/evidence-valid.json" "$tmp/evidence-invalid.json"
 sed -i '/"context_sha"/d' "$tmp/evidence-invalid.json"
 expect_fail "$script_dir/evidence-manifest" check "$tmp/evidence-invalid.json"

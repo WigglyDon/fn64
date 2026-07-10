@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fn64://evidence/host-runtime-observation-v1",
+  "title": "fn64 host runtime observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "status", "source_commit", "context_sha", "command", "host_kind",
+    "window", "audio", "input", "event_loop", "cartridge_source", "observable_result",
+    "limitations", "unavailable_facts", "artifact_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "fn64-host-runtime-observation-v1"},
+    "status": {"enum": ["observed", "unavailable", "not-authorized"]},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "context_sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "command": {"type": ["string", "null"]},
+    "host_kind": {"type": ["string", "null"]},
+    "window": {"type": ["object", "null"]},
+    "audio": {"type": ["object", "null"]},
+    "input": {"type": ["object", "null"]},
+    "event_loop": {"type": ["object", "null"]},
+    "cartridge_source": {"enum": ["none", "generated-synthetic", "user-provided-not-recorded", "unavailable"]},
+    "observable_result": {"type": ["object", "null"]},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "unavailable_facts": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fn64://evidence/no-window-verification-v1",
+  "title": "fn64 no-window verification run v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "command", "working_directory", "source_commit", "context_sha",
+    "toolchains", "environment", "stages", "exit_status", "probe_markers",
+    "test_counts", "duration", "artifact_digests", "unavailable_runtime_facts",
+    "artifact_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "fn64-no-window-verification-v1"},
+    "command": {"type": "string", "minLength": 1},
+    "working_directory": {"type": "string", "minLength": 1},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "context_sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "toolchains": {"type": "object"},
+    "environment": {"type": "object"},
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "exit_status"],
+        "properties": {"name": {"type": "string"}, "exit_status": {"type": "integer"}}
+      }
+    },
+    "exit_status": {"type": "integer"},
+    "probe_markers": {"type": "array", "items": {"type": "string"}},
+    "test_counts": {"type": "object"},
+    "duration": {
+      "type": "object",
+      "required": ["status", "seconds"],
+      "properties": {"status": {"enum": ["measured", "unavailable"]}, "seconds": {"type": ["number", "null"], "minimum": 0}}
+    },
+    "artifact_digests": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "unavailable_runtime_facts": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
