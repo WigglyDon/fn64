@@ -111,12 +111,22 @@ else
     overlap=$(mktemp "${TMPDIR:-/tmp}/fn64-lane-overlap.XXXXXX")
     trap 'rm -f "$local_paths" "$canonical_paths" "$overlap"' EXIT HUP INT TERM
     { git -C "$worktree" diff --name-only "$expected_base..$head" 2>/dev/null || true; git -C "$worktree" diff --name-only; git -C "$worktree" diff --cached --name-only; } | sed '/^$/d' | LC_ALL=C sort -u >"$local_paths"
-    if [ "$canonical" != UNKNOWN ]; then git -C "$worktree" diff --name-only "$expected_base..$canonical" 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u >"$canonical_paths" || : >"$canonical_paths"; else : >"$canonical_paths"; fi
+    if [ "$canonical" = UNKNOWN ]; then
+        : >"$canonical_paths"
+    elif git -C "$worktree" merge-base --is-ancestor "$expected_base" "$canonical" 2>/dev/null; then
+        git -C "$worktree" diff --name-only "$expected_base..$canonical" 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u >"$canonical_paths"
+    elif git -C "$worktree" merge-base --is-ancestor "$canonical" "$expected_base" 2>/dev/null; then
+        # The accepted lane base already contains the older canonical ref.
+        : >"$canonical_paths"
+    else
+        printf '%s\n' '__UNRELATED_CANONICAL_HISTORY__' >"$canonical_paths"
+    fi
     comm -12 "$local_paths" "$canonical_paths" >"$overlap"
     direct_overlap_count=$(wc -l <"$overlap" | tr -d ' ')
 
     if [ "$classification" = READY ]; then
-        if [ "$branch" != "$expected_branch" ]; then classification=WRONG_BRANCH; result=invalid
+        if grep -q '^__UNRELATED_CANONICAL_HISTORY__$' "$canonical_paths"; then classification=RED_LINE_CONFLICT; result=invalid
+        elif [ "$branch" != "$expected_branch" ]; then classification=WRONG_BRANCH; result=invalid
         elif [ "$base_ancestor" != yes ]; then classification=RED_LINE_CONFLICT; result=invalid
         elif [ "$direct_overlap_count" -gt 0 ]; then classification=DIRECT_OVERLAP; result=invalid
         elif [ "$dirty_count" -gt 0 ]; then classification=DIRTY_UNKNOWN_WORK; result=invalid

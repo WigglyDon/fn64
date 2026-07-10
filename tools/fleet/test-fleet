@@ -175,6 +175,13 @@ git -C "$tmp/no-remote" commit -q -m base
 no_remote_base=$(git -C "$tmp/no-remote" rev-parse HEAD)
 expect_class REMOTE_AUTH_BLOCKED --worktree "$tmp/no-remote" --expected-branch main --expected-base "$no_remote_base"
 
+git clone -q "$tmp/remote.git" "$tmp/accepted"
+git -C "$tmp/accepted" config user.name fixture
+git -C "$tmp/accepted" config user.email fixture@fn64.invalid
+git -C "$tmp/accepted" commit --allow-empty -q -m accepted-local-base
+accepted_local_base=$(git -C "$tmp/accepted" rev-parse HEAD)
+expect_class READY --worktree "$tmp/accepted" --expected-branch main --expected-base "$accepted_local_base"
+
 git clone -q "$tmp/remote.git" "$tmp/updater"
 git -C "$tmp/updater" config user.name fixture
 git -C "$tmp/updater" config user.email fixture@fn64.invalid
