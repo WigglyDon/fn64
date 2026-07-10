@@ -11,7 +11,14 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-Active worker lanes: none found from live repository evidence.
+- `real-cartridge-boot-spine-v1`
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+  - Coordination owner: [lane page](real-cartridge-boot-spine-v1.md)
+  - No Worker implementation or candidate exists.
+- `rust-purity-repo-cleanup-v1`
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+  - Coordination owner: [lane page](rust-purity-repo-cleanup-v1.md)
+  - No Worker implementation or candidate exists.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.

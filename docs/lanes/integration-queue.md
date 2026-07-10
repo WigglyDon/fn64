@@ -15,5 +15,5 @@ Machine-readable owner: `ops/fleet/integration-queue.json`
 
 | Lane ID | Candidate HEAD | Base | Context-SHA | Artifact | Targeted validation | Full verify | Overlap | Dependency | Authority impact | Revalidation | Decision | Push |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-
-No active worker-lane candidates are queued.
+| real-cartridge-boot-spine-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | LOW | Registration accepted; context delta after cleanup integration if boot remains active | NONE_YET | PENDING | PENDING | NOT_AUTHORIZED |
+| rust-purity-repo-cleanup-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | LOW | Disjoint from boot product source; preferred integration before boot candidate | NONE_YET | PENDING | PENDING | NOT_AUTHORIZED |

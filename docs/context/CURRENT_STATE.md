@@ -32,11 +32,13 @@ not current files, runnable gates, or a parity requirement.
 ## Verification and lanes
 
 - Required gate: `./rust/verify-forward`.
-- Active Worker lanes: none.
+- `real-cartridge-boot-spine-v1`: provisioned and awaiting its supervisor packet; no Worker implementation has started and no candidate exists.
+- `rust-purity-repo-cleanup-v1`: provisioned and awaiting its supervisor packet; no Worker implementation has started and no candidate exists.
 - Active C++ lanes: none.
 - `cpp-reference-truth-reconstruction-v1`: canceled without provisioning; its reserved branch/worktree remain absent.
 - The earlier seam-090 and inventory-first sequences are superseded by the direct Master retirement decision.
-- Integration queue: empty.
+- Integration queue: both provisioned lanes are registered with unknown candidate/artifact values; no candidate commit exists.
+- No cartridge-boot milestone, compatibility result, or repository-cleanup result has been earned by lane registration or provisioning.
 
 ## Blockers and known unknowns
 
