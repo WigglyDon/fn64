@@ -1,0 +1,3 @@
+source=valid-work.packet
+mutation=set Provisioning-State to SUPERVISOR_ASSUMED
+expected=invalid

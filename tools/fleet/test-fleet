@@ -56,12 +56,17 @@ sed -i '/^## Active lanes$/a - fixture-conflict' "$tmp/lane/docs/lanes/lane-regi
 sed -i '/^## Retired lanes$/a - fixture-conflict' "$tmp/lane/docs/lanes/lane-registry.md"
 expect_fail "$script_dir/context-verify" --root "$tmp/lane"
 
+make_context_copy "$tmp/deferred-lane"
+sed -i '/^## Active lanes$/a - fixture-deferred' "$tmp/deferred-lane/docs/lanes/lane-registry.md"
+sed -i '/^## Planned but not active$/a - fixture-deferred: DEFERRED — NOT PROVISIONED' "$tmp/deferred-lane/docs/lanes/lane-registry.md"
+expect_fail "$script_dir/context-verify" --root "$tmp/deferred-lane"
+
 make_context_copy "$tmp/placeholder"
 printf '%s\n' 'Executable value: <UNRESOLVED_VALUE>' >>"$tmp/placeholder/docs/context/README.md"
 expect_fail "$script_dir/context-verify" --root "$tmp/placeholder"
 
 stage 'packet valid fixtures'
-for packet in valid-work.packet valid-context-delta.packet valid-worker-final.packet valid-master-final.packet; do
+for packet in valid-work.packet valid-work-tmp-exception.packet valid-respawn.packet valid-context-delta.packet valid-worker-final.packet valid-master-final.packet; do
     $script_dir/packet-verify "$script_dir/fixtures/packets/$packet" >/dev/null
     ok
 done
@@ -96,13 +101,87 @@ cp "$script_dir/fixtures/packets/valid-worker-final.packet" "$packet_tmp"
 sed -i 's/^Worker branches pushed:.*/Worker branches pushed: yes/' "$packet_tmp"
 expect_fail "$script_dir/packet-verify" "$packet_tmp"
 
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i '/^Provisioning-State:/d' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Provisioning-State:.*/Provisioning-State: SUPERVISOR_ASSUMED/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i '/^Launch-Command:/d' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's|^Worktree:.*|Worktree: UNKNOWN|' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's|^Branch:.*|Branch: UNKNOWN|' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Expected-Base:.*/Expected-Base: UNKNOWN/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Context-SHA:.*/Context-SHA: UNKNOWN/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's|^Worktree:.*|Worktree: /tmp/fn64-fixture-lane|; s|^Launch-Command:.*|Launch-Command: cd /tmp/fn64-fixture-lane \&\& codex|' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's|^Worktree:.*|Worktree: /home/don/fn64-worktrees/another-lane|; s|^Launch-Command:.*|Launch-Command: cd /home/don/fn64-worktrees/another-lane \&\& codex|' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's|^Launch-Command:.*|Launch-Command: cd /home/don/fn64-worktrees/another-lane \&\& codex|' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Authority-State:.*/Authority-State: WORKER_BRANCH_MANAGEMENT_ALLOWED/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Worker-Worktree-Management:.*/Worker-Worktree-Management: allowed/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i '/^END PROJECT PACKET$/i Worker-Command: git worktree add -b worker/new /home/don/fn64-worktrees/new HEAD' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i '/^END PROJECT PACKET$/i Worker-Command: git branch worker/new' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+cp "$script_dir/fixtures/packets/valid-work.packet" "$packet_tmp"
+sed -i 's/^Lane-State:.*/Lane-State: DEFERRED_NOT_PROVISIONED/' "$packet_tmp"
+expect_fail "$script_dir/packet-verify" "$packet_tmp"
+
 stage 'respawn bundle deterministic and valid'
-respawn_args='--packet-id fn64-fixture-respawn-001 --reply-to fn64-fixture-work-001 --context-sha 1111111111111111111111111111111111111111111111111111111111111111 --lane-id fixture-lane --lane-page docs/lanes/fixture-lane.md --base df0551f87506d136717e7c2b3673580adce5869a --worktree /tmp/fn64-fixture-lane --branch fixture/lane --candidate-head df0551f87506d136717e7c2b3673580adce5869a --latest-packet fn64-fixture-work-001 --artifact NONE --goal preserve-the-existing-fixture-goal --risk none-known --next-action reread-context-and-resume --authority SUPERVISOR_SEMANTIC_AUTHORITY --prohibited push-deploy-main-mutation --proof packet-and-lane-validation --subsystems docs/context/subsystems/machine-core.md --validation ./rust/verify-forward --stale accepted-base-or-context-changes'
-# shellcheck disable=SC2086
-$script_dir/supervisor-respawn-bundle $respawn_args >"$tmp/respawn-a.packet"
-# shellcheck disable=SC2086
-$script_dir/supervisor-respawn-bundle $respawn_args >"$tmp/respawn-b.packet"
+$script_dir/supervisor-respawn-bundle \
+    --packet-id fn64-fixture-respawn-001 --reply-to fn64-fixture-work-001 \
+    --context-sha 1111111111111111111111111111111111111111111111111111111111111111 \
+    --lane-id fixture-lane --lane-page docs/lanes/fixture-lane.md \
+    --base df0551f87506d136717e7c2b3673580adce5869a \
+    --worktree /home/don/fn64-worktrees/fixture-lane --branch worker/fixture-lane \
+    --provisioning-state MASTER_PROVISIONED_VERIFIED --provisioning-exception NONE \
+    --launch-command 'cd /home/don/fn64-worktrees/fixture-lane && codex' \
+    --candidate-head df0551f87506d136717e7c2b3673580adce5869a \
+    --latest-packet fn64-fixture-work-001 --artifact NONE \
+    --goal preserve-the-existing-fixture-goal --risk none-known \
+    --next-action reread-context-and-resume --authority SUPERVISOR_SEMANTIC_AUTHORITY \
+    --prohibited push-deploy-main-mutation --proof packet-and-lane-validation \
+    --subsystems docs/context/subsystems/machine-core.md \
+    --validation ./rust/verify-forward --stale accepted-base-or-context-changes \
+    >"$tmp/respawn-a.packet"
+$script_dir/supervisor-respawn-bundle \
+    --packet-id fn64-fixture-respawn-001 --reply-to fn64-fixture-work-001 \
+    --context-sha 1111111111111111111111111111111111111111111111111111111111111111 \
+    --lane-id fixture-lane --lane-page docs/lanes/fixture-lane.md \
+    --base df0551f87506d136717e7c2b3673580adce5869a \
+    --worktree /home/don/fn64-worktrees/fixture-lane --branch worker/fixture-lane \
+    --provisioning-state MASTER_PROVISIONED_VERIFIED --provisioning-exception NONE \
+    --launch-command 'cd /home/don/fn64-worktrees/fixture-lane && codex' \
+    --candidate-head df0551f87506d136717e7c2b3673580adce5869a \
+    --latest-packet fn64-fixture-work-001 --artifact NONE \
+    --goal preserve-the-existing-fixture-goal --risk none-known \
+    --next-action reread-context-and-resume --authority SUPERVISOR_SEMANTIC_AUTHORITY \
+    --prohibited push-deploy-main-mutation --proof packet-and-lane-validation \
+    --subsystems docs/context/subsystems/machine-core.md \
+    --validation ./rust/verify-forward --stale accepted-base-or-context-changes \
+    >"$tmp/respawn-b.packet"
 cmp -s "$tmp/respawn-a.packet" "$tmp/respawn-b.packet"
+cmp -s "$tmp/respawn-a.packet" "$script_dir/fixtures/packets/valid-respawn.packet"
 $script_dir/packet-verify "$tmp/respawn-a.packet" >/dev/null
 ok
 

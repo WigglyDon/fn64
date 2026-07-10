@@ -72,6 +72,74 @@ esac
 
 expected_reply=$(get_field Expected-Reply-Type)
 packet_type=$(get_field Packet-Type)
+
+validate_provisioned_topology() {
+    topology_kind=$1
+    provisioning_state=$(get_field Provisioning-State)
+    provisioning_exception=$(get_field Provisioning-Exception)
+    launch_command=$(get_field Launch-Command)
+    lane_id_value=$(get_field Lane-ID)
+    worktree_value=$(get_field Worktree)
+    branch_value=$(get_field Branch)
+    base_value=$(get_field Expected-Base)
+    context_value=$(get_field Context-SHA)
+
+    provisioning_missing=''
+    for field in Provisioning-State Provisioning-Exception Launch-Command; do
+        [ -n "$(get_field "$field")" ] || provisioning_missing="$provisioning_missing $field"
+    done
+    if [ -z "$provisioning_missing" ]; then pass_check; else fail_check "missing provisioning field(s):$provisioning_missing"; fi
+
+    [ "$provisioning_state" = MASTER_PROVISIONED_VERIFIED ] && pass_check || fail_check 'Provisioning-State must be MASTER_PROVISIONED_VERIFIED'
+
+    unknown_fields=''
+    for pair in "Worktree:$worktree_value" "Branch:$branch_value" "Expected-Base:$base_value" "Context-SHA:$context_value"; do
+        value=${pair#*:}
+        [ -n "$value" ] && [ "$value" != UNKNOWN ] || unknown_fields="$unknown_fields ${pair%%:*}"
+    done
+    if [ -z "$unknown_fields" ]; then pass_check; else fail_check "provisioned topology has unknown field(s):$unknown_fields"; fi
+
+    case "$worktree_value" in /*) pass_check ;; *) fail_check 'provisioned Worktree must be an absolute path' ;; esac
+    printf '%s\n' "$base_value" | grep -Eq '^[0-9a-f]{40}$' && pass_check || fail_check 'Expected-Base must be a literal 40-hex Git object ID'
+    printf '%s\n' "$context_value" | grep -Eq '^[0-9a-f]{64}$' && pass_check || fail_check 'Context-SHA must be a literal 64-hex digest'
+
+    if [ -z "$provisioning_exception" ] || [ "$provisioning_exception" = UNKNOWN ]; then
+        fail_check 'Provisioning-Exception must be NONE or a literal Master-authorized reason'
+    elif [ "$provisioning_exception" = NONE ]; then
+        expected_worktree=/home/don/fn64-worktrees/$lane_id_value
+        [ "$worktree_value" = "$expected_worktree" ] && pass_check || fail_check "normal worker Worktree must equal $expected_worktree"
+    else
+        pass_check
+    fi
+
+    case "$launch_command" in
+        "cd $worktree_value && codex"|"cd -- $worktree_value && codex") pass_check ;;
+        *) fail_check 'Launch-Command must enter the exact packet Worktree and run codex' ;;
+    esac
+
+    if [ "$topology_kind" = worker ]; then
+        [ "$(get_field Authority-State)" = WORKER_ASSIGNED_WORKTREE_NO_BRANCH_MANAGEMENT_NO_PUSH_NO_INTEGRATION ] && pass_check || fail_check 'invalid Worker Authority-State for provisioned topology'
+        [ "$(get_field Lane-State)" = ACTIVE_PROVISIONED ] && pass_check || fail_check 'Worker Lane-State must be ACTIVE_PROVISIONED'
+        [ "$(get_field Worker-Worktree-Management)" = forbidden ] && pass_check || fail_check 'Worker worktree management must be forbidden'
+        [ "$(get_field Worker-Branch-Management)" = forbidden ] && pass_check || fail_check 'Worker branch management must be forbidden'
+        [ "$(get_field Worker-Integration)" = forbidden ] && pass_check || fail_check 'Worker integration must be forbidden'
+
+        if grep -Eq '^(Worker-Command|Authorized-Command):.*git[[:space:]]+(worktree[[:space:]]+(add|remove|move|repair|prune)|branch([[:space:]]|$)|switch([[:space:]]|$)|checkout([[:space:]]|$)|merge([[:space:]]|$)|rebase([[:space:]]|$)|reset([[:space:]]|$)|clean([[:space:]]|$)|push([[:space:]]|$))' "$file"; then
+            fail_check 'Worker packet contains an explicit topology-management command'
+        else
+            pass_check
+        fi
+    else
+        pass_check
+    fi
+}
+
+case "$packet_type" in
+    SUPERVISOR_TO_WORKER_WORK) validate_provisioned_topology worker ;;
+    RESPAWN_SEED) validate_provisioned_topology respawn ;;
+    *) pass_check ;;
+esac
+
 if [ "$packet_type" = 'CONTEXT_DELTA_AMENDMENT' ]; then
     delta_required='Old-Context-SHA New-Context-SHA Changed-Context-Files Branch-Update-Instruction Root-To-Local-Reread-Instruction Contradiction-Report-Instruction Restart-Goal'
     delta_missing=''

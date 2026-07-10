@@ -1,0 +1,43 @@
+BEGIN PROJECT PACKET
+Packet-Version: 1.0
+Packet-ID: fn64-fixture-respawn-001
+Reply-To: fn64-fixture-work-001
+From: Master GPT
+To: Supervisor GPT
+Project-ID: fn64
+Lane-ID: fixture-lane
+Goal-ID: respawn-fixture-lane
+Context-SHA: 1111111111111111111111111111111111111111111111111111111111111111
+Expected-Base: df0551f87506d136717e7c2b3673580adce5869a
+Worktree: /home/don/fn64-worktrees/fixture-lane
+Branch: worker/fixture-lane
+Authority-State: SUPERVISOR_SEMANTIC_AUTHORITY
+Expected-Reply-Type: SUPERVISOR_SEED
+Stale-When: accepted-base-or-context-changes
+Allowed-Stop-Classes: NEEDS_FIX,PARTIAL,STOP
+Provisioning-State: MASTER_PROVISIONED_VERIFIED
+Provisioning-Exception: NONE
+Launch-Command: cd /home/don/fn64-worktrees/fixture-lane && codex
+
+Packet-Type: RESPAWN_SEED
+Lane-State: ACTIVE_PROVISIONED
+Topology-Owner: Master Codex
+Lane-Page: docs/lanes/fixture-lane.md
+Latest-Candidate-HEAD: df0551f87506d136717e7c2b3673580adce5869a
+Latest-Packet-ID: fn64-fixture-work-001
+Artifact-References: NONE
+Current-Goal: preserve-the-existing-fixture-goal
+Unresolved-Risk: none-known
+Exact-Next-Action: reread-context-and-resume
+Prohibited-Authority: push-deploy-main-mutation
+Expected-Proof: packet-and-lane-validation
+Subsystem-Links: docs/context/subsystems/machine-core.md
+Required-Validation: ./rust/verify-forward
+
+Root-To-Local-Discovery: read root AGENTS.md; every scoped AGENTS.md to the lane; docs/INDEX.md; docs/context/CURRENT_STATE.md; rust/PARITY.md; relevant subsystem context; lane page; relevant contracts and evidence.
+Topology-Instruction: use only the already provisioned Worktree and Branch; do not create, remove, repair, switch, merge, rebase, reset, clean, or push topology.
+Private-Chat-Dependency: none
+Worker branches pushed: no
+Manual deploy performed: no
+
+END PROJECT PACKET

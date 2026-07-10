@@ -1,0 +1,3 @@
+source=valid-work.packet
+mutation=use Authority-State that permits Worker branch management
+expected=invalid

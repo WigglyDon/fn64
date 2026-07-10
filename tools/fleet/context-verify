@@ -172,9 +172,16 @@ if [ "$subsystem_error" = true ]; then fail_check 'subsystem context lacks curre
 registry=$root/docs/lanes/lane-registry.md
 if [ -f "$registry" ]; then
     active=$(sed -n '/^## Active lanes$/,/^## /p' "$registry" | sed -n 's/^- \([^:]*\).*/\1/p' | LC_ALL=C sort)
-    retired=$(sed -n '/^## Retired lanes$/,/^## /p' "$registry" | sed -n 's/^- \([^:]*\).*/\1/p' | LC_ALL=C sort)
-    contradiction=$(printf '%s\n%s\n' "$active" "$retired" | sed '/^$/d' | LC_ALL=C sort | uniq -d)
-    if [ -n "$contradiction" ]; then fail_check "lane active and retired: $contradiction"; else pass_check; fi
+    inactive=$(
+        {
+            sed -n '/^## Planned but not active$/,/^## /p' "$registry"
+            sed -n '/^## Parked donor lanes$/,/^## /p' "$registry"
+            sed -n '/^## Blocked lanes$/,/^## /p' "$registry"
+            sed -n '/^## Retired lanes$/,/^## /p' "$registry"
+        } | sed -n 's/^- \([^:]*\).*/\1/p' | LC_ALL=C sort -u
+    )
+    contradiction=$(printf '%s\n%s\n' "$active" "$inactive" | sed '/^$/d' | LC_ALL=C sort | uniq -d)
+    if [ -n "$contradiction" ]; then fail_check "lane active and non-active: $contradiction"; else pass_check; fi
 else
     fail_check 'lane registry unavailable'
 fi

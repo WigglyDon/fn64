@@ -1,30 +1,30 @@
 BEGIN PROJECT PACKET
 Packet-Version: 1.0
-Packet-ID: fn64-fixture-work-001
+Packet-ID: fn64-fixture-work-tmp-exception-001
 Reply-To: NONE
 From: Supervisor GPT
 To: Worker Codex
 Project-ID: fn64
-Lane-ID: fixture-lane
+Lane-ID: fixture-tmp-exception
 Goal-ID: fixture-goal
 Context-SHA: 1111111111111111111111111111111111111111111111111111111111111111
 Expected-Base: df0551f87506d136717e7c2b3673580adce5869a
-Worktree: /home/don/fn64-worktrees/fixture-lane
-Branch: worker/fixture-lane
+Worktree: /tmp/fn64-fixture-tmp-exception
+Branch: worker/fixture-tmp-exception
 Authority-State: WORKER_ASSIGNED_WORKTREE_NO_BRANCH_MANAGEMENT_NO_PUSH_NO_INTEGRATION
 Expected-Reply-Type: WORKER_FINAL_REPORT
-Stale-When: the expected base is not an ancestor of the lane HEAD
+Stale-When: the Master-authorized temporary validation fixture expires
 Allowed-Stop-Classes: ACCEPTED,NEEDS_FIX,PARTIAL,STOP
 Provisioning-State: MASTER_PROVISIONED_VERIFIED
-Provisioning-Exception: NONE
-Launch-Command: cd /home/don/fn64-worktrees/fixture-lane && codex
+Provisioning-Exception: Master-authorized temporary filesystem isolation for this validation fixture
+Launch-Command: cd /tmp/fn64-fixture-tmp-exception && codex
 
 Packet-Type: SUPERVISOR_TO_WORKER_WORK
 Lane-State: ACTIVE_PROVISIONED
 Worker-Worktree-Management: forbidden
 Worker-Branch-Management: forbidden
 Worker-Integration: forbidden
-Goal: validate the packet fixture without changing product truth.
+Goal: validate a literal documented temporary-path exception.
 Worker-Preflight: verify exact root, branch, HEAD, clean worktree/index, and Context-SHA; stop without modification on mismatch.
 No-Push: required
 No-Deploy: required

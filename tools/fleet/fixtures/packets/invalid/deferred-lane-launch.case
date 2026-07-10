@@ -1,0 +1,3 @@
+source=valid-work.packet
+mutation=set Lane-State to DEFERRED_NOT_PROVISIONED while retaining Launch-Command
+expected=invalid

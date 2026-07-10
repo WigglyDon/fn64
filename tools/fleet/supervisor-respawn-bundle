@@ -22,9 +22,12 @@ subsystems=''
 validation=''
 stale=''
 allowed='NEEDS_FIX,PARTIAL,STOP'
+provisioning_state=''
+provisioning_exception=''
+launch_command=''
 
 usage() {
-    printf '%s\n' 'usage: supervisor-respawn-bundle --packet-id ID --reply-to ID --context-sha SHA --lane-id ID --lane-page PATH --base SHA --worktree PATH --branch BRANCH --candidate-head SHA --latest-packet ID --artifact VALUE --goal VALUE --risk VALUE --next-action VALUE --authority VALUE --prohibited VALUE --proof VALUE --subsystems VALUE --validation VALUE --stale VALUE [--allowed CLASSES]'
+    printf '%s\n' 'usage: supervisor-respawn-bundle --packet-id ID --reply-to ID --context-sha SHA --lane-id ID --lane-page PATH --base SHA --worktree PATH --branch BRANCH --provisioning-state MASTER_PROVISIONED_VERIFIED --provisioning-exception VALUE --launch-command VALUE --candidate-head SHA --latest-packet ID --artifact VALUE --goal VALUE --risk VALUE --next-action VALUE --authority VALUE --prohibited VALUE --proof VALUE --subsystems VALUE --validation VALUE --stale VALUE [--allowed CLASSES]'
 }
 
 while [ "$#" -gt 0 ]; do
@@ -33,6 +36,9 @@ while [ "$#" -gt 0 ]; do
         --context-sha) context_sha=$2; shift 2 ;; --lane-id) lane_id=$2; shift 2 ;;
         --lane-page) lane_page=$2; shift 2 ;; --base) base=$2; shift 2 ;;
         --worktree) worktree=$2; shift 2 ;; --branch) branch=$2; shift 2 ;;
+        --provisioning-state) provisioning_state=$2; shift 2 ;;
+        --provisioning-exception) provisioning_exception=$2; shift 2 ;;
+        --launch-command) launch_command=$2; shift 2 ;;
         --candidate-head) candidate=$2; shift 2 ;; --latest-packet) latest_packet=$2; shift 2 ;;
         --artifact) artifact=$2; shift 2 ;; --goal) goal=$2; shift 2 ;;
         --risk) risk=$2; shift 2 ;; --next-action) next_action=$2; shift 2 ;;
@@ -44,11 +50,31 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-for pair in "packet-id:$packet_id" "reply-to:$reply_to" "context-sha:$context_sha" "lane-id:$lane_id" "lane-page:$lane_page" "base:$base" "worktree:$worktree" "branch:$branch" "candidate-head:$candidate" "latest-packet:$latest_packet" "artifact:$artifact" "goal:$goal" "risk:$risk" "next-action:$next_action" "authority:$authority" "prohibited:$prohibited" "proof:$proof" "subsystems:$subsystems" "validation:$validation" "stale:$stale"; do
+for pair in "packet-id:$packet_id" "reply-to:$reply_to" "context-sha:$context_sha" "lane-id:$lane_id" "lane-page:$lane_page" "base:$base" "worktree:$worktree" "branch:$branch" "provisioning-state:$provisioning_state" "provisioning-exception:$provisioning_exception" "launch-command:$launch_command" "candidate-head:$candidate" "latest-packet:$latest_packet" "artifact:$artifact" "goal:$goal" "risk:$risk" "next-action:$next_action" "authority:$authority" "prohibited:$prohibited" "proof:$proof" "subsystems:$subsystems" "validation:$validation" "stale:$stale"; do
     value=${pair#*:}
     [ -n "$value" ] || { printf 'supervisor-respawn-bundle: missing %s\n' "${pair%%:*}" >&2; exit 2; }
     printf '%s\n' "$value" | grep -Eq '<[^>]+>|\{\{[^}]+\}\}' && { printf 'supervisor-respawn-bundle: unresolved placeholder in %s\n' "${pair%%:*}" >&2; exit 1; }
 done
+
+[ "$provisioning_state" = MASTER_PROVISIONED_VERIFIED ] || {
+    printf '%s\n' 'supervisor-respawn-bundle: provisioning state must be MASTER_PROVISIONED_VERIFIED' >&2
+    exit 1
+}
+[ "$provisioning_exception" != UNKNOWN ] || {
+    printf '%s\n' 'supervisor-respawn-bundle: provisioning exception must be literal' >&2
+    exit 1
+}
+if [ "$provisioning_exception" = NONE ]; then
+    expected_worktree=/home/don/fn64-worktrees/$lane_id
+    [ "$worktree" = "$expected_worktree" ] || {
+        printf 'supervisor-respawn-bundle: normal worktree must equal %s\n' "$expected_worktree" >&2
+        exit 1
+    }
+fi
+case "$launch_command" in
+    "cd $worktree && codex"|"cd -- $worktree && codex") ;;
+    *) printf '%s\n' 'supervisor-respawn-bundle: launch command does not match provisioned worktree' >&2; exit 1 ;;
+esac
 
 cat <<EOF
 BEGIN PROJECT PACKET
@@ -68,8 +94,13 @@ Authority-State: $authority
 Expected-Reply-Type: SUPERVISOR_SEED
 Stale-When: $stale
 Allowed-Stop-Classes: $allowed
+Provisioning-State: $provisioning_state
+Provisioning-Exception: $provisioning_exception
+Launch-Command: $launch_command
 
 Packet-Type: RESPAWN_SEED
+Lane-State: ACTIVE_PROVISIONED
+Topology-Owner: Master Codex
 Lane-Page: $lane_page
 Latest-Candidate-HEAD: $candidate
 Latest-Packet-ID: $latest_packet
@@ -83,6 +114,7 @@ Subsystem-Links: $subsystems
 Required-Validation: $validation
 
 Root-To-Local-Discovery: read root AGENTS.md; every scoped AGENTS.md to the lane; docs/INDEX.md; docs/context/CURRENT_STATE.md; rust/PARITY.md; relevant subsystem context; lane page; relevant contracts and evidence.
+Topology-Instruction: use only the already provisioned Worktree and Branch; do not create, remove, repair, switch, merge, rebase, reset, clean, or push topology.
 Private-Chat-Dependency: none
 Worker branches pushed: no
 Manual deploy performed: no
