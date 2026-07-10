@@ -1,34 +1,30 @@
-# Historical C++ Reference
+# Retired C++ History
 
-Context role: frozen C++ reference boundary context.
-Scope: `src/`, root CMake ownership, and retained C++ reference targets.
-Canonical for: current C++ authority and inspection/deletion boundary.
-Not canonical for: detailed C++ truth inventory or Rust product capability.
-Inherits: [repository standing law](../../../AGENTS.md) and [src scope law](../../../src/AGENTS.md).
+Context role: retired C++ era and archival-boundary context.
+Scope: the former C++ machine, host, proof, CLI, SDL, CMake, and launch lane.
+Canonical for: retirement status and the boundary between current source and Git history.
+Not canonical for: current Rust capability or semantic parity.
+Inherits: [repository standing law](../../../AGENTS.md).
 Current-state owner: [CURRENT_STATE.md](../CURRENT_STATE.md).
-Related evidence: Git history, `CMakeLists.txt`, and [boot checkpoint](../../boot_spine_checkpoint.md).
-Update triggers: C++ authority, inventory acceptance, retention, or deletion state changes.
+Related evidence: [project history](../PROJECT_HISTORY.md), Git history, and the [historical boot checkpoint](../../boot_spine_checkpoint.md).
+Update triggers: archival authority or an accepted decision about retired-source interpretation changes.
 
-C++ currently owns retained historical machine source, proof/bootstrap
-instruments, CLI inspection/step probe, and optional SDL host plumbing. It is
-frozen reference truth, not the forward implementation, required product gate,
-or required oracle for new Rust behavior.
+The former C++ source/build/host/proof lane is absent from the current product
+tree. Git history is its only archive. No checked-in museum, compatibility
+wrapper, fake CMake target, or replacement C++ gate exists.
 
-Rust and its gate must not depend on CMake, C++ binaries, generated C++ files,
-or SDL. Inspection/build/run of C++ requires an explicit reference, inventory,
-or deletion-preparation packet. Mutation, improvement, new tests, architecture
-movement, and deletion are forbidden without literal authority.
+`USER_DECISION` waived semantic parity and inventory prerequisites before
+retirement. Unported C++ instruction behavior, cartridge/bootstrap experiments,
+device behavior, CLI output, SDL/window/event-loop plumbing, and proof coverage
+are `INTENTIONALLY_ABSENT_AFTER_CPP_RETIREMENT`. They were not migrated and are
+not implied by Rust tests.
 
-Git history is the eventual archive; no checked-in museum copy is desired.
-However, the current source must remain intact because `USER_DECISION` suspended
-seam-090 deletion. A prior complete inventory is only a `WORKER_CLAIM` at the
-infrastructure base because its evidence is not committed.
+Historical documents and the detailed Rust ledger may name deleted paths,
+targets, or commands as dated source anchors. Those names are not current files
+or runnable instructions. Restoring retired C++ as a product/reference lane is
+forbidden without a new explicit product decision; future required behavior is
+earned independently in Rust under current architecture.
 
-Optional C++ no-window checks can provide historical comparison under separate
-scope. They cannot prove Rust product truth or broad compatibility. The SDL host
-must not be run during infrastructure work. Resource/performance and legal asset
-facts are unknown unless measured; user-local ROM contents remain untouched.
-
-Next authority is a separately accepted inventory or deletion packet after the
-context rebase—not automatic resumption. Required validation for this context
-pass is source immutability and the Rust forward gate, not C++ execution.
+The required current validation is `./rust/verify-forward`. It proves the
+bounded Rust gate only—not C++ parity, cartridge boot, game compatibility,
+host runtime, or performance.

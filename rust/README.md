@@ -1,10 +1,9 @@
 # fn64 Machine Core
 
-This tracked tree is the forward fn64 machine-core product implementation under
-construction. C++ remains frozen reference truth for parity inspection only,
-with its checks available only as an optional reference lane outside required
-forward verification. Rust is implementation material in this workspace; it is
-not fn64's product identity, and it is not integrated into the C++ build.
+This tracked workspace is fn64's sole current product implementation. The
+former C++ machine, host, proof, and CMake lane is retired to Git history; its
+unported behavior is intentionally absent and no parity claim is made. Rust is
+implementation material rather than fn64's product identity.
 
 ## Identity
 
@@ -278,15 +277,14 @@ Earned Rust behavior is limited to:
 - narrow CPU GPR access/mutation state semantics
 - narrow CPU scalar staging for PC, next PC, HI, and LO
 
-Still absent are Rust-only repository status, a complete C++ truth inventory
-and C++ deletion readiness, a full N64 step, `Cpu::step`,
+Still absent are a complete N64 step, `Cpu::step`,
 generic `execute_cpu_instruction`, a generic all-future `MachineStepResult`,
 branch/jump/link/delay-slot execution, branch-likely annul, load/store
 execution, COP0 instruction execution, ERET, LL/SC, interrupt processing,
 TLB/MMU, a bus or memory-map framework, device/MMIO routing, cartridge
 execution mapping, PIF/BIOS boot behavior, game-boot or compatibility claims,
-and SDL/window/audio runtime. Existing C++ checks remain runnable as optional
-frozen-reference checks outside the default forward lane.
+and SDL/window/audio runtime. Retired C++ behavior was not migrated and is not
+implied by current Rust proof.
 
 ## Fixture Policy
 
@@ -313,6 +311,5 @@ current working directory. It runs formatting, clippy with warnings denied, the
 complete Rust test suite, `fn64_machine_probe`, and `fn64_step_probe`, then ends
 with `forward gate: ok`. All five stages must pass.
 
-The forward gate invokes no CMake or C++ binary. The optional C++
-frozen-reference commands remain documented in the root README and are not
-part of the default required lane.
+The forward gate invokes no CMake or C++ binary. No current C++ build or proof
+lane remains.

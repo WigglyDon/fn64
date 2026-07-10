@@ -3,9 +3,9 @@
 Scope: the complete fn64 repository.
 
 fn64 builds the smallest honest Nintendo 64 machine core that can breathe. Rust
-is the tracked forward product implementation. C++ is frozen reference truth
-only; it is not the default product lane and must not be changed or removed
-without an explicit packet.
+is the sole current product implementation. The retired C++ machine, host,
+proof, and CMake lane exists only in Git history; it must not be restored as a
+product lane without an explicit product decision.
 
 The machine core owns emulated truth. Host code owns file paths, CLI parsing,
 windows, input, audio-device plumbing, presentation, and platform event loops.

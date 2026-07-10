@@ -33,8 +33,8 @@ Update triggers: a major architectural era begins, ends, or is reinterpreted by 
 - Revised direction: separate core, proof, CLI inspection/step probe, and SDL host; narrow public execution to `Machine::step`; harden no-ghost behavior; add explicit boot-adjacent boundaries.
 - Trigger evidence: source and commits name core/proof/host separation, no-SDL inspection, step-only execution, and the boot-spine checkpoint.
 - Surviving law: proof is an instrument, runtime smoke is not boot, machine truth stays machine-owned.
-- Remaining debt: C++ remained both historical implementation and comparison source.
-- Status: frozen reference.
+- Remaining debt at the time: C++ remained both historical implementation and comparison source.
+- Status: retired source; preserved in Git history.
 
 ## Era 4 — Rust parallel machine construction (chronology partially unavailable)
 
@@ -50,8 +50,8 @@ Update triggers: a major architectural era begins, ends, or is reinterpreted by 
 - Evidence: `LIVE_REPO_FACT`, commits `8034b50` and `df0551f`.
 - Revised direction: track the Rust workspace as product truth; make `rust/verify-forward` the default required lane; retain C++ checks only as optional frozen reference.
 - Surviving law: deterministic no-window verification and narrow capability claims.
-- Remaining debt: C++ remains physically present; deletion is neither performed nor authorized.
-- Status: current product era.
+- Remaining debt at the time: C++ remained physically present.
+- Status: current Rust product foundation; its transitional C++ retention policy is superseded by Era 7.
 
 ## Era 6 — repository-native project context and fleet infrastructure (2026-07-10)
 
@@ -61,9 +61,20 @@ Update triggers: a major architectural era begins, ends, or is reinterpreted by 
 - Remaining debt: context and tools require continued rent-paying review; no product feature is authorized by this era.
 - Status: current infrastructure pass.
 
+## Era 7 — direct C++ lane retirement (2026-07-10)
+
+- Evidence: `USER_DECISION`, packet `fn64-master-remove-frozen-cpp-lane-v1-2026-07-10-001`, plus the resulting tracked-tree deletion.
+- Prior direction: keep C++ as optional frozen reference until another inventory/deletion-readiness pass completed.
+- Trigger: the product chose the more fundamental end state—one current implementation and an honestly smaller Rust machine—without requiring semantic parity.
+- Revised direction: remove C++ machine, host, proof, CMake, and C++-only launch source from the current tree; use Git history as the only archive.
+- Surviving law: one owner per fact, machine/host separation, explicit absence, lawful synthetic proof, and no compatibility claim from green gates.
+- Accepted loss: unported C++ instruction, host, SDL, cartridge/bootstrap, device, CLI, and proof behavior is intentionally absent rather than migrated.
+- Remaining debt: Rust is incomplete and headless; future behavior must be earned independently under current architecture.
+- Status: current source-ownership era.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
-does not establish accepted product authority. The reported C++ inventory is not
-committed at the starting head. Private chat chronology and unavailable earlier
-bundles are not reconstructed as live truth.
+does not establish accepted product authority. The unrecovered prior C++
+inventory never became a deletion prerequisite. Private chat chronology and
+unavailable earlier bundles are not reconstructed as live truth.

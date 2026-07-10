@@ -18,16 +18,7 @@ lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-- C++ deletion / former seam-090: `USER_DECISION` superseded the drafted packet.
-  It has no branch, worktree, candidate SHA, or active worker. A new explicit
-  product packet is required before activation.
-- `cpp-reference-truth-reconstruction-v1`: `DEFERRED — NOT PROVISIONED` by
-  `USER_DECISION`. Reserved future topology is
-  `/home/don/fn64-worktrees/cpp-reference-truth-reconstruction-v1` on
-  `worker/cpp-reference-truth-v1`, but neither exists or carries authority. No
-  launch command was issued, no integration candidate exists, and no C++
-  inventory work ran. The void `/tmp` topology had
-  [`NO_RESIDUE_FOUND`](../../ops/evidence/master-provisioned-worker-worktrees-v1/CANCELED_LANE_RESIDUE_AUDIT.md).
+None.
 
 ## Parked donor lanes
 
@@ -41,13 +32,19 @@ None established from live repository evidence.
 
 ## Retired lanes
 
-None represented as durable lane records. Historical C++ and Rust migration
-passes are milestones, not currently active lanes.
+- `cpp-reference-truth-reconstruction-v1`: canceled without provisioning. Its
+  reserved branch/worktree were never created, no launch command was issued,
+  and no inventory work ran. The void `/tmp` topology had
+  [`NO_RESIDUE_FOUND`](../../ops/evidence/master-provisioned-worker-worktrees-v1/CANCELED_LANE_RESIDUE_AUDIT.md).
+- Former seam-090/inventory-first C++ retirement sequencing: superseded by the
+  direct Master-owned retirement decision. No Worker deletion lane exists.
 
 ## Historical milestones
 
 - Rust workspace adoption: commit `8034b5085c5131e71a0192d8a18e061b075d570e`.
 - Rust forward-gate promotion: commit `df0551f87506d136717e7c2b3673580adce5869a`.
+- Frozen C++ lane retirement: direct Master operation; Git history is the only
+  archive and no parity prerequisite was applied.
 
 Worktree existence alone never proves an active lane. Activation requires a
 Master-provisioned and verified branch/worktree, literal launch command, current

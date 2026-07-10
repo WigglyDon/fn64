@@ -39,7 +39,6 @@
     "rust/PARITY.md",
     "rust/crates/fn64-core/AGENTS.md",
     "rust/crates/fn64-inspection/AGENTS.md",
-    "src/AGENTS.md",
     "tools/AGENTS.md"
   ]
 }

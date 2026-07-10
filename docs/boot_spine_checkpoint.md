@@ -1,5 +1,10 @@
 # Boot-Spine Architecture Checkpoint
 
+> Historical checkpoint: this document records the former C++ source era.
+> Named `src/`, CMake, executable, and probe paths now exist only in Git
+> history; they are not current files or runnable instructions. The current
+> product makes no cartridge-boot or C++ parity claim.
+
 Behavioral checkpoint:
 
 - `554b01bac375cec696343ed9156dc2fc959f1af5`

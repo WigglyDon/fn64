@@ -129,7 +129,7 @@ trap 'rm -f "$missing_file" "$manifest_paths" "${TMPDIR:-/tmp}/fn64-context-owne
 if [ -s "$agents_file" ]; then agents_error=true; fi
 if [ "$agents_error" = true ]; then fail_check "scoped AGENTS lacks inheritance: $(tr '\n' ' ' <"$agents_file")"; else pass_check; fi
 
-scan_files='AGENTS.md docs/AGENTS.md docs/INDEX.md docs/context docs/lanes docs/process rust/AGENTS.md rust/crates/fn64-core/AGENTS.md rust/crates/fn64-inspection/AGENTS.md src/AGENTS.md tools/AGENTS.md ops/AGENTS.md'
+scan_files='AGENTS.md docs/AGENTS.md docs/INDEX.md docs/context docs/lanes docs/process rust/AGENTS.md rust/crates/fn64-core/AGENTS.md rust/crates/fn64-inspection/AGENTS.md tools/AGENTS.md ops/AGENTS.md'
 placeholder_output=''
 for path in $scan_files; do
     [ -e "$root/$path" ] || continue

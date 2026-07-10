@@ -1,8 +1,8 @@
-# fn64 Rust Parity Ledger
+# fn64 Rust Machine And Historical Parity Ledger
 
-Pass: `rust_parallel_core_seam_088_rust_forward_gate_promotion_and_cpp_reference_gate_demotion_audit_and_seal`
+Current authority: direct retirement of the frozen C++ lane, 2026-07-10.
 
-C++ is frozen reference truth. The Rust workspace is the forward product
+The Rust workspace is the sole current product
 implementation for the cartridge/ROM, Machine/RDRAM/CPU construction ownership, CPU
 GPR access/mutation, CPU scalar-state staging, COP0 construction/access
 parity, COP0 derived-read/mutation readiness audit, RDRAM raw byte/u16_be/u32_be/u64_be storage
@@ -59,14 +59,30 @@ composition, the deterministic no-window Rust `fn64_step_probe`, the narrow
 Machine-owned `stage_cpu_pc` inspection staging surface, the seam 086
 single-owner/visibility consolidation audit, seam 087 repository adoption, and
 the seam 088 verification-policy promotion only.
-Rust is implementation material, not fn64's product identity. This ledger
-records behavior-level parity against the frozen reference.
+Rust is implementation material, not fn64's product identity. C++ source paths,
+targets, commands, equivalence statements, and proof names in older rows are
+historical Git anchors only: they are not current files, runnable gates, parity
+requirements, or claims that retired behavior was migrated.
+
+## Current Post-Retirement Authority
+
+| Current fact | Owner/status |
+| --- | --- |
+| Product source | The tracked Rust workspace is the sole current implementation. |
+| Required gate | `rust/verify-forward`, with five Rust-only stages. |
+| Retired C++ lane | Absent from the current tree; Git history is the only archive. |
+| Parity prerequisite | Intentionally waived by `USER_DECISION`. |
+| Unported C++ behavior | `INTENTIONALLY_ABSENT_AFTER_CPP_RETIREMENT`; not migrated. |
+| Capability boundary | Rust remains incomplete, headless, and makes no cartridge-boot, game, SDL/window/audio, or broad compatibility claim. |
+
+All later seam tables remain useful as dated reconstruction records. Any C++
+command shown there is historical and unavailable in the current checkout.
 
 ## Seam 088 Forward Verification Policy
 
-This section is the authoritative current verification policy and supersedes
-older incremental rows that describe C++ gates as required or Rust gate
-promotion as future work.
+This section records the seam-088 transition that established the Rust gate.
+The post-retirement authority section above supersedes its transitional C++
+retention status.
 
 | Verification fact | Current owner/status |
 | --- | --- |
@@ -74,14 +90,13 @@ promotion as future work.
 | Required stages | Rust formatting, clippy with warnings denied, the complete Rust test suite, `fn64_machine_probe`, and `fn64_step_probe`. |
 | Construction/reset probe | `fn64_machine_probe` remains deterministic, no-window, and construction/reset-only. |
 | Represented step probe | `fn64_step_probe` calls `Machine::step` and covers the eight accepted represented cases. |
-| C++ reference checks | Present and runnable, but optional frozen-reference checks outside the default forward lane. |
-| C++ deletion readiness | Blocked until the remaining C++ truth inventory is complete. |
+| C++ reference checks | Historical seam-088 state; removed from the current tree by the direct retirement decision. |
+| C++ deletion readiness | Superseded; parity/inventory prerequisites were intentionally waived. |
 | Behavior/API effect | None. No Rust core, inspection-probe, C++, CMake, public-API, or represented machine behavior changed. |
 
-The normal entry point is `./rust/verify-forward`. Exact optional C++ reference
-commands are retained in the root README rather than duplicated here. Rust
-remains a bounded, incomplete N64 implementation with no cartridge boot, game
-compatibility, or SDL/window/audio runtime claim.
+The normal entry point remains `./rust/verify-forward`. Rust remains a bounded,
+incomplete N64 implementation with no cartridge boot, game compatibility, or
+SDL/window/audio runtime claim.
 
 ## Seam 087 Repository Adoption
 
@@ -135,7 +150,7 @@ Seam 087 repository-adoption prerequisite for gate promotion: SATISFIED
 | --- | --- | --- |
 | Required Rust forward lane | `rust/verify-forward` | Required by default; all five Rust stages pass and end with `forward gate: ok`. |
 | Focused represented-step check | Direct Cargo filter | Supplementary source-focused check; existing `machine_step` tests pass. |
-| Optional C++ frozen-reference lane | Existing CMake targets, `fn64_selftest`, and C++ `fn64_step_probe` | Runnable only when an explicit reference audit, truth inventory, deletion-preparation task, or justified migration comparison requests it. |
+| Retired C++ history | Git history and the historical context documents | No current target or command; no parity requirement. |
 
 ## Behavior Parity Table
 
@@ -368,10 +383,10 @@ Seam 087 repository-adoption prerequisite for gate promotion: SATISFIED
 
 | Behavior | C++ owner file/function/field | Rust owner file/function/field | Equivalent? | Proof/gate | Notes |
 | --- | --- | --- | --- | --- | --- |
-| C++ self-test no-window runner | `CMakeLists.txt` `fn64_selftest`; `src/proof/selftest_main.cpp` `main`; `src/proof/bootstrap.cpp` `run_bootstrap_demos` | `fn64-inspection` does not replace full self-test | C++ exists beyond Rust scope | `./build/fn64_selftest`; source inspection | Full C++ self-test runs many instruction/execution proofs. Rust mirrors only the construction/reset inspection subset that is already sealed. |
+| Historical C++ self-test no-window runner | `CMakeLists.txt` `fn64_selftest`; `src/proof/selftest_main.cpp` `main`; `src/proof/bootstrap.cpp` `run_bootstrap_demos` | `fn64-inspection` does not replace the retired full self-test | Retired history beyond Rust scope | Historical command/source inspection only | The deleted C++ self-test ran broader instruction/execution proofs. Those proofs were not migrated. |
 | C++ construction/reset proof subset | `src/proof/bootstrap_data.cpp` `run_machine_construction_isolation_demo`; `require_non_boot_reset_power_on_state` | `rust/crates/fn64-inspection/src/lib.rs` `run_machine_probe`; `assert_represented_power_on_state`; `assert_probe_cartridge` | Equivalent for represented construction/reset facts | `cargo test`; Rust no-window probe command | Rust observes powered-on state, PC/next PC reset constants, HI/LO zero, representative GPR zero state, represented COP0 zero/false state, RDRAM size and zero-fill, and Cartridge preservation. |
-| C++ step probe no-window role | `CMakeLists.txt` `fn64_step_probe`; `src/host/cli/step_probe_main.cpp` | Separate Rust `fn64_machine_probe` and `fn64_step_probe` binaries own construction/reset and represented-step inspection respectively | Equivalent no-window process shape plus a narrower represented-step subset | Optional C++ frozen-reference step probe; both Rust probes | The C++ check remains broader and runnable but is outside the default required forward lane. The Rust step probe stages only generated instruction words/synthetic addresses, calls public `Machine::step`, and makes no load/store, cartridge staging, SP-DMEM IPL3, COP0, boot, or compatibility claim. |
-| C++ inspect CLI role | `CMakeLists.txt` `fn64_inspect`; `src/host/cli/inspect_main.cpp` | No Rust ROM-path inspect CLI | Not in scope | Source inspection | Rust probe uses synthetic in-memory cartridge bytes and does not add path policy, ROM file loading, or a broad host shell. |
+| Historical C++ step probe role | `CMakeLists.txt` `fn64_step_probe`; `src/host/cli/step_probe_main.cpp` | Separate Rust `fn64_machine_probe` and `fn64_step_probe` binaries own current construction/reset and represented-step inspection | Narrower represented subset only | Historical source anchors plus current Rust probes | The broader C++ check was retired and is not runnable in the current tree. Its unported cases are intentionally absent. |
+| Historical C++ inspect CLI role | `CMakeLists.txt` `fn64_inspect`; `src/host/cli/inspect_main.cpp` | No Rust ROM-path inspect CLI | Intentionally absent | Historical source anchor only | Rust probes use synthetic in-memory bytes and do not add path policy or a broad host shell. |
 | Rust probe crate ownership | N/A | `rust/crates/fn64-inspection/Cargo.toml`; `src/lib.rs`; `src/bin/fn64_machine_probe.rs` | Rust-only repo hygiene, no emulator truth | `cargo test`; probe command | Process exit status, deterministic stdout/stderr, and probe sequencing are kept outside `fn64-core`. |
 | Core truth ownership | `src/core/machine.*`, `src/core/cartridge.*`, `src/core/machine_cpu.cpp` | `fn64-core` `Machine`, `Cpu`, `Rdram`, `Cartridge`, `Machine::reset` | Equivalent for already-sealed represented facts | Rust tests; source inspection | `fn64-inspection` depends on `fn64-core` and does not move Machine truth into CLI/process code. |
 | Probe construction input | C++ proof/step probe use synthetic in-memory cartridge construction for some no-window scenarios | `make_synthetic_probe_cartridge_bytes` plus `load_cartridge` | Equivalent for synthetic no-window construction | Probe tests; source inspection | No commercial ROM, BIOS/PIF blob, path input, or cartridge execution mapping is introduced. |
@@ -381,11 +396,11 @@ Seam 087 repository-adoption prerequisite for gate promotion: SATISFIED
 | Cartridge preservation observation | C++ reset leaves `cartridge_` unchanged | `assert_probe_cartridge` before and after `Machine::reset` | Equivalent | Probe tests; reset tests | Synthetic cartridge bytes and metadata are preserved across reset. |
 | Deterministic probe output | C++ no-window tools print stable text for their own roles | `MACHINE_PROBE_OUTPUT`; `fn64_machine_probe` | Equivalent for Rust probe role | `probe_output_is_stable_plain_no_window_text`; probe command | Output is plain text: `fn64 machine probe`, `construct: ok`, `reset: ok`, `no-window: ok`, `result: ok`. |
 | Probe success/failure process behavior | C++ CLI tools return zero on success and nonzero on thrown failures/usage errors | `fn64_machine_probe` exits `0` on success, `1` on probe failure, `2` on usage error | Equivalent process convention for Rust probe | Probe command; source inspection | This is process plumbing, not machine-core truth. |
-| SDL/window/runtime behavior | C++ SDL host is separate from no-window gates | No Rust SDL/window dependency or runtime | Not in scope | Cargo manifests; probe command | The Rust probe requires no SDL and opens no window. |
+| SDL/window/runtime behavior | The retired C++ SDL host was separate from no-window gates | No Rust SDL/window dependency or runtime | Intentionally absent | Cargo manifests; probe command | The Rust probe requires no SDL and opens no window. |
 | CPU step/fetch/decode/identify/execute | C++ self-test and step probe call `step_cpu_instruction` extensively | Represented Rust `Machine::step` exists in `fn64-core`; the separate Rust step probe calls it for eight represented categories, while `Cpu::step`, a generic execute API, and full C++ probe replacement remain absent | Narrow represented-category step only | Rust step probe; source inspection; tests | `fn64_machine_probe` remains construction/reset-only; `fn64_step_probe` does not replace broader C++ step/execution responsibilities. |
 | Instruction/load/store/sign-extension/GPR writeback behavior | C++ proof and step paths exercise broad instruction semantics | The Rust step probe covers only sealed represented writeback/no-effect/stopped/unsupported/fetch-fault categories; no load/store execution is probed | Narrow represented subset only | Rust tests; source inspection | Probe policy does not add instruction behavior or expand the represented Machine surface. |
 | Memory map/bus/device/DMA behavior | C++ Machine owns broader data/device paths used by step proofs | No Rust probe behavior | Not in scope | Rust tests; source inspection | The probe does not create target dispatch, devices, MMIO, DMA, or a bus. |
-| Broad host shell/path policy | C++ `fn64_inspect` accepts a ROM path; SDL host has runtime concerns | No Rust path-based host shell | Not in scope | Probe command | The Rust binary is a no-window proof artifact, not a general host framework. |
+| Broad host shell/path policy | The retired C++ `fn64_inspect` accepted a ROM path; the retired SDL host owned runtime concerns | No Rust path-based host shell | Intentionally absent | Historical source anchors; current probe command | The Rust binary is a no-window proof artifact, not a general host framework. |
 | Recommended next seam | Remaining C++ no-window responsibilities require CPU step/execution ownership | `rust_parallel_core_seam_044_cpu_step_readiness_audit` | Ready for next seam | This ledger | The Rust no-window probe now covers construction/reset; seam 044 maps the remaining step/execution role still covered only by C++ gates. |
 
 ### Seam 043 Audit Changes
@@ -426,11 +441,11 @@ Seam 087 repository-adoption prerequisite for gate promotion: SATISFIED
 | CPU data load/store instruction path | C++ execute cases call CPU memory helpers and perform sign/zero extension, GPR writeback, stores, and reservation effects | Rust direct RDRAM CPU-data value access exists below instruction semantics | Blocked by load/store instruction seam | Direct RDRAM CPU-data access is not load/store instruction behavior. |
 | LL/SC instruction path | C++ execute cases own LL/SC reservation setup/match/writeback behavior | Rust has private reservation construction/staging/invalidation only | Blocked by LL/SC seam | Raw/direct writes invalidate reservations, but LL/SC instruction semantics remain absent. |
 | Device/MMIO/DMA paths | C++ data target dispatch can touch SP memory, SP/MMIO, MI, AI, PI, SI, and DMA-related local state | No Rust devices, MMIO, DMA, bus, or memory map | Blocked by device target seams | Step cannot be honest while execute may route to unrepresented targets. |
-| `fn64_selftest` role | `src/proof/selftest_main.cpp` runs bootstrap arithmetic/data/trap/control demos through `step_cpu_instruction` | Rust tests cover only sealed Rust seams | C++ role unreplaced | Self-test still proves broad C++ instruction/execution behavior that Rust does not implement. |
-| `fn64_step_probe` RDRAM scenario | `src/host/cli/step_probe_main.cpp` stages LUI/ORI/SW/LW/ORI/SB/LBU/BREAK words and steps them | Rust `fn64_step_probe` covers represented LUI/ADDI/SYNC/SYSCALL/BREAK/unsupported/fetch-fault categories only | Represented subset earned; C++ broader role unreplaced | Rust step probe plus frozen C++ step probe | Rust proves represented fetch/decode/identify/invocation, cadence, rollback, and exceptions but does not implement or claim SW/LW/SB/LBU or other load/store behavior. |
-| `fn64_step_probe` cartridge-staging scenario | `stage_cartridge_bytes_to_rdram`, staged PC, ORI, BREAK, then `step_cpu_instruction` | No Rust cartridge-to-RDRAM staging or step | C++ role unreplaced | Rust probe uses synthetic cartridge bytes only for construction/reset inspection, not executable staging. |
-| `fn64_step_probe` staged IPL3 candidate scenario | `stage_cartridge_ipl3_candidate_to_sp_dmem`, `enter_sp_dmem_ipl3_candidate`, SP DMEM fetch, MFC0 Count reads, reset-fetch exception | Rust has SP DMEM storage/read-only offset fetch and a narrow Count helper only; no cartridge-to-SP staging, MFC0, Count step wiring, PIF reset fetch, or step | C++ role unreplaced | SP DMEM fetch and the Count helper are no longer blockers for this scenario, but execution, staging, COP0 instruction behavior, step wiring, and reset-vector exception flow remain C++-only. |
-| Rust no-window probe replacement scope | C++ construction/reset proof subset, represented step subset, and CLI success/failure convention | `fn64-inspection` construction/reset probe plus `fn64_step_probe` | Equivalent for construction/reset and the eight represented step categories only | Both probes are deterministic/no-window. Broader C++ checks remain present and runnable as optional frozen reference outside the default required lane. |
+| Historical `fn64_selftest` role | `src/proof/selftest_main.cpp` ran bootstrap arithmetic/data/trap/control demos through `step_cpu_instruction` | Rust tests cover only sealed Rust seams | `INTENTIONALLY_ABSENT_AFTER_CPP_RETIREMENT` | Historical source anchor only. |
+| Historical `fn64_step_probe` RDRAM scenario | `src/host/cli/step_probe_main.cpp` staged LUI/ORI/SW/LW/ORI/SB/LBU/BREAK words | Rust `fn64_step_probe` covers only represented categories | `INTENTIONALLY_ABSENT_AFTER_CPP_RETIREMENT` | Rust does not implement or claim the retired SW/LW/SB/LBU proof behavior. |
+| Historical cartridge-staging scenario | `stage_cartridge_bytes_to_rdram`, staged PC, ORI, BREAK | No Rust cartridge-to-RDRAM execution staging | `INTENTIONALLY_ABSENT_AFTER_CPP_RETIREMENT` | Current synthetic cartridge bytes are construction/reset proof only. |
+| Historical staged IPL3 scenario | cartridge-to-SP staging, SP DMEM execution, MFC0 Count reads, reset-fetch exception | Only narrow Rust SP DMEM storage/fetch and Count state exist | `INTENTIONALLY_ABSENT_AFTER_CPP_RETIREMENT` | No staging, COP0 instruction, reset-vector, or boot claim exists. |
+| Current Rust no-window proof scope | Historical construction/reset and represented-step comparison anchors | `fn64-inspection` machine and step probes | Current Rust facts only | Both Rust probes are deterministic/no-window; retired broader behavior is not implied. |
 | Placeholder/fake step API | N/A | Intentionally absent | Documentation only | A fake step API would overclaim execution readiness. Seam 044 adds documentation only. |
 
 ### Step Candidate Seam Map
@@ -4189,7 +4204,7 @@ and direct RDRAM classification listed below, but no CPU load/store,
 | Module names | `cartridge`, `cartridge::byte_order`, `cartridge::metadata`, `machine`, `machine::rdram_reservation`, `cpu`, `cpu::address`, `cpu::cop0`, `cpu::registers`, `cpu::scalars`, `rdram` | Product/domain name | Kept after change | Modules describe owned machine truth. `address`, `cop0`, and `rdram_reservation` are semantic owners; no language/platform/engine name was found. |
 | Public type names | `Cartridge`, `Machine`, `Cpu`, `Rdram`, `CpuAddress`, `RdramOffset`, `CpuAddressTarget`, `DirectRdramAccessError`, `RomSourceLayout`, `RomMetadata`, `CpuRegisterIndexError`, `RdramAccessError` | Product/domain name | Added `DirectRdramAccessError` for the direct RDRAM value access API | Type names describe domain state or explicit API safety. Private `Cop0` and `CpuRdramReservation` are not exported. No `RustMachine`, `RustCpu`, engine, backend, frontend, or platform type exists. |
 | README identity text | `rust/README.md` title and opening scope | Clean after change | Rewrote | README now leads with fn64 as a small headless machine core and says Rust is implementation material, not product identity. |
-| PARITY identity text | This ledger title, pass name, and opening scope | Clean after change | Rewrote | Ledger now says C++ is frozen reference truth and Rust is the forward product implementation under parity audit. |
+| PARITY identity text | This ledger title and opening scope | Clean after retirement | Rewrote | Ledger names Rust as the sole current implementation and qualifies all C++ rows as historical Git anchors. |
 | Rust/tooling mentions | `rust/` path, Cargo files, and cargo command logs | Tooling/workflow name | Kept | Mentions are allowed only as tooling or parity context. They do not brand the product as a Rust emulator. |
 | Fedora/Linux mentions | No Fedora or Linux product names in Rust source/docs | Clean | No change | Search found no Fedora/Linux identity drift. |
 | SDL/window/graphics mentions | Negative-scope entries in README and PARITY; C++ host owner references in parity tables | Negative-scope mention | Kept | Mentions state absent/not-in-scope host plumbing and do not name the core. |

@@ -36,7 +36,7 @@ stage 'context invalid fixtures'
 make_context_copy() {
     destination=$1
     mkdir -p "$destination"
-    (cd "$root" && tar --exclude=.git --exclude=rust/target -cf - AGENTS.md docs rust/AGENTS.md rust/PARITY.md rust/crates/fn64-core/AGENTS.md rust/crates/fn64-inspection/AGENTS.md src/AGENTS.md tools ops) | (cd "$destination" && tar -xf -)
+    (cd "$root" && tar --exclude=.git --exclude=rust/target -cf - AGENTS.md docs rust/AGENTS.md rust/PARITY.md rust/crates/fn64-core/AGENTS.md rust/crates/fn64-inspection/AGENTS.md tools ops) | (cd "$destination" && tar -xf -)
 }
 
 make_context_copy "$tmp/missing"
