@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+workspace_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$workspace_dir"
+
+printf '%s\n' 'stage: rust format'
+cargo fmt --check
+
+printf '%s\n' 'stage: rust clippy'
+cargo clippy --all-targets -- -D warnings
+
+printf '%s\n' 'stage: rust tests'
+cargo test
+
+printf '%s\n' 'stage: rust machine probe'
+cargo run -p fn64-inspection --bin fn64_machine_probe
+
+printf '%s\n' 'stage: rust step probe'
+cargo run -p fn64-inspection --bin fn64_step_probe
+
+printf '%s\n' 'forward gate: ok'

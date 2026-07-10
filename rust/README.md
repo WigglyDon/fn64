@@ -2,9 +2,9 @@
 
 This tracked tree is the forward fn64 machine-core product implementation under
 construction. C++ remains frozen reference truth for parity inspection only,
-and its existing gates remain required and undemoted. Rust is implementation
-material in this workspace; it is not fn64's product identity, and it is not
-integrated into the C++ build.
+with its checks available only as an optional reference lane outside required
+forward verification. Rust is implementation material in this workspace; it is
+not fn64's product identity, and it is not integrated into the C++ build.
 
 ## Identity
 
@@ -278,14 +278,15 @@ Earned Rust behavior is limited to:
 - narrow CPU GPR access/mutation state semantics
 - narrow CPU scalar staging for PC, next PC, HI, and LO
 
-Still absent are Rust-only repository status, C++ gate demotion or deletion
-readiness, a full N64 step, `Cpu::step`,
+Still absent are Rust-only repository status, a complete C++ truth inventory
+and C++ deletion readiness, a full N64 step, `Cpu::step`,
 generic `execute_cpu_instruction`, a generic all-future `MachineStepResult`,
 branch/jump/link/delay-slot execution, branch-likely annul, load/store
 execution, COP0 instruction execution, ERET, LL/SC, interrupt processing,
 TLB/MMU, a bus or memory-map framework, device/MMIO routing, cartridge
 execution mapping, PIF/BIOS boot behavior, game-boot or compatibility claims,
-and SDL/window/audio runtime. Existing C++ gates remain frozen reference gates.
+and SDL/window/audio runtime. Existing C++ checks remain runnable as optional
+frozen-reference checks outside the default forward lane.
 
 ## Fixture Policy
 
@@ -300,16 +301,18 @@ crate is marked `publish = false`.
 
 ## Verification
 
-The expected local Rust gates are:
+From the repository root, the normal required forward-product gate is:
 
 ```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo run -p fn64-inspection --bin fn64_machine_probe
-cargo run -p fn64-inspection --bin fn64_step_probe
-cargo test machine_step -- --nocapture
+./rust/verify-forward
 ```
 
-If optional toolchain components such as `rustfmt` or `clippy` are unavailable,
-record that exact result and still run `cargo test`.
+That executable is the single owner of the exact required command sequence. It
+resolves this workspace from its own path, so it may be invoked from another
+current working directory. It runs formatting, clippy with warnings denied, the
+complete Rust test suite, `fn64_machine_probe`, and `fn64_step_probe`, then ends
+with `forward gate: ok`. All five stages must pass.
+
+The forward gate invokes no CMake or C++ binary. The optional C++
+frozen-reference commands remain documented in the root README and are not
+part of the default required lane.

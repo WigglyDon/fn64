@@ -1,23 +1,29 @@
 # fn64
 
-A Nintendo 64 emulator project built for clarity, minimalism, and direct control.
+A clarity-first Nintendo 64 machine-core project under narrow, staged
+implementation.
 
 Fedora is the first workbench, not the emulator's identity.
 
-Current goal:
+Current product direction:
 
-- build cleanly on Fedora
-- open one minimal window
-- load ROM bytes from a direct path
+- develop the tracked Rust machine core as the forward implementation
+- keep required forward verification deterministic and no-window
+- retain C++ as runnable frozen reference truth
 - grow only under real pressure
 
-## Dependencies
+## Optional C++ reference dependencies
+
+These packages are not required by the Rust forward gate. They support the
+retained C++ frozen-reference build and runtime only.
 
 ```bash
 sudo dnf install gcc-c++ cmake ninja-build SDL3-devel
 ```
 
-## Run modes
+## Optional C++ reference run modes
+
+These retained C++ binaries are not the required forward-product gate.
 
 fn64_selftest
 
@@ -36,6 +42,46 @@ fn64 path/to/game.z64
 Loads a cartridge, prints the normalized ROM metadata, and opens the session window.
 
 This does not yet execute cartridge code. Cartridge execution mapping has not been earned yet.
+
+## Verification policy
+
+The tracked Rust workspace is the forward product implementation.
+`./rust/verify-forward` is the sole default required forward-product gate. The
+script owns the exact command order and checks Rust formatting, clippy with
+warnings denied, the complete Rust test suite, the no-window construction/reset
+probe, and the no-window represented `Machine::step` probe.
+
+`fn64_machine_probe` remains construction/reset-only. `fn64_step_probe` calls
+`Machine::step` and covers CPU-local committed success, arithmetic overflow,
+SYNC, SYSCALL, BREAK, unsupported rollback, instruction-fetch AdEL, and
+source-clear rejection. Both probes use deterministic synthetic state and make
+no cartridge-boot or game-compatibility claim.
+
+C++ remains present and runnable as optional frozen reference truth. Its checks
+are outside the default forward lane and are run only for an explicitly scoped
+reference audit, truth inventory, deletion preparation, or justified migration
+comparison:
+
+```sh
+cmake -S . -B build
+cmake --build build
+./build/fn64_selftest
+./build/fn64_step_probe
+```
+
+Frozen C++ is not the required semantic oracle for newly earned Rust behavior;
+a forward Rust change is not blocked solely because C++ lacks that behavior.
+
+C++ deletion readiness has not been established because the remaining C++
+truth inventory is incomplete. The Rust implementation is not a complete N64:
+branch/link/delay-slot behavior, branch-likely annul, load/store execution,
+COP0 instruction execution, interrupts, device routing, cartridge execution
+mapping, PIF/BIOS boot, game compatibility, and SDL/window/audio runtime remain
+absent.
+
+The C++ run-mode and machine-state sections below describe the retained frozen
+reference implementation; they do not expand the Rust forward implementation's
+earned behavior.
 
 ## Machine session state
 
