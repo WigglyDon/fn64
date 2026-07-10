@@ -1,12 +1,13 @@
 # fn64
 
 fn64 is a small, headless Nintendo 64 machine core under construction. The
-current product source is the tracked Rust workspace under `rust/`.
+tracked Cargo workspace under `rust/` is the sole current product
+implementation. fn64 is not yet a complete N64 emulator.
 
-The former C++ machine, host, proof, and CMake lane has been retired from the
-current tree. Git history is its only archive. Unported C++ behavior is
-intentionally absent rather than migrated, and no semantic-parity claim is
-made.
+The former C++ machine, host, proof, and CMake lane is retired. Git history is
+its source archive, and unported behavior is intentionally absent. The durable
+reasoning is recorded in [project history](docs/context/PROJECT_HISTORY.md) and
+the [decision log](docs/context/DECISION_LOG.md).
 
 ## Required verification
 
@@ -16,62 +17,38 @@ From the repository root:
 ./rust/verify-forward
 ```
 
-The repository-owned verifier runs, in order:
+This is the sole required product gate. It is Rust-only and no-window; the
+[build and tooling context](docs/context/subsystems/build-and-tooling.md)
+defines its proof boundary.
 
-1. `cargo fmt --check`
-2. `cargo clippy --all-targets -- -D warnings`
-3. the complete Rust test suite
-4. the no-window construction/reset probe
-5. the no-window represented `Machine::step` probe
+## Current shape
 
-It ends with `forward gate: ok` when every stage passes. It invokes no CMake,
-C++ binary, SDL/window/audio runtime, ROM, cartridge boot, or Git mutation.
+- `rust/crates/fn64-core` owns represented emulated truth inside each
+  `Machine`.
+- `rust/crates/fn64-inspection` owns deterministic no-window proof plumbing,
+  not machine state.
+- `rust/verify-forward` owns the required verification sequence.
 
-## Current represented scope
+The single detailed owner for represented machine capability and explicit
+absence is the [capability ledger](rust/PARITY.md). The
+[current-state page](docs/context/CURRENT_STATE.md) owns project phase and
+authority; subsystem pages own stable architecture boundaries.
 
-`fn64-core` owns the represented `Machine`, cartridge bytes, RDRAM, SP DMEM,
-CPU/COP0 subset, reset state, instruction-fetch classification, and the narrow
-public `Machine::step` path.
+Current proof does not establish cartridge boot, PIF/BIOS boot, timing
+accuracy, game compatibility, or a window/audio runtime.
 
-`fn64-inspection` owns deterministic no-window setup, assertions, formatting,
-and process exit:
+## Ownership boundary
 
-- `fn64_machine_probe` covers construction/reset only.
-- `fn64_step_probe` calls `Machine::step` for eight synthetic cases: committed
-  CPU-local success, arithmetic overflow, SYNC, SYSCALL, BREAK, unsupported
-  rollback, selected fetch AdEL, and source-clear rejection.
-
-These proofs do not establish a complete N64, cartridge boot, game
-compatibility, timing accuracy, or host-runtime support.
-
-Still absent include branch/link/delay-slot execution, load/store execution,
-COP0 instruction execution, ERET, LL/SC, interrupt processing, TLB/MMU, a broad
-bus or memory map, device/MMIO routing, cartridge execution mapping,
-PIF/BIOS bootstrap behavior, and SDL/window/audio runtime.
-
-## Source ownership
-
-- `rust/crates/fn64-core`: emulated machine truth
-- `rust/crates/fn64-inspection`: no-window proof shell
-- `rust/verify-forward`: required product verification owner
-- `docs/context`: current architecture, history, and decisions
-- `tools/fleet` and `ops`: repository coordination and evidence infrastructure
-
-The machine core accepts bytes and owns emulated state. Future hosts may own
-paths, input, presentation, audio-device plumbing, and event loops, but must not
-own machine policy or hidden emulated truth.
+The machine core accepts bytes and owns emulated state. A future host may own
+paths, input, presentation, audio-device plumbing, and platform event loops,
+but must not own machine policy, platform-clock stepping, or hidden emulated
+truth.
 
 ## Legal boundary
 
-fn64 does not ship commercial ROMs or proprietary BIOS/PIF blobs. User-provided
-ROMs remain ignored local data and are not part of repository truth or routine
-evidence. Small generated instruction words and synthetic byte fixtures are
-allowed only for explicit reproducible proof.
+Commercial ROMs and proprietary BIOS/PIF blobs are not repository content.
+User-provided ROMs remain ignored local data and stay outside routine evidence.
+Small generated instruction words and synthetic byte fixtures are permitted
+only for explicit reproducible proof.
 
-## Historical context
-
-The retired C++ eras and the direct retirement decision are recorded in
-[`docs/context/PROJECT_HISTORY.md`](docs/context/PROJECT_HISTORY.md) and
-[`docs/context/subsystems/historical-cpp-reference.md`](docs/context/subsystems/historical-cpp-reference.md).
-Historical source remains available through Git history; no checked-in museum
-or compatibility wrapper is retained.
+Start repository discovery at [docs/INDEX.md](docs/INDEX.md).

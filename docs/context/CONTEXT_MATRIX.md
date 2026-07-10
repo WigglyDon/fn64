@@ -6,7 +6,7 @@ Canonical for: authority carried/forbidden and dependency direction by scope.
 Not canonical for: detailed implementation state or lane progress.
 Inherits: [repository standing law](../../AGENTS.md).
 Current-state owner: [CURRENT_STATE.md](CURRENT_STATE.md).
-Related evidence: subsystem pages and [rust/PARITY.md](../../rust/PARITY.md).
+Related evidence: subsystem pages and the [represented-machine capability ledger](../../rust/PARITY.md).
 Update triggers: a stable boundary, owner, dependency, or validation entry changes.
 
 | Scope / directory | Purpose | Current / long-term owner | Authority carried / forbidden | Dependency direction | Canonical law / context | Evidence / validation | Active lane / unknowns |
@@ -18,7 +18,6 @@ Update triggers: a stable boundary, owner, dependency, or validation entry chang
 | instruction pipeline | fetch/decode/identify/classify | `fn64-core` / same | carries instruction lineage; forbids host dispatch | bytes → target → word → identity → action | [pipeline context](subsystems/instruction-pipeline.md) | unit tests, step probe | none / public step subset is bounded |
 | exceptions and COP0 | represented local exception state | CPU/COP0 under Machine / same | carries sealed fields; forbids full-system claims | classified fault/action delegates to exception owner | [exception context](subsystems/exceptions-and-cop0.md) | unit tests, step probe | none / full COP0 absent |
 | `rust/crates/fn64-inspection` | no-window proof shell | inspection crate / same | carries formatting/assertion/exit; forbids machine truth | depends on public `fn64-core`; reverse dependency forbidden | [inspection AGENTS](../../rust/crates/fn64-inspection/AGENTS.md), [inspection context](subsystems/inspection-and-evidence.md) | both probes, Rust gate | none / no host runtime |
-| retired C++ history | former machine, host, proof, and CMake eras | Git history + historical context / same | carries chronology only; forbids current product or gate authority | current Rust product has no dependency on retired source | [retired C++ context](subsystems/historical-cpp-reference.md), [history](PROJECT_HISTORY.md) | Git history and retirement evidence | retired / no parity claim |
 | host/runtime | currently absent platform shell | no current source owner / future thin host only if earned | may eventually carry paths/presentation; forbids Machine policy | any future host may consume public Rust core; core must not depend on host | [host context](subsystems/host-runtime.md) | unavailable until a host is explicitly implemented | none / no replacement required |
 | `tools/fleet` | context and fleet diagnostics | Master infrastructure / same while useful | carries read-only diagnostics; forbids product truth and hidden mutation | may inspect Git/docs/ops; product does not depend on tools | [tools AGENTS](../../tools/AGENTS.md), [fleet context](subsystems/fleet-operations.md) | fixture suite | infrastructure lane / tooling must pay rent |
 | `ops/fleet` | integration queue machine owner | Master integration / same | carries coordination state; forbids code truth | generated docs depend on JSON owner | [ops AGENTS](../../ops/AGENTS.md), [fleet context](subsystems/fleet-operations.md) | render/check | infrastructure lane / no active worker candidates |

@@ -15,7 +15,7 @@ Update triggers: a canonical owner, stable boundary, or discovery step changes.
 2. Read every more-specific `AGENTS.md` from project root to the current working directory.
 3. Read this index.
 4. Read [the canonical current state](context/CURRENT_STATE.md).
-5. Read the canonical ownership, retirement, or migration ledger: currently [rust/PARITY.md](../rust/PARITY.md).
+5. Read the canonical represented-machine capability ledger: [rust/PARITY.md](../rust/PARITY.md).
 6. Read the subsystem page linked by the nearest scoped `AGENTS.md`.
 7. Read the active lane page when operating in a lane.
 8. Read relevant contracts, decisions, fixture manifests, reports, and validation surfaces.
@@ -31,7 +31,7 @@ Update triggers: a canonical owner, stable boundary, or discovery step changes.
 - Accepted decisions: [DECISION_LOG.md](context/DECISION_LOG.md)
 - Boundary map: [CONTEXT_MATRIX.md](context/CONTEXT_MATRIX.md)
 - Context digest nodes: [CONTEXT_MANIFEST.json](context/CONTEXT_MANIFEST.json)
-- Detailed Rust machine ledger and historical parity record: [rust/PARITY.md](../rust/PARITY.md)
+- Detailed represented-machine capability: [rust/PARITY.md](../rust/PARITY.md)
 - Lane registry: [lane-registry.md](lanes/lane-registry.md)
 - Integration queue view: [integration-queue.md](lanes/integration-queue.md)
 - Packet protocol: [PACKET_PROTOCOL.md](process/PACKET_PROTOCOL.md)
@@ -53,4 +53,3 @@ Update triggers: a canonical owner, stable boundary, or discovery step changes.
 - [Host runtime](context/subsystems/host-runtime.md)
 - [Build and tooling](context/subsystems/build-and-tooling.md)
 - [Fleet operations](context/subsystems/fleet-operations.md)
-- [Retired C++ history](context/subsystems/historical-cpp-reference.md)

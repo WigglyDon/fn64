@@ -27,6 +27,7 @@ daemon, automatic installer, hidden Git mutation, or product dependency on
 documentation/ops.
 
 Green output proves only the named commands at an exact SHA. It does not prove
-boot, compatibility, host runtime, performance, or parity with retired source.
+boot, compatibility, host runtime, performance, or equivalence to retired
+source.
 `rust/target` is generated and ignored; it is never evidence-bundle content.
 Required product validation is `./rust/verify-forward`.

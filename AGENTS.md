@@ -25,8 +25,8 @@ work, committed, copied, or packaged.
 Before work, read [the context index](docs/INDEX.md), then follow every scoped
 `AGENTS.md` from this root to the working directory. Current project truth is
 owned by [CURRENT_STATE.md](docs/context/CURRENT_STATE.md), accepted decisions
-by [DECISION_LOG.md](docs/context/DECISION_LOG.md), and detailed Rust migration
-truth by [rust/PARITY.md](rust/PARITY.md).
+by [DECISION_LOG.md](docs/context/DECISION_LOG.md), and detailed
+represented-machine capability by [rust/PARITY.md](rust/PARITY.md).
 
 Workers do not push, deploy, mutate canonical `main`, discard unknown work, or
 expand product authority. Stop for contradictory accepted law, data-loss risk,

@@ -14,7 +14,6 @@
     "docs/context/subsystems/cpu-execution.md",
     "docs/context/subsystems/exceptions-and-cop0.md",
     "docs/context/subsystems/fleet-operations.md",
-    "docs/context/subsystems/historical-cpp-reference.md",
     "docs/context/subsystems/host-runtime.md",
     "docs/context/subsystems/inspection-and-evidence.md",
     "docs/context/subsystems/instruction-pipeline.md",

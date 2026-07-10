@@ -14,10 +14,10 @@ Update triggers: context ownership, evidence language, or integration duties cha
 Standing law belongs in scoped `AGENTS.md`; mutable state in
 [CURRENT_STATE.md](CURRENT_STATE.md); chronology in
 [PROJECT_HISTORY.md](PROJECT_HISTORY.md); accepted choices in
-[DECISION_LOG.md](DECISION_LOG.md); contracts in process pages; detailed machine
-migration truth in [rust/PARITY.md](../../rust/PARITY.md); measured proof in
-identified evidence artifacts. Other pages link instead of copying mutable
-facts.
+[DECISION_LOG.md](DECISION_LOG.md); contracts in process pages; detailed
+represented-machine capability in [rust/PARITY.md](../../rust/PARITY.md);
+measured proof in identified evidence artifacts. Other pages link instead of
+copying mutable facts.
 
 ## Inheritance and discovery
 

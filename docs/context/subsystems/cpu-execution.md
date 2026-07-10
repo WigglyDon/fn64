@@ -3,7 +3,7 @@
 Context role: CPU execution architecture context.
 Scope: Rust CPU state, helpers, and Machine-owned execution cadence.
 Canonical for: CPU mutation ownership and execution-layer dependency rules.
-Not canonical for: exhaustive instruction support or C++ reference behavior.
+Not canonical for: exhaustive instruction support or retired implementation behavior.
 Inherits: [root law](../../../AGENTS.md) and [core scope law](../../../rust/crates/fn64-core/AGENTS.md).
 Current-state owner: [CURRENT_STATE.md](../CURRENT_STATE.md).
 Related evidence: [rust/PARITY.md](../../../rust/PARITY.md), `cpu.rs`, and `machine.rs` tests.
@@ -30,8 +30,9 @@ models delay-slot-relevant state without claiming unselected branch execution.
 Count advances only through the committed-step owner. Exception actions restore
 or preserve control flow before delegating to the sealed entry owner.
 
-Accepted proof: source anchors, CPU/helper unit tests, focused Machine step
-tests, and the synthetic step probe. Similar C++ output is not parity by itself.
+Accepted proof: current source anchors, CPU/helper unit tests, focused Machine
+step tests, and the synthetic step probe. Historical output cannot establish
+current behavior by itself.
 Current observability is deterministic state inspection; no instruction trace
 format is yet a runtime product surface.
 
