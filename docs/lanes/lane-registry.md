@@ -12,11 +12,12 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 ## Active lanes
 
 - [`user-supplied-pif-boot-source-v1`](user-supplied-pif-boot-source-v1.md)
-  - Status: **REGISTERED — MASTER PROVISIONING PENDING**
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
   - Topology: one firmware-source product lane
   - Implementation/candidate: not started / none
-  - Worker branch/worktree: not yet created; Master provisioning must bind the
-    exact accepted base and Context-SHA before any supervisor packet executes.
+  - Worker branch/worktree: persistent topology created and verified by Master;
+    the exact accepted base and Context-SHA are bound by the provisioning
+    manifest before any supervisor packet executes.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.

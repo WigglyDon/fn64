@@ -71,8 +71,8 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   independently verified and integrated **PARTIAL — EVIDENCE INTEGRATED;
   PRODUCT SOURCE UNAVAILABLE**. It changed no product behavior and earned no
   higher checkpoint.
-- Active Worker lanes: `user-supplied-pif-boot-source-v1` is registered with
-  Master provisioning pending; no Worker implementation has started.
+- Active Worker lanes: `user-supplied-pif-boot-source-v1` is provisioned and
+  awaiting its supervisor packet; no Worker implementation has started.
 - Integration queue: one honest no-candidate entry for the new lane; candidate
   and artifact are `UNKNOWN`, validation is `NOT_RUN`, and integration remains
   pending and unauthorized.

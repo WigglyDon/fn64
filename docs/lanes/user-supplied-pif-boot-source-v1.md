@@ -26,11 +26,11 @@ Update triggers: provisioning, packet launch, candidate creation, implementation
 - Governing Context-SHA: the exact committed post-provisioning value owned by
   the Master provisioning report and first executable packet. The lane page is
   itself a context node and therefore cannot embed its own digest.
-- Status: **REGISTERED — MASTER PROVISIONING PENDING**
-- Provisioning state: pending Master verification
+- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: no command is executable until Master provisioning succeeds and
-  Master GPT issues the matching supervisor seed.
+- Launch state: persistent Worker topology is verified; no command is executable
+  until Master GPT issues the matching supervisor seed.
 
 ## Exact writable scope
 
