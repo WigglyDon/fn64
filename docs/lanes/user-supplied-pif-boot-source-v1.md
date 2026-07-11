@@ -26,11 +26,34 @@ Update triggers: provisioning, packet launch, candidate creation, implementation
 - Governing Context-SHA: the exact committed post-provisioning value owned by
   the Master provisioning report and first executable packet. The lane page is
   itself a context node and therefore cannot embed its own digest.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-- Provisioning state: `MASTER_PROVISIONED_VERIFIED`
+- Status: **ACCEPTED — SOURCE-BOUNDARY PRODUCT**
+- Provisioning state: completed and integrated through Master authority
 - Provisioning exception: `NONE`
-- Launch state: persistent Worker topology is verified; no command is executable
-  until Master GPT issues the matching supervisor seed.
+- Launch state: Worker execution completed; no further Worker command is active.
+
+## Accepted result
+
+- Complete Worker range: `7d0fd68961c559af546f7be0aa15f10612d3347d`,
+  `63aea79687abf30f1d6b7096141c6b00183ce31f`, and
+  `1fa8aa1789666a38c8a22661a7b0e829ec241c41`.
+- Product classification: `INPUT_BOUNDARY_ONLY_PRODUCT`.
+- Artifact: `/tmp/UPLOAD_ME_fn64_user_supplied_pif_boot_source_v1.tar.gz`,
+  SHA-256 `b59304f1b97f45d0b23effbe4ec54c1853fdc7be9d6722cf5c745d2192ed0450`.
+- Integrated product SHA: `1fa8aa1789666a38c8a22661a7b0e829ec241c41`;
+  final canonical reconciliation identity belongs to the Master report.
+- Earned truth: one explicit optional `--pif-rom` path, host-owned literal read
+  and owned-byte transfer, Machine-owned structural validation and immutable
+  input, explicit absent/malformed/unsupported/accepted states, reset and
+  repeated-bootstrap persistence, and atomic rejection.
+- Explicit absence: accepted firmware executes nothing and produces no known
+  SP IMEM byte. No authenticity, revision, compatibility, or BOOT-3 fact was
+  earned; BOOT-2 remains highest.
+- Private inputs: the authorized private-ROM no-firmware regression passed; no
+  private PIF path was authorized, searched, read, hashed, copied, staged,
+  committed, or packaged.
+- Worker branch push: none. Worker topology remains preserved.
+- Exact next blocker: the numeric and variant-qualified mapping from accepted
+  PIF Boot ROM bytes to retained IPL2 SP IMEM content.
 
 ## Exact writable scope
 
@@ -88,11 +111,10 @@ network download, global firmware singleton, plugin, compatibility database,
 game profile, device registry, generic bus, generalized memory map, or second
 boot probe.
 
-Provisioning grants no private-ROM or private-PIF read authority. A future
-supervisor packet may authorize one explicit local path for bounded no-window
-verification. The input must never be modified, copied, moved, renamed, staged,
-committed, dumped, or packaged. Absence of a real firmware file may produce a
-truthful input-boundary partial.
+The completed supervisor packet authorized one explicit private-ROM path only
+for the no-firmware BOOT-2 regression. It authorized no private PIF path. No
+input was modified, copied, moved, renamed, staged, committed, dumped, or
+packaged.
 
 ## Proof, dependency, overlap, and closure
 
@@ -109,15 +131,13 @@ complete aligned `Lw`, and the unchanged BOOT-2 frontier.
 
 Direct overlap inside this lane is deliberate across `machine.rs`,
 `machine/cartridge_bootstrap.rs`, `sp_imem.rs`, public bootstrap results, and
-boot-probe plumbing. `ordinary-control-flow-delay-slot-v1` is deferred because
-it needs the same Machine/bootstrap integration surfaces. Preferred integration
-order is product truth first, then Master capability, lane, queue, evidence,
-and Context-SHA reconciliation.
+boot-probe plumbing. The implementation lane is now closed; Product Wave 3
+re-audits ordinary-control-flow ownership against the integrated source.
 
 Stop without fabrication when progress requires bundled/reconstructed firmware,
 a game-specific selector, probe-authored bytes, unapproved private input, broad
 PIF architecture without current pressure, a generic bus/map, security or
 legal expansion, destructive Git action, or contradictory accepted law.
-Retire after accepted integration, a precise partial, or an explicit Master
-stop. The expected next milestone is a lawful source boundary and, only when
-available and source-clear, an authentic trace advance to its next frontier.
+Retirement condition is satisfied by accepted Master integration. Any
+source-backed materialization or firmware execution requires a separately
+provisioned lane after the source-mapping evidence result.

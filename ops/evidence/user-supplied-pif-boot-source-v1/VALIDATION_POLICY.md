@@ -1,8 +1,8 @@
 # Validation policy
 
-Structural source anchor: the official RCP map describes a 2 KiB PIF physical
-address space split into a 1,984-byte read-only Boot ROM and 64 bytes of
-writable PIF RAM.
+`EXTERNAL TECHNICAL EVIDENCE`: the official RCP map describes a 2 KiB PIF
+physical address space split into a 1,984-byte read-only Boot ROM and 64 bytes
+of writable PIF RAM.
 
 | State | Owner | Rule |
 | --- | --- | --- |
@@ -12,8 +12,8 @@ writable PIF RAM.
 | unsupported | `Machine` | transferred length is exactly 2 KiB and therefore includes the 64-byte writable PIF RAM tail; fn64 does not treat that tail as immutable firmware |
 | accepted | `Machine` | transferred length is exactly 1,984 bytes; bytes are owned unchanged and classified `RawBootRom` |
 
-- `LIVE_REPO_FACT` Every accepted candidate contains the complete source-clear
-  Boot ROM range `[0x000,0x7c0)`.
+- `LIVE_REPO_FACT` Current validation preserves every byte of an accepted
+  1,984-byte candidate; acceptance is structural classification only.
 - `LIVE_REPO_FACT` Content, digest, filename, ROM identity, region, and revision
   do not select acceptance or behavior.
 - `LIVE_REPO_FACT` Two different generated 1,984-byte patterns receive the

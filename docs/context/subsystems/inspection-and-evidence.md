@@ -27,15 +27,21 @@ aligned `Lw` that rejects before mutation because SP IMEM offset zero is
 unknown. None proves BOOT-3, full ISA, timing, window/audio/runtime,
 performance, or game compatibility.
 
+The same existing probe now accepts one optional literal `--pif-rom` path. The
+inspection shell owns only parsing, the exact file read/failure, and owned-byte
+transfer. Machine owns structural classification and lifecycle. Output reports
+absent/accepted state, classification, and size without logging successful
+firmware paths or bytes. Accepted input produces no SP IMEM state and earns no
+checkpoint.
+
 Inspection may depend on public core APIs. Core-to-inspection, private seam
 calls, mutable CPU/COP0 backdoors, host event loops, and proprietary assets are
 forbidden. Rollback and observability claims must cite the exact case.
 
-An explicit user-supplied PIF firmware path is authorized as a future bounded
-host input. Inspection may read only a literal selected path, report failure,
-and transfer owned bytes. It must not search, download, bundle, reconstruct,
-dump, or select game behavior; Machine validation and state production remain
-core authority. No such input support exists yet.
+An explicit user-supplied PIF firmware path is an implemented bounded host
+input. Inspection must not search, download, bundle, reconstruct, dump, or
+select game behavior; Machine validation and state production remain core
+authority. Structural acceptance is not authentic firmware validation.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use

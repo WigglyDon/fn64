@@ -4,8 +4,8 @@ Selected decision: **INPUT_BOUNDARY_ONLY_PRODUCT**
 
 - `LIVE_REPO_FACT` Current source has a narrow Machine-owned immutable input
   seam and an existing optional no-window CLI consumer.
-- `LIVE_REPO_FACT` The source-clear raw Boot ROM size is 1,984 bytes; the 2 KiB
-  full PIF map additionally contains 64 bytes of writable RAM.
+- `EXTERNAL TECHNICAL EVIDENCE` The official RCP map describes a 1,984-byte
+  Boot ROM and a 2 KiB full PIF map whose remaining 64 bytes are writable RAM.
 - `LIVE_REPO_FACT` Current SP IMEM production accepts no firmware source and
   correctly rejects unknown bytes before mutation.
 - `INFERENCE` An input-only product is sufficient now because these facts

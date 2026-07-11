@@ -20,6 +20,9 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   firmware file as local runtime input. The host owns only the path, file read,
   read failure, and owned-byte transfer; the Machine must own accepted bytes,
   validation, lifecycle, state production, provenance, and rejection.
+- `LIVE_REPO_FACT`: the existing no-window `fn64_boot_probe` now accepts one
+  optional literal `--pif-rom` path. It performs no search or fallback; the host
+  reads that path and transfers owned bytes into Machine validation.
 
 ## Forward machine truth
 
@@ -47,6 +50,12 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
   BOOT-3, authentic handoff, cartridge-entry/game execution, compatibility,
   graphics, window, and audio are not claimed.
+- `LIVE_REPO_FACT`: Machine structurally accepts an explicitly supplied
+  1,984-byte raw-Boot-ROM-shaped input, rejects the 2,048-byte full-map shape as
+  unsupported, and classifies other lengths as malformed. Acceptance proves no
+  authenticity, revision, executability, or compatibility. Accepted bytes are
+  immutable Machine input that survives reset and repeated bootstrap staging;
+  they currently execute nothing and produce no known SP IMEM byte.
 
 The single detailed owner for represented capability and explicit absence is
 the [represented-machine capability ledger](../../rust/PARITY.md). Stable
@@ -71,11 +80,16 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   independently verified and integrated **PARTIAL — EVIDENCE INTEGRATED;
   PRODUCT SOURCE UNAVAILABLE**. It changed no product behavior and earned no
   higher checkpoint.
-- Active Worker lanes: `user-supplied-pif-boot-source-v1` is provisioned and
-  awaiting its supervisor packet; no Worker implementation has started.
-- Integration queue: one honest no-candidate entry for the new lane; candidate
-  and artifact are `UNKNOWN`, validation is `NOT_RUN`, and integration remains
-  pending and unauthorized.
+- `user-supplied-pif-boot-source-v1`: complete three-commit candidate
+  `1fa8aa17` was independently verified and integrated **ACCEPTED —
+  SOURCE-BOUNDARY PRODUCT**. No private PIF input was used and BOOT-2 did not
+  advance.
+- Active Worker lanes: none between accepted product integration and Product
+  Wave 3 registration.
+- Integration queue: empty after accepted candidate closure.
+- `USER_DECISION`: Product Wave 3 will register an evidence-only PIF IPL2
+  source-mapping lane and, when the live ownership audit confirms zero direct
+  writable overlap, an ordinary-control-flow product lane. Neither has started.
 - Repository-purity cleanup is complete for its accepted non-product scope.
 - Product Acceleration Wave 1 selected one combined frontier because
   storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,
@@ -88,19 +102,16 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - `UNKNOWN`: performance, broad hardware compatibility, BOOT-3 and later boot
   behavior, game behavior after handoff, and host-runtime behavior remain
   unmeasured or unavailable.
-- `LIVE_REPO_FACT`: fn64 still has no product PIF-firmware input, validation,
-  execution, or source-backed SP IMEM production. Current Machine bytes remain
-  `Unknown`; the authentic `Lw` still does not commit.
-- `USER_DECISION`: the next product pressure is the smallest lawful
-  user-supplied PIF-firmware boundary and source-backed Machine production
-  policy. Full IPL1/IPL2 execution, narrow materialization, and an input-only
-  partial remain undecided until source inspection.
-- `USER_DECISION`: ordinary control flow remains deferred because firmware
-  source integration may own `machine.rs`, `machine/cartridge_bootstrap.rs`,
-  boot-probe plumbing, and public bootstrap result types.
-- `USER_DECISION`: `user-supplied-pif-boot-source-v1` owns the next product
-  decision between source-backed materialization, minimal IPL1/IPL2 execution,
-  an input-boundary partial, or an evidence-only partial. Registration does not
-  implement firmware support or earn a checkpoint.
+- `LIVE_REPO_FACT`: fn64 has an explicit PIF-firmware input, structural
+  validation, immutable Machine ownership, and reset/bootstrap persistence. It
+  still has no authentic firmware classification, firmware execution, or
+  source-backed SP IMEM production. The authentic `Lw` still rejects because
+  its first SP IMEM source byte is `Unknown`.
+- `UNKNOWN`: the exact numeric and variant-qualified mapping from accepted raw
+  PIF Boot ROM bytes to retained IPL2 SP IMEM content.
+- `USER_DECISION`: source-backed materialization and minimal IPL1/IPL2 execution
+  remain unprovisioned until the evidence-only mapping lane resolves that
+  question. Ordinary control flow may proceed independently only under the
+  post-integration zero-overlap contract.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

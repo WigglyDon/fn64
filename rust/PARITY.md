@@ -33,11 +33,12 @@ history.
 | Owner | Represented truth | Explicit boundary |
 | --- | --- | --- |
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or direct game-entry execution |
+| `PifFirmware` | private immutable owned bytes for one structurally accepted raw-Boot-ROM-shaped input | no path, authenticity/revision claim, SP IMEM production, firmware execution, or compatibility policy |
 | `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
 | `Rdram` | 4 MiB zero-filled storage and checked raw fixed-width reads | no general bus, device routing, or CPU instruction semantics |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, and checked known big-endian word reads | no public mutable access, production source event, SP register/status/DMA, or RSP execution |
-| `Machine` | Cartridge, Cpu, Rdram, SpDmem, SpImem, bootstrap provenance/GPR-knownness state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
+| `Machine` | Cartridge, optional accepted PifFirmware, Cpu, Rdram, SpDmem, SpImem, bootstrap provenance/GPR-knownness state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
 | `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs | no machine truth, general runtime loop, graphics, or compatibility authority |
 
 ## Cartridge representation
@@ -60,6 +61,27 @@ same SP DMEM offsets, and records cartridge provenance. This is a narrow
 bootstrap path, not a general cartridge mapping, PI DMA, CIC model, direct game
 entry, or complete boot.
 
+## Explicit PIF firmware input boundary
+
+The existing no-window `fn64_boot_probe` accepts one optional literal
+`--pif-rom` path. Inspection owns parsing, opening, read failure, and transfer
+of an owned byte vector. It performs no automatic search, default lookup,
+fallback, download, or variant selection. The core never receives the path.
+
+`Machine::install_pif_firmware` validates before replacing the private input
+owner. Exactly 1,984 bytes are accepted as structurally shaped raw Boot ROM
+input, exactly 2,048 bytes are named as a full PIF address-space image and
+rejected as unsupported, and other lengths are malformed. These rules are
+structural only: they do not authenticate firmware, establish a revision,
+prove executability, or claim compatibility. Content, filenames, cartridge
+identity, and digests do not select acceptance or behavior.
+
+Accepted bytes remain private and immutable, survive reset and repeated
+cartridge-bootstrap staging, and are exposed only as absent/accepted
+classification plus size. Rejected replacement preserves every represented
+Machine fact. Acceptance produces no SP IMEM bytes, executes no firmware, and
+does not advance PC, Count, checkpoint, or boot state.
+
 ## Machine lifecycle and state
 
 Construction and `Machine::reset` establish the represented non-boot state:
@@ -71,6 +93,8 @@ Construction and `Machine::reset` establish the represented non-boot state:
 - cleared private CPU/RDRAM reservation state;
 - `powered_on = true`;
 - the Machine-owned Cartridge is preserved across reset.
+- any accepted immutable PIF firmware input is preserved across reset; absence
+  remains explicit when no input was installed.
 
 `Machine::stage_cpu_pc` is a narrow deterministic staging surface. It sets the
 selected `pc` and establishes `next_pc = pc.wrapping_add(4)` without fetching
@@ -104,7 +128,8 @@ constructs, resets, and bootstrap-restages it as zero backing with independent
 `Unknown` byte provenance. A word read requires four known bytes, assembles
 them in N64 big-endian order, and reports the first unknown byte otherwise.
 Only test builds can stage generated known words. Production and inspection
-have no mutable SP IMEM surface and no source event for offset zero.
+have no mutable SP IMEM surface. Structurally accepted PIF firmware is retained
+input only and does not create a production source event for offset zero.
 
 Integrated source-qualified evidence identifies the external hardware
 causality without adding represented capability: IPL1 copies proprietary IPL2
@@ -237,7 +262,8 @@ The next instruction is `Lw` at `0xA4000044`, using known r9 to compute CPU
 address `0xA4001000`, which routes to SP IMEM offset zero. It is rejected
 without partial mutation because the first consumed SP IMEM byte is `Unknown`.
 Evidence now identifies retained IPL2 firmware content as the external source,
-but the Machine has no lawful input or represented production event for it.
+and the Machine can lawfully own explicitly supplied structurally shaped bytes,
+but it has no represented production event mapping those bytes into SP IMEM.
 One-word staging would be both incomplete and unauthorized: the observed x105
 prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
@@ -255,7 +281,7 @@ execute. Current explicit absences include:
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
   PI DMA, authentic bootstrap handoff, and cartridge-entry execution;
-- user-supplied PIF firmware input, firmware validation/classification, and
+- authentic PIF firmware/revision validation, firmware execution, and
   source-backed IPL2 state production;
 - production source-backed SP IMEM contents, RSP/COP2 execution, and SP
   register/status/DMA/control behavior;
@@ -292,8 +318,11 @@ runtime host.
 `fn64_boot_probe` is a separate bounded inspection instrument. Its host shell
 owns one input path and file read, passes owned bytes into the core, and reports
 Machine-owned staging, current-instruction provenance, committed effects, and
-the first explicit frontier. Against the accepted private input it reproduces
-BOOT-2 after two attempted steps and one commit, then reports the represented
+the first explicit frontier. It also accepts one optional explicit `--pif-rom`
+path, passes those owned bytes into structural Machine validation, and reports
+only absent/accepted classification and size; accepted input has no bootstrap
+effect. Against the accepted private cartridge input without PIF firmware it
+reproduces BOOT-2 after two attempted steps and one commit, then reports the represented
 `Lw` rejection at unknown SP IMEM offset zero. The input remains untracked and
 is identified externally only by digest and size; no ROM bytes are committed or
 packaged. This proof does not belong to the default forward gate and does not

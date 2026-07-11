@@ -23,9 +23,11 @@ accepted absence creates no restoration prerequisite.
 
 Product law now permits one explicit optional user-supplied PIF firmware path.
 Host authority is limited to parsing that literal path, opening/reading it,
-reporting failure, and transferring owned bytes. No support is implemented yet.
-Automatic search, hidden defaults, downloads, acquisition instructions,
-bundled fallbacks, and host-owned validation or boot policy are forbidden.
+reporting failure, and transferring owned bytes. The existing no-window boot
+probe implements this boundary as `--pif-rom`; it is still an inspection shell,
+not a runtime host. Automatic search, hidden defaults, downloads, acquisition
+instructions, bundled fallbacks, and host-owned validation or boot policy are
+forbidden.
 
 Allowed future direction is thin host → public Machine/inspection surface.
 Core → host, renderer → machine state, platform clock → stepping, and host-owned

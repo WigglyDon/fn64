@@ -11,23 +11,18 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-- [`user-supplied-pif-boot-source-v1`](user-supplied-pif-boot-source-v1.md)
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Topology: one firmware-source product lane
-  - Implementation/candidate: not started / none
-  - Worker branch/worktree: persistent topology created and verified by Master;
-    the exact accepted base and Context-SHA are bound by the provisioning
-    manifest before any supervisor packet executes.
+None between accepted input-boundary integration and Product Wave 3
+registration.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-- `ordinary-control-flow-delay-slot-v1`: **DEFERRED — DIRECT
-  MACHINE/BOOTSTRAP OWNERSHIP OVERLAP**. The firmware-source lane may own
-  `machine.rs`, `machine/cartridge_bootstrap.rs`, boot-probe plumbing, public
-  bootstrap results, and knownness/step integration.
+- `pif-ipl2-source-mapping-v1`: authorized evidence-only Wave 3 lane pending
+  bounded registration and Master provisioning.
+- `ordinary-control-flow-delay-slot-v1`: authorized Wave 3 product lane pending
+  the final live zero-overlap audit and Master provisioning.
 
 ## Parked donor lanes
 
@@ -41,6 +36,13 @@ None established from live repository evidence.
 
 ## Retired lanes
 
+- [`user-supplied-pif-boot-source-v1`](user-supplied-pif-boot-source-v1.md):
+  **ACCEPTED — SOURCE-BOUNDARY PRODUCT** at complete candidate `1fa8aa17`.
+  Explicit no-search `--pif-rom` plumbing, Machine-owned structural validation,
+  immutable input, lifecycle, and atomic rejection are accepted. No private PIF
+  input, SP IMEM production, firmware execution, checkpoint advance, or
+  compatibility fact was earned; Worker branch/worktree remain preserved and
+  unpushed.
 - [`sp-imem-bootstrap-provenance-v1`](sp-imem-bootstrap-provenance-v1.md):
   **PARTIAL — EVIDENCE INTEGRATED; PRODUCT SOURCE UNAVAILABLE** at candidate
   `8db1b57c`. Source-qualified evidence identifies retained IPL2 content as the

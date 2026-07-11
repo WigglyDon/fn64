@@ -24,8 +24,8 @@
 
 ## Structural and causal evidence
 
-- `WORKER_CLAIM` Official RCP header `rcp.h` documents the total 2 KiB PIF
-  physical map, 1,984-byte Boot ROM, and 64-byte PIF RAM:
+- `EXTERNAL TECHNICAL EVIDENCE` Official RCP header `rcp.h` documents the
+  total 2 KiB PIF physical map, 1,984-byte Boot ROM, and 64-byte PIF RAM:
   <https://ultra64.ca/files/documentation/online-manuals/man/header/rcp.htm>.
 - `INFERENCE` The integrated provenance evidence identifies IPL1 copying an
   IPL2 source-symbol span into SP IMEM, while deliberately leaving its complete

@@ -13,7 +13,8 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, reset/power state,
-and narrow machine-owned staging/inspection. It now also owns the narrow normalized
+optional structurally accepted immutable PIF firmware input, and narrow
+machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
 ledger that earned BOOT-2. SP IMEM has separate backing bytes and per-byte
 knownness; concrete reset zero is not an architecturally known value.
@@ -65,13 +66,15 @@ artifacts. Performance/resource truth is `UNKNOWN` unless separately measured.
 
 Integrated evidence identifies the missing hardware producer as IPL1 copying
 retained IPL2 firmware content into SP IMEM. That finding changes no Machine
-state: the product has no firmware input and current bytes remain `Unknown`.
-Explicit user-supplied firmware is an accepted future input boundary, but after
-transfer the Machine—not the host—must own validation, lifecycle, supported or
-unsupported classification, state production, provenance, and rejection.
+state production: current SP IMEM bytes remain `Unknown`. The product now has
+one explicit user-supplied firmware input boundary. After host byte transfer,
+Machine owns structural validation, immutable accepted bytes, reset/bootstrap
+persistence, classification, and rejection. Acceptance alone executes nothing
+and produces no SP IMEM provenance.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-host integration, and the implementation choice between source-backed
-materialization, minimal firmware execution, or a truthful partial.
+host integration, the exact retained-IPL2 source mapping, and the later
+implementation choice between source-backed materialization and minimal
+firmware execution.

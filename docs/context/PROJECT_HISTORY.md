@@ -148,6 +148,27 @@ product or reference lane requires a new explicit product decision.
 - Status: evidence boundary accepted; product implementation follows in a
   separately provisioned lane.
 
+## Era 11 — explicit user-supplied PIF input boundary (2026-07-11)
+
+- Evidence: `LIVE_REPO_FACT`, Worker commits `7d0fd689`, `63aea796`, and
+  `1fa8aa17`; `USER_DECISION`, accepted classification
+  `INPUT_BOUNDARY_ONLY_PRODUCT`; `RUNTIME_FACT`, focused and complete Rust gates
+  plus the unchanged private no-firmware BOOT-2 regression.
+- Accepted increment: the existing no-window boot probe accepts one optional
+  literal `--pif-rom` path, performs no search or fallback, and transfers owned
+  bytes into Machine-owned structural validation.
+- Machine boundary: one 1,984-byte raw-Boot-ROM-shaped candidate is accepted
+  structurally, a 2,048-byte full-map shape is explicitly unsupported, and
+  other lengths are malformed. Accepted immutable bytes persist across reset
+  and repeated bootstrap; rejected replacement has no partial mutation.
+- Honest limitation: structural shape is not authenticity, firmware revision,
+  executability, or compatibility. Accepted bytes execute nothing, produce no
+  SP IMEM state, and do not advance the authentic trace beyond BOOT-2.
+- Next evidence pressure: identify the exact numeric and variant-qualified
+  mapping from accepted input bytes to retained IPL2 content before selecting
+  source-backed materialization or minimal execution.
+- Status: accepted current input-boundary product capability.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
