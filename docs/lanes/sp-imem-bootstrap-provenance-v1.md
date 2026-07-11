@@ -111,7 +111,7 @@ Closure record:
 - Initial mutation range: `[0x000, 0x02c)`
 - Worker push: none
 - Worker worktree/branch: preserved
-- Integration: Worker commit preserved unchanged; exact Master reconciliation
-  SHA is recorded by the following registration commit and final artifact
+- Integration: Worker commit preserved unchanged; Master reconciliation SHA
+  `ba8a1be78080387ff8b2cf93c77579854d2181d1`
 - Next decision: explicitly user-supplied PIF firmware is authorized, with
   implementation delegated to a separately provisioned product lane

@@ -11,16 +11,18 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-None between provenance closure and the separately committed next-lane
-registration.
+- [`user-supplied-pif-boot-source-v1`](user-supplied-pif-boot-source-v1.md)
+  - Status: **REGISTERED — MASTER PROVISIONING PENDING**
+  - Topology: one firmware-source product lane
+  - Implementation/candidate: not started / none
+  - Worker branch/worktree: not yet created; Master provisioning must bind the
+    exact accepted base and Context-SHA before any supervisor packet executes.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-- `user-supplied-pif-boot-source-v1`: authorized product direction; registration
-  and Master provisioning are recorded in the following bounded commit.
 - `ordinary-control-flow-delay-slot-v1`: **DEFERRED — DIRECT
   MACHINE/BOOTSTRAP OWNERSHIP OVERLAP**. The firmware-source lane may own
   `machine.rs`, `machine/cartridge_bootstrap.rs`, boot-probe plumbing, public

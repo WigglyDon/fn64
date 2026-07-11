@@ -25,6 +25,7 @@
     "docs/lanes/real-cartridge-boot-spine-v1.md",
     "docs/lanes/rust-purity-repo-cleanup-v1.md",
     "docs/lanes/sp-imem-bootstrap-provenance-v1.md",
+    "docs/lanes/user-supplied-pif-boot-source-v1.md",
     "docs/process/CONTEXT_DELTA.md",
     "docs/process/EVIDENCE_AND_RELEASE.md",
     "docs/process/HANDOFF_AND_RESPAWN.md",

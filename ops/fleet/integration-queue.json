@@ -7,5 +7,7 @@
     "decision": ["PENDING", "ACCEPT", "REJECT", "PARK", "BLOCKED", "UNKNOWN"],
     "push": ["NOT_AUTHORIZED", "NOT_PUSHED", "PUSHED", "FAILED", "UNKNOWN"]
   },
-  "entries": []
+  "entries": [
+    {"lane_id":"user-supplied-pif-boot-source-v1","candidate_head":"UNKNOWN","base":"UNKNOWN","context_sha":"UNKNOWN","artifact":"UNKNOWN","targeted_validation":"NOT_RUN","full_verify":"NOT_RUN","overlap_risk":"NONE","dependency":"integrated 8db1b57c provenance evidence and ba8a1be7 Master reconciliation; sole product lane; control flow deferred for direct overlap","authority_impact":"USER_SUPPLIED_PIF_INPUT_AUTHORIZED_NOT_IMPLEMENTED","revalidation":"PENDING","decision":"PENDING","push":"NOT_AUTHORIZED"}
+  ]
 }

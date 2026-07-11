@@ -71,9 +71,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   independently verified and integrated **PARTIAL — EVIDENCE INTEGRATED;
   PRODUCT SOURCE UNAVAILABLE**. It changed no product behavior and earned no
   higher checkpoint.
-- Active Worker lanes: none between provenance closure and the separately
-  committed next-lane registration.
-- Integration queue: empty after provenance closure.
+- Active Worker lanes: `user-supplied-pif-boot-source-v1` is registered with
+  Master provisioning pending; no Worker implementation has started.
+- Integration queue: one honest no-candidate entry for the new lane; candidate
+  and artifact are `UNKNOWN`, validation is `NOT_RUN`, and integration remains
+  pending and unauthorized.
 - Repository-purity cleanup is complete for its accepted non-product scope.
 - Product Acceleration Wave 1 selected one combined frontier because
   storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,
@@ -96,5 +98,9 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - `USER_DECISION`: ordinary control flow remains deferred because firmware
   source integration may own `machine.rs`, `machine/cartridge_bootstrap.rs`,
   boot-probe plumbing, and public bootstrap result types.
+- `USER_DECISION`: `user-supplied-pif-boot-source-v1` owns the next product
+  decision between source-backed materialization, minimal IPL1/IPL2 execution,
+  an input-boundary partial, or an evidence-only partial. Registration does not
+  implement firmware support or earn a checkpoint.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

@@ -15,5 +15,4 @@ Machine-readable owner: `ops/fleet/integration-queue.json`
 
 | Lane ID | Candidate HEAD | Base | Context-SHA | Artifact | Targeted validation | Full verify | Overlap | Dependency | Authority impact | Revalidation | Decision | Push |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-
-No active worker-lane candidates are queued.
+| user-supplied-pif-boot-source-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | NONE | integrated 8db1b57c provenance evidence and ba8a1be7 Master reconciliation; sole product lane; control flow deferred for direct overlap | USER_SUPPLIED_PIF_INPUT_AUTHORIZED_NOT_IMPLEMENTED | PENDING | PENDING | NOT_AUTHORIZED |
