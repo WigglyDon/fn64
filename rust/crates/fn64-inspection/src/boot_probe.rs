@@ -7,9 +7,10 @@ use fn64_core::{
     load_cartridge, rom_source_layout_name, CartridgeLoadError, CpuInstructionIdentity, Machine,
     MachineBootstrapGprSource, MachineCartridgeBootstrapError, MachineCpuInstructionInspection,
     MachineCpuInstructionSource, MachineLoadWordRejection, MachineLoadWordRejectionReason,
-    MachineLoadWordTarget, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineSpDmemInstructionProvenance, RomMetadata, RomSourceLayout, CPU_GPR_COUNT,
-    MACHINE_GENERAL_PIF_RESET_GPR29_VALUE, MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+    MachineLoadWordTarget, MachinePifFirmwareState, MachineRepresentedStepError,
+    MachineRepresentedStepOutcome, MachineSpDmemInstructionProvenance, PifFirmwareValidationError,
+    RomMetadata, RomSourceLayout, CPU_GPR_COUNT, MACHINE_GENERAL_PIF_RESET_GPR29_VALUE,
+    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
 };
 
 pub const DEFAULT_BOOT_PROBE_MAX_STEPS: u64 = 100_000;
@@ -50,12 +51,17 @@ impl BootCheckpoint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootProbeArguments {
     input_path: PathBuf,
+    pif_rom_path: Option<PathBuf>,
     max_steps: u64,
 }
 
 impl BootProbeArguments {
     pub fn input_path(&self) -> &PathBuf {
         &self.input_path
+    }
+
+    pub fn pif_rom_path(&self) -> Option<&PathBuf> {
+        self.pif_rom_path.as_ref()
     }
 
     pub const fn max_steps(&self) -> u64 {
@@ -67,6 +73,7 @@ impl BootProbeArguments {
 pub enum BootProbeArgumentError {
     Usage,
     InvalidMaxSteps,
+    MissingPifRomPath,
 }
 
 impl fmt::Display for BootProbeArgumentError {
@@ -74,9 +81,10 @@ impl fmt::Display for BootProbeArgumentError {
         match self {
             Self::Usage => write!(
                 f,
-                "usage: fn64_boot_probe <rom-path> [--max-steps <positive-integer>]"
+                "usage: fn64_boot_probe <rom-path> [--pif-rom <path>] [--max-steps <positive-integer>]"
             ),
             Self::InvalidMaxSteps => write!(f, "--max-steps requires a positive integer"),
+            Self::MissingPifRomPath => write!(f, "--pif-rom requires an explicit path"),
         }
     }
 }
@@ -89,25 +97,48 @@ pub fn parse_boot_probe_arguments<I>(
 where
     I: IntoIterator<Item = OsString>,
 {
-    let arguments: Vec<OsString> = arguments.into_iter().collect();
-    match arguments.as_slice() {
-        [input_path] => Ok(BootProbeArguments {
-            input_path: PathBuf::from(input_path),
-            max_steps: DEFAULT_BOOT_PROBE_MAX_STEPS,
-        }),
-        [input_path, flag, value] if flag == "--max-steps" => {
-            let max_steps = value
+    let mut arguments = arguments.into_iter();
+    let input_path = arguments
+        .next()
+        .filter(|value| value != "--pif-rom" && value != "--max-steps")
+        .ok_or(BootProbeArgumentError::Usage)?;
+    let mut pif_rom_path = None;
+    let mut max_steps = DEFAULT_BOOT_PROBE_MAX_STEPS;
+    let mut max_steps_seen = false;
+
+    while let Some(flag) = arguments.next() {
+        if flag == "--pif-rom" {
+            if pif_rom_path.is_some() {
+                return Err(BootProbeArgumentError::Usage);
+            }
+            let value = arguments
+                .next()
+                .filter(|value| !value.is_empty() && value != "--pif-rom" && value != "--max-steps")
+                .ok_or(BootProbeArgumentError::MissingPifRomPath)?;
+            pif_rom_path = Some(PathBuf::from(value));
+        } else if flag == "--max-steps" {
+            if max_steps_seen {
+                return Err(BootProbeArgumentError::Usage);
+            }
+            let value = arguments
+                .next()
+                .ok_or(BootProbeArgumentError::InvalidMaxSteps)?;
+            max_steps = value
                 .to_str()
                 .and_then(|value| value.parse::<u64>().ok())
                 .filter(|value| *value > 0)
                 .ok_or(BootProbeArgumentError::InvalidMaxSteps)?;
-            Ok(BootProbeArguments {
-                input_path: PathBuf::from(input_path),
-                max_steps,
-            })
+            max_steps_seen = true;
+        } else {
+            return Err(BootProbeArgumentError::Usage);
         }
-        _ => Err(BootProbeArgumentError::Usage),
     }
+
+    Ok(BootProbeArguments {
+        input_path: PathBuf::from(input_path),
+        pif_rom_path,
+        max_steps,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,6 +180,7 @@ impl BootProbeReport {
 pub enum BootProbeError {
     InvalidStepBudget,
     CartridgeLoad(CartridgeLoadError),
+    PifFirmwareValidation(PifFirmwareValidationError),
     Bootstrap(MachineCartridgeBootstrapError),
     MachineInvariant {
         attempted_step: u64,
@@ -161,6 +193,9 @@ impl fmt::Display for BootProbeError {
         match self {
             Self::InvalidStepBudget => write!(f, "fixed step budget must be positive"),
             Self::CartridgeLoad(error) => write!(f, "structural cartridge input rejected: {error}"),
+            Self::PifFirmwareValidation(error) => {
+                write!(f, "PIF firmware input rejected: {error}")
+            }
             Self::Bootstrap(error) => write!(f, "machine bootstrap staging rejected: {error}"),
             Self::MachineInvariant {
                 attempted_step,
@@ -244,6 +279,15 @@ pub fn run_boot_probe(
     input_path: &str,
     max_steps: u64,
 ) -> Result<BootProbeReport, BootProbeError> {
+    run_boot_probe_with_pif_firmware(owned_input_bytes, input_path, None, max_steps)
+}
+
+pub fn run_boot_probe_with_pif_firmware(
+    owned_input_bytes: Vec<u8>,
+    input_path: &str,
+    owned_pif_firmware_bytes: Option<Vec<u8>>,
+    max_steps: u64,
+) -> Result<BootProbeReport, BootProbeError> {
     if max_steps == 0 {
         return Err(BootProbeError::InvalidStepBudget);
     }
@@ -253,6 +297,11 @@ pub fn run_boot_probe(
     let metadata = cartridge.metadata().clone();
     let input_size_bytes = cartridge.size_bytes();
     let mut machine = Machine::from_cartridge(cartridge);
+    if let Some(owned_bytes) = owned_pif_firmware_bytes {
+        machine
+            .install_pif_firmware(owned_bytes)
+            .map_err(BootProbeError::PifFirmwareValidation)?;
+    }
     let staging = machine
         .stage_cartridge_bootstrap()
         .map_err(BootProbeError::Bootstrap)?;
@@ -417,6 +466,7 @@ pub fn run_boot_probe(
         committed_steps,
         highest_checkpoint,
         staging,
+        pif_firmware_state: staging.pif_firmware_state(),
         staging_observation,
         last_committed_step: last_committed_step.as_ref(),
         last_represented_outcome,
@@ -699,6 +749,7 @@ struct ReportFacts<'a> {
     committed_steps: u64,
     highest_checkpoint: BootCheckpoint,
     staging: fn64_core::MachineCartridgeBootstrapState,
+    pif_firmware_state: MachinePifFirmwareState,
     staging_observation: CpuObservation,
     last_committed_step: Option<&'a LastCommittedStep>,
     last_represented_outcome: &'static str,
@@ -721,6 +772,30 @@ fn format_report(facts: ReportFacts<'_>) -> String {
     .unwrap();
     writeln!(output, "structural_header: valid").unwrap();
     writeln!(output, "structurally_usable: yes").unwrap();
+    match facts.pif_firmware_state {
+        MachinePifFirmwareState::Absent => {
+            writeln!(output, "pif_firmware_input: absent").unwrap();
+            writeln!(output, "pif_firmware_classification: unavailable").unwrap();
+            writeln!(output, "pif_firmware_size_bytes: unavailable").unwrap();
+        }
+        MachinePifFirmwareState::Accepted {
+            classification,
+            size_bytes,
+        } => {
+            writeln!(output, "pif_firmware_input: accepted").unwrap();
+            writeln!(
+                output,
+                "pif_firmware_classification: {}",
+                classification.name()
+            )
+            .unwrap();
+            writeln!(output, "pif_firmware_size_bytes: {size_bytes}").unwrap();
+        }
+    }
+    writeln!(output, "pif_firmware_search: none").unwrap();
+    writeln!(output, "pif_firmware_default_path: none").unwrap();
+    writeln!(output, "pif_firmware_bytes_logged: no").unwrap();
+    writeln!(output, "pif_firmware_sp_imem_production: unavailable").unwrap();
     writeln!(
         output,
         "header_magic: 0x{:08X}",
@@ -969,6 +1044,7 @@ const fn yes_no(value: bool) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fn64_core::{PIF_BOOT_ROM_SIZE_BYTES, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES};
 
     fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset] = ((value >> 24) & 0xff) as u8;
@@ -993,6 +1069,12 @@ mod tests {
         write_be_u32(&mut bytes, 0x40, first);
         write_be_u32(&mut bytes, 0x44, second);
         bytes
+    }
+
+    fn make_generated_pif_firmware(seed: u8, size: usize) -> Vec<u8> {
+        (0..size)
+            .map(|index| seed.wrapping_add((index as u8).wrapping_mul(47)))
+            .collect()
     }
 
     const fn special_add_word(rs: u8, rt: u8, rd: u8) -> u32 {
@@ -1138,6 +1220,78 @@ mod tests {
     }
 
     #[test]
+    fn boot_probe_accepts_pif_firmware_boundary_without_producing_sp_imem() {
+        let cartridge = make_generated_boot_fixture(
+            special_add_word(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX, 0, 9),
+            lw_word(9, 8, 0xf010),
+        );
+        let first = run_boot_probe_with_pif_firmware(
+            cartridge.clone(),
+            "generated-fixture.z64",
+            Some(make_generated_pif_firmware(0x31, PIF_BOOT_ROM_SIZE_BYTES)),
+            100,
+        )
+        .unwrap();
+        let second = run_boot_probe_with_pif_firmware(
+            cartridge,
+            "generated-fixture.z64",
+            Some(make_generated_pif_firmware(0xa7, PIF_BOOT_ROM_SIZE_BYTES)),
+            100,
+        )
+        .unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first.highest_checkpoint(), BootCheckpoint::Boot2);
+        assert_eq!(first.attempted_steps(), 2);
+        assert_eq!(first.committed_steps(), 1);
+        assert!(first.output().contains("pif_firmware_input: accepted"));
+        assert!(first
+            .output()
+            .contains("pif_firmware_classification: raw-boot-rom"));
+        assert!(first.output().contains("pif_firmware_size_bytes: 1984"));
+        assert!(first.output().contains("pif_firmware_search: none"));
+        assert!(first.output().contains("pif_firmware_default_path: none"));
+        assert!(first.output().contains("pif_firmware_bytes_logged: no"));
+        assert!(first
+            .output()
+            .contains("pif_firmware_sp_imem_production: unavailable"));
+        assert!(first.first_frontier().contains("reason=sp-imem-unknown"));
+    }
+
+    #[test]
+    fn boot_probe_distinguishes_malformed_and_unsupported_pif_input() {
+        let malformed = run_boot_probe_with_pif_firmware(
+            make_generated_boot_fixture(0, 0),
+            "generated-fixture.z64",
+            Some(make_generated_pif_firmware(
+                0x42,
+                PIF_BOOT_ROM_SIZE_BYTES - 1,
+            )),
+            100,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            malformed,
+            BootProbeError::PifFirmwareValidation(error) if error.is_malformed()
+        ));
+
+        let unsupported = run_boot_probe_with_pif_firmware(
+            make_generated_boot_fixture(0, 0),
+            "generated-fixture.z64",
+            Some(make_generated_pif_firmware(
+                0x53,
+                PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+            )),
+            100,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            unsupported,
+            BootProbeError::PifFirmwareValidation(error) if error.is_unsupported()
+        ));
+    }
+
+    #[test]
     fn boot_probe_rejects_structural_and_bootstrap_bounds_failures() {
         assert_eq!(
             run_boot_probe(
@@ -1177,6 +1331,7 @@ mod tests {
     fn boot_probe_argument_parser_owns_fixed_budget_policy() {
         let default = parse_boot_probe_arguments([OsString::from("fixture.z64")]).unwrap();
         assert_eq!(default.input_path(), &PathBuf::from("fixture.z64"));
+        assert_eq!(default.pif_rom_path(), None);
         assert_eq!(default.max_steps(), DEFAULT_BOOT_PROBE_MAX_STEPS);
 
         let explicit = parse_boot_probe_arguments([
@@ -1186,6 +1341,20 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(explicit.max_steps(), 17);
+        assert_eq!(explicit.pif_rom_path(), None);
+        let with_pif = parse_boot_probe_arguments([
+            OsString::from("fixture.any"),
+            OsString::from("--max-steps"),
+            OsString::from("23"),
+            OsString::from("--pif-rom"),
+            OsString::from("generated-pif.fixture"),
+        ])
+        .unwrap();
+        assert_eq!(with_pif.max_steps(), 23);
+        assert_eq!(
+            with_pif.pif_rom_path(),
+            Some(&PathBuf::from("generated-pif.fixture"))
+        );
         assert_eq!(
             parse_boot_probe_arguments([
                 OsString::from("fixture"),
@@ -1193,6 +1362,10 @@ mod tests {
                 OsString::from("0"),
             ]),
             Err(BootProbeArgumentError::InvalidMaxSteps)
+        );
+        assert_eq!(
+            parse_boot_probe_arguments([OsString::from("fixture"), OsString::from("--pif-rom"),]),
+            Err(BootProbeArgumentError::MissingPifRomPath)
         );
         assert_eq!(
             parse_boot_probe_arguments(Vec::<OsString>::new()),
