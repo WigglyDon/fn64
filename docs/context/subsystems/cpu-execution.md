@@ -34,7 +34,11 @@ Machine-owned bootstrap state distinguishes concrete GPR storage from known
 architectural state. Each selected CPU-local bootstrap instruction checks all
 consumed GPR sources before helper invocation. The accepted BOOT-2
 `SpecialAdd` reads known r29 and r0, writes known r9=`0xFFFFFFFFA4001FF0`, and
-commits cadence once; the following `Lw` remains unrepresented.
+commits cadence once. The following aligned `Lw` is represented through one
+Machine-owned plan/application rule; it reads its old base before destination
+write, sign-extends the loaded word, preserves GPR zero, records successful
+destination lineage, and commits cadence once. Its authentic SP IMEM source is
+unknown, so that instance rejects without mutation.
 
 Accepted proof: current source anchors, CPU/helper unit tests, focused Machine
 step tests, and the synthetic step probe. Historical output cannot establish
@@ -44,6 +48,6 @@ format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
 tests for changes. Known unknowns include complete public-step ISA integration,
-real timing, full delay-slot semantics, aligned load execution, and
+real timing, full delay-slot semantics, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a
 generic dispatcher.

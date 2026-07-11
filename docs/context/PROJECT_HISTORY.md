@@ -104,6 +104,28 @@ product or reference lane requires a new explicit product decision.
   compatibility claim was introduced.
 - Status: current Rust product/capability era.
 
+## Era 9 — SP IMEM and aligned-Lw partial frontier (2026-07-11)
+
+- Evidence: `USER_DECISION`, packet
+  `fn64-master-integrate-sp-imem-lw-partial-and-provision-wave-2-2026-07-11-001`;
+  `LIVE_REPO_FACT`, worker commit `dcb9f1bf`; `RUNTIME_FACT`, the repeated
+  bounded private no-window trace.
+- Prior boundary: the authentic `Lw` frontier lacked SP IMEM representation,
+  data routing, and aligned-load semantics.
+- Accepted increment: each Machine owns 4 KiB of SP IMEM with separate backing
+  bytes and knownness, and one complete aligned `Lw` rule covers direct RDRAM
+  plus known SP IMEM with exception, lineage, cadence, and rollback proof.
+- Honest partial result: the authentic `Lw` still does not commit. Offset zero
+  remains unknown, so BOOT-2 remains the highest checkpoint.
+- Next source question: the Machine-owned creation event for SP IMEM bytes
+  `0x000..0x003` is `UNKNOWN`; history does not relabel it as reset, PIF, DMA,
+  transfer, or firmware behavior without evidence.
+- Surviving law: concrete storage value is distinct from represented
+  architectural knowledge, and a truthful partial machine increment may land
+  without a higher boot claim.
+- Status: current Rust capability era; source-provenance investigation follows
+  separately.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

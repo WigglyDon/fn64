@@ -35,8 +35,9 @@ history.
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or direct game-entry execution |
 | `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
 | `Rdram` | 4 MiB zero-filled storage and checked raw fixed-width reads | no general bus, device routing, or CPU instruction semantics |
-| `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no SP IMEM, public write surface, DMA, RSP, or COP2 execution |
-| `Machine` | Cartridge, Cpu, Rdram, SpDmem, bootstrap provenance/GPR-knownness state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
+| `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
+| `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, and checked known big-endian word reads | no public mutable access, production source event, SP register/status/DMA, or RSP execution |
+| `Machine` | Cartridge, Cpu, Rdram, SpDmem, SpImem, bootstrap provenance/GPR-knownness state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
 | `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs | no machine truth, general runtime loop, graphics, or compatibility authority |
 
 ## Cartridge representation
@@ -64,7 +65,9 @@ entry, or complete boot.
 Construction and `Machine::reset` establish the represented non-boot state:
 
 - `pc = 0xbfc00000` and `next_pc = 0xbfc00004`;
-- zeroed GPR, HI/LO, represented COP0, RDRAM, and SP DMEM state;
+- zeroed GPR, HI/LO, represented COP0, RDRAM, SP DMEM, and SP IMEM backing;
+- every constructed or reset SP IMEM byte has `Unknown` provenance despite its
+  concrete zero value;
 - cleared private CPU/RDRAM reservation state;
 - `powered_on = true`;
 - the Machine-owned Cartridge is preserved across reset.
@@ -74,7 +77,8 @@ selected `pc` and establishes `next_pc = pc.wrapping_add(4)` without fetching
 or executing.
 
 `Machine::stage_cartridge_bootstrap` replaces represented CPU, RDRAM, SP DMEM,
-and reservation state only after complete source/destination preflight. It sets
+SP IMEM, and reservation state only after complete source/destination
+preflight. It sets
 `pc / next_pc` to `0xA4000040 / 0xA4000044`, represents GPR zero as known
 architectural zero, and represents GPR29 as the known general PIF reset stack
 pointer `0xFFFFFFFFA4001FF0`. Every other unstaged PIF-produced GPR remains
@@ -93,7 +97,14 @@ only overlapping private reservation state.
 
 SP DMEM remains 4 KiB Machine-owned storage. The bootstrap creation point has
 one private preflighted range-write seam for normalized cartridge bytes; public
-inspection remains read-only. SP IMEM storage and CPU routing do not exist.
+inspection remains read-only.
+
+SP IMEM is exactly 4 KiB at physical `0x04001000..0x04001fff`. The Machine
+constructs, resets, and bootstrap-restages it as zero backing with independent
+`Unknown` byte provenance. A word read requires four known bytes, assembles
+them in N64 big-endian order, and reports the first unknown byte otherwise.
+Only test builds can stage generated known words. Production and inspection
+have no mutable SP IMEM surface and no source event for offset zero.
 
 Direct CPU-address classification represents KSEG0 and KSEG1 aliases into the
 4 MiB RDRAM span. Direct fixed-width value APIs compose classification with raw
@@ -101,6 +112,10 @@ RDRAM access. Raw storage offsets do not impose CPU alignment; CPU-data access
 APIs separately enforce byte/halfword/word/doubleword alignment and select
 represented AdEL or AdES entry for alignment faults and aligned direct-target
 rejection.
+
+The aligned `Lw` data route accepts direct KSEG0/KSEG1 RDRAM and the narrow SP
+IMEM physical range only. It does not introduce mirroring, MMIO policy, a bus,
+or a generalized memory map.
 
 The represented address-error entry owns BadVAddr, Cause code, branch-delay
 flag, EPC, Status.EXL, and exception-vector `pc` / `next_pc` mutation. It does
@@ -161,6 +176,22 @@ advances represented COP0 Count once. Trapping arithmetic overflow writes no
 destination GPR, restores speculative control flow, enters represented Cause
 code 12 state, and does not advance Count or BadVAddr.
 
+### Machine-owned aligned `Lw`
+
+`Lw` executes through one Machine-owned plan/application rule. Planning reads
+the old base, sign-extends the 16-bit immediate, performs wrapping represented
+address arithmetic, checks alignment, classifies the target, and obtains all
+four source bytes before mutation. Direct RDRAM and known SP IMEM share this
+semantic rule. A successful word is assembled big-endian, sign-extended from
+32 to 64 bits, written with GPR-zero and base/destination alias rules, assigned
+`KnownInstructionResult` lineage when bootstrap state is active, and commits
+`pc` / `next_pc` plus Count exactly once.
+
+Unaligned access delegates to the existing data-AdEL owner and exact BadVAddr
+policy without destination write or normal cadence. Unknown bootstrap base,
+unknown SP IMEM byte, target miss, unsupported address form, blocked exception
+entry, and lower read failure leave all represented state unchanged.
+
 ### Other represented outcomes
 
 - `SYNC` commits as an explicit no-effect instruction.
@@ -194,8 +225,11 @@ from 0 to 1. This earns **BOOT-2 — ROM-derived instruction committed with
 complete represented state lineage**.
 
 The next instruction is `Lw` at `0xA4000044`, using known r9 to compute CPU
-address `0xA4001000`. It is rejected without partial mutation because aligned
-load execution, SP IMEM storage, and narrow routing to that target are absent.
+address `0xA4001000`, which routes to SP IMEM offset zero. It is rejected
+without partial mutation because the first consumed SP IMEM byte is `Unknown`.
+The Machine-owned creation event that would establish bytes `0x000..0x003`
+remains `UNKNOWN`; it is not currently classified as reset, PIF, DMA, transfer,
+or firmware behavior.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
 reached.
 
@@ -205,13 +239,14 @@ Identity classification may name instructions that the public step does not
 execute. Current explicit absences include:
 
 - branch, branch-likely, jump, link, and complete delay-slot execution;
-- CPU load/store instructions and unaligned merge operations;
+- CPU load/store instructions other than aligned `Lw`, plus unaligned merge
+  operations;
 - multiply, divide, trap, COP0 instruction, ERET, and LL/SC execution;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
   PI DMA, authentic bootstrap handoff, and cartridge-entry execution;
-- SP IMEM storage/routing, complete aligned `Lw`, RSP/COP2 execution, and SP
-  register/control behavior;
+- production source-backed SP IMEM contents, RSP/COP2 execution, and SP
+  register/status/DMA/control behavior;
 - a broad bus or memory map, device/MMIO routing, DMA, and N64 scheduling or
   timing;
 - renderer, input, window, audio, ROM-path host, and platform event loop;
@@ -246,7 +281,8 @@ runtime host.
 owns one input path and file read, passes owned bytes into the core, and reports
 Machine-owned staging, current-instruction provenance, committed effects, and
 the first explicit frontier. Against the accepted private input it reproduces
-BOOT-2 after two attempted steps and one commit. The input remains untracked and
+BOOT-2 after two attempted steps and one commit, then reports the represented
+`Lw` rejection at unknown SP IMEM offset zero. The input remains untracked and
 is identified externally only by digest and size; no ROM bytes are committed or
 packaged. This proof does not belong to the default forward gate and does not
 claim BOOT-3 or game compatibility.

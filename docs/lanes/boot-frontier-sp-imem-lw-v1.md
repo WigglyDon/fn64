@@ -1,6 +1,6 @@
 # Boot Frontier SP IMEM And Lw V1
 
-Context role: active lane coordination memory.
+Context role: completed partial lane coordination memory.
 Scope: the authentic BOOT-2 frontier spanning SP IMEM representation, narrow CPU-data routing, aligned `Lw`, and bounded trace continuation.
 Canonical for: this lane's purpose, topology, authority boundary, overlap decision, proof, and integration conditions.
 Not canonical for: accepted product behavior, private ROM content, candidate acceptance, or canonical integration.
@@ -16,12 +16,12 @@ Update triggers: provisioning, packet launch, candidate creation, context propag
 - Supervisor role: SP IMEM And Authentic Boot Frontier Supervisor GPT
 - Worker Codex worktree: `/home/don/fn64-worktrees/boot-frontier-sp-imem-lw-v1`
 - Branch: `worker/boot-frontier-sp-imem-lw-v1`
-- Accepted base source: canonical `main` after this lane-registration commit is integrated.
+- Accepted base source: `5f77d2df6005fe34ebb20f4751c2980ff73c57f1`.
 - Registration Context-SHA: `aa529390c16cbae1ee073d0ecee1aa29626acd998dfa385775cc8a921fd49a21`; the literal committed post-registration Context-SHA belongs in the Master provisioning report and first executable packet.
 - Selected topology: `COMBINED`
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Status: **PARTIAL — INTEGRATED**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
-- Launch state: not started; Don must not launch Worker Codex before Master GPT issues the matching supervisor seed.
+- Launch state: completed Worker pass; no relaunch or repair is authorized by this closure.
 
 ## Exact writable scope
 
@@ -114,6 +114,31 @@ runtime input is used.
 Stop before modification on topology or Context-SHA mismatch. Stop on ROM/legal
 leakage, game-specific behavior, ownership conflict, speculative abstraction,
 unbounded scope, or contradictory accepted law. Retire after accepted
-integration or an explicit Master decision. The next milestone is a complete
-supervisor seed; no SP IMEM, `Lw`, BOOT-3, or implementation progress is
-currently claimed.
+integration or an explicit Master decision.
+
+## Integrated partial result
+
+- Candidate: `dcb9f1bfac971a5a637f4c168aa57c9d0228ea0c`.
+- Parent: `5f77d2df6005fe34ebb20f4751c2980ff73c57f1`.
+- Product-integration SHA: the candidate itself, fast-forwarded unchanged onto
+  the Master integration branch; the containing reconciliation/canonical SHA is
+  owned by the external Master artifact because this page cannot name its own
+  containing commit.
+- Verified worker artifact source:
+  `/tmp/UPLOAD_ME_fn64_boot_frontier_sp_imem_lw_v1.tar.gz`.
+- Durable verified worker artifact:
+  `/tmp/fn64-final-artifacts/UPLOAD_ME_fn64_boot_frontier_sp_imem_lw_v1_fca9c7e0.tar.gz`.
+- Artifact SHA-256:
+  `fca9c7e0608617490da38b8054a56716de16372e00929cb584b85fe5de88debb`.
+- Authorized private input identity:
+  `c916ab315fbe82a22169bff13d6b866e9fddc907461eb6b0a227b82acdf5b506`,
+  `33554432` bytes; no input content is tracked or packaged.
+- Accepted product truth: private Machine-owned SP IMEM with explicit unknown
+  backing provenance, narrow CPU-data routing, and complete aligned `Lw` over
+  direct RDRAM and known SP IMEM.
+- Authentic result: BOOT-2 remains highest. The `Lw` at `0xA4000044` rejects
+  before mutation because SP IMEM offset zero is unknown.
+- Unresolved frontier: identify the exact Machine-owned creation event for
+  bytes `0x000..0x003`; owner and value remain `UNKNOWN`.
+- Worker repair: not requested. Worker push: not performed. Worker worktree and
+  branch remain preserved.

@@ -25,6 +25,7 @@ Canonical schemas:
 Current durable integration records:
 
 - [BOOT-2 and Rust-purity integration](master-integrate-boot2-and-rust-purity-v1/README.md)
+- [SP IMEM and aligned-Lw partial integration](master-integrate-sp-imem-lw-partial-and-provision-wave-2/README.md)
 
 The lineage contract is:
 

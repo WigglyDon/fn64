@@ -23,7 +23,8 @@ public `Machine::step` for its eight represented cases and ends deterministicall
 authorized local file, passes owned bytes into public core APIs, and reports
 Machine-owned provenance, mutation lineage, and the first frontier. The
 accepted run proves BOOT-2 only—one `SpecialAdd` commit followed by an
-unrepresented `Lw`. None proves BOOT-3, full ISA, timing, window/audio/runtime,
+aligned `Lw` that rejects before mutation because SP IMEM offset zero is
+unknown. None proves BOOT-3, full ISA, timing, window/audio/runtime,
 performance, or game compatibility.
 
 Inspection may depend on public core APIs. Core-to-inspection, private seam

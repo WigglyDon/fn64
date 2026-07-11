@@ -26,9 +26,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   authentic private-ROM-derived `SpecialAdd` committed through `Machine::step`
   with complete represented value, provenance, `pc` / `next_pc`, and Count
   lineage.
-- `LIVE_REPO_FACT`: the first frontier is `Lw` at `0xA4000044`, with known r9
-  producing CPU address `0xA4001000`. SP IMEM storage/routing and complete
-  aligned-load semantics are absent.
+- `LIVE_REPO_FACT`: each Machine now owns 4 KiB of SP IMEM with explicit
+  construction/reset, byte knownness independent of zero backing, and a narrow
+  CPU-data route for the represented physical range. Complete aligned `Lw`
+  semantics cover direct RDRAM and known SP IMEM, including sign extension,
+  alias/zero-register behavior, data AdEL, lineage, cadence, and rollback.
+- `RUNTIME_FACT`: the authentic trace still stops at `Lw` at `0xA4000044`.
+  Known r9 produces CPU address `0xA4001000`, but SP IMEM offset zero is
+  `Unknown`, so the load rejects before mutation. The creation event that would
+  make bytes `0x000..0x003` known is `UNKNOWN`.
 - `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
   BOOT-3, authentic handoff, cartridge-entry/game execution, compatibility,
   graphics, window, and audio are not claimed.
@@ -48,20 +54,18 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - Active C++ lanes: none.
 - `cpp-reference-truth-reconstruction-v1`: canceled without provisioning; its reserved branch/worktree remain absent.
 - The earlier seam-090 and inventory-first sequences are superseded by the direct Master retirement decision.
-- Active Worker lanes: `boot-frontier-sp-imem-lw-v1` is provisioned and
-  awaiting its supervisor packet; no Worker implementation has started.
-- Integration queue: one active no-candidate entry for the combined frontier
-  lane; candidate and artifact remain `UNKNOWN`, validation is `NOT_RUN`,
-  and integration remains pending and unauthorized.
+- `boot-frontier-sp-imem-lw-v1`: candidate `dcb9f1bf` was independently
+  verified, integrated as a truthful partial product increment, and closed
+  **PARTIAL — INTEGRATED**. It earned SP IMEM plus aligned `Lw`; it did not
+  advance the authentic trace beyond BOOT-2.
+- Active Worker lanes: none after the partial lane closure.
+- Integration queue: empty after recording the accepted partial result in the
+  durable lane and evidence owners.
 - Repository-purity cleanup is complete for its accepted non-product scope.
-- Product Acceleration Wave 1 selected the combined
-  `boot-frontier-sp-imem-lw-v1` lane because storage/routing, aligned `Lw`,
-  bootstrap knownness, Machine step application, and boot-probe continuation
-  share direct source ownership.
-- The lane is provisioned and awaiting a supervisor packet. Worker
-  implementation has not started, no candidate exists, BOOT-2 remains the
-  highest earned checkpoint, and no new feature or compatibility fact is
-  earned by registration.
+- Product Acceleration Wave 1 selected one combined frontier because
+  storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,
+  and boot-probe continuation shared direct source ownership. Its accepted
+  partial result is now product truth; no compatibility fact was earned.
 
 ## Blockers and known unknowns
 
@@ -69,9 +73,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - `UNKNOWN`: performance, broad hardware compatibility, BOOT-3 and later boot
   behavior, game behavior after handoff, and host-runtime behavior remain
   unmeasured or unavailable.
-- `USER_DECISION`: the next earned pressure is Machine-owned SP IMEM, narrow
-  explicit routing for the observed region, complete aligned `Lw`, and
-  bounded authentic-trace continuation. D022 authorizes that combined lane;
-  implementation has not begun.
+- `USER_DECISION`: the next earned pressure is to identify the exact
+  source-clear Machine-owned creation event that establishes SP IMEM bytes
+  `0x000..0x003` before the authentic `Lw`. Its owner and value remain
+  `UNKNOWN`; current truth does not pre-label it as reset, PIF, DMA, transfer,
+  or firmware behavior.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

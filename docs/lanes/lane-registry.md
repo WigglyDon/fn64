@@ -11,12 +11,7 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-- [`boot-frontier-sp-imem-lw-v1`](boot-frontier-sp-imem-lw-v1.md)
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Topology: combined authentic frontier
-  - Implementation/candidate: not started / none
-  - Worker branch/worktree: Master-provisioned from the accepted registration
-    commit; literal base and Context-SHA are owned by the provisioning report.
+None after the accepted partial frontier integration.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
@@ -37,6 +32,10 @@ None established from live repository evidence.
 
 ## Retired lanes
 
+- [`boot-frontier-sp-imem-lw-v1`](boot-frontier-sp-imem-lw-v1.md):
+  **PARTIAL — INTEGRATED** at candidate `dcb9f1bf`. SP IMEM and aligned `Lw`
+  are accepted; the authentic trace remains BOOT-2 at unknown SP IMEM byte
+  zero. Worker branch/worktree remain preserved and unpushed.
 - [`real-cartridge-boot-spine-v1`](real-cartridge-boot-spine-v1.md): completed,
   integrated, and closed. BOOT-2 is accepted; BOOT-3 is not earned. Worker
   branch/worktree remain preserved and unpushed.
