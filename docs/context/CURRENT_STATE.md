@@ -58,9 +58,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   verified, integrated as a truthful partial product increment, and closed
   **PARTIAL — INTEGRATED**. It earned SP IMEM plus aligned `Lw`; it did not
   advance the authentic trace beyond BOOT-2.
-- Active Worker lanes: none after the partial lane closure.
-- Integration queue: empty after recording the accepted partial result in the
-  durable lane and evidence owners.
+- Active Worker lanes: `sp-imem-bootstrap-provenance-v1` is Master-provisioned
+  and awaiting its supervisor packet; no Worker implementation has started.
+- Integration queue: one active no-candidate entry for the provenance lane;
+  candidate and artifact are `UNKNOWN`, validation is `NOT_RUN`, and
+  integration remains pending and unauthorized.
 - Repository-purity cleanup is complete for its accepted non-product scope.
 - Product Acceleration Wave 1 selected one combined frontier because
   storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,
@@ -78,5 +80,9 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   `0x000..0x003` before the authentic `Lw`. Its owner and value remain
   `UNKNOWN`; current truth does not pre-label it as reset, PIF, DMA, transfer,
   or firmware behavior.
+- `USER_DECISION`: Wave 2 provisions that one provenance lane. Ordinary
+  control flow is deferred because complete public-step and bootstrap-knownness
+  integration directly overlap `machine.rs` and
+  `machine/cartridge_bootstrap.rs`.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

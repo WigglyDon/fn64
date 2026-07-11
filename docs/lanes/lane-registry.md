@@ -11,14 +11,23 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-None after the accepted partial frontier integration.
+- [`sp-imem-bootstrap-provenance-v1`](sp-imem-bootstrap-provenance-v1.md)
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+  - Topology: one causal source-provenance lane
+  - Implementation/candidate: not started / none
+  - Worker branch/worktree: Master-provisioned from the accepted Wave 2
+    registration commit; literal base and Context-SHA are owned by the
+    provisioning report.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-None.
+- `ordinary-control-flow-delay-slot-v1`: deferred. Complete BEQ/BNE/J/JAL/JR/JALR
+  public-step integration must change `machine.rs`, and bootstrap source/lineage
+  handling must change `machine/cartridge_bootstrap.rs`; both are reserved by
+  the active provenance lane.
 
 ## Parked donor lanes
 
