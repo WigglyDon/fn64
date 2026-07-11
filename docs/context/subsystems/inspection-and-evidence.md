@@ -31,6 +31,12 @@ Inspection may depend on public core APIs. Core-to-inspection, private seam
 calls, mutable CPU/COP0 backdoors, host event loops, and proprietary assets are
 forbidden. Rollback and observability claims must cite the exact case.
 
+An explicit user-supplied PIF firmware path is authorized as a future bounded
+host input. Inspection may read only a literal selected path, report failure,
+and transfer owned bytes. It must not search, download, bundle, reconstruct,
+dump, or select game behavior; Machine validation and state production remain
+core authority. No such input support exists yet.
+
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use
 `tools/fleet/evidence-manifest check`. Graphical host and performance

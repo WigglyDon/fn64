@@ -35,6 +35,12 @@ command, bounded Machine lineage, first frontier, and explicit unavailable
 higher checkpoints. It never packages input bytes or upgrades one trace into a
 game, compatibility, PIF/BIOS, graphics, or performance claim.
 
+An authorized user-supplied PIF-firmware record may carry only a literal input
+role, digest/size or narrow structural classification when actually measured,
+tested source SHA, Machine validation/result lineage, and explicit unavailable
+facts. It never packages firmware bytes, reconstructed words, disassembly,
+acquisition instructions, or a firmware-derived compatibility profile.
+
 ## fn64 evidence families
 
 - Machine reset snapshot: producer/source/context, instance identity, lawful

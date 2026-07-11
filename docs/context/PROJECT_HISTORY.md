@@ -123,8 +123,30 @@ product or reference lane requires a new explicit product decision.
 - Surviving law: concrete storage value is distinct from represented
   architectural knowledge, and a truthful partial machine increment may land
   without a higher boot claim.
-- Status: current Rust capability era; source-provenance investigation follows
-  separately.
+- Status: accepted current capability; the provenance question is resolved by
+  Era 10 without a product-behavior change.
+
+## Era 10 — retained IPL2 provenance boundary (2026-07-11)
+
+- Evidence: `LIVE_REPO_FACT`, evidence-only worker commit `8db1b57c`;
+  `INFERENCE`, pinned source reconstruction plus independent corroboration;
+  `USER_DECISION`, explicit user-supplied PIF input authority.
+- Causal finding: IPL1 places proprietary IPL2 content in SP IMEM, CPU control
+  enters IPL2 there, and IPL2 stages cartridge IPL3 before entering it at
+  `0xA4000040`. The observed x105 prelude consumes retained SP IMEM
+  `[0x000, 0x020)` and initially mutates `[0x000, 0x02c)`.
+- Product boundary: external observability does not authorize embedding code,
+  constants, tables, or a firmware-derived profile. No Machine behavior or
+  checkpoint changed; current bytes remain `Unknown` and BOOT-2 remains highest.
+- Revised direction: fn64 may accept an explicit user-supplied PIF firmware
+  file. Host authority ends at path/read/owned-byte transfer; the Machine owns
+  validation, lifecycle, supported/unsupported state, SP IMEM production, and
+  provenance.
+- Remaining decision: source inspection must choose between source-backed state
+  materialization, minimal firmware execution, an input-boundary partial, or an
+  evidence-only partial. Broad PIF architecture is not preselected.
+- Status: evidence boundary accepted; product implementation follows in a
+  separately provisioned lane.
 
 ## Unresolved history
 

@@ -1,6 +1,6 @@
 # SP IMEM Bootstrap Provenance V1
 
-Context role: active lane coordination memory.
+Context role: retired lane coordination memory.
 Scope: causal reconstruction of the Machine-owned creation event for SP IMEM bytes `0x000..0x003` before the authentic `Lw` at `0xA4000044`.
 Canonical for: this lane's purpose, topology, authority boundary, writable paths, proof, dependencies, overlap, and stop conditions.
 Not canonical for: accepted product behavior, private ROM content, candidate acceptance, or canonical integration.
@@ -24,11 +24,11 @@ Update triggers: provisioning, packet launch, candidate creation, source-owner d
 - Governing Context-SHA: the exact committed post-registration value owned by
   the Master provisioning report and first executable packet.
 - Selected topology: one provenance lane; ordinary control flow is deferred.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Status: **PARTIAL — EVIDENCE INTEGRATED; PRODUCT SOURCE UNAVAILABLE**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: not started; Don must not launch Worker Codex before Master GPT
-  issues the matching supervisor seed.
+- Launch state: completed Worker evidence pass; no further Worker repair or
+  relaunch is authorized by this closure.
 
 ## Exact writable scope
 
@@ -47,16 +47,12 @@ when a precise unavailable fact blocks honest implementation.
 
 ## Machine authority and prohibited authority
 
-The lane starts with one question: what source-clear represented creation event
-establishes SP IMEM bytes `0x000..0x003` before the CPU executes the `Lw` at
-`0xA4000044`? Current classification is `UNKNOWN`. Reset-state creation, PIF
-execution, a PIF-to-SP transfer, SP DMA, another bootstrap transfer, and an
-unknown external hardware fact are hypotheses only until evidence selects one.
-
-When valid evidence identifies the event, the lane may add the smallest
-Machine-owned value/provenance creation rule, preserve four-byte knownness,
-rerun the authentic load, and continue the bounded trace to its next honest
-frontier.
+The lane identified the source-qualified hardware event: IPL1 copies
+proprietary IPL2 content into SP IMEM, CPU control enters IPL2 there, IPL2
+stages cartridge IPL3 in SP DMEM, and the observed x105 entry consumes retained
+SP IMEM `[0x000, 0x020)` before initially mutating `[0x000, 0x02c)`. External
+observability did not create product authority or lawful Machine bytes, so no
+product implementation was made.
 
 Prohibited authority:
 
@@ -78,13 +74,13 @@ authority is
 
 ## Proof, dependencies, and overlap
 
-Required proof begins with a causal evidence record, considers every plausible
-owner without promoting inference, and records `UNKNOWN` when competing causes
-cannot be distinguished. Any implementation must prove production-inaccessible
-test staging, lawful source bytes, exact offsets, value/provenance creation,
-four-byte knownness, no mutation before preflight, authentic `Lw` commit or
-precise rejection, complete Rust gates, and the highest honestly reached boot
-checkpoint.
+Accepted proof is the source-qualified causal record in
+`ops/evidence/sp-imem-bootstrap-provenance-v1/`, exact candidate `8db1b57c`,
+and verified artifact SHA-256
+`032d52c033ead5d44dd0cef370b4a3c67cfaf378e97956e7989bb5dc8198dd47`.
+The evidence contains no firmware words, copied assembly, private ROM bytes, or
+product-source change. BOOT-2 remains highest and the authentic `Lw` does not
+commit.
 
 Private-ROM authority is not granted by provisioning. The future supervisor
 seed may authorize bounded read, digest, structural validation, and no-window
@@ -106,10 +102,16 @@ Indirect overlap is future Master capability/context reconciliation after an
 accepted candidate. Preferred integration order is product truth first, then
 Master capability, lane, queue, evidence, and Context-SHA reconciliation.
 
-Stop without fabrication when evidence cannot distinguish competing owners,
-or when progress requires proprietary firmware, a game-specific hack, broad
-PIF/SP-DMA emulation, speculative routing infrastructure, authority expansion,
-destructive Git action, or contradictory accepted law. Retire after accepted
-integration, a precise partial result, or an explicit Master stop decision.
-The expected next milestone is a causal owner/value finding or a bounded
-`UNKNOWN` result—not a predetermined BOOT-3 claim.
+Closure record:
+
+- Candidate: `8db1b57c2fc1447c228df7aa192090eda3c64ee8`
+- Parent: `eb1e4d12b193256923aa3fa0b741c1dacf67a17b`
+- Result: evidence-only partial; no product behavior change
+- Consumed range: `[0x000, 0x020)`
+- Initial mutation range: `[0x000, 0x02c)`
+- Worker push: none
+- Worker worktree/branch: preserved
+- Integration: Worker commit preserved unchanged; exact Master reconciliation
+  SHA is recorded by the following registration commit and final artifact
+- Next decision: explicitly user-supplied PIF firmware is authorized, with
+  implementation delegated to a separately provisioned product lane

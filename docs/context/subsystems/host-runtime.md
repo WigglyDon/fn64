@@ -21,6 +21,12 @@ SDL/window/audio runtime, renderer, input loop, or host timing. The former CLI
 and SDL host were intentionally retired without a current replacement; this
 accepted absence creates no restoration prerequisite.
 
+Product law now permits one explicit optional user-supplied PIF firmware path.
+Host authority is limited to parsing that literal path, opening/reading it,
+reporting failure, and transferring owned bytes. No support is implemented yet.
+Automatic search, hidden defaults, downloads, acquisition instructions,
+bundled fallbacks, and host-owned validation or boot policy are forbidden.
+
 Allowed future direction is thin host → public Machine/inspection surface.
 Core → host, renderer → machine state, platform clock → stepping, and host-owned
 emulator policy remain forbidden. User-local commercial assets stay outside

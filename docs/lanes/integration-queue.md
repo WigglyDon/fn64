@@ -15,4 +15,5 @@ Machine-readable owner: `ops/fleet/integration-queue.json`
 
 | Lane ID | Candidate HEAD | Base | Context-SHA | Artifact | Targeted validation | Full verify | Overlap | Dependency | Authority impact | Revalidation | Decision | Push |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| sp-imem-bootstrap-provenance-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | NONE | accepted dcb9f1bf partial increment; sole Wave 2 product lane; exact SP IMEM byte-creation owner remains UNKNOWN | NONE_YET | PENDING | PENDING | NOT_AUTHORIZED |
+
+No active worker-lane candidates are queued.

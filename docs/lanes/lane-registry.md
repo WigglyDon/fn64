@@ -11,23 +11,20 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-- [`sp-imem-bootstrap-provenance-v1`](sp-imem-bootstrap-provenance-v1.md)
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Topology: one causal source-provenance lane
-  - Implementation/candidate: not started / none
-  - Worker branch/worktree: Master-provisioned from the accepted Wave 2
-    registration commit; literal base and Context-SHA are owned by the
-    provisioning report.
+None between provenance closure and the separately committed next-lane
+registration.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-- `ordinary-control-flow-delay-slot-v1`: deferred. Complete BEQ/BNE/J/JAL/JR/JALR
-  public-step integration must change `machine.rs`, and bootstrap source/lineage
-  handling must change `machine/cartridge_bootstrap.rs`; both are reserved by
-  the active provenance lane.
+- `user-supplied-pif-boot-source-v1`: authorized product direction; registration
+  and Master provisioning are recorded in the following bounded commit.
+- `ordinary-control-flow-delay-slot-v1`: **DEFERRED — DIRECT
+  MACHINE/BOOTSTRAP OWNERSHIP OVERLAP**. The firmware-source lane may own
+  `machine.rs`, `machine/cartridge_bootstrap.rs`, boot-probe plumbing, public
+  bootstrap results, and knownness/step integration.
 
 ## Parked donor lanes
 
@@ -41,6 +38,12 @@ None established from live repository evidence.
 
 ## Retired lanes
 
+- [`sp-imem-bootstrap-provenance-v1`](sp-imem-bootstrap-provenance-v1.md):
+  **PARTIAL — EVIDENCE INTEGRATED; PRODUCT SOURCE UNAVAILABLE** at candidate
+  `8db1b57c`. Source-qualified evidence identifies retained IPL2 content as the
+  observed x105 source, consuming `[0x000, 0x020)` and initially mutating
+  `[0x000, 0x02c)`. No product behavior or checkpoint changed; Worker
+  branch/worktree remain preserved and unpushed.
 - [`boot-frontier-sp-imem-lw-v1`](boot-frontier-sp-imem-lw-v1.md):
   **PARTIAL — INTEGRATED** at candidate `dcb9f1bf`. SP IMEM and aligned `Lw`
   are accepted; the authentic trace remains BOOT-2 at unknown SP IMEM byte

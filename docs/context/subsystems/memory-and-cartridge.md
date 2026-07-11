@@ -19,6 +19,12 @@ storage/classification. Forbidden directions include core filesystem access,
 commercial/proprietary payloads, host pointers as machine policy, renderer
 decisions, and an unearned generic bus or memory-map framework.
 
+For an explicitly user-selected PIF firmware file, the host may own only the
+path, file read/failure, and owned-byte transfer. The Machine must own accepted
+bytes, validation/classification, reset/bootstrap lifecycle, SP IMEM production,
+and provenance. No input support exists yet; there is no default path, search,
+download, bundled fallback, reconstructed table, or firmware-derived profile.
+
 The named `Machine::stage_cartridge_bootstrap` creation point preflights the
 normalized cartridge span `[0x40, 0x1000)`, stages it into the same SP DMEM
 offsets, and records cartridge provenance. The bounded inspection host supplies
@@ -40,13 +46,16 @@ proof; user-local ROMs are outside routine inspection and evidence packaging.
 Current integration includes represented cartridge facts, narrow bootstrap
 staging, one cartridge-derived instruction commit, SP IMEM storage, the narrow
 KSEG0/KSEG1 CPU-data route to that range, and aligned `Lw` over direct RDRAM or
-known SP IMEM. It does not establish authentic SP IMEM contents, handoff,
+known SP IMEM. Source-qualified evidence identifies retained IPL2 firmware as
+the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
+mutation range `[0x000, 0x02c)`, but does not establish product bytes. It does
+not establish authentic SP IMEM contents, handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists
 only where the detailed ledger says it is sealed.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.
-The first source-clear pressure is the unknown Machine-owned creation event for
-SP IMEM bytes `0x000..0x003` before the `Lw` at CPU address `0xA4001000`; it
-still does not earn an architecture-first bus abstraction.
+The first source-clear pressure is a lawful user-firmware ownership and
+production policy before the `Lw` at CPU address `0xA4001000`; it still does
+not earn an architecture-first bus abstraction.

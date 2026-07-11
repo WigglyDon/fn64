@@ -7,7 +7,5 @@
     "decision": ["PENDING", "ACCEPT", "REJECT", "PARK", "BLOCKED", "UNKNOWN"],
     "push": ["NOT_AUTHORIZED", "NOT_PUSHED", "PUSHED", "FAILED", "UNKNOWN"]
   },
-  "entries": [
-    {"lane_id":"sp-imem-bootstrap-provenance-v1","candidate_head":"UNKNOWN","base":"UNKNOWN","context_sha":"UNKNOWN","artifact":"UNKNOWN","targeted_validation":"NOT_RUN","full_verify":"NOT_RUN","overlap_risk":"NONE","dependency":"accepted dcb9f1bf partial increment; sole Wave 2 product lane; exact SP IMEM byte-creation owner remains UNKNOWN","authority_impact":"NONE_YET","revalidation":"PENDING","decision":"PENDING","push":"NOT_AUTHORIZED"}
-  ]
+  "entries": []
 }

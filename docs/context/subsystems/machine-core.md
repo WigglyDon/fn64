@@ -63,8 +63,15 @@ Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
 artifacts. Performance/resource truth is `UNKNOWN` unless separately measured.
 
+Integrated evidence identifies the missing hardware producer as IPL1 copying
+retained IPL2 firmware content into SP IMEM. That finding changes no Machine
+state: the product has no firmware input and current bytes remain `Unknown`.
+Explicit user-supplied firmware is an accepted future input boundary, but after
+transfer the Machine—not the host—must own validation, lifecycle, supported or
+unsupported classification, state production, provenance, and rejection.
+
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-host integration, and the unknown creation event for authentic SP IMEM bytes
-`0x000..0x003`.
+host integration, and the implementation choice between source-backed
+materialization, minimal firmware execution, or a truthful partial.

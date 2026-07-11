@@ -106,6 +106,15 @@ them in N64 big-endian order, and reports the first unknown byte otherwise.
 Only test builds can stage generated known words. Production and inspection
 have no mutable SP IMEM surface and no source event for offset zero.
 
+Integrated source-qualified evidence identifies the external hardware
+causality without adding represented capability: IPL1 copies proprietary IPL2
+firmware content into SP IMEM, CPU control enters IPL2 there, IPL2 stages
+cartridge IPL3 in SP DMEM, and the observed x105 IPL3 entry consumes retained
+SP IMEM `[0x000, 0x020)` before initially mutating `[0x000, 0x02c)`. The exact
+values remain unavailable to the product. External observability is not a
+Machine-owned byte source, a firmware-derived profile, or authority to embed
+the content.
+
 Direct CPU-address classification represents KSEG0 and KSEG1 aliases into the
 4 MiB RDRAM span. Direct fixed-width value APIs compose classification with raw
 RDRAM access. Raw storage offsets do not impose CPU alignment; CPU-data access
@@ -227,9 +236,10 @@ complete represented state lineage**.
 The next instruction is `Lw` at `0xA4000044`, using known r9 to compute CPU
 address `0xA4001000`, which routes to SP IMEM offset zero. It is rejected
 without partial mutation because the first consumed SP IMEM byte is `Unknown`.
-The Machine-owned creation event that would establish bytes `0x000..0x003`
-remains `UNKNOWN`; it is not currently classified as reset, PIF, DMA, transfer,
-or firmware behavior.
+Evidence now identifies retained IPL2 firmware content as the external source,
+but the Machine has no lawful input or represented production event for it.
+One-word staging would be both incomplete and unauthorized: the observed x105
+prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
 reached.
 
@@ -245,6 +255,8 @@ execute. Current explicit absences include:
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
   PI DMA, authentic bootstrap handoff, and cartridge-entry execution;
+- user-supplied PIF firmware input, firmware validation/classification, and
+  source-backed IPL2 state production;
 - production source-backed SP IMEM contents, RSP/COP2 execution, and SP
   register/status/DMA/control behavior;
 - a broad bus or memory map, device/MMIO routing, DMA, and N64 scheduling or
