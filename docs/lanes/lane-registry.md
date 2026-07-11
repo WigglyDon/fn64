@@ -11,18 +11,28 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-None between accepted input-boundary integration and Product Wave 3
-registration.
+- [`pif-ipl2-source-mapping-v1`](pif-ipl2-source-mapping-v1.md)
+  - Status: **REGISTERED — MASTER PROVISIONING PENDING**
+  - Topology: evidence-only technical-source lane
+  - Implementation/candidate: not started / none
+  - Writable owner: `ops/evidence/pif-ipl2-source-mapping-v1/**` only
+- [`ordinary-control-flow-delay-slot-v1`](ordinary-control-flow-delay-slot-v1.md)
+  - Status: **REGISTERED — MASTER PROVISIONING PENDING**
+  - Topology: synthetic-proof Rust product lane
+  - Implementation/candidate: not started / none
+  - Writable owner: exact registered CPU/Machine/step-probe paths plus its own
+    evidence directory
+
+The two lanes have zero direct writable-path overlap. Master retains lane,
+queue, context, branch, worktree, and integration ownership.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-- `pif-ipl2-source-mapping-v1`: authorized evidence-only Wave 3 lane pending
-  bounded registration and Master provisioning.
-- `ordinary-control-flow-delay-slot-v1`: authorized Wave 3 product lane pending
-  the final live zero-overlap audit and Master provisioning.
+None. Source-backed PIF materialization and minimal IPL1/IPL2 execution remain
+unprovisioned until the mapping lane establishes the next honest product shape.
 
 ## Parked donor lanes
 

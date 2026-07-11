@@ -84,12 +84,16 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   `1fa8aa17` was independently verified and integrated **ACCEPTED —
   SOURCE-BOUNDARY PRODUCT**. No private PIF input was used and BOOT-2 did not
   advance.
-- Active Worker lanes: none between accepted product integration and Product
-  Wave 3 registration.
-- Integration queue: empty after accepted candidate closure.
-- `USER_DECISION`: Product Wave 3 will register an evidence-only PIF IPL2
-  source-mapping lane and, when the live ownership audit confirms zero direct
-  writable overlap, an ordinary-control-flow product lane. Neither has started.
+- Product Wave 3: `pif-ipl2-source-mapping-v1` and
+  `ordinary-control-flow-delay-slot-v1` are registered with zero direct
+  writable-path overlap and await Master topology provisioning. No Worker
+  implementation has started and no candidate exists.
+- Integration queue: two honest no-candidate entries; candidate and artifact
+  identities are `UNKNOWN`, validation is `NOT_RUN`, and integration/push are
+  pending and unauthorized.
+- `USER_DECISION`: the evidence-only mapping lane may run concurrently with the
+  synthetic ordinary-control-flow product lane. Neither may edit coordination
+  state, and neither receives private-ROM or private-PIF authority.
 - Repository-purity cleanup is complete for its accepted non-product scope.
 - Product Acceleration Wave 1 selected one combined frontier because
   storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,
@@ -111,7 +115,7 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   PIF Boot ROM bytes to retained IPL2 SP IMEM content.
 - `USER_DECISION`: source-backed materialization and minimal IPL1/IPL2 execution
   remain unprovisioned until the evidence-only mapping lane resolves that
-  question. Ordinary control flow may proceed independently only under the
-  post-integration zero-overlap contract.
+  question. The live audit proved ordinary control flow has a disjoint writable
+  scope and may proceed independently.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.
