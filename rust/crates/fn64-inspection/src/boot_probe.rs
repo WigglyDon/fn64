@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use fn64_core::{
     load_cartridge, rom_source_layout_name, CartridgeLoadError, CpuInstructionIdentity, Machine,
     MachineBootstrapGprSource, MachineCartridgeBootstrapError, MachineCpuInstructionInspection,
-    MachineCpuInstructionSource, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineCpuInstructionSource, MachineLoadWordRejection, MachineLoadWordRejectionReason,
+    MachineLoadWordTarget, MachineRepresentedStepError, MachineRepresentedStepOutcome,
     MachineSpDmemInstructionProvenance, RomMetadata, RomSourceLayout, CPU_GPR_COUNT,
     MACHINE_GENERAL_PIF_RESET_GPR29_VALUE, MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
 };
@@ -303,7 +304,17 @@ pub fn run_boot_probe(
 
                 match outcome {
                     MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
+                    | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
+                    MachineRepresentedStepOutcome::DataAddressError { .. } => {
+                        first_frontier = Some(format_frontier(
+                            "represented-data-address-error",
+                            inspection,
+                            outcome.identity(),
+                            &before,
+                        ));
+                        break;
+                    }
                     MachineRepresentedStepOutcome::Stopped { .. } => {
                         first_frontier = Some(format_frontier(
                             "represented-stop",
@@ -358,6 +369,17 @@ pub fn run_boot_probe(
                     error
                         .bootstrap_cpu_state_unavailable()
                         .expect("matched bootstrap state rejection must retain its detail"),
+                    &before,
+                ));
+                break;
+            }
+            Err(error @ MachineRepresentedStepError::LoadWordRejected(_)) => {
+                last_represented_outcome = "load-word-rejected";
+                first_frontier = Some(format_load_word_rejection_frontier(
+                    inspection,
+                    error
+                        .load_word_rejection()
+                        .expect("matched Lw rejection must retain its detail"),
                     &before,
                 ));
                 break;
@@ -417,6 +439,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
     matches!(
         outcome,
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
+            | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
     )
 }
@@ -434,6 +457,8 @@ fn instruction_is_cartridge_derived(inspection: MachineCpuInstructionInspection)
 fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static str {
     match outcome {
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. } => "cpu-local-committed",
+        MachineRepresentedStepOutcome::LoadWordCommitted { .. } => "load-word-committed",
+        MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
         MachineRepresentedStepOutcome::ArithmeticOverflowException { .. } => {
             "arithmetic-overflow-exception"
         }
@@ -533,7 +558,7 @@ fn format_frontier(
                     let effective_address = base_value.wrapping_add_signed(signed_immediate);
                     write!(
                         result,
-                        " base_known=yes base_value=0x{:016X} base_source={} effective_address=0x{:016X} effective_cpu_address=0x{:08X} reason=load-execution-and-target-routing-unrepresented",
+                        " base_known=yes base_value=0x{:016X} base_source={} effective_address=0x{:016X} effective_cpu_address=0x{:08X}",
                         base_value,
                         format_gpr_source(base_source),
                         effective_address,
@@ -543,7 +568,7 @@ fn format_frontier(
                 } else {
                     write!(
                         result,
-                        " base_known=no base_source={} effective_address=unavailable reason=load-execution-unrepresented-and-base-state-unknown",
+                        " base_known=no base_source={} effective_address=unavailable",
                         format_gpr_source(base_source)
                     )
                     .unwrap();
@@ -556,6 +581,45 @@ fn format_frontier(
             classification, identity
         ),
     }
+}
+
+fn format_load_word_rejection_frontier(
+    inspection: Option<MachineCpuInstructionInspection>,
+    rejection: MachineLoadWordRejection,
+    before: &CpuObservation,
+) -> String {
+    let target = match rejection.target() {
+        Some(MachineLoadWordTarget::DirectRdram { offset }) => {
+            format!("direct-rdram offset=0x{:08X}", offset.value())
+        }
+        Some(MachineLoadWordTarget::SpImem { offset }) => {
+            format!("sp-imem offset=0x{offset:08X}")
+        }
+        None => "unclassified".to_owned(),
+    };
+    let reason = match rejection.reason() {
+        MachineLoadWordRejectionReason::NonDirectUnsupported => "non-direct-unsupported".to_owned(),
+        MachineLoadWordRejectionReason::DirectTargetMiss => "direct-target-miss".to_owned(),
+        MachineLoadWordRejectionReason::DirectRdramReadRejected => {
+            "direct-rdram-read-rejected".to_owned()
+        }
+        MachineLoadWordRejectionReason::SpImemUnknown {
+            first_unknown_offset,
+        } => format!("sp-imem-unknown first_unknown_offset=0x{first_unknown_offset:08X}"),
+        MachineLoadWordRejectionReason::SpImemReadRejected => "sp-imem-read-rejected".to_owned(),
+    };
+
+    format!(
+        "{} target={} reason={} rejected_before_mutation=yes",
+        format_frontier(
+            "load-word-rejected",
+            inspection,
+            Some(CpuInstructionIdentity::Lw),
+            before,
+        ),
+        target,
+        reason
+    )
 }
 
 fn format_bootstrap_cpu_state_frontier(
@@ -940,11 +1004,11 @@ mod tests {
     }
 
     #[test]
-    fn boot_probe_reports_known_special_add_mutation_and_expected_load_frontier() {
+    fn boot_probe_reports_known_special_add_and_unknown_sp_imem_load_frontier() {
         let report = run_boot_probe(
             make_generated_boot_fixture(
                 special_add_word(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX, 0, 9),
-                lw_word(9, 8, 0x0040),
+                lw_word(9, 8, 0xf010),
             ),
             "generated-fixture.z64",
             100,
@@ -957,13 +1021,19 @@ mod tests {
         assert_eq!(report.expected_frontier_exit_status(), 0);
         assert!(report
             .first_frontier()
-            .contains("unrepresented-instruction address=0xA4000044 identity=Lw rs=9 rt=8"));
+            .contains("load-word-rejected address=0xA4000044 identity=Lw rs=9 rt=8"));
         assert!(report
             .first_frontier()
             .contains("base_known=yes base_value=0xFFFFFFFFA4001FF0"));
         assert!(report
             .first_frontier()
-            .contains("effective_address=0xFFFFFFFFA4002030 effective_cpu_address=0xA4002030"));
+            .contains("effective_address=0xFFFFFFFFA4001000 effective_cpu_address=0xA4001000"));
+        assert!(report
+            .first_frontier()
+            .contains("target=sp-imem offset=0x00000000"));
+        assert!(report
+            .first_frontier()
+            .contains("reason=sp-imem-unknown first_unknown_offset=0x00000000"));
         assert!(report
             .output()
             .contains("last_committed_identity: SpecialAdd"));
@@ -1050,9 +1120,9 @@ mod tests {
     }
 
     #[test]
-    fn boot_probe_unrepresented_first_instruction_stops_at_boot1_without_mutation() {
+    fn boot_probe_unknown_sp_imem_first_instruction_stops_at_boot1_without_mutation() {
         let report = run_boot_probe(
-            make_generated_boot_fixture(0x8fa8_0000, 0),
+            make_generated_boot_fixture(lw_word(29, 8, 0xf010), 0),
             "generated-fixture.z64",
             100,
         )
@@ -1061,6 +1131,7 @@ mod tests {
         assert_eq!(report.highest_checkpoint(), BootCheckpoint::Boot1);
         assert_eq!(report.attempted_steps(), 1);
         assert_eq!(report.committed_steps(), 0);
+        assert!(report.first_frontier().contains("reason=sp-imem-unknown"));
         assert!(report.output().contains("pc: 0xA4000040"));
         assert!(report.output().contains("next_pc: 0xA4000044"));
         assert!(report.output().contains("last_committed_effect: none"));

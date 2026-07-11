@@ -12,6 +12,7 @@ use crate::cpu::{
 use crate::machine::{Machine, MachineCpuInstructionFetchError, MachineCpuInstructionFetchTarget};
 use crate::rdram::Rdram;
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemWriteError};
+use crate::sp_imem::SpImem;
 
 use super::rdram_reservation::CpuRdramReservation;
 
@@ -297,6 +298,7 @@ impl Machine {
                 &bootstrap_bytes,
             )
             .map_err(map_sp_dmem_write_error)?;
+        let replacement_sp_imem = SpImem::default();
 
         let mut replacement_cpu = Cpu::new();
         replacement_cpu
@@ -327,6 +329,7 @@ impl Machine {
         self.cpu = replacement_cpu;
         self.rdram = Rdram::default();
         self.sp_dmem = replacement_sp_dmem;
+        self.sp_imem = replacement_sp_imem;
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.powered_on = true;
         self.cartridge_bootstrap = Some(state);
@@ -490,6 +493,11 @@ const fn bootstrap_gpr_access(
             source_b: None,
             destination: Some(fields.rt()),
         },
+        Lw => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: None,
+            destination: Some(fields.rt()),
+        },
         Lui => BootstrapGprAccess {
             source_a: None,
             source_b: None,
@@ -516,6 +524,7 @@ mod tests {
     use crate::cartridge::load_cartridge;
     use crate::cpu::{CpuInstructionIdentity, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_PC};
     use crate::machine::{MachineRepresentedStepError, MachineRepresentedStepOutcome};
+    use crate::sp_imem::{SpImemByteObservation, SpImemByteProvenance, SpImemOffset};
 
     #[derive(Debug, PartialEq, Eq)]
     struct MachineArchitecturalSnapshot {
@@ -535,6 +544,7 @@ mod tests {
         cop0_exception_branch_delay: bool,
         rdram: Vec<u8>,
         sp_dmem: Vec<u8>,
+        sp_imem: Vec<SpImemByteObservation>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
 
@@ -562,6 +572,14 @@ mod tests {
                     machine
                         .sp_dmem()
                         .read_u8(SpDmemOffset::new(offset as u32))
+                        .unwrap()
+                })
+                .collect(),
+            sp_imem: (0..machine.sp_imem.size_bytes())
+                .map(|offset| {
+                    machine
+                        .sp_imem
+                        .observe_byte(SpImemOffset::new(offset as u32))
                         .unwrap()
                 })
                 .collect(),
@@ -1045,6 +1063,14 @@ mod tests {
             machine.sp_dmem().read_u32_be(SpDmemOffset::new(0x40)),
             Ok(0)
         );
+        let sp_imem_word_zero = machine
+            .sp_imem
+            .read_known_u32_be(SpImemOffset::new(0))
+            .unwrap_err();
+        assert_eq!(
+            sp_imem_word_zero.unknown_offset(),
+            Some(SpImemOffset::new(0))
+        );
         machine.stage_cpu_pc(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
         let inspection = machine.inspect_current_cpu_instruction().unwrap();
         assert_eq!(inspection.identity(), CpuInstructionIdentity::SpecialSll);
@@ -1055,6 +1081,42 @@ mod tests {
                 provenance: MachineSpDmemInstructionProvenance::UnclassifiedMachineStorage,
             }
         );
+    }
+
+    #[test]
+    fn machine_cartridge_bootstrap_keeps_sp_imem_unknown_without_a_source_fact() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        machine
+            .stage_generated_sp_imem_word_for_test(0, 0x1122_3344)
+            .unwrap();
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0))
+                .unwrap()
+                .value(),
+            0x1122_3344
+        );
+
+        machine.stage_cartridge_bootstrap().unwrap();
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0))
+                .unwrap_err()
+                .unknown_offset(),
+            Some(SpImemOffset::new(0))
+        );
+        for offset in 0..4 {
+            let observed = machine
+                .sp_imem
+                .observe_byte(SpImemOffset::new(offset))
+                .unwrap();
+            assert_eq!(observed.value(), 0);
+            assert_eq!(observed.provenance(), SpImemByteProvenance::Unknown);
+        }
     }
 
     #[test]
@@ -1070,7 +1132,7 @@ mod tests {
     }
 
     #[test]
-    fn machine_cartridge_bootstrap_unrepresented_frontier_preserves_control_flow() {
+    fn machine_cartridge_bootstrap_unknown_sp_imem_frontier_preserves_all_state() {
         let mut bytes = make_generated_normalized_boot_cartridge();
         write_be_u32(
             &mut bytes,
@@ -1083,15 +1145,17 @@ mod tests {
         let inspection = machine.inspect_current_cpu_instruction().unwrap();
 
         assert_eq!(inspection.identity(), CpuInstructionIdentity::Lw);
-        assert!(matches!(
-            machine.step(),
-            Err(MachineRepresentedStepError::UnrepresentedInstruction {
-                identity: CpuInstructionIdentity::Lw,
-                ..
-            })
-        ));
-        assert_eq!(machine.cpu().pc(), MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
-        assert_eq!(machine.cpu().next_pc(), MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC);
-        assert_eq!(machine.cpu().cop0_count(), 0);
+        let before = architectural_snapshot(&machine);
+        let rejection = machine
+            .step()
+            .unwrap_err()
+            .load_word_rejection()
+            .expect("unknown SP IMEM should be an explicit Lw rejection");
+
+        assert_eq!(
+            rejection.target(),
+            Some(crate::machine::MachineLoadWordTarget::SpImem { offset: 0xff0 })
+        );
+        assert_eq!(architectural_snapshot(&machine), before);
     }
 }

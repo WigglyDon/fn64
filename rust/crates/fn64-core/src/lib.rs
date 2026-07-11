@@ -5,6 +5,7 @@ pub mod cpu;
 pub mod machine;
 pub mod rdram;
 pub mod sp_dmem;
+mod sp_imem;
 
 pub use cartridge::{
     inspect_cartridge_entry, load_cartridge, normalize_rom_image, rom_source_layout_name,
@@ -28,7 +29,8 @@ pub use machine::{
     MachineCpuInstructionInspection, MachineCpuInstructionSource,
     MachineDirectRdramCpuDataAccessError, MachineDirectRdramCpuInstructionFetchError,
     MachineInstructionFetchAddressErrorPlan, MachineInstructionFetchAddressErrorPlanError,
-    MachineInstructionFetchAddressErrorSource, MachineRepresentedStepError,
+    MachineInstructionFetchAddressErrorSource, MachineLoadWordRejection,
+    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachineRepresentedStepError,
     MachineRepresentedStepOutcome, MachineSpDmemCpuInstructionFetchError,
     MachineSpDmemInstructionProvenance, MachineStepCadencePlan, MachineStepCadenceSource,
     MachineStepControlFlowAction, MachineStepCountAction, MachineStepCpuLocalInvocationRejection,

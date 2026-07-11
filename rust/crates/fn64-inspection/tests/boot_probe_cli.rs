@@ -30,7 +30,7 @@ fn make_generated_boot_fixture() -> Vec<u8> {
     bytes[0x3e] = 0x45;
     bytes[0x3f] = 3;
     write_be_u32(&mut bytes, 0x40, special_add_word(29, 0, 9));
-    write_be_u32(&mut bytes, 0x44, lw_word(9, 8, 0x0040));
+    write_be_u32(&mut bytes, 0x44, lw_word(9, 8, 0xf010));
     bytes
 }
 
@@ -67,6 +67,8 @@ fn boot_probe_cli_generated_local_fixture_reaches_expected_frontier_with_success
     assert!(stdout.contains("last_committed_destination_known: no->yes"));
     assert!(stdout.contains("identity=Lw"));
     assert!(stdout.contains("base_known=yes"));
+    assert!(stdout.contains("target=sp-imem offset=0x00000000"));
+    assert!(stdout.contains("reason=sp-imem-unknown"));
     assert!(stdout.contains("expected_frontier_exit_policy: success"));
     assert!(stdout.contains("no_window: yes"));
     assert!(!stdout.contains("timestamp"));
