@@ -25,11 +25,12 @@ Update triggers: provisioning, packet launch, evidence creation, candidate creat
 - Governing Context-SHA: the exact committed provisioning value owned by the
   Master report and first executable packet. This context page cannot embed its
   own digest.
-- Status: **REGISTERED — MASTER PROVISIONING PENDING**
-- Provisioning state: `MASTER_REGISTRATION_COMMITTED_PENDING_TOPOLOGY`
+- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: no command is executable until Master provisioning is verified
-  and Master GPT issues the matching supervisor seed.
+- Launch state: persistent Worker topology was created and verified by Master;
+  no command is executable until Master GPT issues the matching supervisor
+  seed.
 
 ## Exact writable and forbidden scope
 

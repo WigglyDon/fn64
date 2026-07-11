@@ -12,12 +12,12 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 ## Active lanes
 
 - [`pif-ipl2-source-mapping-v1`](pif-ipl2-source-mapping-v1.md)
-  - Status: **REGISTERED — MASTER PROVISIONING PENDING**
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
   - Topology: evidence-only technical-source lane
   - Implementation/candidate: not started / none
   - Writable owner: `ops/evidence/pif-ipl2-source-mapping-v1/**` only
 - [`ordinary-control-flow-delay-slot-v1`](ordinary-control-flow-delay-slot-v1.md)
-  - Status: **REGISTERED — MASTER PROVISIONING PENDING**
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
   - Topology: synthetic-proof Rust product lane
   - Implementation/candidate: not started / none
   - Writable owner: exact registered CPU/Machine/step-probe paths plus its own

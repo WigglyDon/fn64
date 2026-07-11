@@ -85,9 +85,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   SOURCE-BOUNDARY PRODUCT**. No private PIF input was used and BOOT-2 did not
   advance.
 - Product Wave 3: `pif-ipl2-source-mapping-v1` and
-  `ordinary-control-flow-delay-slot-v1` are registered with zero direct
-  writable-path overlap and await Master topology provisioning. No Worker
-  implementation has started and no candidate exists.
+  `ordinary-control-flow-delay-slot-v1` are provisioned and await matching
+  supervisor packets. Both persistent worktrees were verified clean and READY
+  with zero direct writable-path overlap. No Worker implementation has started
+  and no candidate exists.
 - Integration queue: two honest no-candidate entries; candidate and artifact
   identities are `UNKNOWN`, validation is `NOT_RUN`, and integration/push are
   pending and unauthorized.
