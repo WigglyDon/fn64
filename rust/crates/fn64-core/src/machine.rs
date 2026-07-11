@@ -14,6 +14,7 @@ use crate::cpu::{
     CpuLocalExecutedHelperExecutedInstruction, CpuLocalExecutedHelperInvocationError,
     CpuLocalExecutedHelperInvocationOutcome, CpuRegisterIndexError, NON_BOOT_RESET_VECTOR_PC,
 };
+use crate::pif_firmware::{MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError};
 use crate::rdram::{Rdram, RdramAccessError};
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
 #[cfg(test)]
@@ -2227,6 +2228,7 @@ impl std::error::Error for MachineRepresentedStepError {}
 
 pub struct Machine {
     cartridge: Cartridge,
+    pif_firmware: Option<PifFirmware>,
     cpu: Cpu,
     rdram: Rdram,
     sp_dmem: SpDmem,
@@ -2240,6 +2242,7 @@ impl Machine {
     pub fn from_cartridge(cartridge: Cartridge) -> Self {
         Self {
             cartridge,
+            pif_firmware: None,
             cpu: Cpu::new(),
             rdram: Rdram::default(),
             sp_dmem: SpDmem::default(),
@@ -2258,6 +2261,27 @@ impl Machine {
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.cartridge_bootstrap = None;
         self.powered_on = true;
+    }
+
+    /// Validates and transfers one owned raw PIF Boot ROM into this Machine.
+    ///
+    /// Validation completes before the accepted immutable firmware owner is
+    /// replaced. This input-only boundary does not execute firmware or produce
+    /// SP IMEM state.
+    pub fn install_pif_firmware(
+        &mut self,
+        owned_bytes: Vec<u8>,
+    ) -> Result<MachinePifFirmwareState, PifFirmwareValidationError> {
+        let firmware = PifFirmware::from_owned_bytes(owned_bytes)?;
+        let state = firmware.state();
+        self.pif_firmware = Some(firmware);
+        Ok(state)
+    }
+
+    pub fn pif_firmware_state(&self) -> MachinePifFirmwareState {
+        self.pif_firmware
+            .as_ref()
+            .map_or(MachinePifFirmwareState::Absent, PifFirmware::state)
     }
 
     /// Stages the represented CPU control-flow pair for a selected PC.
@@ -2741,6 +2765,11 @@ impl Machine {
     ) -> Result<(), SpImemReadError> {
         self.sp_imem
             .stage_known_u32_be_for_test(SpImemOffset::new(offset), value)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pif_firmware_bytes_for_test(&self) -> Option<&[u8]> {
+        self.pif_firmware.as_ref().map(PifFirmware::bytes)
     }
 
     pub fn read_direct_rdram_u8(
@@ -3290,6 +3319,9 @@ mod tests {
         CpuLocalExecutedHelperInvocationOutcome, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC,
         NON_BOOT_RESET_VECTOR_PC,
     };
+    use crate::pif_firmware::{
+        PifFirmwareClassification, PIF_BOOT_ROM_SIZE_BYTES, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+    };
     use crate::rdram::RDRAM_SIZE_BYTES;
 
     fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
@@ -3305,6 +3337,12 @@ mod tests {
 
     fn kseg1(offset: usize) -> CpuAddress {
         CpuAddress::new(0xa000_0000 + offset as u32)
+    }
+
+    fn generated_pif_firmware(seed: u8, size: usize) -> Vec<u8> {
+        (0..size)
+            .map(|index| seed.wrapping_add((index as u8).wrapping_mul(29)))
+            .collect()
     }
 
     fn instruction_fields(bits: u32) -> CpuInstructionFields {
@@ -3844,6 +3882,96 @@ mod tests {
                 .read_u8((normalized_bytes.len() - 1) as u32)
                 .unwrap(),
             *normalized_bytes.last().unwrap()
+        );
+    }
+
+    #[test]
+    fn machine_pif_firmware_is_absent_until_explicit_owned_installation() {
+        let machine = Machine::from_cartridge(Cartridge::default());
+
+        assert_eq!(
+            machine.pif_firmware_state(),
+            MachinePifFirmwareState::Absent
+        );
+        assert!(machine.pif_firmware_bytes_for_test().is_none());
+    }
+
+    #[test]
+    fn machine_owns_accepted_pif_firmware_independently_of_caller_storage() {
+        let mut machine = Machine::from_cartridge(Cartridge::default());
+        let mut caller_bytes = generated_pif_firmware(0x31, PIF_BOOT_ROM_SIZE_BYTES);
+        let expected_bytes = caller_bytes.clone();
+
+        let state = machine.install_pif_firmware(caller_bytes.clone()).unwrap();
+        caller_bytes.fill(0xff);
+
+        assert_eq!(
+            state,
+            MachinePifFirmwareState::Accepted {
+                classification: PifFirmwareClassification::RawBootRom,
+                size_bytes: PIF_BOOT_ROM_SIZE_BYTES,
+            }
+        );
+        assert_eq!(machine.pif_firmware_state(), state);
+        assert_eq!(
+            machine.pif_firmware_bytes_for_test(),
+            Some(expected_bytes.as_slice())
+        );
+        assert_ne!(
+            machine.pif_firmware_bytes_for_test(),
+            Some(caller_bytes.as_slice())
+        );
+    }
+
+    #[test]
+    fn machine_reset_preserves_accepted_pif_firmware_like_cartridge_input() {
+        let mut machine = Machine::from_cartridge(Cartridge::default());
+        let expected_bytes = generated_pif_firmware(0x42, PIF_BOOT_ROM_SIZE_BYTES);
+        let accepted = machine
+            .install_pif_firmware(expected_bytes.clone())
+            .unwrap();
+        machine.stage_cpu_pc(0x8000_2000);
+        machine.write_rdram_u32_be(0x20, 0x1122_3344).unwrap();
+
+        machine.reset();
+
+        assert_eq!(machine.pif_firmware_state(), accepted);
+        assert_eq!(
+            machine.pif_firmware_bytes_for_test(),
+            Some(expected_bytes.as_slice())
+        );
+        assert_eq!(machine.cpu().pc(), NON_BOOT_RESET_VECTOR_PC);
+        assert_eq!(machine.rdram().read_u32_be(0x20), Ok(0));
+    }
+
+    #[test]
+    fn rejected_pif_firmware_replacement_has_no_partial_machine_mutation() {
+        let mut machine = Machine::from_cartridge(Cartridge::default());
+        let accepted_bytes = generated_pif_firmware(0x53, PIF_BOOT_ROM_SIZE_BYTES);
+        machine
+            .install_pif_firmware(accepted_bytes.clone())
+            .unwrap();
+        machine.stage_cpu_pc(0x8000_3000);
+        machine.write_rdram_u32_be(0x30, 0xaabb_ccdd).unwrap();
+        let before = lw_snapshot(&machine);
+
+        let malformed = machine
+            .install_pif_firmware(generated_pif_firmware(0x64, PIF_BOOT_ROM_SIZE_BYTES - 1))
+            .unwrap_err();
+        assert!(malformed.is_malformed());
+        assert_eq!(lw_snapshot(&machine), before);
+
+        let unsupported = machine
+            .install_pif_firmware(generated_pif_firmware(
+                0x75,
+                PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+            ))
+            .unwrap_err();
+        assert!(unsupported.is_unsupported());
+        assert_eq!(lw_snapshot(&machine), before);
+        assert_eq!(
+            machine.pif_firmware_bytes_for_test(),
+            Some(accepted_bytes.as_slice())
         );
     }
 
@@ -13726,6 +13854,9 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq)]
     struct MachineLwSnapshot {
+        cartridge: Vec<u8>,
+        pif_firmware_state: MachinePifFirmwareState,
+        pif_firmware_bytes: Option<Vec<u8>>,
         pc: u32,
         next_pc: u32,
         gprs: [u64; CPU_GPR_COUNT],
@@ -13750,6 +13881,11 @@ mod tests {
 
     fn lw_snapshot(machine: &Machine) -> MachineLwSnapshot {
         MachineLwSnapshot {
+            cartridge: (0..machine.cartridge().size_bytes())
+                .map(|offset| machine.cartridge().read_u8(offset as u32).unwrap())
+                .collect(),
+            pif_firmware_state: machine.pif_firmware_state(),
+            pif_firmware_bytes: machine.pif_firmware_bytes_for_test().map(<[u8]>::to_vec),
             pc: machine.cpu().pc(),
             next_pc: machine.cpu().next_pc(),
             gprs: core::array::from_fn(|index| machine.cpu().gpr(index).unwrap()),

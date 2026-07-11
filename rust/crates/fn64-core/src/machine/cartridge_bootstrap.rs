@@ -10,6 +10,7 @@ use crate::cpu::{
     CpuInstructionIdentity, CpuRegisterIndexError, CPU_GPR_COUNT,
 };
 use crate::machine::{Machine, MachineCpuInstructionFetchError, MachineCpuInstructionFetchTarget};
+use crate::pif_firmware::MachinePifFirmwareState;
 use crate::rdram::Rdram;
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemWriteError};
 use crate::sp_imem::SpImem;
@@ -64,6 +65,7 @@ pub struct MachineCartridgeBootstrapState {
     execution_pc: CpuAddress,
     next_pc: CpuAddress,
     cpu_state_kind: MachineBootstrapCpuStateKind,
+    pif_firmware_state: MachinePifFirmwareState,
     gpr_sources: [MachineBootstrapGprSource; CPU_GPR_COUNT],
 }
 
@@ -98,6 +100,10 @@ impl MachineCartridgeBootstrapState {
 
     pub const fn cpu_state_kind(self) -> MachineBootstrapCpuStateKind {
         self.cpu_state_kind
+    }
+
+    pub const fn pif_firmware_state(self) -> MachinePifFirmwareState {
+        self.pif_firmware_state
     }
 
     pub const fn has_unrepresented_pif_cpu_state(self) -> bool {
@@ -323,6 +329,7 @@ impl Machine {
             execution_pc: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC),
             next_pc: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC),
             cpu_state_kind: MachineBootstrapCpuStateKind::RepresentedResetSubset,
+            pif_firmware_state: self.pif_firmware_state(),
             gpr_sources,
         };
 
@@ -524,10 +531,13 @@ mod tests {
     use crate::cartridge::load_cartridge;
     use crate::cpu::{CpuInstructionIdentity, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_PC};
     use crate::machine::{MachineRepresentedStepError, MachineRepresentedStepOutcome};
+    use crate::pif_firmware::{PifFirmwareClassification, PIF_BOOT_ROM_SIZE_BYTES};
     use crate::sp_imem::{SpImemByteObservation, SpImemByteProvenance, SpImemOffset};
 
     #[derive(Debug, PartialEq, Eq)]
     struct MachineArchitecturalSnapshot {
+        pif_firmware_state: MachinePifFirmwareState,
+        pif_firmware_bytes: Option<Vec<u8>>,
         pc: u32,
         next_pc: u32,
         gprs: [u64; CPU_GPR_COUNT],
@@ -550,6 +560,8 @@ mod tests {
 
     fn architectural_snapshot(machine: &Machine) -> MachineArchitecturalSnapshot {
         MachineArchitecturalSnapshot {
+            pif_firmware_state: machine.pif_firmware_state(),
+            pif_firmware_bytes: machine.pif_firmware_bytes_for_test().map(<[u8]>::to_vec),
             pc: machine.cpu().pc(),
             next_pc: machine.cpu().next_pc(),
             gprs: core::array::from_fn(|index| machine.cpu().gpr(index).unwrap()),
@@ -635,6 +647,12 @@ mod tests {
             0x3c09_5678,
         );
         bytes
+    }
+
+    fn generated_pif_firmware(seed: u8) -> Vec<u8> {
+        (0..PIF_BOOT_ROM_SIZE_BYTES)
+            .map(|index| seed.wrapping_add((index as u8).wrapping_mul(43)))
+            .collect()
     }
 
     fn encode_source_layout(mut normalized_bytes: Vec<u8>, layout: RomSourceLayout) -> Vec<u8> {
@@ -1117,6 +1135,62 @@ mod tests {
             assert_eq!(observed.value(), 0);
             assert_eq!(observed.provenance(), SpImemByteProvenance::Unknown);
         }
+    }
+
+    #[test]
+    fn accepted_pif_firmware_survives_reset_and_repeated_bootstrap_without_producing_sp_imem() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        let firmware_bytes = generated_pif_firmware(0x61);
+        let expected_state = MachinePifFirmwareState::Accepted {
+            classification: PifFirmwareClassification::RawBootRom,
+            size_bytes: PIF_BOOT_ROM_SIZE_BYTES,
+        };
+        assert_eq!(
+            machine
+                .install_pif_firmware(firmware_bytes.clone())
+                .unwrap(),
+            expected_state
+        );
+
+        for pass in 0..2 {
+            machine
+                .stage_generated_sp_imem_word_for_test(0, 0x1122_3344 + pass)
+                .unwrap();
+            let state = machine.stage_cartridge_bootstrap().unwrap();
+
+            assert_eq!(state.pif_firmware_state(), expected_state);
+            assert_eq!(machine.pif_firmware_state(), expected_state);
+            assert_eq!(
+                machine.pif_firmware_bytes_for_test(),
+                Some(firmware_bytes.as_slice())
+            );
+            assert_eq!(
+                machine
+                    .sp_imem
+                    .read_known_u32_be(SpImemOffset::new(0))
+                    .unwrap_err()
+                    .unknown_offset(),
+                Some(SpImemOffset::new(0))
+            );
+        }
+
+        machine.reset();
+
+        assert_eq!(machine.pif_firmware_state(), expected_state);
+        assert_eq!(
+            machine.pif_firmware_bytes_for_test(),
+            Some(firmware_bytes.as_slice())
+        );
+        assert_eq!(machine.cartridge_bootstrap_state(), None);
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0))
+                .unwrap_err()
+                .unknown_offset(),
+            Some(SpImemOffset::new(0))
+        );
     }
 
     #[test]

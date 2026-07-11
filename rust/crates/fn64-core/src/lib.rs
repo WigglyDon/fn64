@@ -3,6 +3,7 @@
 pub mod cartridge;
 pub mod cpu;
 pub mod machine;
+mod pif_firmware;
 pub mod rdram;
 pub mod sp_dmem;
 mod sp_imem;
@@ -41,6 +42,10 @@ pub use machine::{
     MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
     MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET, MACHINE_GENERAL_PIF_RESET_GPR29_VALUE,
     MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+};
+pub use pif_firmware::{
+    MachinePifFirmwareState, PifFirmwareClassification, PifFirmwareValidationError,
+    PIF_BOOT_ROM_SIZE_BYTES, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
 };
 pub use rdram::{Rdram, RdramAccessError, RDRAM_SIZE_BYTES};
 pub use sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
