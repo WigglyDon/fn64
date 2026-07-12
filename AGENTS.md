@@ -20,6 +20,23 @@ compatibility, or host-runtime support from synthetic bytes or green tests.
 Commercial ROMs and proprietary BIOS/PIF blobs must never be read for routine
 work, committed, copied, or packaged.
 
+## Project packet transport
+
+Emit every chat-delivered project packet in one uninterrupted Markdown fenced
+code block tagged `text`. Put the complete payload inside that single block,
+including any routing title, `BEGIN PROJECT PACKET`, headers, body, and
+`END PROJECT PACKET`; put no prose, citation, heading, note, explanation, or
+commentary outside it. Never split one packet across blocks or nest fenced code
+blocks. Keep commands, diffs, examples, and literal output as plain text inside
+the transport block, and make `END PROJECT PACKET` the final payload line.
+
+The Markdown fence is transport-only, not part of the packet payload. Store a
+packet in a `.txt` file or archive member as raw payload without that fence.
+Every packet that requests another packet reply must carry this rule forward
+through Worker, repair, supervisor-review, and Master handoffs. Unless a later
+authorized project instruction explicitly replaces it, `copy-paste-ready`
+means exactly this single-block transport.
+
 ## Agent discovery
 
 Before work, read [the context index](docs/INDEX.md), then follow every scoped
