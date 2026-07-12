@@ -18,8 +18,9 @@ pub use cartridge::{
 pub use cpu::{
     decode_cpu_instruction_word, identify_cpu_instruction, Cpu, CpuAddressErrorExceptionEntryError,
     CpuAddressErrorKind, CpuDataAccessKind, CpuDataAddressError, CpuDataAlignmentError,
-    CpuDataWidth, CpuInstructionFields, CpuInstructionIdentity, CpuInstructionWord,
-    CpuRegisterIndexError, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC,
+    CpuDataWidth, CpuDelaySlotContext, CpuInstructionFields, CpuInstructionIdentity,
+    CpuInstructionWord, CpuRegisterIndexError, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC,
+    NON_BOOT_RESET_VECTOR_PC,
 };
 pub use machine::{
     select_cpu_instruction_fetch_address_error, DirectRdramAccessError, Machine,
@@ -31,7 +32,8 @@ pub use machine::{
     MachineDirectRdramCpuDataAccessError, MachineDirectRdramCpuInstructionFetchError,
     MachineInstructionFetchAddressErrorPlan, MachineInstructionFetchAddressErrorPlanError,
     MachineInstructionFetchAddressErrorSource, MachineLoadWordRejection,
-    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachineRepresentedStepError,
+    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachineOrdinaryControlFlowRejection,
+    MachineOrdinaryControlFlowRejectionReason, MachineRepresentedStepError,
     MachineRepresentedStepOutcome, MachineSpDmemCpuInstructionFetchError,
     MachineSpDmemInstructionProvenance, MachineStepCadencePlan, MachineStepCadenceSource,
     MachineStepControlFlowAction, MachineStepCountAction, MachineStepCpuLocalInvocationRejection,

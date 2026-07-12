@@ -188,11 +188,7 @@ impl Cpu {
         &mut self,
         address_error: CpuDataAddressError,
     ) -> Result<(), CpuAddressErrorExceptionEntryError> {
-        let branch_delay = if self.local_synchronous_exception_entry_allowed() {
-            false
-        } else if self.local_delay_slot_synchronous_exception_entry_allowed() {
-            true
-        } else {
+        let Some((epc, branch_delay)) = self.local_synchronous_exception_lineage() else {
             return Err(CpuAddressErrorExceptionEntryError::new(
                 CpuAddress::new(self.pc),
                 CpuAddress::new(self.next_pc),
@@ -200,17 +196,14 @@ impl Cpu {
             ));
         };
 
-        self.cop0.epc = if branch_delay {
-            self.pc.wrapping_sub(4)
-        } else {
-            self.pc
-        };
+        self.cop0.epc = epc;
         self.cop0.bad_vaddr = address_error.bad_vaddr().value();
         self.cop0.exception_code = address_error.cause_exception_code();
         self.cop0.exception_branch_delay = branch_delay;
         self.cop0.status |= COP0_STATUS_EXL;
         self.pc = LOCAL_EXCEPTION_VECTOR_PC;
         self.next_pc = LOCAL_EXCEPTION_VECTOR_NEXT_PC;
+        self.clear_delay_slot_context();
 
         Ok(())
     }
@@ -219,21 +212,22 @@ impl Cpu {
         &mut self,
         bad_vaddr: CpuAddress,
     ) -> Result<(), CpuAddressErrorExceptionEntryError> {
-        if !self.local_synchronous_exception_entry_allowed() {
+        let Some((epc, branch_delay)) = self.local_synchronous_exception_lineage() else {
             return Err(CpuAddressErrorExceptionEntryError::new(
                 CpuAddress::new(self.pc),
                 CpuAddress::new(self.next_pc),
                 self.cop0.status,
             ));
-        }
+        };
 
-        self.cop0.epc = self.pc;
+        self.cop0.epc = epc;
         self.cop0.bad_vaddr = bad_vaddr.value();
         self.cop0.exception_code = CpuAddressErrorKind::AddressErrorLoad.cause_exception_code();
-        self.cop0.exception_branch_delay = false;
+        self.cop0.exception_branch_delay = branch_delay;
         self.cop0.status |= COP0_STATUS_EXL;
         self.pc = LOCAL_EXCEPTION_VECTOR_PC;
         self.next_pc = LOCAL_EXCEPTION_VECTOR_NEXT_PC;
+        self.clear_delay_slot_context();
 
         Ok(())
     }
@@ -242,11 +236,7 @@ impl Cpu {
     pub(crate) fn enter_arithmetic_overflow_exception(
         &mut self,
     ) -> Result<(), CpuArithmeticOverflowExceptionEntryError> {
-        let branch_delay = if self.local_synchronous_exception_entry_allowed() {
-            false
-        } else if self.local_delay_slot_synchronous_exception_entry_allowed() {
-            true
-        } else {
+        let Some((epc, branch_delay)) = self.local_synchronous_exception_lineage() else {
             return Err(CpuArithmeticOverflowExceptionEntryError::new(
                 CpuAddress::new(self.pc),
                 CpuAddress::new(self.next_pc),
@@ -254,29 +244,26 @@ impl Cpu {
             ));
         };
 
-        self.cop0.epc = if branch_delay {
-            self.pc.wrapping_sub(4)
-        } else {
-            self.pc
-        };
+        self.cop0.epc = epc;
         self.cop0.exception_code = COP0_EXCEPTION_CODE_SIGNED_OVERFLOW;
         self.cop0.exception_branch_delay = branch_delay;
         self.cop0.status |= COP0_STATUS_EXL;
         self.pc = LOCAL_EXCEPTION_VECTOR_PC;
         self.next_pc = LOCAL_EXCEPTION_VECTOR_NEXT_PC;
+        self.clear_delay_slot_context();
 
         Ok(())
     }
 
-    fn local_synchronous_exception_entry_allowed(&self) -> bool {
-        self.next_pc == self.pc.wrapping_add(4) && (self.cop0.status & COP0_STATUS_EXL) == 0
-    }
-
-    fn local_delay_slot_synchronous_exception_entry_allowed(&self) -> bool {
-        self.next_pc != self.pc.wrapping_add(4)
-            && (self.cop0.status & COP0_STATUS_EXL) == 0
-            && (self.pc & 0x3) == 0
-            && self.pc >= 4
+    fn local_synchronous_exception_lineage(&self) -> Option<(u32, bool)> {
+        if (self.cop0.status & COP0_STATUS_EXL) != 0 {
+            return None;
+        }
+        match self.delay_slot_context() {
+            Some(context) => Some((context.branch_or_jump_pc(), true)),
+            None if self.next_pc == self.pc.wrapping_add(4) => Some((self.pc, false)),
+            None => None,
+        }
     }
 }
 
@@ -489,6 +476,7 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.stage_pc(0x8000_1204);
         cpu.stage_next_pc(0x8000_2000);
+        cpu.stage_delay_slot_context_for_test(0x8000_1200);
 
         assert_eq!(cpu.enter_arithmetic_overflow_exception(), Ok(()));
 
@@ -500,6 +488,7 @@ mod tests {
         assert_eq!(cpu.cop0_epc(), 0x8000_1200);
         assert_eq!(cpu.pc(), LOCAL_EXCEPTION_VECTOR_PC);
         assert_eq!(cpu.next_pc(), LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(cpu.delay_slot_context(), None);
     }
 
     #[test]
@@ -543,8 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn arithmetic_overflow_exception_entry_blocks_unsupported_delay_slot_context_without_mutation()
-    {
+    fn arithmetic_overflow_exception_entry_blocks_nonsequential_flow_without_explicit_context() {
         let mut cpu = Cpu::new();
         cpu.stage_pc(0x0000_0002);
         cpu.stage_next_pc(0x8000_2000);
@@ -577,6 +565,27 @@ mod tests {
             ),
             before
         );
+    }
+
+    #[test]
+    fn instruction_fetch_adel_explicit_delay_slot_entry_uses_owner_epc_and_clears_context() {
+        let mut cpu = Cpu::new();
+        cpu.stage_pc(0x8000_1206);
+        cpu.stage_next_pc(0x8000_2000);
+        cpu.stage_delay_slot_context_for_test(0x8000_1200);
+
+        assert_eq!(
+            cpu.enter_instruction_fetch_address_error_exception(CpuAddress::new(0x8000_1206)),
+            Ok(())
+        );
+
+        assert_eq!(cpu.cop0_bad_vaddr(), 0x8000_1206);
+        assert_eq!(cpu.cop0_exception_code(), 4);
+        assert!(cpu.cop0_exception_branch_delay());
+        assert_eq!(cpu.cop0_epc(), 0x8000_1200);
+        assert_eq!(cpu.pc(), LOCAL_EXCEPTION_VECTOR_PC);
+        assert_eq!(cpu.next_pc(), LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(cpu.delay_slot_context(), None);
     }
 
     #[test]
@@ -639,6 +648,7 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.stage_pc(0x8000_1204);
         cpu.stage_next_pc(0x8000_2000);
+        cpu.stage_delay_slot_context_for_test(0x8000_1200);
 
         let address_error = data_address_error(
             CpuDataAccessKind::Read,
@@ -657,6 +667,7 @@ mod tests {
         assert_eq!(cpu.cop0_epc(), 0x8000_1200);
         assert_eq!(cpu.pc(), LOCAL_EXCEPTION_VECTOR_PC);
         assert_eq!(cpu.next_pc(), LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(cpu.delay_slot_context(), None);
     }
 
     #[test]
@@ -705,7 +716,7 @@ mod tests {
     }
 
     #[test]
-    fn data_address_error_entry_blocks_unsupported_delay_slot_context_without_mutation() {
+    fn data_address_error_entry_blocks_nonsequential_flow_without_explicit_context() {
         let mut cpu = Cpu::new();
         cpu.stage_pc(0x0000_0002);
         cpu.stage_next_pc(0x8000_2000);

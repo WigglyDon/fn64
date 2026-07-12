@@ -24,6 +24,7 @@ pub(crate) use instruction::{
 };
 pub use registers::CpuRegisterIndexError;
 pub(crate) use scalars::CpuControlFlowSnapshot;
+pub use scalars::CpuDelaySlotContext;
 
 pub const CPU_GPR_COUNT: usize = 32;
 pub const NON_BOOT_RESET_VECTOR_PC: u32 = 0xbfc0_0000;
@@ -32,6 +33,7 @@ pub const NON_BOOT_RESET_VECTOR_NEXT_PC: u32 = 0xbfc0_0004;
 pub struct Cpu {
     pc: u32,
     next_pc: u32,
+    delay_slot_context: Option<CpuDelaySlotContext>,
     hi: u64,
     lo: u64,
     gprs: [u64; CPU_GPR_COUNT],
@@ -44,6 +46,7 @@ impl Cpu {
         Self {
             pc: NON_BOOT_RESET_VECTOR_PC,
             next_pc: NON_BOOT_RESET_VECTOR_NEXT_PC,
+            delay_slot_context: None,
             hi: 0,
             lo: 0,
             gprs: [0; CPU_GPR_COUNT],

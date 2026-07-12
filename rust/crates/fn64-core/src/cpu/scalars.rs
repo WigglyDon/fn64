@@ -1,10 +1,27 @@
 use super::Cpu;
 
+/// Identifies the branch or jump that owns the currently represented delay slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuDelaySlotContext {
+    branch_or_jump_pc: u32,
+}
+
+impl CpuDelaySlotContext {
+    pub(crate) const fn new(branch_or_jump_pc: u32) -> Self {
+        Self { branch_or_jump_pc }
+    }
+
+    pub const fn branch_or_jump_pc(self) -> u32 {
+        self.branch_or_jump_pc
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) struct CpuControlFlowSnapshot {
     pc: u32,
     next_pc: u32,
+    delay_slot_context: Option<CpuDelaySlotContext>,
 }
 
 #[allow(dead_code)]
@@ -15,6 +32,10 @@ impl CpuControlFlowSnapshot {
 
     pub(crate) const fn next_pc(self) -> u32 {
         self.next_pc
+    }
+
+    pub(crate) const fn delay_slot_context(self) -> Option<CpuDelaySlotContext> {
+        self.delay_slot_context
     }
 }
 
@@ -27,6 +48,10 @@ impl Cpu {
         self.next_pc
     }
 
+    pub(crate) const fn delay_slot_context(&self) -> Option<CpuDelaySlotContext> {
+        self.delay_slot_context
+    }
+
     pub fn hi(&self) -> u64 {
         self.hi
     }
@@ -37,8 +62,8 @@ impl Cpu {
 
     pub fn stage_pc(&mut self, value: u32) {
         self.pc = value;
-        // Mirrors C++ write_cpu_pc: staging PC also stages the sequential next PC.
         self.next_pc = sequential_instruction_address(value);
+        self.delay_slot_context = None;
     }
 
     pub fn stage_next_pc(&mut self, value: u32) {
@@ -63,6 +88,7 @@ impl Cpu {
         CpuControlFlowSnapshot {
             pc: self.pc,
             next_pc: self.next_pc,
+            delay_slot_context: self.delay_slot_context,
         }
     }
 
@@ -70,11 +96,32 @@ impl Cpu {
     pub(crate) fn restore_control_flow(&mut self, snapshot: CpuControlFlowSnapshot) {
         self.pc = snapshot.pc;
         self.next_pc = snapshot.next_pc;
+        self.delay_slot_context = snapshot.delay_slot_context;
     }
 
     #[allow(dead_code)]
     pub(crate) fn commit_staged_step_control_flow(&mut self, snapshot: CpuControlFlowSnapshot) {
         self.pc = snapshot.next_pc;
+        self.delay_slot_context = None;
+    }
+
+    pub(crate) fn commit_ordinary_control_flow(
+        &mut self,
+        snapshot: CpuControlFlowSnapshot,
+        selected_next_pc: u32,
+    ) {
+        self.pc = snapshot.next_pc;
+        self.next_pc = selected_next_pc;
+        self.delay_slot_context = Some(CpuDelaySlotContext::new(snapshot.pc));
+    }
+
+    pub(crate) fn clear_delay_slot_context(&mut self) {
+        self.delay_slot_context = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage_delay_slot_context_for_test(&mut self, branch_or_jump_pc: u32) {
+        self.delay_slot_context = Some(CpuDelaySlotContext::new(branch_or_jump_pc));
     }
 }
 
@@ -241,15 +288,20 @@ mod tests {
 
         cpu.stage_pc(0x8000_1000);
         cpu.stage_next_pc(0x8000_2000);
+        cpu.stage_delay_slot_context_for_test(0x8000_0ffc);
 
         let snapshot = cpu.capture_control_flow();
 
         assert_eq!(snapshot.pc(), 0x8000_1000);
         assert_eq!(snapshot.next_pc(), 0x8000_2000);
+        assert_eq!(
+            snapshot.delay_slot_context(),
+            Some(super::CpuDelaySlotContext::new(0x8000_0ffc))
+        );
     }
 
     #[test]
-    fn control_flow_restore_restores_only_pc_and_next_pc() {
+    fn control_flow_restore_restores_pc_next_pc_and_delay_slot_context() {
         let mut cpu = Cpu::new();
 
         assert_eq!(cpu.set_gpr(8, 0x0123_4567_89ab_cdef), Ok(()));
@@ -257,6 +309,7 @@ mod tests {
         cpu.stage_lo(0x5555_6666_7777_8888);
         cpu.stage_pc(0x8000_1000);
         cpu.stage_next_pc(0x8000_2000);
+        cpu.stage_delay_slot_context_for_test(0x8000_0ffc);
         let snapshot = cpu.capture_control_flow();
 
         cpu.stage_pc(0x8000_3000);
@@ -269,6 +322,10 @@ mod tests {
         assert_eq!(cpu.lo(), 0x5555_6666_7777_8888);
         assert_eq!(cpu.gpr(0), Some(0));
         assert_eq!(cpu.gpr(8), Some(0x0123_4567_89ab_cdef));
+        assert_eq!(
+            cpu.delay_slot_context(),
+            Some(super::CpuDelaySlotContext::new(0x8000_0ffc))
+        );
         assert_cop0_construction_state(&cpu);
     }
 
@@ -288,6 +345,7 @@ mod tests {
 
         assert_eq!(cpu.pc(), 0x8000_2000);
         assert_eq!(cpu.next_pc(), 0x8000_2004);
+        assert_eq!(cpu.delay_slot_context(), None);
         assert_eq!(cpu.hi(), 0x1111_2222_3333_4444);
         assert_eq!(cpu.lo(), 0x5555_6666_7777_8888);
         assert_eq!(cpu.gpr(0), Some(0));
@@ -308,5 +366,35 @@ mod tests {
 
         assert_eq!(cpu.pc(), 0xffff_fffc);
         assert_eq!(cpu.next_pc(), 0x0000_0000);
+        assert_eq!(cpu.delay_slot_context(), None);
+    }
+
+    #[test]
+    fn ordinary_control_flow_commit_schedules_one_explicit_delay_slot() {
+        let mut cpu = Cpu::new();
+        cpu.stage_pc(0x8000_1000);
+        let snapshot = cpu.capture_control_flow();
+        cpu.stage_next_sequential_pc_for_step();
+
+        cpu.commit_ordinary_control_flow(snapshot, 0x8000_2000);
+
+        assert_eq!(cpu.pc(), 0x8000_1004);
+        assert_eq!(cpu.next_pc(), 0x8000_2000);
+        assert_eq!(
+            cpu.delay_slot_context(),
+            Some(super::CpuDelaySlotContext::new(0x8000_1000))
+        );
+    }
+
+    #[test]
+    fn stage_pc_clears_stale_delay_slot_context() {
+        let mut cpu = Cpu::new();
+        cpu.stage_delay_slot_context_for_test(0x8000_0ffc);
+
+        cpu.stage_pc(0x8000_3000);
+
+        assert_eq!(cpu.pc(), 0x8000_3000);
+        assert_eq!(cpu.next_pc(), 0x8000_3004);
+        assert_eq!(cpu.delay_slot_context(), None);
     }
 }
