@@ -92,6 +92,8 @@ fn boot_probe_cli_generated_local_fixture_reaches_expected_frontier_with_success
     assert!(stdout.contains("reason=sp-imem-unknown"));
     assert!(stdout.contains("expected_frontier_exit_policy: success"));
     assert!(stdout.contains("pif_firmware_input: absent"));
+    assert!(stdout.contains("pif_ipl2_profile: unavailable"));
+    assert!(stdout.contains("pif_firmware_sp_imem_production: unavailable"));
     assert!(stdout.contains("pif_firmware_search: none"));
     assert!(stdout.contains("pif_firmware_default_path: none"));
     assert!(stdout.contains("no_window: yes"));
@@ -128,9 +130,9 @@ fn boot_probe_cli_argument_failure_uses_usage_exit_status() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8(output.stderr)
-        .unwrap()
-        .contains("usage: fn64_boot_probe"));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("usage: fn64_boot_probe"));
+    assert!(stderr.contains("--pif-profile <ntsc-pinned|pal-pinned|mpal-pinned>"));
 }
 
 #[test]
@@ -149,15 +151,11 @@ fn boot_probe_cli_missing_pif_option_value_is_explicit() {
 }
 
 #[test]
-fn boot_probe_cli_requires_one_supported_profile_paired_with_the_pif_path() {
+fn boot_probe_cli_profile_syntax_and_profile_without_input_are_explicit() {
     for (arguments, expected) in [
         (
-            vec![
-                "generated-rom.fixture",
-                "--pif-rom",
-                "generated-pif.fixture",
-            ],
-            "--pif-rom requires an explicit --pif-profile",
+            vec!["generated-rom.fixture", "--pif-profile"],
+            "--pif-profile requires an explicit profile",
         ),
         (
             vec!["generated-rom.fixture", "--pif-profile", "ntsc-pinned"],
@@ -196,8 +194,6 @@ fn boot_probe_cli_unreadable_explicit_pif_path_fails_without_search() {
         .arg(&rom_path)
         .arg("--pif-rom")
         .arg(&missing_pif_path)
-        .arg("--pif-profile")
-        .arg("ntsc-pinned")
         .output()
         .unwrap();
 
@@ -208,6 +204,49 @@ fn boot_probe_cli_unreadable_explicit_pif_path_fails_without_search() {
     assert!(stderr.contains("result: fail"));
     assert!(stderr.contains("local PIF firmware read failed"));
     assert!(stderr.contains(&missing_pif_path.display().to_string()));
+}
+
+#[test]
+fn boot_probe_cli_accepts_unprofiled_pif_input_without_materialization_or_inference() {
+    let rom_path = generated_fixture_path("accepted-unprofiled-pif-rom");
+    let pif_path = generated_fixture_path("pal-pinned-filename-must-not-select");
+    std::fs::write(&rom_path, make_generated_boot_fixture()).unwrap();
+    std::fs::write(
+        &pif_path,
+        make_generated_pif_firmware(PIF_BOOT_ROM_SIZE_BYTES),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_fn64_boot_probe"))
+        .arg(&rom_path)
+        .arg("--pif-rom")
+        .arg(&pif_path)
+        .arg("--max-steps")
+        .arg("100")
+        .output()
+        .unwrap();
+
+    std::fs::remove_file(&rom_path).unwrap();
+    std::fs::remove_file(&pif_path).unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("pif_firmware_input: accepted"));
+    assert!(stdout.contains("pif_firmware_classification: raw-boot-rom"));
+    assert!(stdout.contains("pif_ipl2_profile: unavailable"));
+    assert!(stdout.contains("pif_firmware_size_bytes: 1984"));
+    assert!(stdout.contains("pif_firmware_sp_imem_production: not-materialized-no-profile"));
+    assert!(stdout.contains("pif_ipl2_copy_source: unavailable"));
+    assert!(stdout.contains("pif_ipl2_copy_destination: unavailable"));
+    assert!(stdout.contains("pif_ipl2_copy_size_bytes: unavailable"));
+    assert!(stdout.contains("committed_steps: 1"));
+    assert!(stdout.contains("reason=sp-imem-unknown"));
+    assert!(stdout.contains("pif_ipl1_execution: no"));
+    assert!(stdout.contains("pif_ipl2_execution: no"));
+    assert!(stdout.contains("compatibility_claim: none"));
+    assert!(!stdout.contains("FN64_GENERATED_PIF_BYTES_MUST_NOT_BE_LOGGED"));
+    assert!(!stdout.contains(&pif_path.display().to_string()));
+    assert!(!stdout.contains("authentic"));
 }
 
 #[test]
@@ -253,8 +292,12 @@ fn boot_probe_cli_materializes_every_explicit_profile_without_dumping_bytes_or_p
         assert!(stdout.contains("highest_checkpoint: BOOT-2"));
         assert!(stdout.contains("committed_steps: 2"));
         assert!(stdout.contains("last_committed_identity: Lw"));
+        assert!(stdout.contains("pif_ipl1_execution: no"));
+        assert!(stdout.contains("pif_ipl2_execution: no"));
+        assert!(stdout.contains("compatibility_claim: none"));
         assert!(!stdout.contains("FN64_GENERATED_PIF_BYTES_MUST_NOT_BE_LOGGED"));
         assert!(!stdout.contains(&pif_path.display().to_string()));
+        assert!(!stdout.contains("authentic"));
     }
 
     std::fs::remove_file(&rom_path).unwrap();
@@ -281,29 +324,29 @@ fn boot_probe_cli_distinguishes_generated_malformed_and_unsupported_pif_files() 
         let pif_path = generated_fixture_path(label);
         std::fs::write(&pif_path, make_generated_pif_firmware(size)).unwrap();
 
-        let output = Command::new(env!("CARGO_BIN_EXE_fn64_boot_probe"))
-            .arg(&rom_path)
-            .arg("--pif-rom")
-            .arg(&pif_path)
-            .arg("--pif-profile")
-            .arg("pal-pinned")
-            .output()
-            .unwrap();
+        for profile in [None, Some("pal-pinned")] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_fn64_boot_probe"));
+            command.arg(&rom_path).arg("--pif-rom").arg(&pif_path);
+            if let Some(profile) = profile {
+                command.arg("--pif-profile").arg(profile);
+            }
+            let output = command.output().unwrap();
 
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stdout.is_empty());
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            assert!(stderr.contains("PIF firmware input rejected"));
+            assert!(stderr.contains(expected));
+            assert!(!stderr.contains("FN64_GENERATED_PIF_BYTES_MUST_NOT_BE_LOGGED"));
+        }
         std::fs::remove_file(&pif_path).unwrap();
-        assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
-        let stderr = String::from_utf8(output.stderr).unwrap();
-        assert!(stderr.contains("PIF firmware input rejected"));
-        assert!(stderr.contains(expected));
-        assert!(!stderr.contains("FN64_GENERATED_PIF_BYTES_MUST_NOT_BE_LOGGED"));
     }
 
     std::fs::remove_file(&rom_path).unwrap();
 }
 
 #[test]
-fn boot_probe_cli_does_not_consult_a_default_pif_filename() {
+fn boot_probe_cli_does_not_consult_environment_or_current_directory_for_pif_input() {
     let directory = generated_fixture_directory("no-default-search");
     std::fs::create_dir(&directory).unwrap();
     let rom_path = directory.join("generated-cartridge.fixture");
@@ -317,6 +360,8 @@ fn boot_probe_cli_does_not_consult_a_default_pif_filename() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_fn64_boot_probe"))
         .current_dir(&directory)
+        .env("FN64_PIF_ROM", &tempting_default)
+        .env("PIF_ROM", &tempting_default)
         .arg("generated-cartridge.fixture")
         .output()
         .unwrap();
@@ -328,6 +373,8 @@ fn boot_probe_cli_does_not_consult_a_default_pif_filename() {
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("pif_firmware_input: absent"));
+    assert!(stdout.contains("pif_ipl2_profile: unavailable"));
+    assert!(stdout.contains("pif_firmware_sp_imem_production: unavailable"));
     assert!(stdout.contains("pif_firmware_search: none"));
     assert!(stdout.contains("pif_firmware_default_path: none"));
 }

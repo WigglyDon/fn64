@@ -2472,6 +2472,7 @@ impl std::error::Error for MachineRepresentedStepError {}
 pub struct Machine {
     cartridge: Cartridge,
     pif_firmware: Option<PifFirmware>,
+    pif_ipl2_profile: Option<PifIpl2Profile>,
     cpu: Cpu,
     rdram: Rdram,
     sp_dmem: SpDmem,
@@ -2486,6 +2487,7 @@ impl Machine {
         Self {
             cartridge,
             pif_firmware: None,
+            pif_ipl2_profile: None,
             cpu: Cpu::new(),
             rdram: Rdram::default(),
             sp_dmem: SpDmem::default(),
@@ -2506,18 +2508,16 @@ impl Machine {
         self.powered_on = true;
     }
 
-    /// Validates and transfers one explicitly profiled raw PIF Boot ROM into
-    /// this Machine.
+    /// Validates and transfers one owned raw PIF Boot ROM into this Machine.
     ///
     /// Validation completes before the accepted immutable firmware owner is
     /// replaced. This input-only boundary does not execute firmware or produce
     /// SP IMEM state.
     pub fn install_pif_firmware(
         &mut self,
-        profile: PifIpl2Profile,
         owned_bytes: Vec<u8>,
     ) -> Result<MachinePifFirmwareState, PifFirmwareValidationError> {
-        let firmware = PifFirmware::from_owned_bytes(profile, owned_bytes)?;
+        let firmware = PifFirmware::from_owned_bytes(owned_bytes)?;
         let state = firmware.state();
         self.pif_firmware = Some(firmware);
         Ok(state)
@@ -2527,6 +2527,21 @@ impl Machine {
         self.pif_firmware
             .as_ref()
             .map_or(MachinePifFirmwareState::Absent, PifFirmware::state)
+    }
+
+    /// Installs one explicit pinned IPL2 copy profile independently of PIF
+    /// firmware input.
+    ///
+    /// Selection alone does not materialize SP IMEM. The named bootstrap
+    /// creation point requires accepted firmware before it can apply the
+    /// profile, and no default or inferred profile exists.
+    pub fn install_pif_ipl2_profile(&mut self, profile: PifIpl2Profile) -> PifIpl2Profile {
+        self.pif_ipl2_profile = Some(profile);
+        profile
+    }
+
+    pub const fn pif_ipl2_profile(&self) -> Option<PifIpl2Profile> {
+        self.pif_ipl2_profile
     }
 
     /// Stages the represented CPU control-flow pair for a selected PC.
@@ -4398,6 +4413,7 @@ mod tests {
             machine.pif_firmware_state(),
             MachinePifFirmwareState::Absent
         );
+        assert_eq!(machine.pif_ipl2_profile(), None);
         assert!(machine.pif_firmware_bytes_for_test().is_none());
     }
 
@@ -4407,19 +4423,17 @@ mod tests {
         let mut caller_bytes = generated_pif_firmware(0x31, PIF_BOOT_ROM_SIZE_BYTES);
         let expected_bytes = caller_bytes.clone();
 
-        let state = machine
-            .install_pif_firmware(PifIpl2Profile::NtscPinned, caller_bytes.clone())
-            .unwrap();
+        let state = machine.install_pif_firmware(caller_bytes.clone()).unwrap();
         caller_bytes.fill(0xff);
 
         assert_eq!(
             state,
             MachinePifFirmwareState::Accepted {
                 classification: PifFirmwareClassification::RawBootRom,
-                profile: PifIpl2Profile::NtscPinned,
                 size_bytes: PIF_BOOT_ROM_SIZE_BYTES,
             }
         );
+        assert_eq!(machine.pif_ipl2_profile(), None);
         assert_eq!(machine.pif_firmware_state(), state);
         assert_eq!(
             machine.pif_firmware_bytes_for_test(),
@@ -4436,14 +4450,16 @@ mod tests {
         let mut machine = Machine::from_cartridge(Cartridge::default());
         let expected_bytes = generated_pif_firmware(0x42, PIF_BOOT_ROM_SIZE_BYTES);
         let accepted = machine
-            .install_pif_firmware(PifIpl2Profile::PalPinned, expected_bytes.clone())
+            .install_pif_firmware(expected_bytes.clone())
             .unwrap();
+        machine.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
         machine.stage_cpu_pc(0x8000_2000);
         machine.write_rdram_u32_be(0x20, 0x1122_3344).unwrap();
 
         machine.reset();
 
         assert_eq!(machine.pif_firmware_state(), accepted);
+        assert_eq!(machine.pif_ipl2_profile(), Some(PifIpl2Profile::PalPinned));
         assert_eq!(
             machine.pif_firmware_bytes_for_test(),
             Some(expected_bytes.as_slice())
@@ -4457,26 +4473,27 @@ mod tests {
         let mut machine = Machine::from_cartridge(Cartridge::default());
         let accepted_bytes = generated_pif_firmware(0x53, PIF_BOOT_ROM_SIZE_BYTES);
         machine
-            .install_pif_firmware(PifIpl2Profile::MpalPinned, accepted_bytes.clone())
+            .install_pif_firmware(accepted_bytes.clone())
             .unwrap();
+        machine.install_pif_ipl2_profile(PifIpl2Profile::MpalPinned);
         machine.stage_cpu_pc(0x8000_3000);
         machine.write_rdram_u32_be(0x30, 0xaabb_ccdd).unwrap();
+        machine
+            .stage_generated_sp_imem_word_for_test(0, 0x1122_3344)
+            .unwrap();
         let before = lw_snapshot(&machine);
 
         let malformed = machine
-            .install_pif_firmware(
-                PifIpl2Profile::NtscPinned,
-                generated_pif_firmware(0x64, PIF_BOOT_ROM_SIZE_BYTES - 1),
-            )
+            .install_pif_firmware(generated_pif_firmware(0x64, PIF_BOOT_ROM_SIZE_BYTES - 1))
             .unwrap_err();
         assert!(malformed.is_malformed());
         assert_eq!(lw_snapshot(&machine), before);
 
         let unsupported = machine
-            .install_pif_firmware(
-                PifIpl2Profile::PalPinned,
-                generated_pif_firmware(0x75, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES),
-            )
+            .install_pif_firmware(generated_pif_firmware(
+                0x75,
+                PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+            ))
             .unwrap_err();
         assert!(unsupported.is_unsupported());
         assert_eq!(lw_snapshot(&machine), before);
@@ -4484,6 +4501,7 @@ mod tests {
             machine.pif_firmware_bytes_for_test(),
             Some(accepted_bytes.as_slice())
         );
+        assert_eq!(machine.pif_ipl2_profile(), Some(PifIpl2Profile::MpalPinned));
     }
 
     #[test]
@@ -14371,6 +14389,7 @@ mod tests {
         cartridge: Vec<u8>,
         pif_firmware_state: MachinePifFirmwareState,
         pif_firmware_bytes: Option<Vec<u8>>,
+        pif_ipl2_profile: Option<PifIpl2Profile>,
         pc: u32,
         next_pc: u32,
         gprs: [u64; CPU_GPR_COUNT],
@@ -14400,6 +14419,7 @@ mod tests {
                 .collect(),
             pif_firmware_state: machine.pif_firmware_state(),
             pif_firmware_bytes: machine.pif_firmware_bytes_for_test().map(<[u8]>::to_vec),
+            pif_ipl2_profile: machine.pif_ipl2_profile(),
             pc: machine.cpu().pc(),
             next_pc: machine.cpu().next_pc(),
             gprs: core::array::from_fn(|index| machine.cpu().gpr(index).unwrap()),

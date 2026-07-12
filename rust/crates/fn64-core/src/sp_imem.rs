@@ -429,10 +429,10 @@ mod tests {
     #[test]
     fn profiled_pif_copy_creates_byte_exact_known_range_and_source_offsets() {
         let bytes = generated_pif_firmware(0x29);
-        let firmware =
-            PifFirmware::from_owned_bytes(PifIpl2Profile::NtscPinned, bytes.clone()).unwrap();
+        let firmware = PifFirmware::from_owned_bytes(bytes.clone()).unwrap();
         let layout = PifIpl2Profile::NtscPinned.copy_layout();
-        let sp_imem = SpImem::from_pif_ipl2_copy(firmware.ipl2_copy()).unwrap();
+        let sp_imem =
+            SpImem::from_pif_ipl2_copy(firmware.ipl2_copy(PifIpl2Profile::NtscPinned)).unwrap();
 
         for destination_offset in 0..layout.byte_count() {
             let observation = sp_imem
