@@ -9,21 +9,23 @@ Core proof covers:
   three profiles;
 - every copied byte and its exact source-offset provenance;
 - every untouched byte remaining Unknown;
-- absent, malformed, and unsupported input;
+- no firmware/no profile, accepted firmware/no profile, profile/no firmware,
+  and both install orders;
+- malformed and unsupported input with full-state replacement rollback;
 - host-buffer independence and failed-replacement atomicity;
-- reset, repeated bootstrap, shorter-profile stale-tail clearing, and
-  independent Machines;
+- reset, repeated bootstrap, PAL-to-NTSC and MPAL-to-NTSC stale-tail clearing,
+  and independent Machines;
 - bootstrap failure preserving complete represented state; and
 - a generated copied word consumed by `Lw` through public `Machine::step`.
 
 Inspection proof covers:
 
-- paired profile/path parsing, missing values, unsupported `auto`, and an
-  unreadable literal path;
-- generated malformed and unsupported files;
+- no-PIF behavior, accepted unprofiled input, explicit profile-without-input
+  failure, missing values, unsupported `auto`, and an unreadable literal path;
+- generated malformed and unsupported files both with and without a profile;
 - all three explicit CLI profiles and exact reported ranges;
-- deterministic output, no successful PIF path or byte dump, and no default
-  filename search; and
+- deterministic output, no successful PIF path or byte dump, no environment or
+  current-directory search, and no filename inference; and
 - unchanged absent-input BOOT-2-shaped synthetic behavior.
 
 Synthetic success proves these represented semantics only. It does not prove

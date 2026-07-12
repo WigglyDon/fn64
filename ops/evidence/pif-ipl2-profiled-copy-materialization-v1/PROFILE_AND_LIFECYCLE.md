@@ -17,23 +17,29 @@ metadata, title, region, product code, or digest.
 The creation event is `Machine::stage_cartridge_bootstrap`. It preflights the
 cartridge source and builds replacement SP DMEM, SP IMEM, CPU, and provenance
 state in local values before replacing represented Machine state. Accepted
-profiled firmware produces a complete replacement `SpImem`; absent firmware
-produces the prior all-Unknown replacement.
+firmware plus an explicit profile produces a complete replacement `SpImem`.
+Accepted firmware without a profile and the no-firmware/no-profile state both
+produce the prior all-Unknown replacement. A selected profile without accepted
+firmware rejects before any represented mutation.
 
 Every copied byte records `UserSuppliedPifFirmware { profile, source_offset }`.
 All destination bytes outside the selected range remain zero-backed and
 Unknown. The full consumed prefix `[0x000,0x020)` and current mutation-input
 prefix `[0x000,0x02c)` lie inside every complete copied range.
 
-Malformed or unsupported replacement input is rejected before the accepted
-firmware/profile pair changes. A bootstrap source-range failure preserves the
-firmware, SP IMEM bytes and provenance, CPU, RDRAM, SP DMEM, checkpoint state,
-and control flow.
+Malformed or unsupported replacement input is rejected before accepted
+firmware changes and preserves the independently selected profile. Full-state
+snapshots prove firmware, profile, cartridge, SP IMEM bytes and provenance,
+CPU, COP0, PC, next_pc, Count, RDRAM, SP DMEM, bootstrap state, and reservation
+state are unchanged. A bootstrap source-range or missing-firmware failure is
+likewise pre-mutation.
 
 ## Lifecycle
 
-Reset preserves the immutable firmware/profile input but clears bootstrap and
-SP IMEM state. The next bootstrap rematerializes the selected copy. Repeated
-bootstrap is deterministic. Replacing PAL/MPAL with the shorter NTSC profile
-rebuilds SP IMEM and clears the former four-byte tail to Unknown, proving stale
-bytes and provenance cannot survive. Separate Machines remain independent.
+Firmware and profile can be installed in either order and remain independent
+Machine-owned state. Reset preserves both while clearing bootstrap and SP IMEM
+knownness. The next bootstrap rematerializes only when both are present.
+Repeated bootstrap is deterministic. Replacing PAL or MPAL with the shorter
+NTSC profile rebuilds SP IMEM and clears `[0x648,0x64c)` to Unknown, proving
+stale bytes and provenance cannot survive. Separate Machines remain
+independent.
