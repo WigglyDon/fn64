@@ -102,10 +102,17 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - `pif-ipl2-source-mapping-v1`: evidence-only candidate `2ee4b3c7` was
   independently verified and integrated **ACCEPTED — VARIANT-SPECIFIC SOURCE
   MAPPING**. It changed no product behavior and used no private input.
-- Integration queue: empty after both reviewed Wave 3 entries were closed.
-- `USER_DECISION`: the evidence-only mapping lane may run concurrently with the
-  synthetic ordinary-control-flow product lane. Neither may edit coordination
-  state, and neither receives private-ROM or private-PIF authority.
+- Product Wave 4: `pif-ipl2-profiled-copy-materialization-v1` and
+  `pif-ipl2-handoff-state-mapping-v1` are provisioned and await matching
+  supervisor packets. The product lane owns narrow PIF/Machine/bootstrap/
+  SP-IMEM/boot-probe paths; the evidence lane owns only its evidence directory.
+  Direct writable overlap is zero.
+- Integration queue: two honest no-candidate Wave 4 entries. Candidate,
+  artifact, and base identities remain `UNKNOWN`; validation is `NOT_RUN`, and
+  integration/push are pending and unauthorized.
+- `USER_DECISION`: the profiled-copy product lane may run concurrently with the
+  evidence-only handoff mapping lane. Neither receives private-ROM or
+  private-PIF authority, and no Worker implementation has started.
 - Repository-purity cleanup is complete for its accepted non-product scope.
 - Product Acceleration Wave 1 selected one combined frontier because
   storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,

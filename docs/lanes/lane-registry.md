@@ -11,18 +11,27 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-None after verified Wave 3 integration. Master retains lane, queue, context,
-branch, worktree, and integration ownership.
+- [`pif-ipl2-profiled-copy-materialization-v1`](pif-ipl2-profiled-copy-materialization-v1.md)
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+  - Topology: generated-proof Rust product lane
+  - Implementation/candidate: not started / none
+  - Writable owner: exact registered PIF/Machine/bootstrap/SP-IMEM/boot-probe
+    paths plus its own evidence directory
+- [`pif-ipl2-handoff-state-mapping-v1`](pif-ipl2-handoff-state-mapping-v1.md)
+  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+  - Topology: evidence-only pre-IPL3 state-mapping lane
+  - Implementation/candidate: not started / none
+  - Writable owner: `ops/evidence/pif-ipl2-handoff-state-mapping-v1/**` only
+
+The two lanes have zero direct writable-path overlap. Master retains lane,
+queue, context, branch, worktree, and integration ownership.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-- `pif-ipl2-profiled-copy-materialization-v1`: planned from the accepted
-  variant-qualified mapping; registration and provisioning remain Master work.
-- `pif-ipl2-handoff-state-mapping-v1`: planned evidence-only follow-on for the
-  complete pre-IPL3 state boundary.
+None. Minimal IPL2 execution remains unearned and unprovisioned.
 
 ## Parked donor lanes
 

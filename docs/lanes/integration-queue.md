@@ -15,5 +15,5 @@ Machine-readable owner: `ops/fleet/integration-queue.json`
 
 | Lane ID | Candidate HEAD | Base | Context-SHA | Artifact | Targeted validation | Full verify | Overlap | Dependency | Authority impact | Revalidation | Decision | Push |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-
-No active worker-lane candidates are queued.
+| pif-ipl2-profiled-copy-materialization-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | NONE | accepted 1fa8aa17 input boundary and 2ee4b3c7 variant-specific mapping; explicit pinned profile required; zero direct overlap with handoff evidence lane | RUST_PROFILED_PIF_COPY_SYNTHETIC_ONLY | PENDING | PENDING | NOT_AUTHORIZED |
+| pif-ipl2-handoff-state-mapping-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | NONE | accepted 2ee4b3c7 source mapping; evidence-only complete pre-IPL3 handoff audit precedes any later execution decision | EVIDENCE_ONLY_NO_PRODUCT_CHANGE | PENDING | PENDING | NOT_AUTHORIZED |

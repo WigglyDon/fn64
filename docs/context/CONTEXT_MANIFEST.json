@@ -23,6 +23,8 @@
     "docs/lanes/lane-registry.md",
     "docs/lanes/integration-queue.md",
     "docs/lanes/ordinary-control-flow-delay-slot-v1.md",
+    "docs/lanes/pif-ipl2-handoff-state-mapping-v1.md",
+    "docs/lanes/pif-ipl2-profiled-copy-materialization-v1.md",
     "docs/lanes/pif-ipl2-source-mapping-v1.md",
     "docs/lanes/real-cartridge-boot-spine-v1.md",
     "docs/lanes/rust-purity-repo-cleanup-v1.md",
