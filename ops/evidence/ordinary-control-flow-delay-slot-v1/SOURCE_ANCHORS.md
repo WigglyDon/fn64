@@ -1,0 +1,22 @@
+# Source anchors
+
+- `rust/crates/fn64-core/src/machine.rs`
+  - `Machine::step`
+  - `Machine::produce_ordinary_control_flow_step_action`
+  - `Machine::ordinary_control_flow_rejection`
+  - `Machine::apply_ordinary_control_flow_step_action`
+  - `Machine::produce_current_pc_classified_step_action`
+  - `conditional_branch_target`, `jump_target`, `sign_extend_cpu_address`
+- `rust/crates/fn64-core/src/cpu.rs`
+  - `Cpu::new`, delay-context storage
+- `rust/crates/fn64-core/src/cpu/scalars.rs`
+  - `CpuDelaySlotContext`, `CpuControlFlowSnapshot`
+  - stage, restore, ordinary-control-flow commit, successful-slot clear
+- `rust/crates/fn64-core/src/cpu/cop0.rs`
+  - `local_synchronous_exception_lineage`
+  - arithmetic-overflow, instruction-fetch-AdEL, and data-AdEL entry
+- inspected unchanged owners:
+  - `cpu/instruction.rs`: decode and all six identities
+  - `cpu/registers.rs`: GPR zero discard
+- `rust/crates/fn64-inspection/src/bin/fn64_step_probe.rs`
+  - six added deterministic control-flow cases through public `Machine::step`
