@@ -27,23 +27,6 @@ impl PifIpl2Profile {
         }
     }
 
-    pub const fn cli_name(self) -> &'static str {
-        match self {
-            Self::NtscPinned => "ntsc-pinned",
-            Self::PalPinned => "pal-pinned",
-            Self::MpalPinned => "mpal-pinned",
-        }
-    }
-
-    pub fn from_cli_name(value: &str) -> Option<Self> {
-        match value {
-            "ntsc-pinned" => Some(Self::NtscPinned),
-            "pal-pinned" => Some(Self::PalPinned),
-            "mpal-pinned" => Some(Self::MpalPinned),
-            _ => None,
-        }
-    }
-
     pub const fn copy_layout(self) -> PifIpl2CopyLayout {
         let source_end_offset_exclusive = match self {
             Self::NtscPinned => PIF_IPL2_NTSC_COPY_SOURCE_END_OFFSET_EXCLUSIVE,
@@ -344,34 +327,14 @@ mod tests {
     }
 
     #[test]
-    fn pinned_profiles_own_exact_copy_layouts_and_cli_tokens() {
-        for (profile, name, cli_name, source_end, byte_count) in [
-            (
-                PifIpl2Profile::NtscPinned,
-                "NTSC_PINNED",
-                "ntsc-pinned",
-                0x071c,
-                0x0648,
-            ),
-            (
-                PifIpl2Profile::PalPinned,
-                "PAL_PINNED",
-                "pal-pinned",
-                0x0720,
-                0x064c,
-            ),
-            (
-                PifIpl2Profile::MpalPinned,
-                "MPAL_PINNED",
-                "mpal-pinned",
-                0x0720,
-                0x064c,
-            ),
+    fn pinned_profiles_own_exact_semantic_names_and_copy_layouts() {
+        for (profile, name, source_end, byte_count) in [
+            (PifIpl2Profile::NtscPinned, "NTSC_PINNED", 0x071c, 0x0648),
+            (PifIpl2Profile::PalPinned, "PAL_PINNED", 0x0720, 0x064c),
+            (PifIpl2Profile::MpalPinned, "MPAL_PINNED", 0x0720, 0x064c),
         ] {
             let layout = profile.copy_layout();
             assert_eq!(profile.name(), name);
-            assert_eq!(profile.cli_name(), cli_name);
-            assert_eq!(PifIpl2Profile::from_cli_name(cli_name), Some(profile));
             assert_eq!(layout.source_start_offset(), 0x00d4);
             assert_eq!(layout.source_end_offset_exclusive(), source_end);
             assert_eq!(layout.sp_imem_start_offset(), 0);
@@ -379,9 +342,6 @@ mod tests {
             assert_eq!(layout.byte_count(), byte_count as usize);
             assert!(layout.source_end_offset_exclusive() as usize <= PIF_BOOT_ROM_SIZE_BYTES);
         }
-        assert_eq!(PifIpl2Profile::from_cli_name("ntsc"), None);
-        assert_eq!(PifIpl2Profile::from_cli_name("NTSC_PINNED"), None);
-        assert_eq!(PifIpl2Profile::from_cli_name("auto"), None);
     }
 
     #[test]

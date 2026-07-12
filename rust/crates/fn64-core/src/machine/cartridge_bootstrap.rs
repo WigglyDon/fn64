@@ -1271,26 +1271,75 @@ mod tests {
     }
 
     #[test]
-    fn pif_profile_installed_before_firmware_materializes_only_after_both_are_present() {
+    fn pif_installation_orders_materialize_identically_across_reset_and_repeated_stage() {
         let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
-        let mut machine = Machine::from_cartridge(cartridge);
+        let mut firmware_first = Machine::from_cartridge(cartridge.clone());
+        let mut profile_first = Machine::from_cartridge(cartridge);
         let profile = PifIpl2Profile::MpalPinned;
         let firmware_bytes = generated_pif_firmware(0x5b);
-        machine.install_pif_ipl2_profile(profile);
+
+        firmware_first
+            .install_pif_firmware(firmware_bytes.clone())
+            .unwrap();
+        assert_eq!(firmware_first.pif_ipl2_profile(), None);
+        firmware_first.install_pif_ipl2_profile(profile);
+
+        profile_first.install_pif_ipl2_profile(profile);
         assert_eq!(
-            machine.pif_firmware_state(),
+            profile_first.pif_firmware_state(),
             MachinePifFirmwareState::Absent
         );
-        machine
+        profile_first
             .install_pif_firmware(firmware_bytes.clone())
             .unwrap();
 
-        let state = machine.stage_cartridge_bootstrap().unwrap();
         let layout = profile.copy_layout();
-        let observed = machine.sp_imem.observe_byte(SpImemOffset::new(0)).unwrap();
+        assert_eq!(
+            architectural_snapshot(&firmware_first),
+            architectural_snapshot(&profile_first)
+        );
 
-        assert_eq!(state.pif_ipl2_profile(), Some(profile));
-        assert_eq!(state.pif_ipl2_copy_layout(), Some(layout));
+        for _ in 0..2 {
+            let firmware_first_state = firmware_first.stage_cartridge_bootstrap().unwrap();
+            let profile_first_state = profile_first.stage_cartridge_bootstrap().unwrap();
+            assert_eq!(firmware_first_state.pif_ipl2_profile(), Some(profile));
+            assert_eq!(profile_first_state.pif_ipl2_profile(), Some(profile));
+            assert_eq!(firmware_first_state.pif_ipl2_copy_layout(), Some(layout));
+            assert_eq!(profile_first_state.pif_ipl2_copy_layout(), Some(layout));
+            assert_eq!(
+                architectural_snapshot(&firmware_first),
+                architectural_snapshot(&profile_first)
+            );
+        }
+
+        firmware_first.reset();
+        profile_first.reset();
+        for machine in [&firmware_first, &profile_first] {
+            assert_eq!(machine.pif_ipl2_profile(), Some(profile));
+            assert_eq!(
+                machine.pif_firmware_bytes_for_test(),
+                Some(firmware_bytes.as_slice())
+            );
+            assert_eq!(
+                machine
+                    .sp_imem
+                    .read_known_u32_be(SpImemOffset::new(0))
+                    .unwrap_err()
+                    .unknown_offset(),
+                Some(SpImemOffset::new(0))
+            );
+        }
+        assert_eq!(
+            architectural_snapshot(&firmware_first),
+            architectural_snapshot(&profile_first)
+        );
+
+        firmware_first.stage_cartridge_bootstrap().unwrap();
+        profile_first.stage_cartridge_bootstrap().unwrap();
+        let observed = profile_first
+            .sp_imem
+            .observe_byte(SpImemOffset::new(0))
+            .unwrap();
         assert_eq!(
             observed.value(),
             firmware_bytes[layout.source_start_offset() as usize]
@@ -1301,6 +1350,10 @@ mod tests {
                 profile,
                 source_offset: layout.source_start_offset(),
             }
+        );
+        assert_eq!(
+            architectural_snapshot(&firmware_first),
+            architectural_snapshot(&profile_first)
         );
     }
 

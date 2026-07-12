@@ -107,6 +107,15 @@ impl fmt::Display for BootProbeArgumentError {
 
 impl std::error::Error for BootProbeArgumentError {}
 
+fn parse_pif_ipl2_profile(value: &str) -> Option<PifIpl2Profile> {
+    match value {
+        "ntsc-pinned" => Some(PifIpl2Profile::NtscPinned),
+        "pal-pinned" => Some(PifIpl2Profile::PalPinned),
+        "mpal-pinned" => Some(PifIpl2Profile::MpalPinned),
+        _ => None,
+    }
+}
+
 pub fn parse_boot_probe_arguments<I>(
     arguments: I,
 ) -> Result<BootProbeArguments, BootProbeArgumentError>
@@ -155,7 +164,7 @@ where
                 .to_str()
                 .ok_or_else(|| BootProbeArgumentError::UnsupportedPifProfile("non-UTF-8".into()))?;
             pif_profile =
-                Some(PifIpl2Profile::from_cli_name(value).ok_or_else(|| {
+                Some(parse_pif_ipl2_profile(value).ok_or_else(|| {
                     BootProbeArgumentError::UnsupportedPifProfile(value.to_owned())
                 })?);
         } else if flag == "--max-steps" {
@@ -1570,5 +1579,40 @@ mod tests {
             parse_boot_probe_arguments(Vec::<OsString>::new()),
             Err(BootProbeArgumentError::Usage)
         );
+    }
+
+    #[test]
+    fn boot_probe_argument_parser_owns_exact_pif_profile_spellings() {
+        for (spelling, profile) in [
+            ("ntsc-pinned", PifIpl2Profile::NtscPinned),
+            ("pal-pinned", PifIpl2Profile::PalPinned),
+            ("mpal-pinned", PifIpl2Profile::MpalPinned),
+        ] {
+            let parsed = parse_boot_probe_arguments([
+                OsString::from("fixture"),
+                OsString::from("--pif-rom"),
+                OsString::from("generated-pif.fixture"),
+                OsString::from("--pif-profile"),
+                OsString::from(spelling),
+            ])
+            .unwrap();
+
+            assert_eq!(parsed.pif_profile(), Some(profile));
+        }
+
+        for unsupported in ["auto", "ntsc", "pal", "mpal", "NTSC_PINNED", "ntsc_pinned"] {
+            assert_eq!(
+                parse_boot_probe_arguments([
+                    OsString::from("fixture"),
+                    OsString::from("--pif-rom"),
+                    OsString::from("generated-pif.fixture"),
+                    OsString::from("--pif-profile"),
+                    OsString::from(unsupported),
+                ]),
+                Err(BootProbeArgumentError::UnsupportedPifProfile(
+                    unsupported.to_owned()
+                ))
+            );
+        }
     }
 }
