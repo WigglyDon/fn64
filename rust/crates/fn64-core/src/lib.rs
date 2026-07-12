@@ -47,7 +47,8 @@ pub use machine::{
 };
 pub use pif_firmware::{
     MachinePifFirmwareState, PifFirmwareClassification, PifFirmwareValidationError,
-    PIF_BOOT_ROM_SIZE_BYTES, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+    PifIpl2CopyLayout, PifIpl2Profile, PIF_BOOT_ROM_SIZE_BYTES,
+    PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
 };
 pub use rdram::{Rdram, RdramAccessError, RDRAM_SIZE_BYTES};
 pub use sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};

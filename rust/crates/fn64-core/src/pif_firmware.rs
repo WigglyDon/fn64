@@ -6,6 +6,92 @@ pub const PIF_BOOT_ROM_SIZE_BYTES: usize = 0x07c0;
 /// Complete PIF address-space image size, including 64 bytes of writable PIF RAM.
 pub const PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES: usize = 0x0800;
 
+const PIF_IPL2_COPY_SOURCE_START_OFFSET: u32 = 0x00d4;
+const PIF_IPL2_NTSC_COPY_SOURCE_END_OFFSET_EXCLUSIVE: u32 = 0x071c;
+const PIF_IPL2_PAL_MPAL_COPY_SOURCE_END_OFFSET_EXCLUSIVE: u32 = 0x0720;
+const PIF_IPL2_COPY_SP_IMEM_START_OFFSET: u32 = 0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PifIpl2Profile {
+    NtscPinned,
+    PalPinned,
+    MpalPinned,
+}
+
+impl PifIpl2Profile {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::NtscPinned => "NTSC_PINNED",
+            Self::PalPinned => "PAL_PINNED",
+            Self::MpalPinned => "MPAL_PINNED",
+        }
+    }
+
+    pub const fn cli_name(self) -> &'static str {
+        match self {
+            Self::NtscPinned => "ntsc-pinned",
+            Self::PalPinned => "pal-pinned",
+            Self::MpalPinned => "mpal-pinned",
+        }
+    }
+
+    pub fn from_cli_name(value: &str) -> Option<Self> {
+        match value {
+            "ntsc-pinned" => Some(Self::NtscPinned),
+            "pal-pinned" => Some(Self::PalPinned),
+            "mpal-pinned" => Some(Self::MpalPinned),
+            _ => None,
+        }
+    }
+
+    pub const fn copy_layout(self) -> PifIpl2CopyLayout {
+        let source_end_offset_exclusive = match self {
+            Self::NtscPinned => PIF_IPL2_NTSC_COPY_SOURCE_END_OFFSET_EXCLUSIVE,
+            Self::PalPinned | Self::MpalPinned => {
+                PIF_IPL2_PAL_MPAL_COPY_SOURCE_END_OFFSET_EXCLUSIVE
+            }
+        };
+        let byte_count = source_end_offset_exclusive - PIF_IPL2_COPY_SOURCE_START_OFFSET;
+
+        PifIpl2CopyLayout {
+            source_start_offset: PIF_IPL2_COPY_SOURCE_START_OFFSET,
+            source_end_offset_exclusive,
+            sp_imem_start_offset: PIF_IPL2_COPY_SP_IMEM_START_OFFSET,
+            sp_imem_end_offset_exclusive: PIF_IPL2_COPY_SP_IMEM_START_OFFSET + byte_count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PifIpl2CopyLayout {
+    source_start_offset: u32,
+    source_end_offset_exclusive: u32,
+    sp_imem_start_offset: u32,
+    sp_imem_end_offset_exclusive: u32,
+}
+
+impl PifIpl2CopyLayout {
+    pub const fn source_start_offset(self) -> u32 {
+        self.source_start_offset
+    }
+
+    pub const fn source_end_offset_exclusive(self) -> u32 {
+        self.source_end_offset_exclusive
+    }
+
+    pub const fn sp_imem_start_offset(self) -> u32 {
+        self.sp_imem_start_offset
+    }
+
+    pub const fn sp_imem_end_offset_exclusive(self) -> u32 {
+        self.sp_imem_end_offset_exclusive
+    }
+
+    pub const fn byte_count(self) -> usize {
+        (self.source_end_offset_exclusive - self.source_start_offset) as usize
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PifFirmwareClassification {
     RawBootRom,
@@ -24,6 +110,7 @@ pub enum MachinePifFirmwareState {
     Absent,
     Accepted {
         classification: PifFirmwareClassification,
+        profile: PifIpl2Profile,
         size_bytes: usize,
     },
 }
@@ -40,6 +127,13 @@ impl MachinePifFirmwareState {
     pub const fn classification(self) -> Option<PifFirmwareClassification> {
         match self {
             Self::Accepted { classification, .. } => Some(classification),
+            Self::Absent => None,
+        }
+    }
+
+    pub const fn profile(self) -> Option<PifIpl2Profile> {
+        match self {
+            Self::Accepted { profile, .. } => Some(profile),
             Self::Absent => None,
         }
     }
@@ -112,15 +206,18 @@ impl std::error::Error for PifFirmwareValidationError {}
 
 #[derive(Debug)]
 pub(crate) struct PifFirmware {
+    profile: PifIpl2Profile,
     bytes: Box<[u8]>,
 }
 
 impl PifFirmware {
     pub(crate) fn from_owned_bytes(
+        profile: PifIpl2Profile,
         owned_bytes: Vec<u8>,
     ) -> Result<Self, PifFirmwareValidationError> {
         match owned_bytes.len() {
             PIF_BOOT_ROM_SIZE_BYTES => Ok(Self {
+                profile,
                 bytes: owned_bytes.into_boxed_slice(),
             }),
             PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES => Err(
@@ -141,13 +238,47 @@ impl PifFirmware {
     pub(crate) fn state(&self) -> MachinePifFirmwareState {
         MachinePifFirmwareState::Accepted {
             classification: PifFirmwareClassification::RawBootRom,
+            profile: self.profile,
             size_bytes: self.bytes.len(),
+        }
+    }
+
+    pub(crate) fn ipl2_copy(&self) -> PifIpl2Copy<'_> {
+        let layout = self.profile.copy_layout();
+        let source_start = layout.source_start_offset() as usize;
+        let source_end = layout.source_end_offset_exclusive() as usize;
+
+        PifIpl2Copy {
+            profile: self.profile,
+            layout,
+            bytes: &self.bytes[source_start..source_end],
         }
     }
 
     #[cfg(test)]
     pub(crate) fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PifIpl2Copy<'a> {
+    profile: PifIpl2Profile,
+    layout: PifIpl2CopyLayout,
+    bytes: &'a [u8],
+}
+
+impl<'a> PifIpl2Copy<'a> {
+    pub(crate) const fn profile(self) -> PifIpl2Profile {
+        self.profile
+    }
+
+    pub(crate) const fn layout(self) -> PifIpl2CopyLayout {
+        self.layout
+    }
+
+    pub(crate) const fn bytes(self) -> &'a [u8] {
+        self.bytes
     }
 }
 
@@ -164,13 +295,15 @@ mod tests {
     #[test]
     fn raw_boot_rom_length_is_accepted_and_preserved_byte_exactly() {
         let bytes = generated_pattern(0x31, PIF_BOOT_ROM_SIZE_BYTES);
-        let firmware = PifFirmware::from_owned_bytes(bytes.clone()).unwrap();
+        let firmware =
+            PifFirmware::from_owned_bytes(PifIpl2Profile::NtscPinned, bytes.clone()).unwrap();
 
         assert_eq!(firmware.bytes(), bytes);
         assert_eq!(
             firmware.state(),
             MachinePifFirmwareState::Accepted {
                 classification: PifFirmwareClassification::RawBootRom,
+                profile: PifIpl2Profile::NtscPinned,
                 size_bytes: PIF_BOOT_ROM_SIZE_BYTES,
             }
         );
@@ -184,7 +317,11 @@ mod tests {
             PIF_BOOT_ROM_SIZE_BYTES - 1,
             PIF_BOOT_ROM_SIZE_BYTES + 1,
         ] {
-            let error = PifFirmware::from_owned_bytes(generated_pattern(0x42, size)).unwrap_err();
+            let error = PifFirmware::from_owned_bytes(
+                PifIpl2Profile::PalPinned,
+                generated_pattern(0x42, size),
+            )
+            .unwrap_err();
 
             assert!(error.is_malformed());
             assert!(!error.is_unsupported());
@@ -194,10 +331,10 @@ mod tests {
 
     #[test]
     fn full_address_space_image_is_structurally_named_but_unsupported() {
-        let error = PifFirmware::from_owned_bytes(generated_pattern(
-            0x53,
-            PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
-        ))
+        let error = PifFirmware::from_owned_bytes(
+            PifIpl2Profile::MpalPinned,
+            generated_pattern(0x53, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES),
+        )
         .unwrap_err();
 
         assert!(!error.is_malformed());
@@ -214,13 +351,83 @@ mod tests {
 
     #[test]
     fn validation_does_not_select_by_hash_or_generated_content() {
-        let first = PifFirmware::from_owned_bytes(generated_pattern(0x11, PIF_BOOT_ROM_SIZE_BYTES))
-            .unwrap();
-        let second =
-            PifFirmware::from_owned_bytes(generated_pattern(0xa7, PIF_BOOT_ROM_SIZE_BYTES))
-                .unwrap();
+        let first = PifFirmware::from_owned_bytes(
+            PifIpl2Profile::NtscPinned,
+            generated_pattern(0x11, PIF_BOOT_ROM_SIZE_BYTES),
+        )
+        .unwrap();
+        let second = PifFirmware::from_owned_bytes(
+            PifIpl2Profile::NtscPinned,
+            generated_pattern(0xa7, PIF_BOOT_ROM_SIZE_BYTES),
+        )
+        .unwrap();
 
         assert_eq!(first.state(), second.state());
         assert_ne!(first.bytes(), second.bytes());
+    }
+
+    #[test]
+    fn pinned_profiles_own_exact_copy_layouts_and_cli_tokens() {
+        for (profile, name, cli_name, source_end, byte_count) in [
+            (
+                PifIpl2Profile::NtscPinned,
+                "NTSC_PINNED",
+                "ntsc-pinned",
+                0x071c,
+                0x0648,
+            ),
+            (
+                PifIpl2Profile::PalPinned,
+                "PAL_PINNED",
+                "pal-pinned",
+                0x0720,
+                0x064c,
+            ),
+            (
+                PifIpl2Profile::MpalPinned,
+                "MPAL_PINNED",
+                "mpal-pinned",
+                0x0720,
+                0x064c,
+            ),
+        ] {
+            let layout = profile.copy_layout();
+            assert_eq!(profile.name(), name);
+            assert_eq!(profile.cli_name(), cli_name);
+            assert_eq!(PifIpl2Profile::from_cli_name(cli_name), Some(profile));
+            assert_eq!(layout.source_start_offset(), 0x00d4);
+            assert_eq!(layout.source_end_offset_exclusive(), source_end);
+            assert_eq!(layout.sp_imem_start_offset(), 0);
+            assert_eq!(layout.sp_imem_end_offset_exclusive(), byte_count);
+            assert_eq!(layout.byte_count(), byte_count as usize);
+            assert!(layout.source_end_offset_exclusive() as usize <= PIF_BOOT_ROM_SIZE_BYTES);
+        }
+        assert_eq!(PifIpl2Profile::from_cli_name("ntsc"), None);
+        assert_eq!(PifIpl2Profile::from_cli_name("NTSC_PINNED"), None);
+        assert_eq!(PifIpl2Profile::from_cli_name("auto"), None);
+    }
+
+    #[test]
+    fn selected_profile_copies_the_complete_generated_source_slice_only() {
+        let bytes = generated_pattern(0x65, PIF_BOOT_ROM_SIZE_BYTES);
+
+        for profile in [
+            PifIpl2Profile::NtscPinned,
+            PifIpl2Profile::PalPinned,
+            PifIpl2Profile::MpalPinned,
+        ] {
+            let firmware = PifFirmware::from_owned_bytes(profile, bytes.clone()).unwrap();
+            let copy = firmware.ipl2_copy();
+            let layout = profile.copy_layout();
+
+            assert_eq!(copy.profile(), profile);
+            assert_eq!(copy.layout(), layout);
+            assert_eq!(copy.bytes().len(), layout.byte_count());
+            assert_eq!(
+                copy.bytes(),
+                &bytes[layout.source_start_offset() as usize
+                    ..layout.source_end_offset_exclusive() as usize]
+            );
+        }
     }
 }

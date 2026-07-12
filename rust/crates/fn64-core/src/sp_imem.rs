@@ -1,5 +1,7 @@
 use core::fmt;
 
+use crate::pif_firmware::{PifIpl2Copy, PifIpl2Profile};
+
 pub(crate) const SP_IMEM_SIZE_BYTES: usize = 4 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +24,10 @@ impl SpImemOffset {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SpImemByteProvenance {
     Unknown,
+    UserSuppliedPifFirmware {
+        profile: PifIpl2Profile,
+        source_offset: u32,
+    },
     #[cfg(test)]
     GeneratedMachineTestStaging,
 }
@@ -113,6 +119,34 @@ impl fmt::Display for SpImemReadError {
 impl std::error::Error for SpImemReadError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpImemPifIpl2CopyError {
+    start_offset: u32,
+    byte_count: usize,
+}
+
+impl SpImemPifIpl2CopyError {
+    pub(crate) const fn start_offset(self) -> u32 {
+        self.start_offset
+    }
+
+    pub(crate) const fn byte_count(self) -> usize {
+        self.byte_count
+    }
+}
+
+impl fmt::Display for SpImemPifIpl2CopyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "profiled PIF IPL2 copy destination unavailable: start={} width={}",
+            self.start_offset, self.byte_count
+        )
+    }
+}
+
+impl std::error::Error for SpImemPifIpl2CopyError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SpImemKnownWord {
     value: u32,
     byte_provenance: [SpImemByteProvenance; 4],
@@ -135,6 +169,40 @@ pub(crate) struct SpImem {
 }
 
 impl SpImem {
+    pub(crate) fn from_pif_ipl2_copy(
+        copy: PifIpl2Copy<'_>,
+    ) -> Result<Self, SpImemPifIpl2CopyError> {
+        let layout = copy.layout();
+        let start_offset = layout.sp_imem_start_offset();
+        let start = start_offset as usize;
+        let Some(end) = start.checked_add(copy.bytes().len()) else {
+            return Err(SpImemPifIpl2CopyError {
+                start_offset,
+                byte_count: copy.bytes().len(),
+            });
+        };
+        if end > SP_IMEM_SIZE_BYTES
+            || end != layout.sp_imem_end_offset_exclusive() as usize
+            || copy.bytes().len() != layout.byte_count()
+        {
+            return Err(SpImemPifIpl2CopyError {
+                start_offset,
+                byte_count: copy.bytes().len(),
+            });
+        }
+
+        let mut sp_imem = Self::default();
+        sp_imem.bytes[start..end].copy_from_slice(copy.bytes());
+        for (index, provenance) in sp_imem.byte_provenance[start..end].iter_mut().enumerate() {
+            *provenance = SpImemByteProvenance::UserSuppliedPifFirmware {
+                profile: copy.profile(),
+                source_offset: layout.source_start_offset() + index as u32,
+            };
+        }
+
+        Ok(sp_imem)
+    }
+
     #[cfg(test)]
     pub(crate) const fn size_bytes(&self) -> usize {
         self.bytes.len()
@@ -235,6 +303,13 @@ impl Default for SpImem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pif_firmware::{PifFirmware, PIF_BOOT_ROM_SIZE_BYTES};
+
+    fn generated_pif_firmware(seed: u8) -> Vec<u8> {
+        (0..PIF_BOOT_ROM_SIZE_BYTES)
+            .map(|index| seed.wrapping_add((index as u8).wrapping_mul(31)))
+            .collect()
+    }
 
     #[test]
     fn sp_imem_construction_has_exact_capacity_and_unknown_zero_backing() {
@@ -349,5 +424,35 @@ mod tests {
                 unknown_offset: SpImemOffset::new(3),
             })
         );
+    }
+
+    #[test]
+    fn profiled_pif_copy_creates_byte_exact_known_range_and_source_offsets() {
+        let bytes = generated_pif_firmware(0x29);
+        let firmware =
+            PifFirmware::from_owned_bytes(PifIpl2Profile::NtscPinned, bytes.clone()).unwrap();
+        let layout = PifIpl2Profile::NtscPinned.copy_layout();
+        let sp_imem = SpImem::from_pif_ipl2_copy(firmware.ipl2_copy()).unwrap();
+
+        for destination_offset in 0..layout.byte_count() {
+            let observation = sp_imem
+                .observe_byte(SpImemOffset::new(destination_offset as u32))
+                .unwrap();
+            let source_offset = layout.source_start_offset() + destination_offset as u32;
+            assert_eq!(observation.value(), bytes[source_offset as usize]);
+            assert_eq!(
+                observation.provenance(),
+                SpImemByteProvenance::UserSuppliedPifFirmware {
+                    profile: PifIpl2Profile::NtscPinned,
+                    source_offset,
+                }
+            );
+        }
+
+        let first_untouched = sp_imem
+            .observe_byte(SpImemOffset::new(layout.sp_imem_end_offset_exclusive()))
+            .unwrap();
+        assert_eq!(first_untouched.value(), 0);
+        assert_eq!(first_untouched.provenance(), SpImemByteProvenance::Unknown);
     }
 }

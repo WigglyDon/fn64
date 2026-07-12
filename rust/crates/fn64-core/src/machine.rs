@@ -15,7 +15,9 @@ use crate::cpu::{
     CpuLocalExecutedHelperInvocationError, CpuLocalExecutedHelperInvocationOutcome,
     CpuRegisterIndexError, NON_BOOT_RESET_VECTOR_PC,
 };
-use crate::pif_firmware::{MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError};
+use crate::pif_firmware::{
+    MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError, PifIpl2Profile,
+};
 use crate::rdram::{Rdram, RdramAccessError};
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
 #[cfg(test)]
@@ -2504,16 +2506,18 @@ impl Machine {
         self.powered_on = true;
     }
 
-    /// Validates and transfers one owned raw PIF Boot ROM into this Machine.
+    /// Validates and transfers one explicitly profiled raw PIF Boot ROM into
+    /// this Machine.
     ///
     /// Validation completes before the accepted immutable firmware owner is
     /// replaced. This input-only boundary does not execute firmware or produce
     /// SP IMEM state.
     pub fn install_pif_firmware(
         &mut self,
+        profile: PifIpl2Profile,
         owned_bytes: Vec<u8>,
     ) -> Result<MachinePifFirmwareState, PifFirmwareValidationError> {
-        let firmware = PifFirmware::from_owned_bytes(owned_bytes)?;
+        let firmware = PifFirmware::from_owned_bytes(profile, owned_bytes)?;
         let state = firmware.state();
         self.pif_firmware = Some(firmware);
         Ok(state)
@@ -3818,7 +3822,8 @@ mod tests {
         NON_BOOT_RESET_VECTOR_PC,
     };
     use crate::pif_firmware::{
-        PifFirmwareClassification, PIF_BOOT_ROM_SIZE_BYTES, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+        PifFirmwareClassification, PifIpl2Profile, PIF_BOOT_ROM_SIZE_BYTES,
+        PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
     };
     use crate::rdram::RDRAM_SIZE_BYTES;
 
@@ -4402,13 +4407,16 @@ mod tests {
         let mut caller_bytes = generated_pif_firmware(0x31, PIF_BOOT_ROM_SIZE_BYTES);
         let expected_bytes = caller_bytes.clone();
 
-        let state = machine.install_pif_firmware(caller_bytes.clone()).unwrap();
+        let state = machine
+            .install_pif_firmware(PifIpl2Profile::NtscPinned, caller_bytes.clone())
+            .unwrap();
         caller_bytes.fill(0xff);
 
         assert_eq!(
             state,
             MachinePifFirmwareState::Accepted {
                 classification: PifFirmwareClassification::RawBootRom,
+                profile: PifIpl2Profile::NtscPinned,
                 size_bytes: PIF_BOOT_ROM_SIZE_BYTES,
             }
         );
@@ -4428,7 +4436,7 @@ mod tests {
         let mut machine = Machine::from_cartridge(Cartridge::default());
         let expected_bytes = generated_pif_firmware(0x42, PIF_BOOT_ROM_SIZE_BYTES);
         let accepted = machine
-            .install_pif_firmware(expected_bytes.clone())
+            .install_pif_firmware(PifIpl2Profile::PalPinned, expected_bytes.clone())
             .unwrap();
         machine.stage_cpu_pc(0x8000_2000);
         machine.write_rdram_u32_be(0x20, 0x1122_3344).unwrap();
@@ -4449,23 +4457,26 @@ mod tests {
         let mut machine = Machine::from_cartridge(Cartridge::default());
         let accepted_bytes = generated_pif_firmware(0x53, PIF_BOOT_ROM_SIZE_BYTES);
         machine
-            .install_pif_firmware(accepted_bytes.clone())
+            .install_pif_firmware(PifIpl2Profile::MpalPinned, accepted_bytes.clone())
             .unwrap();
         machine.stage_cpu_pc(0x8000_3000);
         machine.write_rdram_u32_be(0x30, 0xaabb_ccdd).unwrap();
         let before = lw_snapshot(&machine);
 
         let malformed = machine
-            .install_pif_firmware(generated_pif_firmware(0x64, PIF_BOOT_ROM_SIZE_BYTES - 1))
+            .install_pif_firmware(
+                PifIpl2Profile::NtscPinned,
+                generated_pif_firmware(0x64, PIF_BOOT_ROM_SIZE_BYTES - 1),
+            )
             .unwrap_err();
         assert!(malformed.is_malformed());
         assert_eq!(lw_snapshot(&machine), before);
 
         let unsupported = machine
-            .install_pif_firmware(generated_pif_firmware(
-                0x75,
-                PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
-            ))
+            .install_pif_firmware(
+                PifIpl2Profile::PalPinned,
+                generated_pif_firmware(0x75, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES),
+            )
             .unwrap_err();
         assert!(unsupported.is_unsupported());
         assert_eq!(lw_snapshot(&machine), before);
