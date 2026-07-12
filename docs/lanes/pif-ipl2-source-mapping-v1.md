@@ -1,6 +1,6 @@
 # PIF IPL2 Source Mapping V1
 
-Context role: active lane coordination memory.
+Context role: historical lane coordination memory.
 Scope: evidence-only numeric and variant-qualified mapping from structurally accepted raw PIF Boot ROM bytes to retained IPL2 SP IMEM content.
 Canonical for: this lane's purpose, topology, evidence authority, writable boundary, required questions, proof, dependencies, overlap, stop conditions, and retirement condition.
 Not canonical for: Rust product behavior, private firmware content, candidate acceptance, or canonical integration.
@@ -25,12 +25,20 @@ Update triggers: provisioning, packet launch, evidence creation, candidate creat
 - Governing Context-SHA: the exact committed provisioning value owned by the
   Master report and first executable packet. This context page cannot embed its
   own digest.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Status: **ACCEPTED — VARIANT-SPECIFIC SOURCE MAPPING**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: persistent Worker topology was created and verified by Master;
-  no command is executable until Master GPT issues the matching supervisor
-  seed.
+- Launch state: closed; do not relaunch without a new Master packet.
+
+Accepted evidence candidate:
+`2ee4b3c7a19b86da4653dd62d574dc46c64668dc`. Master preserved it through
+evidence merge `248101573e0b7a3ab3d3816c60d0132c8e870438` with no conflict.
+The verified artifact is
+`/tmp/fn64-final-artifacts/UPLOAD_ME_fn64_pif_ipl2_source_mapping_v1_93243b0c.tar.gz`
+with SHA-256
+`93243b0cf24b59faa12d080afc8d918bf6ebc12dda50d61348aa4e1b6cddf31c`.
+The Worker branch was not pushed and its worktree remains preserved. The lane
+changed no Rust product behavior and used no private input.
 
 ## Exact writable and forbidden scope
 

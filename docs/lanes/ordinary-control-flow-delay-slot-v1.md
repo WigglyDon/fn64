@@ -1,6 +1,6 @@
 # Ordinary Control Flow And Delay Slot V1
 
-Context role: active lane coordination memory.
+Context role: historical lane coordination memory.
 Scope: the first complete ordinary MIPS control-flow family and delay-slot semantics through the existing Machine step spine.
 Canonical for: this lane's purpose, topology, writable boundary, machine authority, proof, dependencies, overlap, stop conditions, and retirement condition.
 Not canonical for: accepted product behavior, PIF/bootstrap behavior, candidate acceptance, or canonical integration.
@@ -25,12 +25,20 @@ Update triggers: provisioning, packet launch, implementation decision, candidate
 - Governing Context-SHA: the exact committed provisioning value owned by the
   Master report and first executable packet. This context page cannot embed its
   own digest.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Status: **ACCEPTED — INTEGRATED**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: persistent Worker topology was created and verified by Master;
-  no command is executable until Master GPT issues the matching supervisor
-  seed.
+- Launch state: closed; do not relaunch without a new Master packet.
+
+Accepted candidate: `01b06e5ae58299846fd3f482454a3e7b0e1a7292`, preserving
+Worker commits `60cfc832`, `e46816b9`, and `01b06e5a`. Master fast-forwarded
+the complete range before the independent PIF evidence merge
+`248101573e0b7a3ab3d3816c60d0132c8e870438`; no conflict or rewrite occurred.
+The verified artifact is
+`/tmp/fn64-final-artifacts/UPLOAD_ME_fn64_ordinary_control_flow_delay_slot_v1_a68e81a4.tar.gz`
+with SHA-256
+`a68e81a478d04a12fbd7cf6363d9cafa69f3b85d223d3671b09f6b991a4193c2`.
+The Worker branch was not pushed and its worktree remains preserved.
 
 ## Exact writable and forbidden scope
 

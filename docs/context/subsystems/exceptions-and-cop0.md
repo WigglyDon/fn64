@@ -21,16 +21,24 @@ write. Count and normal cadence do not advance on represented fault entry.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 
+For the represented ordinary-control-flow family, CPU-owned delay-slot context
+names the owning branch/jump PC. Arithmetic overflow, instruction-fetch AdEL,
+and unaligned-`Lw` data-AdEL entry from that slot set Cause.BD, write the owner
+PC to EPC, leave the faulting slot Count unchanged, prevent target commit, and
+clear context after successful entry. A branch/jump in the slot is unsupported
+rollback, not an exception.
+
 Forbidden authority includes full COP0 claims, TLB/MMU, generic all-future
 exception objects, host interruption, real timing, PIF boot, and inferred
 behavior from retired-source names. Numerical exception codes and bits are
 explicit in source; no serialization compatibility is promised.
 
 Accepted proof is focused state-transition testing and the overflow/fetch-AdEL
-probe cases. Current observability is the public read-only CPU surface. Full
-interrupt delivery, ERET integration, delay-slot exception fidelity, and
-performance remain bounded by the detailed capability ledger and public step
-selection; do not infer them from readiness code.
+plus delay-slot-exception probe cases. Current observability is the public
+read-only CPU surface. Full interrupt delivery, ERET integration, nested
+exception completeness, and performance remain bounded by the detailed
+capability ledger and public step selection; do not infer them from readiness
+code.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

@@ -169,6 +169,28 @@ product or reference lane requires a new explicit product decision.
   source-backed materialization or minimal execution.
 - Status: accepted current input-boundary product capability.
 
+## Era 12 — ordinary control flow and profile-specific IPL2 mapping (2026-07-12)
+
+- Evidence: `LIVE_REPO_FACT`, control-flow commits `60cfc832`, `e46816b9`, and
+  `01b06e5a`; `RUNTIME_FACT`, focused tests, direct step probe, and full Rust
+  gate; `EXTERNAL_TECHNICAL_EVIDENCE`, mapping commit `2ee4b3c7` and pinned
+  public-source anchors.
+- Accepted product increment: `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR`
+  execute through `Machine::step` with one CPU-owned delay slot, explicit link
+  and Count rules, complete branch-in-slot rollback, and EPC/BD exception
+  lineage. A region-crossing shared-helper test proves J/JAL use PC+4 high
+  bits.
+- Accepted evidence increment: pinned NTSC raw `[0x0d4,0x71c)` maps to SP
+  IMEM `[0x000,0x648)`; pinned PAL and MPAL raw `[0x0d4,0x720)` map to
+  `[0x000,0x64c)`. Structural input shape cannot select a profile, and
+  unexamined physical PIF revisions remain unknown.
+- Honest limitation: accepted firmware still produces no SP IMEM state. A
+  profile-specific copy is only one IPL1 effect and does not establish the
+  complete IPL2 handoff; minimal execution remains unearned. BOOT-2 is
+  unchanged.
+- Status: both independent Wave 3 candidates accepted and integrated without
+  rewriting Worker history.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

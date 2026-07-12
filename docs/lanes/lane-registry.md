@@ -11,28 +11,18 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-- [`pif-ipl2-source-mapping-v1`](pif-ipl2-source-mapping-v1.md)
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Topology: evidence-only technical-source lane
-  - Implementation/candidate: not started / none
-  - Writable owner: `ops/evidence/pif-ipl2-source-mapping-v1/**` only
-- [`ordinary-control-flow-delay-slot-v1`](ordinary-control-flow-delay-slot-v1.md)
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Topology: synthetic-proof Rust product lane
-  - Implementation/candidate: not started / none
-  - Writable owner: exact registered CPU/Machine/step-probe paths plus its own
-    evidence directory
-
-The two lanes have zero direct writable-path overlap. Master retains lane,
-queue, context, branch, worktree, and integration ownership.
+None after verified Wave 3 integration. Master retains lane, queue, context,
+branch, worktree, and integration ownership.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
 
 ## Planned but not active
 
-None. Source-backed PIF materialization and minimal IPL1/IPL2 execution remain
-unprovisioned until the mapping lane establishes the next honest product shape.
+- `pif-ipl2-profiled-copy-materialization-v1`: planned from the accepted
+  variant-qualified mapping; registration and provisioning remain Master work.
+- `pif-ipl2-handoff-state-mapping-v1`: planned evidence-only follow-on for the
+  complete pre-IPL3 state boundary.
 
 ## Parked donor lanes
 
@@ -46,6 +36,16 @@ None established from live repository evidence.
 
 ## Retired lanes
 
+- [`ordinary-control-flow-delay-slot-v1`](ordinary-control-flow-delay-slot-v1.md):
+  **ACCEPTED — INTEGRATED** at candidate `01b06e5a`. All six ordinary
+  identities, one explicit slot, link/alias/Count rules, branch-in-slot
+  rollback, and selected slot exception EPC/BD lineage are accepted. BOOT-2 is
+  unchanged; Worker branch/worktree remain preserved and unpushed.
+- [`pif-ipl2-source-mapping-v1`](pif-ipl2-source-mapping-v1.md): **ACCEPTED —
+  VARIANT-SPECIFIC SOURCE MAPPING** at candidate `2ee4b3c7`. NTSC uses raw
+  `[0x0d4,0x71c)` and PAL/MPAL use `[0x0d4,0x720)`, all to SP IMEM offset
+  zero. No private input or product behavior change occurred; Worker
+  branch/worktree remain preserved and unpushed.
 - [`user-supplied-pif-boot-source-v1`](user-supplied-pif-boot-source-v1.md):
   **ACCEPTED — SOURCE-BOUNDARY PRODUCT** at complete candidate `1fa8aa17`.
   Explicit no-search `--pif-rom` plumbing, Machine-owned structural validation,

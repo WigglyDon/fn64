@@ -50,12 +50,23 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
   BOOT-3, authentic handoff, cartridge-entry/game execution, compatibility,
   graphics, window, and audio are not claimed.
+- `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR`
+  execute through `Machine::step` with one CPU-owned delay-slot context.
+  Taken and untaken branches both execute one slot; link, alias, Count,
+  branch-in-delay-slot rejection, and delay-slot EPC/BD behavior are explicit.
+  This is the first ordinary control-flow family, not complete MIPS control
+  flow.
 - `LIVE_REPO_FACT`: Machine structurally accepts an explicitly supplied
   1,984-byte raw-Boot-ROM-shaped input, rejects the 2,048-byte full-map shape as
   unsupported, and classifies other lengths as malformed. Acceptance proves no
   authenticity, revision, executability, or compatibility. Accepted bytes are
   immutable Machine input that survives reset and repeated bootstrap staging;
   they currently execute nothing and produce no known SP IMEM byte.
+- `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
+  reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
+  but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
+  (`0x64c` bytes). The current 1,984-byte structural shape cannot select that
+  profile, and unexamined physical PIF revisions remain `UNKNOWN`.
 
 The single detailed owner for represented capability and explicit absence is
 the [represented-machine capability ledger](../../rust/PARITY.md). Stable
@@ -84,14 +95,14 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   `1fa8aa17` was independently verified and integrated **ACCEPTED —
   SOURCE-BOUNDARY PRODUCT**. No private PIF input was used and BOOT-2 did not
   advance.
-- Product Wave 3: `pif-ipl2-source-mapping-v1` and
-  `ordinary-control-flow-delay-slot-v1` are provisioned and await matching
-  supervisor packets. Both persistent worktrees were verified clean and READY
-  with zero direct writable-path overlap. No Worker implementation has started
-  and no candidate exists.
-- Integration queue: two honest no-candidate entries; candidate and artifact
-  identities are `UNKNOWN`, validation is `NOT_RUN`, and integration/push are
-  pending and unauthorized.
+- `ordinary-control-flow-delay-slot-v1`: complete three-commit candidate
+  `01b06e5a` was independently verified and integrated **ACCEPTED**. The shared
+  J/JAL target helper passed a region-crossing PC+4 discriminator, the direct
+  step probe passed, and no boot checkpoint changed.
+- `pif-ipl2-source-mapping-v1`: evidence-only candidate `2ee4b3c7` was
+  independently verified and integrated **ACCEPTED — VARIANT-SPECIFIC SOURCE
+  MAPPING**. It changed no product behavior and used no private input.
+- Integration queue: empty after both reviewed Wave 3 entries were closed.
 - `USER_DECISION`: the evidence-only mapping lane may run concurrently with the
   synthetic ordinary-control-flow product lane. Neither may edit coordination
   state, and neither receives private-ROM or private-PIF authority.
@@ -112,11 +123,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   still has no authentic firmware classification, firmware execution, or
   source-backed SP IMEM production. The authentic `Lw` still rejects because
   its first SP IMEM source byte is `Unknown`.
-- `UNKNOWN`: the exact numeric and variant-qualified mapping from accepted raw
-  PIF Boot ROM bytes to retained IPL2 SP IMEM content.
-- `USER_DECISION`: source-backed materialization and minimal IPL1/IPL2 execution
-  remain unprovisioned until the evidence-only mapping lane resolves that
-  question. The live audit proved ordinary control flow has a disjoint writable
-  scope and may proceed independently.
+- `LIVE_REPO_FACT`: accepted firmware still has no SP IMEM production effect.
+  A future copy effect requires an explicit pinned NTSC, PAL, or MPAL Machine
+  profile; it may not infer one from byte shape, content, filename, cartridge,
+  or digest.
+- `UNKNOWN`: the complete pre-IPL3 handoff state, including source-qualified
+  ownership for `t3`, `ra`, other consumed GPRs, COP0, and device facts. The
+  mapping evidence does not prove that minimal IPL2 execution is required.
 - `USER_DECISION`: retired C++ behavior does not define a product backlog. Any future Rust capability requires its own bounded product decision and proof.
 - `LIVE_REPO_FACT`: ignored user-local assets remain outside repository truth and routine evidence.

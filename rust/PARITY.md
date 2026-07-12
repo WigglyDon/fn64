@@ -34,7 +34,7 @@ history.
 | --- | --- | --- |
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or direct game-entry execution |
 | `PifFirmware` | private immutable owned bytes for one structurally accepted raw-Boot-ROM-shaped input | no path, authenticity/revision claim, SP IMEM production, firmware execution, or compatibility policy |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
 | `Rdram` | 4 MiB zero-filled storage and checked raw fixed-width reads | no general bus, device routing, or CPU instruction semantics |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, and checked known big-endian word reads | no public mutable access, production source event, SP register/status/DMA, or RSP execution |
@@ -140,6 +140,13 @@ values remain unavailable to the product. External observability is not a
 Machine-owned byte source, a firmware-derived profile, or authority to embed
 the content.
 
+Pinned source mapping narrows that external effect. NTSC raw
+`[0x0d4, 0x71c)` maps to SP IMEM `[0x000, 0x648)`; pinned PAL and MPAL raw
+`[0x0d4, 0x720)` map to `[0x000, 0x64c)`. All cover the consumed
+`[0x000, 0x020)` and mutation-frontier `[0x000, 0x02c)` ranges. The
+structurally accepted 1,984-byte shape does not identify one profile, and the
+mapping is not generalized to unexamined physical PIF revisions.
+
 Direct CPU-address classification represents KSEG0 and KSEG1 aliases into the
 4 MiB RDRAM span. Direct fixed-width value APIs compose classification with raw
 RDRAM access. Raw storage offsets do not impose CPU alignment; CPU-data access
@@ -186,7 +193,7 @@ control-flow access.
 
 The represented sequence is:
 
-`control-flow snapshot -> sequential next-PC staging -> one fetch -> one decode -> one identity -> one represented action -> one application`
+`control-flow snapshot -> one fetch -> one decode -> one identity -> ordinary-control-flow planning or sequential next-PC staging -> one represented action -> one application`
 
 At most one selected CPU-local helper runs. Application owns exactly one of
 committed cadence, stopped cadence, unsupported rollback, arithmetic-overflow
@@ -209,6 +216,28 @@ Successful CPU-local execution commits the captured control-flow cadence and
 advances represented COP0 Count once. Trapping arithmetic overflow writes no
 destination GPR, restores speculative control flow, enters represented Cause
 code 12 state, and does not advance Count or BadVAddr.
+
+### Ordinary control flow and one delay slot
+
+`BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` execute through one Machine-owned
+planning/application family. Conditional targets use wrapping instruction
+PC+4 plus the sign-extended shifted displacement. J/JAL region bits come from
+wrapping PC+4. JAL writes r31; JALR writes encoded `rd`; links are PC+8 under
+the represented 32-to-64-bit sign-extension rule. JALR captures the old source
+before an aliased link write, and link writes to r0 are discarded.
+
+Every taken or untaken branch/jump commits to exactly one explicit CPU-owned
+delay-slot context. `next_pc` owns the selected target or fall-through. The
+branch/jump and successful slot each advance Count once. Successful slot
+completion clears context. Reset and direct synthetic PC staging clear stale
+context; rollback restores it.
+
+A branch or jump encountered in a delay slot is explicitly unsupported and
+restores all represented state without link, target, PC, Count, or COP0
+mutation. Arithmetic-overflow, instruction-fetch AdEL, and data-AdEL entry from
+a represented delay slot set Cause.BD, use the owning branch/jump PC for EPC,
+advance the faulting slot Count by zero, do not commit the selected target, and
+clear context on successful exception entry.
 
 ### Machine-owned aligned `Lw`
 
@@ -264,6 +293,8 @@ without partial mutation because the first consumed SP IMEM byte is `Unknown`.
 Evidence now identifies retained IPL2 firmware content as the external source,
 and the Machine can lawfully own explicitly supplied structurally shaped bytes,
 but it has no represented production event mapping those bytes into SP IMEM.
+Pinned mappings require an explicit Machine profile before a copy effect can be
+selected honestly.
 One-word staging would be both incomplete and unauthorized: the observed x105
 prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
@@ -274,7 +305,8 @@ reached.
 Identity classification may name instructions that the public step does not
 execute. Current explicit absences include:
 
-- branch, branch-likely, jump, link, and complete delay-slot execution;
+- branch-likely annul, REGIMM branches, COP0 branches, and execution of a
+  branch or jump inside a delay slot;
 - CPU load/store instructions other than aligned `Lw`, plus unaligned merge
   operations;
 - multiply, divide, trap, COP0 instruction, ERET, and LL/SC execution;
@@ -300,7 +332,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its eight cases cover:
+calls only public `Machine::step` for execution. Its fourteen cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -309,7 +341,12 @@ calls only public `Machine::step` for execution. Its eight cases cover:
 - BREAK stopped;
 - unsupported rollback;
 - selected instruction-fetch AdEL;
-- source-clear fetch rejection.
+- source-clear fetch rejection;
+- taken and untaken ordinary branches with one slot;
+- JAL link behavior;
+- JALR source/destination alias behavior;
+- delay-slot exception EPC/BD behavior; and
+- branch-in-delay-slot rejection.
 
 Both probes use plain text and end with `result: ok` on success. They prove only
 their named represented facts and do not launch a ROM, window, audio device, or

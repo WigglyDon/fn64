@@ -23,12 +23,19 @@ helpers must not call back into Machine policy.
 
 ## Cadence and cause
 
-`pre-step pc/next_pc → one snapshot → one sequential staging → one fetch/decode/identify → one selected action → committed cadence, rollback, stop, rejection, or exception`.
+`pre-step pc/next_pc/context → one snapshot → one fetch/decode/identify → ordinary-control-flow planning or sequential staging → one selected action → committed cadence, rollback, stop, rejection, or exception`.
 
 Read-before-write and zero-register behavior stay explicit. `pc` / `next_pc`
-models delay-slot-relevant state without claiming unselected branch execution.
-Count advances only through the committed-step owner. Exception actions restore
-or preserve control flow before delegating to the sealed entry owner.
+and one CPU-owned context now represent a selected ordinary delay slot. Count
+advances only through the committed-step owner. Exception actions restore or
+preserve control flow before delegating to the sealed entry owner.
+
+`BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` share one bounded Machine
+planning/application family. Target and link arithmetic is explicit, including
+PC+4 jump-region selection, PC+8 links, JALR alias read-before-write, and r0
+discard. Taken and untaken branches schedule one slot. A slot exception uses
+the owning branch/jump PC for EPC and sets BD; inner control flow is rejected
+before mutation.
 
 Machine-owned bootstrap state distinguishes concrete GPR storage from known
 architectural state. Each selected CPU-local bootstrap instruction checks all
@@ -48,6 +55,6 @@ format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
 tests for changes. Known unknowns include complete public-step ISA integration,
-real timing, full delay-slot semantics, other load/store families, and
-performance. Next authority must be earned by a bounded product packet, not a
-generic dispatcher.
+real timing, branch-likely/REGIMM/COP0 branches, nested control flow, other
+load/store families, and performance. Next authority must be earned by a
+bounded product packet, not a generic dispatcher.

@@ -63,7 +63,7 @@ Never package user-local ROMs, commercial assets, proprietary BIOS/PIF blobs,
 credentials, Git objects, build output, Cargo caches, or unmeasured claims.
 
 The Rust forward gate proves formatting, warnings-denied lint, current unit
-tests, deterministic construction/reset inspection, and the eight represented
+tests, deterministic construction/reset inspection, and the fourteen represented
 step-probe cases at its exact SHA. It does not prove full N64 behavior,
 cartridge boot, game compatibility, window/audio/runtime, retired-source equivalence,
 performance, or unselected Machine-step categories.

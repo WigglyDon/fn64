@@ -15,5 +15,5 @@ Machine-readable owner: `ops/fleet/integration-queue.json`
 
 | Lane ID | Candidate HEAD | Base | Context-SHA | Artifact | Targeted validation | Full verify | Overlap | Dependency | Authority impact | Revalidation | Decision | Push |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| pif-ipl2-source-mapping-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | NONE | accepted 1fa8aa17 input-boundary product and 0d16dfeb reconciliation; evidence-only mapping precedes any PIF materialization or execution lane | EVIDENCE_ONLY_NO_PRODUCT_CHANGE | PENDING | PENDING | NOT_AUTHORIZED |
-| ordinary-control-flow-delay-slot-v1 | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | NOT_RUN | NOT_RUN | NONE | accepted current Machine step and COP0 exception spine; zero direct writable overlap with evidence-only PIF source mapping | RUST_ORDINARY_CONTROL_FLOW_SYNTHETIC_ONLY | PENDING | PENDING | NOT_AUTHORIZED |
+
+No active worker-lane candidates are queued.

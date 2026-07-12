@@ -18,7 +18,9 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for its eight represented cases and ends deterministically.
+public `Machine::step` for fourteen represented cases, including ordinary
+branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
+rejection, and ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
 Machine-owned provenance, mutation lineage, and the first frontier. The
@@ -42,6 +44,10 @@ An explicit user-supplied PIF firmware path is an implemented bounded host
 input. Inspection must not search, download, bundle, reconstruct, dump, or
 select game behavior; Machine validation and state production remain core
 authority. Structural acceptance is not authentic firmware validation.
+
+Integrated public-source evidence records profile-qualified IPL1 copy ranges
+without copying firmware or external source. It is technical evidence, not a
+probe-authored Machine effect or proof that accepted firmware is authentic.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use

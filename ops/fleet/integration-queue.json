@@ -7,8 +7,5 @@
     "decision": ["PENDING", "ACCEPT", "REJECT", "PARK", "BLOCKED", "UNKNOWN"],
     "push": ["NOT_AUTHORIZED", "NOT_PUSHED", "PUSHED", "FAILED", "UNKNOWN"]
   },
-  "entries": [
-    {"lane_id":"pif-ipl2-source-mapping-v1","candidate_head":"UNKNOWN","base":"UNKNOWN","context_sha":"UNKNOWN","artifact":"UNKNOWN","targeted_validation":"NOT_RUN","full_verify":"NOT_RUN","overlap_risk":"NONE","dependency":"accepted 1fa8aa17 input-boundary product and 0d16dfeb reconciliation; evidence-only mapping precedes any PIF materialization or execution lane","authority_impact":"EVIDENCE_ONLY_NO_PRODUCT_CHANGE","revalidation":"PENDING","decision":"PENDING","push":"NOT_AUTHORIZED"},
-    {"lane_id":"ordinary-control-flow-delay-slot-v1","candidate_head":"UNKNOWN","base":"UNKNOWN","context_sha":"UNKNOWN","artifact":"UNKNOWN","targeted_validation":"NOT_RUN","full_verify":"NOT_RUN","overlap_risk":"NONE","dependency":"accepted current Machine step and COP0 exception spine; zero direct writable overlap with evidence-only PIF source mapping","authority_impact":"RUST_ORDINARY_CONTROL_FLOW_SYNTHETIC_ONLY","revalidation":"PENDING","decision":"PENDING","push":"NOT_AUTHORIZED"}
-  ]
+  "entries": []
 }

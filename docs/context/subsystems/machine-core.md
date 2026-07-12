@@ -38,9 +38,12 @@ mutates no GPR, HI/LO, COP0, memory, or Count. A successful GPR write records
 its producing instruction lineage.
 
 Control-flow snapshots, staged sequential cadence, Count advancement, rollback,
-and exception entry remain distinct owners. A green helper test is not public
-step integration. `Machine` construction/reset preserves instance isolation;
-multiboxing means multiple independent instances.
+and exception entry remain distinct owners. Ordinary control flow adds one
+CPU-owned delay-slot context naming the owning branch/jump PC. Machine planning
+and application schedule exactly one slot, preserve context on rejection, and
+clear it after a successful slot or exception entry. A green helper test is not
+public step integration. `Machine` construction/reset preserves instance
+isolation; multiboxing means multiple independent instances.
 
 Numeric values are explicit fixed-width CPU/address/storage types where earned;
 RDRAM/SP words use source-clear big-endian access. An aligned `Lw` plan
@@ -51,7 +54,7 @@ serialization format is a product contract yet.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the eight-case step probe, the bounded BOOT-2 probe,
+construction/reset probe, the fourteen-case step probe, the bounded BOOT-2 probe,
 and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -72,9 +75,15 @@ Machine owns structural validation, immutable accepted bytes, reset/bootstrap
 persistence, classification, and rejection. Acceptance alone executes nothing
 and produces no SP IMEM provenance.
 
+Integrated mapping evidence establishes three pinned copy profiles without
+changing Machine state: NTSC raw `[0x0d4,0x71c)` to SP IMEM
+`[0x000,0x648)`, and PAL/MPAL raw `[0x0d4,0x720)` to
+`[0x000,0x64c)`. An explicit profile is required; shape-only acceptance does
+not select one. Copying those bytes still does not establish the complete IPL2
+handoff state.
+
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-host integration, the exact retained-IPL2 source mapping, and the later
-implementation choice between source-backed materialization and minimal
-firmware execution.
+host integration, profile-selected copy materialization, complete handoff
+state, and whether any later fact requires minimal firmware execution.

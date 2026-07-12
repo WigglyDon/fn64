@@ -60,7 +60,9 @@ only where the detailed ledger says it is sealed.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.
-The first source-clear pressure is the exact numeric and variant-qualified map
-from accepted PIF input to retained IPL2 SP IMEM state before the `Lw` at CPU
-address `0xA4001000`; it still does not earn an architecture-first bus
-abstraction.
+Pinned mapping evidence now identifies NTSC raw `[0x0d4,0x71c)` to SP IMEM
+`[0x000,0x648)` and PAL/MPAL raw `[0x0d4,0x720)` to
+`[0x000,0x64c)`. Shape-only input cannot select a mapping, so the next product
+pressure is explicit Machine-owned profile selection and full-range synthetic
+copy proof. The separate evidence pressure is complete pre-IPL3 handoff state;
+neither earns an architecture-first bus abstraction.
