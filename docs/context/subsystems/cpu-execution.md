@@ -49,8 +49,10 @@ x105 branch. The accepted authentic BOOT-2
 commits cadence once. The following aligned `Lw` is represented through one
 Machine-owned plan/application rule; it reads its old base before destination
 write, sign-extends the loaded word, preserves GPR zero, records successful
-destination lineage, and commits cadence once. Its authentic SP IMEM source is
-unknown, so that instance rejects without mutation.
+destination lineage, and commits cadence once. Its targets now include
+cartridge-bootstrap-staged SP DMEM with exact source-offset provenance; other
+concrete SP-DMEM backing is not treated as known. Its authentic SP IMEM source
+is unknown, so that instance rejects without mutation.
 
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
@@ -65,7 +67,8 @@ Current observability is deterministic state inspection; no instruction trace
 format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
-tests for changes. Known unknowns include complete public-step ISA integration,
-real timing, branch-likely/REGIMM/COP0 branches, nested control flow, other
-load/store families, and performance. Next authority must be earned by a
-bounded product packet, not a generic dispatcher.
+tests for changes. Generated composition reaches aligned `Sw` as the next
+unrepresented identity. Known unknowns include complete public-step ISA
+integration, real timing, branch-likely/REGIMM/COP0 branches, nested control
+flow, other load/store families, and performance. Next authority must be earned
+by a bounded product packet, not a generic dispatcher.

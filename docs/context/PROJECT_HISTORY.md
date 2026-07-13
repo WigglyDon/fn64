@@ -256,6 +256,26 @@ product or reference lane requires a new explicit product decision.
   advancement, BOOT-3, or compatibility fact was earned. BOOT-2 remains the
   highest authentic checkpoint.
 
+## Era 16 — generated x105 SP-DMEM load frontier (2026-07-13)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned x105 identity order and
+  architectural load rules; `LIVE_REPO_FACT`, direct Master commits and narrow
+  target/provenance ownership; `RUNTIME_FACT`, generated focused tests, direct
+  step probe, and complete Rust gate.
+- Frontier correction: aligned `Sw` was not the first missing capability. The
+  earlier `Lw` at the generated third semantic position already decoded and
+  identified, but lacked a data route to cartridge-staged SP DMEM.
+- Accepted product increment: the existing aligned-`Lw` planner now routes
+  direct SP-DMEM words only when the current bootstrap span supplies exact
+  cartridge provenance. Unclassified concrete backing rejects before mutation;
+  AdEL, delay-slot EPC/BD, cadence, and GPR lineage retain their existing owners.
+- Generated composition: four public `Machine::step` commits reach
+  PC/next-PC `0xA4000050 / 0xA4000054`, Count `4`, then stop atomically at
+  aligned `Sw`, the next unrepresented frontier.
+- Proof boundary: no private input, copied instruction stream, store family,
+  bus, or generalized memory map was added. BOOT-2 remains the highest
+  authentic checkpoint.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

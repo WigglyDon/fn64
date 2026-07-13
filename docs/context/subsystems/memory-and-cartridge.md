@@ -46,6 +46,12 @@ offsets, and records cartridge provenance. The bounded inspection host supplies
 owned bytes; it never gives the core a file path. This narrow path is not PI
 DMA, a general cartridge mapping, or a PIF/CIC implementation.
 
+Aligned CPU `Lw` now reuses that exact bootstrap span as the sole production
+knownness owner for direct SP-DMEM data reads. A complete word within
+`[0x040,0x1000)` reports its exact source cartridge offset; backing below
+`0x040` or without current bootstrap lineage rejects before mutation. The route
+adds no SP-DMEM write, mirroring, device access, bus, or generalized map.
+
 SP IMEM is exactly 4 KiB of private Machine-owned backing storage for physical
 addresses `0x04001000..0x04001fff`. Construction and reset create zero backing
 with every byte explicitly `Unknown`. Cartridge-bootstrap restaging builds a
@@ -60,13 +66,15 @@ ghost state. Synthetic instruction words and small generated fixtures are valid
 proof; user-local ROMs are outside routine inspection and evidence packaging.
 
 Current integration includes represented cartridge facts, narrow bootstrap
-staging, one cartridge-derived instruction commit, SP IMEM storage, the narrow
-KSEG0/KSEG1 CPU-data route to that range, and aligned `Lw` over direct RDRAM or
-known SP IMEM. Source-qualified evidence identifies retained IPL2 firmware as
+staging, one cartridge-derived instruction commit, SP IMEM storage, narrow
+KSEG0/KSEG1 CPU-data routes to the represented SP memories, and aligned `Lw`
+over direct RDRAM, known SP IMEM, or cartridge-staged SP DMEM. Source-qualified
+evidence identifies retained IPL2 firmware as
 the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated
-proof combines it atomically with the bounded NTSC cold-x105 CPU handoff. It
+proof combines it atomically with the bounded NTSC cold-x105 CPU handoff and
+advances a generated four-step composition to aligned `Sw`. It
 does not establish authentic SP IMEM contents, firmware-executed handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists

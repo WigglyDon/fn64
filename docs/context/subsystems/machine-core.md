@@ -49,8 +49,10 @@ isolation; multiboxing means multiple independent instances.
 Numeric values are explicit fixed-width CPU/address/storage types where earned;
 RDRAM/SP words use source-clear big-endian access. An aligned `Lw` plan
 preflights known bootstrap operands, address classification, alignment, and all
-four source bytes before application owns writeback, lineage, and cadence. No
-serialization format is a product contract yet.
+four source bytes before application owns writeback, lineage, and cadence.
+Direct SP-DMEM reads are additionally gated by the current cartridge-bootstrap
+span and record the exact source cartridge offset; concrete but unclassified
+backing rejects. No serialization format is a product contract yet.
 
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
@@ -61,16 +63,18 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the fourteen-case step probe, the bounded BOOT-2 probe,
+construction/reset probe, the eighteen-case step probe, the bounded BOOT-2 probe,
 and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
-RDRAM and known SP IMEM. Explicit profile materialization now gives generated
-or user-supplied firmware bytes a production copy event; the authentic
+RDRAM, known SP IMEM, and cartridge-bootstrap-staged SP DMEM. Explicit profile
+materialization now gives generated or user-supplied firmware bytes a
+production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and source lineage, but it does not prove an authentic
-firmware-executed handoff, BOOT-3, timing, full ISA, game compatibility,
+handoff and a four-step generated x105 composition to the aligned-`Sw`
+frontier, but it does not prove an authentic firmware-executed handoff,
+BOOT-3, timing, full ISA, game compatibility,
 renderer, audio, performance, or host integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented

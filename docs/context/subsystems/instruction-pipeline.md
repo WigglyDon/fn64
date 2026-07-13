@@ -23,12 +23,13 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the fourteen-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the eighteen-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct
-RDRAM and known SP IMEM, with a separate pre-mutation rejection when any SP
-IMEM source byte is unknown. The authentic first frontier remains that
+RDRAM, known SP IMEM, and cartridge-bootstrap-staged SP DMEM. The SP-DMEM
+target records exact cartridge provenance; unclassified backing and unknown SP
+IMEM reject before mutation. The authentic first frontier remains that
 represented rejection at `0xA4000044`, not absent decode or load semantics.
 Integrated provenance evidence identifies the missing source category as
 retained IPL2 firmware content. Explicit profiled bootstrap materialization can
@@ -37,7 +38,9 @@ source knowledge alone cannot bypass it. Synthetic `Lw` success proves the
 represented composition, not authentic boot. A separate generated-only NTSC
 cold-x105 test proves the Machine bootstrap plan can source the inherited t3
 operand before `Machine::step`; that source gate still rejects every unstaged
-GPR and does not imply IPL2 execution.
+GPR and does not imply IPL2 execution. Generated-only continuation now commits
+the SP-IMEM load, the earlier-missing SP-DMEM load, and the following logical
+transform, then stops atomically at aligned `Sw`.
 
 Ordinary `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` identities now select
 one bounded Machine-owned action before sequential staging. A control-flow

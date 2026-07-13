@@ -18,9 +18,11 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for fourteen represented cases, including ordinary
+public `Machine::step` for eighteen represented cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
-rejection, and ends deterministically.
+rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
+source provenance, unclassified-source rejection, delay-slot AdEL, and four
+commits to the aligned-`Sw` frontier. The probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
 Machine-owned provenance, mutation lineage, and the first frontier. The
@@ -57,6 +59,11 @@ Integrated public-source evidence records profile-qualified IPL1 copy ranges
 without copying firmware or external source. The probe may select an explicit
 profile and report the resulting Machine-owned effect, but it does not author
 SP IMEM, authenticate firmware, or prove a firmware-executed handoff.
+
+The generated x105 frontier evidence records only bounded instruction identity
+order and independently encoded data-flow shape. It copies no instruction
+stream. Public-step proof at PC `0xA4000050` identifies aligned `Sw` as absent;
+it is synthetic evidence, not authentic cartridge execution.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use

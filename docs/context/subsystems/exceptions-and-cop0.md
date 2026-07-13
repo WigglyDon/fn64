@@ -17,7 +17,9 @@ Lineage is `faulting cause/address → source-specific plan → control-flow pre
 Arithmetic overflow does not invent BadVAddr. Fetch AdEL and aligned-`Lw`
 data-AdEL planning write only their sealed fields. An unaligned `Lw` enters the
 existing load address-error owner with its exact BadVAddr and no destination
-write. Count and normal cadence do not advance on represented fault entry.
+write, including when the address would otherwise select SP DMEM. Alignment is
+decided before target/source access. Count and normal cadence do not advance on
+represented fault entry.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 
@@ -34,6 +36,10 @@ and unaligned-`Lw` data-AdEL entry from that slot set Cause.BD, write the owner
 PC to EPC, leave the faulting slot Count unchanged, prevent target commit, and
 clear context after successful entry. A branch/jump in the slot is unsupported
 rollback, not an exception.
+
+Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
+owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting
+load. It reuses the existing exception entry and adds no COP0 field or policy.
 
 Forbidden authority includes full COP0 claims, TLB/MMU, generic all-future
 exception objects, host interruption, real timing, PIF boot, and inferred
