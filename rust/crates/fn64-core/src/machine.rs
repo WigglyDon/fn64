@@ -28,13 +28,22 @@ mod cartridge_bootstrap;
 mod rdram_reservation;
 
 pub use cartridge_bootstrap::{
+    MachineBootstrapControlFlowSource, MachineBootstrapCop0StatusSource,
     MachineBootstrapCpuStateKind, MachineBootstrapCpuStateUnavailable, MachineBootstrapGprSource,
     MachineCartridgeBootstrapError, MachineCartridgeBootstrapState,
-    MachineCpuInstructionInspection, MachineCpuInstructionSource,
-    MachineSpDmemInstructionProvenance, MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC,
-    MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC, MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
-    MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET, MACHINE_GENERAL_PIF_RESET_GPR29_VALUE,
-    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+    MachineCpuInstructionInspection, MachineCpuInstructionSource, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffInputKind, MachinePifIpl2HandoffInputs, MachinePifIpl2HandoffResetKind,
+    MachinePifIpl3Family, MachinePifVersionBit, MachineSpDmemInstructionProvenance,
+    MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC, MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC,
+    MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
+    MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET, MACHINE_PIF_IPL1_STATUS,
+    MACHINE_PIF_IPL2_HANDOFF_NTSC_LINK_INSTRUCTION_ADDRESS, MACHINE_PIF_IPL2_HANDOFF_NTSC_RA_VALUE,
+    MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_SP_VALUE,
+    MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_T3_VALUE,
+    MACHINE_PIF_IPL2_HANDOFF_X105_SEED,
 };
 
 use rdram_reservation::CpuRdramReservation;
@@ -2473,6 +2482,10 @@ pub struct Machine {
     cartridge: Cartridge,
     pif_firmware: Option<PifFirmware>,
     pif_ipl2_profile: Option<PifIpl2Profile>,
+    pif_ipl3_family: Option<MachinePifIpl3Family>,
+    pif_ipl2_handoff_reset_kind: Option<MachinePifIpl2HandoffResetKind>,
+    pif_ipl2_handoff_boot_medium: Option<MachinePifIpl2HandoffBootMedium>,
+    pif_version_bit: Option<MachinePifVersionBit>,
     cpu: Cpu,
     rdram: Rdram,
     sp_dmem: SpDmem,
@@ -2488,6 +2501,10 @@ impl Machine {
             cartridge,
             pif_firmware: None,
             pif_ipl2_profile: None,
+            pif_ipl3_family: None,
+            pif_ipl2_handoff_reset_kind: None,
+            pif_ipl2_handoff_boot_medium: None,
+            pif_version_bit: None,
             cpu: Cpu::new(),
             rdram: Rdram::default(),
             sp_dmem: SpDmem::default(),
@@ -2542,6 +2559,68 @@ impl Machine {
 
     pub const fn pif_ipl2_profile(&self) -> Option<PifIpl2Profile> {
         self.pif_ipl2_profile
+    }
+
+    pub fn install_pif_ipl3_family(
+        &mut self,
+        family: MachinePifIpl3Family,
+    ) -> MachinePifIpl3Family {
+        self.pif_ipl3_family = Some(family);
+        family
+    }
+
+    pub const fn pif_ipl3_family(&self) -> Option<MachinePifIpl3Family> {
+        self.pif_ipl3_family
+    }
+
+    pub fn install_pif_ipl2_handoff_reset_kind(
+        &mut self,
+        reset_kind: MachinePifIpl2HandoffResetKind,
+    ) -> MachinePifIpl2HandoffResetKind {
+        self.pif_ipl2_handoff_reset_kind = Some(reset_kind);
+        reset_kind
+    }
+
+    pub const fn pif_ipl2_handoff_reset_kind(&self) -> Option<MachinePifIpl2HandoffResetKind> {
+        self.pif_ipl2_handoff_reset_kind
+    }
+
+    pub fn install_pif_ipl2_handoff_boot_medium(
+        &mut self,
+        boot_medium: MachinePifIpl2HandoffBootMedium,
+    ) -> MachinePifIpl2HandoffBootMedium {
+        self.pif_ipl2_handoff_boot_medium = Some(boot_medium);
+        boot_medium
+    }
+
+    pub const fn pif_ipl2_handoff_boot_medium(&self) -> Option<MachinePifIpl2HandoffBootMedium> {
+        self.pif_ipl2_handoff_boot_medium
+    }
+
+    pub fn install_pif_version_bit(
+        &mut self,
+        pif_version_bit: MachinePifVersionBit,
+    ) -> MachinePifVersionBit {
+        self.pif_version_bit = Some(pif_version_bit);
+        pif_version_bit
+    }
+
+    pub const fn pif_version_bit(&self) -> Option<MachinePifVersionBit> {
+        self.pif_version_bit
+    }
+
+    pub const fn pif_ipl2_handoff_inputs(&self) -> Option<MachinePifIpl2HandoffInputs> {
+        match (
+            self.pif_ipl3_family,
+            self.pif_ipl2_handoff_reset_kind,
+            self.pif_ipl2_handoff_boot_medium,
+            self.pif_version_bit,
+        ) {
+            (Some(family), Some(reset_kind), Some(boot_medium), Some(pif_version_bit)) => Some(
+                MachinePifIpl2HandoffInputs::new(family, reset_kind, boot_medium, pif_version_bit),
+            ),
+            _ => None,
+        }
     }
 
     /// Stages the represented CPU control-flow pair for a selected PC.

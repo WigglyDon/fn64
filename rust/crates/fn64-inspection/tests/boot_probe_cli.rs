@@ -305,6 +305,114 @@ fn boot_probe_cli_materializes_every_explicit_profile_without_dumping_bytes_or_p
 }
 
 #[test]
+fn boot_probe_cli_materializes_only_explicit_ntsc_cold_x105_handoff() {
+    let rom_path = generated_fixture_path("coupled-handoff-rom");
+    let pif_path = generated_fixture_path("coupled-handoff-pif");
+    std::fs::write(&rom_path, make_generated_boot_fixture()).unwrap();
+    std::fs::write(
+        &pif_path,
+        make_generated_pif_firmware(PIF_BOOT_ROM_SIZE_BYTES),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_fn64_boot_probe"))
+        .arg(&rom_path)
+        .arg("--pif-rom")
+        .arg(&pif_path)
+        .arg("--pif-profile")
+        .arg("ntsc-pinned")
+        .arg("--ipl3-family")
+        .arg("x105")
+        .arg("--reset-kind")
+        .arg("cold")
+        .arg("--boot-medium")
+        .arg("cartridge")
+        .arg("--pif-version-bit")
+        .arg("1")
+        .arg("--max-steps")
+        .arg("2")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("bootstrap_cpu_state: CoupledColdX105NtscPinned"));
+    assert!(stdout.contains("pif_ipl2_coupled_handoff: materialized"));
+    assert!(stdout.contains("pif_ipl3_family: X105"));
+    assert!(stdout.contains("pif_ipl2_handoff_reset_kind: Cold"));
+    assert!(stdout.contains("pif_ipl2_handoff_boot_medium: Cartridge"));
+    assert!(stdout.contains("pif_version_bit: 1"));
+    assert!(stdout.contains("bootstrap_cop0_status: 0x34000000"));
+    assert!(stdout.contains("bootstrap_t3_value: 0xFFFFFFFFA4000040"));
+    assert!(stdout.contains("bootstrap_sp_value: 0xFFFFFFFFA4001FF0"));
+    assert!(stdout.contains("bootstrap_ra_value: 0xFFFFFFFFA4001550"));
+    assert!(stdout.contains("bootstrap_s6_value: 0x0000000000000091"));
+    assert!(stdout.contains("highest_checkpoint: BOOT-2"));
+    assert!(stdout.contains("pif_ipl1_execution: no"));
+    assert!(stdout.contains("pif_ipl2_execution: no"));
+    assert!(stdout.contains("compatibility_claim: none"));
+    assert!(!stdout.contains("FN64_GENERATED_PIF_BYTES_MUST_NOT_BE_LOGGED"));
+    assert!(!stdout.contains(&pif_path.display().to_string()));
+
+    for (profile, expected) in [
+        (
+            "pal-pinned",
+            "cold x105 coupled handoff unsupported for PIF IPL2 profile PAL_PINNED",
+        ),
+        (
+            "mpal-pinned",
+            "cold x105 coupled handoff unsupported for PIF IPL2 profile MPAL_PINNED",
+        ),
+    ] {
+        let rejected = Command::new(env!("CARGO_BIN_EXE_fn64_boot_probe"))
+            .arg(&rom_path)
+            .arg("--pif-rom")
+            .arg(&pif_path)
+            .arg("--pif-profile")
+            .arg(profile)
+            .arg("--ipl3-family")
+            .arg("x105")
+            .arg("--reset-kind")
+            .arg("cold")
+            .arg("--boot-medium")
+            .arg("cartridge")
+            .arg("--pif-version-bit")
+            .arg("1")
+            .output()
+            .unwrap();
+        assert_eq!(rejected.status.code(), Some(1));
+        assert!(rejected.stdout.is_empty());
+        assert!(String::from_utf8(rejected.stderr)
+            .unwrap()
+            .contains(expected));
+    }
+
+    let missing_version = Command::new(env!("CARGO_BIN_EXE_fn64_boot_probe"))
+        .arg(&rom_path)
+        .arg("--pif-rom")
+        .arg(&pif_path)
+        .arg("--pif-profile")
+        .arg("ntsc-pinned")
+        .arg("--ipl3-family")
+        .arg("x105")
+        .arg("--reset-kind")
+        .arg("cold")
+        .arg("--boot-medium")
+        .arg("cartridge")
+        .output()
+        .unwrap();
+    assert_eq!(missing_version.status.code(), Some(1));
+    assert!(missing_version.stdout.is_empty());
+    assert!(String::from_utf8(missing_version.stderr)
+        .unwrap()
+        .contains("cold x105 coupled handoff requires explicit pif-version-bit input"));
+
+    std::fs::remove_file(&rom_path).unwrap();
+    std::fs::remove_file(&pif_path).unwrap();
+}
+
+#[test]
 fn boot_probe_cli_distinguishes_generated_malformed_and_unsupported_pif_files() {
     let rom_path = generated_fixture_path("pif-validation-rom");
     std::fs::write(&rom_path, make_generated_boot_fixture()).unwrap();

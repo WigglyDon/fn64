@@ -23,30 +23,148 @@ pub const MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET: u32 =
     CARTRIDGE_CANDIDATE_IPL3_START_OFFSET;
 pub const MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE: u32 =
     CARTRIDGE_CANDIDATE_IPL3_END_OFFSET_EXCLUSIVE;
-pub const MACHINE_GENERAL_PIF_RESET_GPR29_VALUE: u64 = 0xffff_ffff_a400_1ff0;
-pub const MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX: u8 = 29;
+pub const MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX: u8 = 11;
+pub const MACHINE_PIF_IPL2_HANDOFF_T3_VALUE: u64 = 0xffff_ffff_a400_0040;
+pub const MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX: u8 = 29;
+pub const MACHINE_PIF_IPL2_HANDOFF_SP_VALUE: u64 = 0xffff_ffff_a400_1ff0;
+pub const MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX: u8 = 31;
+pub const MACHINE_PIF_IPL2_HANDOFF_NTSC_RA_VALUE: u64 = 0xffff_ffff_a400_1550;
+pub const MACHINE_PIF_IPL2_HANDOFF_NTSC_LINK_INSTRUCTION_ADDRESS: u32 = 0xa400_1548;
+pub const MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX: u8 = 19;
+pub const MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX: u8 = 20;
+pub const MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX: u8 = 21;
+pub const MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX: u8 = 22;
+pub const MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX: u8 = 23;
+pub const MACHINE_PIF_IPL2_HANDOFF_X105_SEED: u64 = 0x91;
+pub const MACHINE_PIF_IPL1_STATUS: u32 = 0x3400_0000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachinePifIpl3Family {
+    X105,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachinePifIpl2HandoffResetKind {
+    Cold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachinePifIpl2HandoffBootMedium {
+    Cartridge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachinePifVersionBit {
+    Zero,
+    One,
+}
+
+impl MachinePifVersionBit {
+    pub const fn value(self) -> u8 {
+        match self {
+            Self::Zero => 0,
+            Self::One => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachinePifIpl2HandoffInputs {
+    ipl3_family: MachinePifIpl3Family,
+    reset_kind: MachinePifIpl2HandoffResetKind,
+    boot_medium: MachinePifIpl2HandoffBootMedium,
+    pif_version_bit: MachinePifVersionBit,
+}
+
+impl MachinePifIpl2HandoffInputs {
+    pub(crate) const fn new(
+        ipl3_family: MachinePifIpl3Family,
+        reset_kind: MachinePifIpl2HandoffResetKind,
+        boot_medium: MachinePifIpl2HandoffBootMedium,
+        pif_version_bit: MachinePifVersionBit,
+    ) -> Self {
+        Self {
+            ipl3_family,
+            reset_kind,
+            boot_medium,
+            pif_version_bit,
+        }
+    }
+
+    pub const fn ipl3_family(self) -> MachinePifIpl3Family {
+        self.ipl3_family
+    }
+
+    pub const fn reset_kind(self) -> MachinePifIpl2HandoffResetKind {
+        self.reset_kind
+    }
+
+    pub const fn boot_medium(self) -> MachinePifIpl2HandoffBootMedium {
+        self.boot_medium
+    }
+
+    pub const fn pif_version_bit(self) -> MachinePifVersionBit {
+        self.pif_version_bit
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineBootstrapCpuStateKind {
     /// The current represented reset subset plus the IPL3 `pc / next_pc` pair.
     ///
-    /// Architectural GPR zero and the general PIF reset stack pointer are
+    /// Architectural GPR zero and the restored PIF IPL2 stack pointer are
     /// source-backed. Other PIF/CIC-produced GPR, COP0, or device state remains
     /// explicitly unknown rather than being inferred from zeroed storage.
     RepresentedResetSubset,
+    /// The complete source-backed cold cartridge x105 handoff for the pinned
+    /// NTSC PIF layout. PAL and MPAL remain explicitly unsupported.
+    CoupledColdX105NtscPinned,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineBootstrapGprSource {
     UnknownPifProduced,
     ArchitecturalZero,
-    GeneralPifRomResetStackPointer,
+    PifIpl2HandoffEntryPointer,
+    PifIpl2RestoredStackPointer,
+    PifIpl2RetainedLink {
+        profile: PifIpl2Profile,
+        link_instruction_address: CpuAddress,
+    },
+    CartridgeBootMedium,
+    PifProfileTvType {
+        profile: PifIpl2Profile,
+    },
+    ColdResetKind,
+    X105Seed,
+    PifVersionRegionalState {
+        profile: PifIpl2Profile,
+        pif_version_bit: MachinePifVersionBit,
+    },
     KnownInstructionResult {
         execution_address: CpuAddress,
         identity: CpuInstructionIdentity,
         source_gpr_a: Option<u8>,
         source_gpr_b: Option<u8>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineBootstrapCop0StatusSource {
+    UnknownPifProduced,
+    PifIpl1ColdBootStatus,
+}
+
+impl MachineBootstrapCop0StatusSource {
+    pub const fn is_known(self) -> bool {
+        !matches!(self, Self::UnknownPifProduced)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineBootstrapControlFlowSource {
+    DirectCartridgeBootstrapStaging,
+    PifIpl2CompletedX105Transfer { profile: PifIpl2Profile },
 }
 
 impl MachineBootstrapGprSource {
@@ -68,6 +186,9 @@ pub struct MachineCartridgeBootstrapState {
     pif_firmware_state: MachinePifFirmwareState,
     pif_ipl2_profile: Option<PifIpl2Profile>,
     pif_ipl2_copy_layout: Option<PifIpl2CopyLayout>,
+    pif_ipl2_handoff_inputs: Option<MachinePifIpl2HandoffInputs>,
+    cop0_status_source: MachineBootstrapCop0StatusSource,
+    control_flow_source: MachineBootstrapControlFlowSource,
     gpr_sources: [MachineBootstrapGprSource; CPU_GPR_COUNT],
 }
 
@@ -114,6 +235,18 @@ impl MachineCartridgeBootstrapState {
 
     pub const fn pif_ipl2_copy_layout(self) -> Option<PifIpl2CopyLayout> {
         self.pif_ipl2_copy_layout
+    }
+
+    pub const fn pif_ipl2_handoff_inputs(self) -> Option<MachinePifIpl2HandoffInputs> {
+        self.pif_ipl2_handoff_inputs
+    }
+
+    pub const fn cop0_status_source(self) -> MachineBootstrapCop0StatusSource {
+        self.cop0_status_source
+    }
+
+    pub const fn control_flow_source(self) -> MachineBootstrapControlFlowSource {
+        self.control_flow_source
     }
 
     pub const fn has_unrepresented_pif_cpu_state(self) -> bool {
@@ -184,6 +317,27 @@ impl fmt::Display for MachineBootstrapCpuStateUnavailable {
 
 impl std::error::Error for MachineBootstrapCpuStateUnavailable {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachinePifIpl2HandoffInputKind {
+    PifIpl2Profile,
+    Ipl3Family,
+    ResetKind,
+    BootMedium,
+    PifVersionBit,
+}
+
+impl MachinePifIpl2HandoffInputKind {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::PifIpl2Profile => "pif-ipl2-profile",
+            Self::Ipl3Family => "ipl3-family",
+            Self::ResetKind => "reset-kind",
+            Self::BootMedium => "boot-medium",
+            Self::PifVersionBit => "pif-version-bit",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineCartridgeBootstrapError {
     CartridgeSourceRangeUnavailable {
@@ -200,6 +354,12 @@ pub enum MachineCartridgeBootstrapError {
         byte_count: usize,
     },
     PifIpl2ProfileRequiresFirmware {
+        profile: PifIpl2Profile,
+    },
+    MissingPifIpl2HandoffInput {
+        input: MachinePifIpl2HandoffInputKind,
+    },
+    UnsupportedPifIpl2HandoffProfile {
         profile: PifIpl2Profile,
     },
     CpuRegister(CpuRegisterIndexError),
@@ -240,6 +400,16 @@ impl fmt::Display for MachineCartridgeBootstrapError {
                 "cartridge bootstrap PIF IPL2 profile {} requires accepted PIF firmware",
                 profile.name()
             ),
+            Self::MissingPifIpl2HandoffInput { input } => write!(
+                f,
+                "cold x105 coupled handoff requires explicit {} input",
+                input.name()
+            ),
+            Self::UnsupportedPifIpl2HandoffProfile { profile } => write!(
+                f,
+                "cold x105 coupled handoff unsupported for PIF IPL2 profile {}",
+                profile.name()
+            ),
             Self::CpuRegister(error) => {
                 write!(
                     f,
@@ -251,6 +421,21 @@ impl fmt::Display for MachineCartridgeBootstrapError {
 }
 
 impl std::error::Error for MachineCartridgeBootstrapError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ColdX105CoupledHandoffPlan {
+    inputs: MachinePifIpl2HandoffInputs,
+    profile: PifIpl2Profile,
+    t3: u64,
+    sp: u64,
+    ra: u64,
+    s3: u64,
+    s4: u64,
+    s5: u64,
+    s6: u64,
+    s7: u64,
+    cop0_status: u32,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineSpDmemInstructionProvenance {
@@ -296,18 +481,82 @@ impl MachineCpuInstructionInspection {
 }
 
 impl Machine {
+    fn plan_cold_x105_coupled_handoff(
+        &self,
+    ) -> Result<Option<ColdX105CoupledHandoffPlan>, MachineCartridgeBootstrapError> {
+        let handoff_requested = self.pif_ipl3_family.is_some()
+            || self.pif_ipl2_handoff_reset_kind.is_some()
+            || self.pif_ipl2_handoff_boot_medium.is_some()
+            || self.pif_version_bit.is_some();
+        if !handoff_requested {
+            return Ok(None);
+        }
+
+        let profile = self.pif_ipl2_profile.ok_or(
+            MachineCartridgeBootstrapError::MissingPifIpl2HandoffInput {
+                input: MachinePifIpl2HandoffInputKind::PifIpl2Profile,
+            },
+        )?;
+        if self.pif_firmware.is_none() {
+            return Err(MachineCartridgeBootstrapError::PifIpl2ProfileRequiresFirmware { profile });
+        }
+        let ipl3_family = self.pif_ipl3_family.ok_or(
+            MachineCartridgeBootstrapError::MissingPifIpl2HandoffInput {
+                input: MachinePifIpl2HandoffInputKind::Ipl3Family,
+            },
+        )?;
+        let reset_kind = self.pif_ipl2_handoff_reset_kind.ok_or(
+            MachineCartridgeBootstrapError::MissingPifIpl2HandoffInput {
+                input: MachinePifIpl2HandoffInputKind::ResetKind,
+            },
+        )?;
+        let boot_medium = self.pif_ipl2_handoff_boot_medium.ok_or(
+            MachineCartridgeBootstrapError::MissingPifIpl2HandoffInput {
+                input: MachinePifIpl2HandoffInputKind::BootMedium,
+            },
+        )?;
+        let pif_version_bit = self.pif_version_bit.ok_or(
+            MachineCartridgeBootstrapError::MissingPifIpl2HandoffInput {
+                input: MachinePifIpl2HandoffInputKind::PifVersionBit,
+            },
+        )?;
+
+        if profile != PifIpl2Profile::NtscPinned {
+            return Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile { profile },
+            );
+        }
+
+        let inputs =
+            MachinePifIpl2HandoffInputs::new(ipl3_family, reset_kind, boot_medium, pif_version_bit);
+        Ok(Some(ColdX105CoupledHandoffPlan {
+            inputs,
+            profile,
+            t3: MACHINE_PIF_IPL2_HANDOFF_T3_VALUE,
+            sp: MACHINE_PIF_IPL2_HANDOFF_SP_VALUE,
+            ra: MACHINE_PIF_IPL2_HANDOFF_NTSC_RA_VALUE,
+            s3: 0,
+            s4: 1,
+            s5: 0,
+            s6: MACHINE_PIF_IPL2_HANDOFF_X105_SEED,
+            s7: u64::from(pif_version_bit.value()),
+            cop0_status: MACHINE_PIF_IPL1_STATUS,
+        }))
+    }
+
     /// Creates fn64's current machine-owned cartridge bootstrap state.
     ///
     /// This operation consumes only the already-normalized Cartridge owned by
     /// this Machine. It preflights and materializes the complete IPL3 source
     /// span before replacing represented CPU, RDRAM, SP DMEM, and reservation
     /// state. The execution PC is staged last in the replacement state. The
-    /// represented reset subset stages only architectural zero and the general
-    /// PIF reset stack pointer. Other PIF/CIC-produced register or device state
+    /// represented reset subset stages only architectural zero and the restored
+    /// PIF IPL2 stack pointer. Other PIF/CIC-produced register or device state
     /// remains explicitly unknown.
     pub fn stage_cartridge_bootstrap(
         &mut self,
     ) -> Result<MachineCartridgeBootstrapState, MachineCartridgeBootstrapError> {
+        let handoff_plan = self.plan_cold_x105_coupled_handoff()?;
         if let Some(profile) = self.pif_ipl2_profile {
             if self.pif_firmware.is_none() {
                 return Err(
@@ -361,16 +610,58 @@ impl Machine {
         let mut replacement_cpu = Cpu::new();
         replacement_cpu
             .set_gpr(
-                usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX),
-                MACHINE_GENERAL_PIF_RESET_GPR29_VALUE,
+                usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX),
+                handoff_plan.map_or(MACHINE_PIF_IPL2_HANDOFF_SP_VALUE, |plan| plan.sp),
             )
             .map_err(MachineCartridgeBootstrapError::CpuRegister)?;
+        if let Some(plan) = handoff_plan {
+            for (index, value) in [
+                (MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, plan.t3),
+                (MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX, plan.ra),
+                (MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX, plan.s3),
+                (MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX, plan.s4),
+                (MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX, plan.s5),
+                (MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX, plan.s6),
+                (MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX, plan.s7),
+            ] {
+                replacement_cpu
+                    .set_gpr(usize::from(index), value)
+                    .map_err(MachineCartridgeBootstrapError::CpuRegister)?;
+            }
+            replacement_cpu.stage_cop0_status_for_bootstrap(plan.cop0_status);
+        }
         replacement_cpu.stage_pc(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
 
         let mut gpr_sources = [MachineBootstrapGprSource::UnknownPifProduced; CPU_GPR_COUNT];
         gpr_sources[0] = MachineBootstrapGprSource::ArchitecturalZero;
-        gpr_sources[usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX)] =
-            MachineBootstrapGprSource::GeneralPifRomResetStackPointer;
+        gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)] =
+            MachineBootstrapGprSource::PifIpl2RestoredStackPointer;
+        if let Some(plan) = handoff_plan {
+            gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX)] =
+                MachineBootstrapGprSource::PifIpl2HandoffEntryPointer;
+            gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX)] =
+                MachineBootstrapGprSource::PifIpl2RetainedLink {
+                    profile: plan.profile,
+                    link_instruction_address: CpuAddress::new(
+                        MACHINE_PIF_IPL2_HANDOFF_NTSC_LINK_INSTRUCTION_ADDRESS,
+                    ),
+                };
+            gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX)] =
+                MachineBootstrapGprSource::CartridgeBootMedium;
+            gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX)] =
+                MachineBootstrapGprSource::PifProfileTvType {
+                    profile: plan.profile,
+                };
+            gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX)] =
+                MachineBootstrapGprSource::ColdResetKind;
+            gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX)] =
+                MachineBootstrapGprSource::X105Seed;
+            gpr_sources[usize::from(MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX)] =
+                MachineBootstrapGprSource::PifVersionRegionalState {
+                    profile: plan.profile,
+                    pif_version_bit: plan.inputs.pif_version_bit(),
+                };
+        }
 
         let state = MachineCartridgeBootstrapState {
             source_layout: self.cartridge.source_layout(),
@@ -380,10 +671,26 @@ impl Machine {
             sp_dmem_end_offset_exclusive: MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
             execution_pc: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC),
             next_pc: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC),
-            cpu_state_kind: MachineBootstrapCpuStateKind::RepresentedResetSubset,
+            cpu_state_kind: if handoff_plan.is_some() {
+                MachineBootstrapCpuStateKind::CoupledColdX105NtscPinned
+            } else {
+                MachineBootstrapCpuStateKind::RepresentedResetSubset
+            },
             pif_firmware_state: self.pif_firmware_state(),
             pif_ipl2_profile: self.pif_ipl2_profile(),
             pif_ipl2_copy_layout,
+            pif_ipl2_handoff_inputs: handoff_plan.map(|plan| plan.inputs),
+            cop0_status_source: if handoff_plan.is_some() {
+                MachineBootstrapCop0StatusSource::PifIpl1ColdBootStatus
+            } else {
+                MachineBootstrapCop0StatusSource::UnknownPifProduced
+            },
+            control_flow_source: handoff_plan.map_or(
+                MachineBootstrapControlFlowSource::DirectCartridgeBootstrapStaging,
+                |plan| MachineBootstrapControlFlowSource::PifIpl2CompletedX105Transfer {
+                    profile: plan.profile,
+                },
+            ),
             gpr_sources,
         };
 
@@ -600,6 +907,10 @@ mod tests {
         pif_firmware_state: MachinePifFirmwareState,
         pif_firmware_bytes: Option<Vec<u8>>,
         pif_ipl2_profile: Option<PifIpl2Profile>,
+        pif_ipl3_family: Option<MachinePifIpl3Family>,
+        pif_ipl2_handoff_reset_kind: Option<MachinePifIpl2HandoffResetKind>,
+        pif_ipl2_handoff_boot_medium: Option<MachinePifIpl2HandoffBootMedium>,
+        pif_version_bit: Option<MachinePifVersionBit>,
         pc: u32,
         next_pc: u32,
         gprs: [u64; CPU_GPR_COUNT],
@@ -625,6 +936,10 @@ mod tests {
             pif_firmware_state: machine.pif_firmware_state(),
             pif_firmware_bytes: machine.pif_firmware_bytes_for_test().map(<[u8]>::to_vec),
             pif_ipl2_profile: machine.pif_ipl2_profile(),
+            pif_ipl3_family: machine.pif_ipl3_family(),
+            pif_ipl2_handoff_reset_kind: machine.pif_ipl2_handoff_reset_kind(),
+            pif_ipl2_handoff_boot_medium: machine.pif_ipl2_handoff_boot_medium(),
+            pif_version_bit: machine.pif_version_bit(),
             pc: machine.cpu().pc(),
             next_pc: machine.cpu().next_pc(),
             gprs: core::array::from_fn(|index| machine.cpu().gpr(index).unwrap()),
@@ -722,6 +1037,22 @@ mod tests {
             .collect()
     }
 
+    fn install_complete_cold_x105_inputs(
+        machine: &mut Machine,
+        profile: PifIpl2Profile,
+        pif_version_bit: MachinePifVersionBit,
+        firmware_seed: u8,
+    ) {
+        machine
+            .install_pif_firmware(generated_pif_firmware(firmware_seed))
+            .unwrap();
+        machine.install_pif_ipl2_profile(profile);
+        machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+        machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+        machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+        machine.install_pif_version_bit(pif_version_bit);
+    }
+
     fn encode_source_layout(mut normalized_bytes: Vec<u8>, layout: RomSourceLayout) -> Vec<u8> {
         match layout {
             RomSourceLayout::BigEndian => normalized_bytes,
@@ -787,15 +1118,11 @@ mod tests {
             );
             assert_eq!(state.gpr_is_known(0), Some(true));
             assert_eq!(
-                state.gpr_source(usize::from(
-                    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
-                )),
-                Some(MachineBootstrapGprSource::GeneralPifRomResetStackPointer)
+                state.gpr_source(usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)),
+                Some(MachineBootstrapGprSource::PifIpl2RestoredStackPointer)
             );
             assert_eq!(
-                state.gpr_is_known(usize::from(
-                    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
-                )),
+                state.gpr_is_known(usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)),
                 Some(true)
             );
             assert_eq!(
@@ -809,10 +1136,10 @@ mod tests {
             assert_eq!(machine.cpu().cop0_count(), 0);
             assert_eq!(machine.cpu().gpr(0), Some(0));
             assert_eq!(
-                machine.cpu().gpr(usize::from(
-                    MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
-                )),
-                Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE)
+                machine
+                    .cpu()
+                    .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)),
+                Some(MACHINE_PIF_IPL2_HANDOFF_SP_VALUE)
             );
             assert_eq!(machine.cpu().gpr(7), Some(0));
             assert_eq!(machine.rdram().read_u32_be(0x20), Ok(0));
@@ -849,7 +1176,7 @@ mod tests {
         machine
             .cpu
             .set_gpr(
-                usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX),
+                usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX),
                 0x1357_9bdf_2468_ace0,
             )
             .unwrap();
@@ -875,9 +1202,9 @@ mod tests {
         assert_eq!(machine.cpu().next_pc(), 0x8000_3004);
         assert_eq!(machine.cpu().gpr(5), Some(0xa5a5_5a5a));
         assert_eq!(
-            machine.cpu().gpr(usize::from(
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
-            )),
+            machine
+                .cpu()
+                .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)),
             Some(0x1357_9bdf_2468_ace0)
         );
         assert_eq!(machine.rdram().read_u32_be(0x30), Ok(0x1020_3040));
@@ -890,7 +1217,7 @@ mod tests {
     }
 
     #[test]
-    fn machine_bootstrap_reset_state_lineage_stages_only_zero_and_general_pif_stack_pointer() {
+    fn machine_bootstrap_reset_subset_stages_only_zero_and_restored_pif_stack_pointer() {
         let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
         let mut machine = Machine::from_cartridge(cartridge);
 
@@ -903,26 +1230,22 @@ mod tests {
         );
         assert_eq!(state.gpr_is_known(0), Some(true));
         assert_eq!(
-            machine.cpu().gpr(usize::from(
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
-            )),
-            Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE)
+            machine
+                .cpu()
+                .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)),
+            Some(MACHINE_PIF_IPL2_HANDOFF_SP_VALUE)
         );
         assert_eq!(
-            state.gpr_source(usize::from(
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
-            )),
-            Some(MachineBootstrapGprSource::GeneralPifRomResetStackPointer)
+            state.gpr_source(usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)),
+            Some(MachineBootstrapGprSource::PifIpl2RestoredStackPointer)
         );
         assert_eq!(
-            state.gpr_is_known(usize::from(
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX
-            )),
+            state.gpr_is_known(usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX)),
             Some(true)
         );
 
         for index in 1..CPU_GPR_COUNT {
-            if index == usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX) {
+            if index == usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX) {
                 continue;
             }
             assert_eq!(machine.cpu().gpr(index), Some(0));
@@ -934,6 +1257,396 @@ mod tests {
         }
         assert_eq!(state.gpr_source(CPU_GPR_COUNT), None);
         assert_eq!(state.gpr_is_known(CPU_GPR_COUNT), None);
+    }
+
+    #[test]
+    fn cold_x105_ntsc_handoff_materializes_exact_coupled_state_and_lineage() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        install_complete_cold_x105_inputs(
+            &mut machine,
+            PifIpl2Profile::NtscPinned,
+            MachinePifVersionBit::One,
+            0x34,
+        );
+
+        let state = machine.stage_cartridge_bootstrap().unwrap();
+
+        assert_eq!(
+            state.cpu_state_kind(),
+            MachineBootstrapCpuStateKind::CoupledColdX105NtscPinned
+        );
+        assert_eq!(
+            state.pif_ipl2_handoff_inputs(),
+            Some(MachinePifIpl2HandoffInputs::new(
+                MachinePifIpl3Family::X105,
+                MachinePifIpl2HandoffResetKind::Cold,
+                MachinePifIpl2HandoffBootMedium::Cartridge,
+                MachinePifVersionBit::One,
+            ))
+        );
+        assert_eq!(
+            state.cop0_status_source(),
+            MachineBootstrapCop0StatusSource::PifIpl1ColdBootStatus
+        );
+        assert_eq!(
+            state.control_flow_source(),
+            MachineBootstrapControlFlowSource::PifIpl2CompletedX105Transfer {
+                profile: PifIpl2Profile::NtscPinned,
+            }
+        );
+        assert_eq!(machine.cpu().cop0_status(), MACHINE_PIF_IPL1_STATUS);
+        assert_eq!(machine.cpu().cop0_status() & 0x2, 0);
+        assert_eq!(machine.cpu().cop0_status() & 0x1, 0);
+        assert_eq!(machine.cpu().cop0_count(), 0);
+        assert_eq!(machine.cpu().cop0_compare(), 0);
+        assert_eq!(machine.cpu().cop0_epc(), 0);
+        assert_eq!(machine.cpu().cop0_bad_vaddr(), 0);
+        assert_eq!(machine.cpu().cop0_exception_code(), 0);
+        assert!(!machine.cpu().cop0_exception_branch_delay());
+        assert_eq!(machine.cpu().pc(), MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
+        assert_eq!(machine.cpu().next_pc(), MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC);
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+
+        let expected = [
+            (
+                MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX,
+                MACHINE_PIF_IPL2_HANDOFF_T3_VALUE,
+                MachineBootstrapGprSource::PifIpl2HandoffEntryPointer,
+            ),
+            (
+                MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX,
+                MACHINE_PIF_IPL2_HANDOFF_SP_VALUE,
+                MachineBootstrapGprSource::PifIpl2RestoredStackPointer,
+            ),
+            (
+                MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX,
+                MACHINE_PIF_IPL2_HANDOFF_NTSC_RA_VALUE,
+                MachineBootstrapGprSource::PifIpl2RetainedLink {
+                    profile: PifIpl2Profile::NtscPinned,
+                    link_instruction_address: CpuAddress::new(
+                        MACHINE_PIF_IPL2_HANDOFF_NTSC_LINK_INSTRUCTION_ADDRESS,
+                    ),
+                },
+            ),
+            (
+                MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX,
+                0,
+                MachineBootstrapGprSource::CartridgeBootMedium,
+            ),
+            (
+                MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX,
+                1,
+                MachineBootstrapGprSource::PifProfileTvType {
+                    profile: PifIpl2Profile::NtscPinned,
+                },
+            ),
+            (
+                MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX,
+                0,
+                MachineBootstrapGprSource::ColdResetKind,
+            ),
+            (
+                MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX,
+                MACHINE_PIF_IPL2_HANDOFF_X105_SEED,
+                MachineBootstrapGprSource::X105Seed,
+            ),
+            (
+                MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX,
+                1,
+                MachineBootstrapGprSource::PifVersionRegionalState {
+                    profile: PifIpl2Profile::NtscPinned,
+                    pif_version_bit: MachinePifVersionBit::One,
+                },
+            ),
+        ];
+        for (index, value, source) in expected {
+            assert_eq!(machine.cpu().gpr(usize::from(index)), Some(value));
+            assert_eq!(state.gpr_source(usize::from(index)), Some(source));
+            assert_eq!(state.gpr_is_known(usize::from(index)), Some(true));
+        }
+
+        for index in 1..CPU_GPR_COUNT {
+            if expected
+                .iter()
+                .any(|(known_index, _, _)| usize::from(*known_index) == index)
+            {
+                continue;
+            }
+            assert_eq!(machine.cpu().gpr(index), Some(0));
+            assert_eq!(
+                state.gpr_source(index),
+                Some(MachineBootstrapGprSource::UnknownPifProduced)
+            );
+            assert_eq!(state.gpr_is_known(index), Some(false));
+        }
+    }
+
+    #[test]
+    fn cold_x105_ntsc_pif_version_bit_is_explicit_and_changes_only_s7() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+
+        for (bit, expected_s7) in [
+            (MachinePifVersionBit::Zero, 0),
+            (MachinePifVersionBit::One, 1),
+        ] {
+            let mut machine = Machine::from_cartridge(cartridge.clone());
+            install_complete_cold_x105_inputs(&mut machine, PifIpl2Profile::NtscPinned, bit, 0x45);
+            let state = machine.stage_cartridge_bootstrap().unwrap();
+
+            assert_eq!(
+                machine
+                    .cpu()
+                    .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX)),
+                Some(expected_s7)
+            );
+            assert_eq!(
+                state.gpr_source(usize::from(MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX)),
+                Some(MachineBootstrapGprSource::PifVersionRegionalState {
+                    profile: PifIpl2Profile::NtscPinned,
+                    pif_version_bit: bit,
+                })
+            );
+            assert_eq!(
+                machine
+                    .cpu()
+                    .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX)),
+                Some(MACHINE_PIF_IPL2_HANDOFF_NTSC_RA_VALUE)
+            );
+        }
+    }
+
+    #[test]
+    fn cold_x105_handoff_missing_inputs_fail_before_any_runtime_mutation() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+
+        for missing in [
+            MachinePifIpl2HandoffInputKind::PifIpl2Profile,
+            MachinePifIpl2HandoffInputKind::Ipl3Family,
+            MachinePifIpl2HandoffInputKind::ResetKind,
+            MachinePifIpl2HandoffInputKind::BootMedium,
+            MachinePifIpl2HandoffInputKind::PifVersionBit,
+        ] {
+            let mut machine = Machine::from_cartridge(cartridge.clone());
+            machine
+                .install_pif_firmware(generated_pif_firmware(0x56))
+                .unwrap();
+            if missing != MachinePifIpl2HandoffInputKind::PifIpl2Profile {
+                machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+            }
+            if missing != MachinePifIpl2HandoffInputKind::Ipl3Family {
+                machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+            }
+            if missing != MachinePifIpl2HandoffInputKind::ResetKind {
+                machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+            }
+            if missing != MachinePifIpl2HandoffInputKind::BootMedium {
+                machine.install_pif_ipl2_handoff_boot_medium(
+                    MachinePifIpl2HandoffBootMedium::Cartridge,
+                );
+            }
+            if missing != MachinePifIpl2HandoffInputKind::PifVersionBit {
+                machine.install_pif_version_bit(MachinePifVersionBit::Zero);
+            }
+            machine.stage_cpu_pc(0x8000_6000);
+            machine.write_rdram_u32_be(0x68, 0x1020_3040).unwrap();
+            machine
+                .stage_generated_sp_imem_word_for_test(0, 0x5060_7080)
+                .unwrap();
+            let before = architectural_snapshot(&machine);
+
+            assert_eq!(
+                machine.stage_cartridge_bootstrap(),
+                Err(MachineCartridgeBootstrapError::MissingPifIpl2HandoffInput { input: missing })
+            );
+            assert_eq!(architectural_snapshot(&machine), before);
+        }
+    }
+
+    #[test]
+    fn cold_x105_handoff_without_firmware_fails_before_any_runtime_mutation() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+        machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+        machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+        machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+        machine.install_pif_version_bit(MachinePifVersionBit::Zero);
+        machine.stage_cpu_pc(0x8000_7000);
+        let before = architectural_snapshot(&machine);
+
+        assert_eq!(
+            machine.stage_cartridge_bootstrap(),
+            Err(
+                MachineCartridgeBootstrapError::PifIpl2ProfileRequiresFirmware {
+                    profile: PifIpl2Profile::NtscPinned,
+                }
+            )
+        );
+        assert_eq!(architectural_snapshot(&machine), before);
+    }
+
+    #[test]
+    fn cold_x105_handoff_rejects_unproved_pal_and_mpal_links_atomically() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+
+        for profile in [PifIpl2Profile::PalPinned, PifIpl2Profile::MpalPinned] {
+            let mut machine = Machine::from_cartridge(cartridge.clone());
+            install_complete_cold_x105_inputs(
+                &mut machine,
+                PifIpl2Profile::NtscPinned,
+                MachinePifVersionBit::One,
+                0x67,
+            );
+            machine.stage_cartridge_bootstrap().unwrap();
+            machine.install_pif_ipl2_profile(profile);
+            machine.write_rdram_u32_be(0x78, 0x90a0_b0c0).unwrap();
+            let before = architectural_snapshot(&machine);
+
+            assert_eq!(
+                machine.stage_cartridge_bootstrap(),
+                Err(MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile { profile })
+            );
+            assert_eq!(architectural_snapshot(&machine), before);
+        }
+    }
+
+    #[test]
+    fn cold_x105_handoff_inputs_persist_across_reset_and_repeated_bootstrap() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        install_complete_cold_x105_inputs(
+            &mut machine,
+            PifIpl2Profile::NtscPinned,
+            MachinePifVersionBit::One,
+            0x78,
+        );
+
+        let first = machine.stage_cartridge_bootstrap().unwrap();
+        let first_gprs =
+            core::array::from_fn::<_, CPU_GPR_COUNT, _>(|index| machine.cpu().gpr(index).unwrap());
+        machine.reset();
+
+        assert_eq!(machine.pif_ipl2_profile(), Some(PifIpl2Profile::NtscPinned));
+        assert_eq!(machine.pif_ipl3_family(), Some(MachinePifIpl3Family::X105));
+        assert_eq!(
+            machine.pif_ipl2_handoff_reset_kind(),
+            Some(MachinePifIpl2HandoffResetKind::Cold)
+        );
+        assert_eq!(
+            machine.pif_ipl2_handoff_boot_medium(),
+            Some(MachinePifIpl2HandoffBootMedium::Cartridge)
+        );
+        assert_eq!(machine.pif_version_bit(), Some(MachinePifVersionBit::One));
+        assert_eq!(machine.cartridge_bootstrap_state(), None);
+        assert_eq!(machine.cpu().pc(), NON_BOOT_RESET_VECTOR_PC);
+        assert_eq!(machine.cpu().cop0_status(), 0);
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+        assert!(!machine
+            .sp_imem
+            .observe_byte(SpImemOffset::new(0))
+            .unwrap()
+            .is_known());
+
+        let second = machine.stage_cartridge_bootstrap().unwrap();
+        let second_gprs =
+            core::array::from_fn::<_, CPU_GPR_COUNT, _>(|index| machine.cpu().gpr(index).unwrap());
+        assert_eq!(second, first);
+        assert_eq!(second_gprs, first_gprs);
+        assert_eq!(machine.cpu().cop0_status(), MACHINE_PIF_IPL1_STATUS);
+
+        let third = machine.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(third, second);
+        assert_eq!(
+            core::array::from_fn::<_, CPU_GPR_COUNT, _>(|index| {
+                machine.cpu().gpr(index).unwrap()
+            }),
+            second_gprs
+        );
+    }
+
+    #[test]
+    fn cold_x105_handoff_remains_isolated_between_machine_instances() {
+        let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
+        let mut zero = Machine::from_cartridge(cartridge.clone());
+        let mut one = Machine::from_cartridge(cartridge);
+        install_complete_cold_x105_inputs(
+            &mut zero,
+            PifIpl2Profile::NtscPinned,
+            MachinePifVersionBit::Zero,
+            0x89,
+        );
+        install_complete_cold_x105_inputs(
+            &mut one,
+            PifIpl2Profile::NtscPinned,
+            MachinePifVersionBit::One,
+            0x9a,
+        );
+
+        zero.stage_cartridge_bootstrap().unwrap();
+        one.stage_cartridge_bootstrap().unwrap();
+
+        assert_eq!(
+            zero.cpu()
+                .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX)),
+            Some(0)
+        );
+        assert_eq!(
+            one.cpu()
+                .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX)),
+            Some(1)
+        );
+        let one_before = architectural_snapshot(&one);
+        zero.reset();
+        assert_eq!(architectural_snapshot(&one), one_before);
+    }
+
+    #[test]
+    fn machine_step_consumes_generated_cold_x105_t3_with_known_lineage() {
+        let mut bytes = make_generated_normalized_boot_cartridge();
+        write_be_u32(
+            &mut bytes,
+            CARTRIDGE_CANDIDATE_IPL3_START_OFFSET as usize,
+            special_add_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 0, 8),
+        );
+        let cartridge = load_cartridge(bytes).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        install_complete_cold_x105_inputs(
+            &mut machine,
+            PifIpl2Profile::NtscPinned,
+            MachinePifVersionBit::Zero,
+            0xab,
+        );
+        machine.stage_cartridge_bootstrap().unwrap();
+
+        let outcome = machine.step().unwrap();
+
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::SpecialAdd,
+                ..
+            }
+        ));
+        assert_eq!(
+            machine.cpu().gpr(8),
+            Some(MACHINE_PIF_IPL2_HANDOFF_T3_VALUE)
+        );
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(8),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC),
+                identity: CpuInstructionIdentity::SpecialAdd,
+                source_gpr_a: Some(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX),
+                source_gpr_b: Some(0),
+            })
+        );
+        assert_eq!(machine.cpu().pc(), MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC);
+        assert_eq!(
+            machine.cpu().next_pc(),
+            MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC + 4
+        );
+        assert_eq!(machine.cpu().cop0_count(), 1);
     }
 
     #[test]
@@ -973,23 +1686,18 @@ mod tests {
     fn machine_bootstrap_known_special_add_commit_preserves_value_and_known_lineage() {
         let cases = [
             (
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+                MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX,
                 0,
                 9,
-                Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE),
+                Some(MACHINE_PIF_IPL2_HANDOFF_SP_VALUE),
             ),
             (
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+                MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX,
                 0,
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
-                Some(MACHINE_GENERAL_PIF_RESET_GPR29_VALUE),
+                MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX,
+                Some(MACHINE_PIF_IPL2_HANDOFF_SP_VALUE),
             ),
-            (
-                MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
-                0,
-                0,
-                Some(0),
-            ),
+            (MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 0, Some(0)),
         ];
 
         for (rs, rt, rd, expected_destination) in cases {
@@ -1358,7 +2066,7 @@ mod tests {
     }
 
     #[test]
-    fn rejected_pif_firmware_replacement_preserves_full_profiled_machine_state() {
+    fn rejected_pif_firmware_replacement_preserves_full_coupled_handoff_state() {
         let cartridge = load_cartridge(make_generated_normalized_boot_cartridge()).unwrap();
         let mut machine = Machine::from_cartridge(cartridge);
         let firmware_bytes = generated_pif_firmware(0x5d);
@@ -1366,6 +2074,10 @@ mod tests {
             .install_pif_firmware(firmware_bytes.clone())
             .unwrap();
         machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+        machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+        machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+        machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+        machine.install_pif_version_bit(MachinePifVersionBit::One);
         machine.stage_cartridge_bootstrap().unwrap();
         machine.step().unwrap();
         machine.write_rdram_u32_be(0x60, 0xdead_beef).unwrap();
@@ -1582,7 +2294,7 @@ mod tests {
         write_be_u32(
             &mut cartridge_bytes,
             CARTRIDGE_CANDIDATE_IPL3_START_OFFSET as usize,
-            special_add_word(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX, 0, 9),
+            special_add_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 9),
         );
         write_be_u32(
             &mut cartridge_bytes,
@@ -1609,7 +2321,19 @@ mod tests {
         assert_eq!(result_value, 0x0000_0000_416c_97c2);
         machine.install_pif_firmware(firmware_bytes).unwrap();
         machine.install_pif_ipl2_profile(profile);
+        machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+        machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+        machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+        machine.install_pif_version_bit(MachinePifVersionBit::Zero);
         machine.stage_cartridge_bootstrap().unwrap();
+
+        assert_eq!(
+            machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .cpu_state_kind(),
+            MachineBootstrapCpuStateKind::CoupledColdX105NtscPinned
+        );
 
         assert_eq!(machine.cpu().pc(), 0xa400_0040);
         assert_eq!(machine.cpu().next_pc(), 0xa400_0044);

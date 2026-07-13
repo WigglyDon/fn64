@@ -5,12 +5,18 @@ use std::path::PathBuf;
 
 use fn64_core::{
     load_cartridge, rom_source_layout_name, CartridgeLoadError, CpuInstructionIdentity, Machine,
-    MachineBootstrapGprSource, MachineCartridgeBootstrapError, MachineCpuInstructionInspection,
-    MachineCpuInstructionSource, MachineLoadWordRejection, MachineLoadWordRejectionReason,
-    MachineLoadWordTarget, MachinePifFirmwareState, MachineRepresentedStepError,
+    MachineBootstrapControlFlowSource, MachineBootstrapCop0StatusSource, MachineBootstrapGprSource,
+    MachineCartridgeBootstrapError, MachineCpuInstructionInspection, MachineCpuInstructionSource,
+    MachineLoadWordRejection, MachineLoadWordRejectionReason, MachineLoadWordTarget,
+    MachinePifFirmwareState, MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind,
+    MachinePifIpl3Family, MachinePifVersionBit, MachineRepresentedStepError,
     MachineRepresentedStepOutcome, MachineSpDmemInstructionProvenance, PifFirmwareValidationError,
     PifIpl2Profile, RomMetadata, RomSourceLayout, CPU_GPR_COUNT,
-    MACHINE_GENERAL_PIF_RESET_GPR29_VALUE, MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_SP_VALUE,
+    MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX,
 };
 
 pub const DEFAULT_BOOT_PROBE_MAX_STEPS: u64 = 100_000;
@@ -53,6 +59,10 @@ pub struct BootProbeArguments {
     input_path: PathBuf,
     pif_rom_path: Option<PathBuf>,
     pif_profile: Option<PifIpl2Profile>,
+    ipl3_family: Option<MachinePifIpl3Family>,
+    reset_kind: Option<MachinePifIpl2HandoffResetKind>,
+    boot_medium: Option<MachinePifIpl2HandoffBootMedium>,
+    pif_version_bit: Option<MachinePifVersionBit>,
     max_steps: u64,
 }
 
@@ -69,6 +79,22 @@ impl BootProbeArguments {
         self.pif_profile
     }
 
+    pub const fn ipl3_family(&self) -> Option<MachinePifIpl3Family> {
+        self.ipl3_family
+    }
+
+    pub const fn reset_kind(&self) -> Option<MachinePifIpl2HandoffResetKind> {
+        self.reset_kind
+    }
+
+    pub const fn boot_medium(&self) -> Option<MachinePifIpl2HandoffBootMedium> {
+        self.boot_medium
+    }
+
+    pub const fn pif_version_bit(&self) -> Option<MachinePifVersionBit> {
+        self.pif_version_bit
+    }
+
     pub const fn max_steps(&self) -> u64 {
         self.max_steps
     }
@@ -82,6 +108,14 @@ pub enum BootProbeArgumentError {
     MissingPifProfile,
     PifProfileRequiresRom,
     UnsupportedPifProfile(String),
+    MissingIpl3Family,
+    UnsupportedIpl3Family(String),
+    MissingResetKind,
+    UnsupportedResetKind(String),
+    MissingBootMedium,
+    UnsupportedBootMedium(String),
+    MissingPifVersionBit,
+    UnsupportedPifVersionBit(String),
 }
 
 impl fmt::Display for BootProbeArgumentError {
@@ -89,7 +123,7 @@ impl fmt::Display for BootProbeArgumentError {
         match self {
             Self::Usage => write!(
                 f,
-                "usage: fn64_boot_probe <rom-path> [--pif-rom <path>] [--pif-profile <ntsc-pinned|pal-pinned|mpal-pinned>] [--max-steps <positive-integer>]"
+                "usage: fn64_boot_probe <rom-path> [--pif-rom <path>] [--pif-profile <ntsc-pinned|pal-pinned|mpal-pinned>] [--ipl3-family <x105>] [--reset-kind <cold>] [--boot-medium <cartridge>] [--pif-version-bit <0|1>] [--max-steps <positive-integer>]"
             ),
             Self::InvalidMaxSteps => write!(f, "--max-steps requires a positive integer"),
             Self::MissingPifRomPath => write!(f, "--pif-rom requires an explicit path"),
@@ -101,6 +135,24 @@ impl fmt::Display for BootProbeArgumentError {
                 f,
                 "unsupported PIF IPL2 profile: {value}; expected ntsc-pinned, pal-pinned, or mpal-pinned"
             ),
+            Self::MissingIpl3Family => write!(f, "--ipl3-family requires an explicit family"),
+            Self::UnsupportedIpl3Family(value) => {
+                write!(f, "unsupported IPL3 family: {value}; expected x105")
+            }
+            Self::MissingResetKind => write!(f, "--reset-kind requires an explicit kind"),
+            Self::UnsupportedResetKind(value) => {
+                write!(f, "unsupported reset kind: {value}; expected cold")
+            }
+            Self::MissingBootMedium => write!(f, "--boot-medium requires an explicit medium"),
+            Self::UnsupportedBootMedium(value) => {
+                write!(f, "unsupported boot medium: {value}; expected cartridge")
+            }
+            Self::MissingPifVersionBit => {
+                write!(f, "--pif-version-bit requires an explicit bit")
+            }
+            Self::UnsupportedPifVersionBit(value) => {
+                write!(f, "unsupported PIF version bit: {value}; expected 0 or 1")
+            }
         }
     }
 }
@@ -116,6 +168,20 @@ fn parse_pif_ipl2_profile(value: &str) -> Option<PifIpl2Profile> {
     }
 }
 
+fn is_boot_probe_flag(value: &OsString) -> bool {
+    [
+        "--pif-rom",
+        "--pif-profile",
+        "--ipl3-family",
+        "--reset-kind",
+        "--boot-medium",
+        "--pif-version-bit",
+        "--max-steps",
+    ]
+    .iter()
+    .any(|flag| value == flag)
+}
+
 pub fn parse_boot_probe_arguments<I>(
     arguments: I,
 ) -> Result<BootProbeArguments, BootProbeArgumentError>
@@ -125,10 +191,14 @@ where
     let mut arguments = arguments.into_iter();
     let input_path = arguments
         .next()
-        .filter(|value| value != "--pif-rom" && value != "--pif-profile" && value != "--max-steps")
+        .filter(|value| !is_boot_probe_flag(value))
         .ok_or(BootProbeArgumentError::Usage)?;
     let mut pif_rom_path = None;
     let mut pif_profile = None;
+    let mut ipl3_family = None;
+    let mut reset_kind = None;
+    let mut boot_medium = None;
+    let mut pif_version_bit = None;
     let mut max_steps = DEFAULT_BOOT_PROBE_MAX_STEPS;
     let mut max_steps_seen = false;
 
@@ -139,12 +209,7 @@ where
             }
             let value = arguments
                 .next()
-                .filter(|value| {
-                    !value.is_empty()
-                        && value != "--pif-rom"
-                        && value != "--pif-profile"
-                        && value != "--max-steps"
-                })
+                .filter(|value| !value.is_empty() && !is_boot_probe_flag(value))
                 .ok_or(BootProbeArgumentError::MissingPifRomPath)?;
             pif_rom_path = Some(PathBuf::from(value));
         } else if flag == "--pif-profile" {
@@ -153,12 +218,7 @@ where
             }
             let value = arguments
                 .next()
-                .filter(|value| {
-                    !value.is_empty()
-                        && value != "--pif-rom"
-                        && value != "--pif-profile"
-                        && value != "--max-steps"
-                })
+                .filter(|value| !value.is_empty() && !is_boot_probe_flag(value))
                 .ok_or(BootProbeArgumentError::MissingPifProfile)?;
             let value = value
                 .to_str()
@@ -167,6 +227,71 @@ where
                 Some(parse_pif_ipl2_profile(value).ok_or_else(|| {
                     BootProbeArgumentError::UnsupportedPifProfile(value.to_owned())
                 })?);
+        } else if flag == "--ipl3-family" {
+            if ipl3_family.is_some() {
+                return Err(BootProbeArgumentError::Usage);
+            }
+            let value = arguments
+                .next()
+                .filter(|value| !value.is_empty() && !is_boot_probe_flag(value))
+                .ok_or(BootProbeArgumentError::MissingIpl3Family)?;
+            let value = value
+                .to_str()
+                .ok_or_else(|| BootProbeArgumentError::UnsupportedIpl3Family("non-UTF-8".into()))?;
+            ipl3_family = Some(match value {
+                "x105" => MachinePifIpl3Family::X105,
+                _ => return Err(BootProbeArgumentError::UnsupportedIpl3Family(value.into())),
+            });
+        } else if flag == "--reset-kind" {
+            if reset_kind.is_some() {
+                return Err(BootProbeArgumentError::Usage);
+            }
+            let value = arguments
+                .next()
+                .filter(|value| !value.is_empty() && !is_boot_probe_flag(value))
+                .ok_or(BootProbeArgumentError::MissingResetKind)?;
+            let value = value
+                .to_str()
+                .ok_or_else(|| BootProbeArgumentError::UnsupportedResetKind("non-UTF-8".into()))?;
+            reset_kind = Some(match value {
+                "cold" => MachinePifIpl2HandoffResetKind::Cold,
+                _ => return Err(BootProbeArgumentError::UnsupportedResetKind(value.into())),
+            });
+        } else if flag == "--boot-medium" {
+            if boot_medium.is_some() {
+                return Err(BootProbeArgumentError::Usage);
+            }
+            let value = arguments
+                .next()
+                .filter(|value| !value.is_empty() && !is_boot_probe_flag(value))
+                .ok_or(BootProbeArgumentError::MissingBootMedium)?;
+            let value = value
+                .to_str()
+                .ok_or_else(|| BootProbeArgumentError::UnsupportedBootMedium("non-UTF-8".into()))?;
+            boot_medium = Some(match value {
+                "cartridge" => MachinePifIpl2HandoffBootMedium::Cartridge,
+                _ => return Err(BootProbeArgumentError::UnsupportedBootMedium(value.into())),
+            });
+        } else if flag == "--pif-version-bit" {
+            if pif_version_bit.is_some() {
+                return Err(BootProbeArgumentError::Usage);
+            }
+            let value = arguments
+                .next()
+                .filter(|value| !value.is_empty() && !is_boot_probe_flag(value))
+                .ok_or(BootProbeArgumentError::MissingPifVersionBit)?;
+            let value = value.to_str().ok_or_else(|| {
+                BootProbeArgumentError::UnsupportedPifVersionBit("non-UTF-8".into())
+            })?;
+            pif_version_bit = Some(match value {
+                "0" => MachinePifVersionBit::Zero,
+                "1" => MachinePifVersionBit::One,
+                _ => {
+                    return Err(BootProbeArgumentError::UnsupportedPifVersionBit(
+                        value.into(),
+                    ))
+                }
+            });
         } else if flag == "--max-steps" {
             if max_steps_seen {
                 return Err(BootProbeArgumentError::Usage);
@@ -193,6 +318,10 @@ where
         input_path: PathBuf::from(input_path),
         pif_rom_path,
         pif_profile,
+        ipl3_family,
+        reset_kind,
+        boot_medium,
+        pif_version_bit,
         max_steps,
     })
 }
@@ -278,6 +407,8 @@ struct CpuObservation {
     pc: u32,
     next_pc: u32,
     count: u32,
+    status: u32,
+    delay_slot_active: bool,
     hi: u64,
     lo: u64,
     gprs: [u64; CPU_GPR_COUNT],
@@ -305,6 +436,8 @@ impl CpuObservation {
             pc: machine.cpu().pc(),
             next_pc: machine.cpu().next_pc(),
             count: machine.cpu().cop0_count(),
+            status: machine.cpu().cop0_status(),
+            delay_slot_active: machine.cpu_delay_slot_context().is_some(),
             hi: machine.cpu().hi(),
             lo: machine.cpu().lo(),
             gprs,
@@ -335,7 +468,17 @@ pub fn run_boot_probe(
     input_path: &str,
     max_steps: u64,
 ) -> Result<BootProbeReport, BootProbeError> {
-    run_boot_probe_with_pif_firmware(owned_input_bytes, input_path, None, None, max_steps)
+    run_boot_probe_with_pif_firmware_and_handoff(
+        owned_input_bytes,
+        input_path,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        max_steps,
+    )
 }
 
 pub fn run_boot_probe_with_pif_firmware(
@@ -343,6 +486,31 @@ pub fn run_boot_probe_with_pif_firmware(
     input_path: &str,
     owned_pif_firmware: Option<Vec<u8>>,
     pif_profile: Option<PifIpl2Profile>,
+    max_steps: u64,
+) -> Result<BootProbeReport, BootProbeError> {
+    run_boot_probe_with_pif_firmware_and_handoff(
+        owned_input_bytes,
+        input_path,
+        owned_pif_firmware,
+        pif_profile,
+        None,
+        None,
+        None,
+        None,
+        max_steps,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_boot_probe_with_pif_firmware_and_handoff(
+    owned_input_bytes: Vec<u8>,
+    input_path: &str,
+    owned_pif_firmware: Option<Vec<u8>>,
+    pif_profile: Option<PifIpl2Profile>,
+    ipl3_family: Option<MachinePifIpl3Family>,
+    reset_kind: Option<MachinePifIpl2HandoffResetKind>,
+    boot_medium: Option<MachinePifIpl2HandoffBootMedium>,
+    pif_version_bit: Option<MachinePifVersionBit>,
     max_steps: u64,
 ) -> Result<BootProbeReport, BootProbeError> {
     if max_steps == 0 {
@@ -361,6 +529,18 @@ pub fn run_boot_probe_with_pif_firmware(
     }
     if let Some(profile) = pif_profile {
         machine.install_pif_ipl2_profile(profile);
+    }
+    if let Some(family) = ipl3_family {
+        machine.install_pif_ipl3_family(family);
+    }
+    if let Some(kind) = reset_kind {
+        machine.install_pif_ipl2_handoff_reset_kind(kind);
+    }
+    if let Some(medium) = boot_medium {
+        machine.install_pif_ipl2_handoff_boot_medium(medium);
+    }
+    if let Some(bit) = pif_version_bit {
+        machine.install_pif_version_bit(bit);
     }
     let staging = machine
         .stage_cartridge_bootstrap()
@@ -754,9 +934,34 @@ fn format_gpr_source(source: MachineBootstrapGprSource) -> String {
     match source {
         MachineBootstrapGprSource::UnknownPifProduced => "unknown-pif-produced".to_owned(),
         MachineBootstrapGprSource::ArchitecturalZero => "architectural-zero".to_owned(),
-        MachineBootstrapGprSource::GeneralPifRomResetStackPointer => {
-            "general-pif-rom-reset-stack-pointer".to_owned()
+        MachineBootstrapGprSource::PifIpl2HandoffEntryPointer => {
+            "pif-ipl2-handoff-entry-pointer".to_owned()
         }
+        MachineBootstrapGprSource::PifIpl2RestoredStackPointer => {
+            "pif-ipl2-restored-stack-pointer".to_owned()
+        }
+        MachineBootstrapGprSource::PifIpl2RetainedLink {
+            profile,
+            link_instruction_address,
+        } => format!(
+            "pif-ipl2-retained-link(profile={},instruction=0x{:08X})",
+            profile.name(),
+            link_instruction_address.value()
+        ),
+        MachineBootstrapGprSource::CartridgeBootMedium => "cartridge-boot-medium".to_owned(),
+        MachineBootstrapGprSource::PifProfileTvType { profile } => {
+            format!("pif-profile-tv-type(profile={})", profile.name())
+        }
+        MachineBootstrapGprSource::ColdResetKind => "cold-reset-kind".to_owned(),
+        MachineBootstrapGprSource::X105Seed => "x105-seed".to_owned(),
+        MachineBootstrapGprSource::PifVersionRegionalState {
+            profile,
+            pif_version_bit,
+        } => format!(
+            "pif-version-regional-state(profile={},version-bit={})",
+            profile.name(),
+            pif_version_bit.value()
+        ),
         MachineBootstrapGprSource::KnownInstructionResult {
             execution_address,
             identity,
@@ -953,13 +1158,89 @@ fn format_report(facts: ReportFacts<'_>) -> String {
         facts.staging.cpu_state_kind()
     )
     .unwrap();
+    match facts.staging.pif_ipl2_handoff_inputs() {
+        Some(inputs) => {
+            writeln!(output, "pif_ipl2_coupled_handoff: materialized").unwrap();
+            writeln!(output, "pif_ipl3_family: {:?}", inputs.ipl3_family()).unwrap();
+            writeln!(
+                output,
+                "pif_ipl2_handoff_reset_kind: {:?}",
+                inputs.reset_kind()
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "pif_ipl2_handoff_boot_medium: {:?}",
+                inputs.boot_medium()
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "pif_version_bit: {}",
+                inputs.pif_version_bit().value()
+            )
+            .unwrap();
+        }
+        None => {
+            writeln!(output, "pif_ipl2_coupled_handoff: unavailable").unwrap();
+            writeln!(output, "pif_ipl3_family: unavailable").unwrap();
+            writeln!(output, "pif_ipl2_handoff_reset_kind: unavailable").unwrap();
+            writeln!(output, "pif_ipl2_handoff_boot_medium: unavailable").unwrap();
+            writeln!(output, "pif_version_bit: unavailable").unwrap();
+        }
+    }
+    writeln!(
+        output,
+        "bootstrap_cop0_status: 0x{:08X}",
+        facts.staging_observation.status
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_cop0_status_source_backed: {}",
+        yes_no(facts.staging.cop0_status_source().is_known())
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_cop0_status_source: {}",
+        match facts.staging.cop0_status_source() {
+            MachineBootstrapCop0StatusSource::UnknownPifProduced => "unknown-pif-produced",
+            MachineBootstrapCop0StatusSource::PifIpl1ColdBootStatus => {
+                "pif-ipl1-cold-boot-status"
+            }
+        }
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_control_flow_source: {}",
+        match facts.staging.control_flow_source() {
+            MachineBootstrapControlFlowSource::DirectCartridgeBootstrapStaging => {
+                "direct-cartridge-bootstrap-staging".to_owned()
+            }
+            MachineBootstrapControlFlowSource::PifIpl2CompletedX105Transfer { profile } => {
+                format!(
+                    "pif-ipl2-completed-x105-transfer(profile={})",
+                    profile.name()
+                )
+            }
+        }
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "bootstrap_delay_slot_active: {}",
+        yes_no(facts.staging_observation.delay_slot_active)
+    )
+    .unwrap();
     writeln!(
         output,
         "unrepresented_pif_cpu_state: {}",
         yes_no(facts.staging.has_unrepresented_pif_cpu_state())
     )
     .unwrap();
-    let stack_pointer_index = usize::from(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX);
+    let stack_pointer_index = usize::from(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX);
     writeln!(
         output,
         "bootstrap_gpr0_value: 0x{:016X}",
@@ -987,7 +1268,7 @@ fn format_report(facts: ReportFacts<'_>) -> String {
     writeln!(
         output,
         "bootstrap_gpr29_expected_value: 0x{:016X}",
-        MACHINE_GENERAL_PIF_RESET_GPR29_VALUE
+        MACHINE_PIF_IPL2_HANDOFF_SP_VALUE
     )
     .unwrap();
     writeln!(
@@ -1002,6 +1283,36 @@ fn format_report(facts: ReportFacts<'_>) -> String {
         format_gpr_source(facts.staging_observation.gpr_sources[stack_pointer_index])
     )
     .unwrap();
+    for (alias, index) in [
+        ("t3", MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX),
+        ("s3", MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX),
+        ("s4", MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX),
+        ("s5", MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX),
+        ("s6", MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX),
+        ("s7", MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX),
+        ("sp", MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX),
+        ("ra", MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX),
+    ] {
+        let index = usize::from(index);
+        writeln!(
+            output,
+            "bootstrap_{alias}_value: 0x{:016X}",
+            facts.staging_observation.gprs[index]
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "bootstrap_{alias}_known: {}",
+            yes_no(facts.staging_observation.gpr_sources[index].is_known())
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "bootstrap_{alias}_source: {}",
+            format_gpr_source(facts.staging_observation.gpr_sources[index])
+        )
+        .unwrap();
+    }
     writeln!(output, "fixed_step_budget: {}", facts.max_steps).unwrap();
     writeln!(output, "attempted_steps: {}", facts.attempted_steps).unwrap();
     writeln!(output, "committed_steps: {}", facts.committed_steps).unwrap();
@@ -1196,7 +1507,7 @@ mod tests {
     fn boot_probe_reports_known_special_add_and_unknown_sp_imem_load_frontier() {
         let report = run_boot_probe(
             make_generated_boot_fixture(
-                special_add_word(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX, 0, 9),
+                special_add_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 9),
                 lw_word(9, 8, 0xf010),
             ),
             "generated-fixture.z64",
@@ -1256,7 +1567,7 @@ mod tests {
         assert!(report.output().contains("bootstrap_gpr29_known: yes"));
         assert!(report
             .output()
-            .contains("bootstrap_gpr29_source: general-pif-rom-reset-stack-pointer"));
+            .contains("bootstrap_gpr29_source: pif-ipl2-restored-stack-pointer"));
         assert!(report.output().contains("highest_checkpoint: BOOT-2"));
         assert!(report.output().contains("probe_exit_status: 0"));
         assert!(report.output().contains("compatibility_claim: none"));
@@ -1329,7 +1640,7 @@ mod tests {
     #[test]
     fn boot_probe_accepts_unprofiled_pif_input_without_materializing_sp_imem() {
         let cartridge = make_generated_boot_fixture(
-            special_add_word(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX, 0, 9),
+            special_add_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 9),
             lw_word(9, 8, 0xf010),
         );
         let first = run_boot_probe_with_pif_firmware(
@@ -1370,7 +1681,7 @@ mod tests {
     #[test]
     fn boot_probe_materializes_profiled_pif_copy_deterministically() {
         let cartridge = make_generated_boot_fixture(
-            special_add_word(MACHINE_GENERAL_PIF_RESET_STACK_POINTER_GPR_INDEX, 0, 9),
+            special_add_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 9),
             lw_word(9, 8, 0xf010),
         );
         let firmware = make_generated_pif_firmware(0x31, PIF_BOOT_ROM_SIZE_BYTES);
@@ -1498,6 +1809,10 @@ mod tests {
         assert_eq!(default.input_path(), &PathBuf::from("fixture.z64"));
         assert_eq!(default.pif_rom_path(), None);
         assert_eq!(default.pif_profile(), None);
+        assert_eq!(default.ipl3_family(), None);
+        assert_eq!(default.reset_kind(), None);
+        assert_eq!(default.boot_medium(), None);
+        assert_eq!(default.pif_version_bit(), None);
         assert_eq!(default.max_steps(), DEFAULT_BOOT_PROBE_MAX_STEPS);
 
         let explicit = parse_boot_probe_arguments([
@@ -1509,6 +1824,10 @@ mod tests {
         assert_eq!(explicit.max_steps(), 17);
         assert_eq!(explicit.pif_rom_path(), None);
         assert_eq!(explicit.pif_profile(), None);
+        assert_eq!(explicit.ipl3_family(), None);
+        assert_eq!(explicit.reset_kind(), None);
+        assert_eq!(explicit.boot_medium(), None);
+        assert_eq!(explicit.pif_version_bit(), None);
         let with_pif = parse_boot_probe_arguments([
             OsString::from("fixture.any"),
             OsString::from("--max-steps"),
@@ -1614,5 +1933,160 @@ mod tests {
                 ))
             );
         }
+    }
+
+    #[test]
+    fn boot_probe_argument_parser_owns_exact_cold_x105_handoff_spellings() {
+        let parsed = parse_boot_probe_arguments([
+            OsString::from("fixture"),
+            OsString::from("--pif-rom"),
+            OsString::from("generated-pif.fixture"),
+            OsString::from("--pif-profile"),
+            OsString::from("ntsc-pinned"),
+            OsString::from("--ipl3-family"),
+            OsString::from("x105"),
+            OsString::from("--reset-kind"),
+            OsString::from("cold"),
+            OsString::from("--boot-medium"),
+            OsString::from("cartridge"),
+            OsString::from("--pif-version-bit"),
+            OsString::from("1"),
+        ])
+        .unwrap();
+
+        assert_eq!(parsed.pif_profile(), Some(PifIpl2Profile::NtscPinned));
+        assert_eq!(parsed.ipl3_family(), Some(MachinePifIpl3Family::X105));
+        assert_eq!(
+            parsed.reset_kind(),
+            Some(MachinePifIpl2HandoffResetKind::Cold)
+        );
+        assert_eq!(
+            parsed.boot_medium(),
+            Some(MachinePifIpl2HandoffBootMedium::Cartridge)
+        );
+        assert_eq!(parsed.pif_version_bit(), Some(MachinePifVersionBit::One));
+
+        for (flag, value, expected) in [
+            (
+                "--ipl3-family",
+                "unknown",
+                BootProbeArgumentError::UnsupportedIpl3Family("unknown".into()),
+            ),
+            (
+                "--reset-kind",
+                "nmi",
+                BootProbeArgumentError::UnsupportedResetKind("nmi".into()),
+            ),
+            (
+                "--boot-medium",
+                "dd",
+                BootProbeArgumentError::UnsupportedBootMedium("dd".into()),
+            ),
+            (
+                "--pif-version-bit",
+                "2",
+                BootProbeArgumentError::UnsupportedPifVersionBit("2".into()),
+            ),
+        ] {
+            assert_eq!(
+                parse_boot_probe_arguments([
+                    OsString::from("fixture"),
+                    OsString::from(flag),
+                    OsString::from(value),
+                ]),
+                Err(expected)
+            );
+        }
+
+        for (flag, expected) in [
+            ("--ipl3-family", BootProbeArgumentError::MissingIpl3Family),
+            ("--reset-kind", BootProbeArgumentError::MissingResetKind),
+            ("--boot-medium", BootProbeArgumentError::MissingBootMedium),
+            (
+                "--pif-version-bit",
+                BootProbeArgumentError::MissingPifVersionBit,
+            ),
+        ] {
+            assert_eq!(
+                parse_boot_probe_arguments([OsString::from("fixture"), OsString::from(flag),]),
+                Err(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn boot_probe_reports_generated_ntsc_cold_x105_coupled_handoff() {
+        let report = run_boot_probe_with_pif_firmware_and_handoff(
+            make_generated_boot_fixture(
+                special_add_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 0, 8),
+                lw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 9, 0xf010),
+            ),
+            "generated-fixture.z64",
+            Some(make_generated_pif_firmware(0x26, PIF_BOOT_ROM_SIZE_BYTES)),
+            Some(PifIpl2Profile::NtscPinned),
+            Some(MachinePifIpl3Family::X105),
+            Some(MachinePifIpl2HandoffResetKind::Cold),
+            Some(MachinePifIpl2HandoffBootMedium::Cartridge),
+            Some(MachinePifVersionBit::One),
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(report.highest_checkpoint(), BootCheckpoint::Boot2);
+        assert_eq!(report.committed_steps(), 1);
+        assert!(report
+            .output()
+            .contains("bootstrap_cpu_state: CoupledColdX105NtscPinned"));
+        assert!(report
+            .output()
+            .contains("pif_ipl2_coupled_handoff: materialized"));
+        assert!(report.output().contains("pif_ipl3_family: X105"));
+        assert!(report
+            .output()
+            .contains("pif_ipl2_handoff_reset_kind: Cold"));
+        assert!(report
+            .output()
+            .contains("pif_ipl2_handoff_boot_medium: Cartridge"));
+        assert!(report.output().contains("pif_version_bit: 1"));
+        assert!(report
+            .output()
+            .contains("bootstrap_cop0_status: 0x34000000"));
+        assert!(report
+            .output()
+            .contains("bootstrap_cop0_status_source_backed: yes"));
+        assert!(report
+            .output()
+            .contains("bootstrap_cop0_status_source: pif-ipl1-cold-boot-status"));
+        assert!(report.output().contains(
+            "bootstrap_control_flow_source: pif-ipl2-completed-x105-transfer(profile=NTSC_PINNED)"
+        ));
+        assert!(report.output().contains("bootstrap_delay_slot_active: no"));
+        assert!(report
+            .output()
+            .contains("bootstrap_t3_value: 0xFFFFFFFFA4000040"));
+        assert!(report
+            .output()
+            .contains("bootstrap_ra_value: 0xFFFFFFFFA4001550"));
+        assert!(report.output().contains(
+            "bootstrap_ra_source: pif-ipl2-retained-link(profile=NTSC_PINNED,instruction=0xA4001548)"
+        ));
+        assert!(report
+            .output()
+            .contains("bootstrap_s3_value: 0x0000000000000000"));
+        assert!(report
+            .output()
+            .contains("bootstrap_s4_value: 0x0000000000000001"));
+        assert!(report
+            .output()
+            .contains("bootstrap_s5_value: 0x0000000000000000"));
+        assert!(report
+            .output()
+            .contains("bootstrap_s6_value: 0x0000000000000091"));
+        assert!(report
+            .output()
+            .contains("bootstrap_s7_value: 0x0000000000000001"));
+        assert!(report.output().contains("pif_ipl1_execution: no"));
+        assert!(report.output().contains("pif_ipl2_execution: no"));
+        assert!(report.output().contains("compatibility_claim: none"));
     }
 }

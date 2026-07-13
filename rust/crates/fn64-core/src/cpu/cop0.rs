@@ -162,6 +162,10 @@ impl Cpu {
         self.cop0.exception_branch_delay()
     }
 
+    pub(crate) fn stage_cop0_status_for_bootstrap(&mut self, status: u32) {
+        self.cop0.status = status;
+    }
+
     #[allow(dead_code)]
     pub(crate) fn advance_count_for_committed_step(&mut self) {
         self.cop0.advance_count_for_committed_step();
