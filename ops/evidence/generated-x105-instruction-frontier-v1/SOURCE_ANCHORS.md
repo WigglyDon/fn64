@@ -4,6 +4,8 @@
 
 - Source: decompals/N64-IPL.
 - Revision: `928f59089c18a95cbffa59938a18fa6032c5d78c`.
+- Retrieval date: 2026-07-13.
+- URL: `https://github.com/decompals/N64-IPL/blob/928f59089c18a95cbffa59938a18fa6032c5d78c/src/ipl3.s#L70-L105`.
 - Anchor: `src/ipl3.s`, lines 70-105.
 - Use: instruction identities, operand relationships, and the bounded order
   through the first retained-word mutation.
@@ -18,11 +20,17 @@ instruction operands and address arithmetic, not the stale comment.
 ## Architectural load and exception rules
 
 - Source: NEC MIPS VR4300 Microprocessor User's Manual, 1995.
+- Retrieval date: 2026-07-13.
+- URL: `https://www.bitsavers.org/components/nec/mips/1995_NEC_VR4300_MIPS_RISC_Microprocessor_Users_Manual.pdf`.
 - Anchor: MIPS III load/store instruction details and Cause exception-code
   table.
 - Use: sign-extended 16-bit displacement, natural word alignment, AdEL, and
   branch-delay EPC/BD lineage.
 - Copied code or bytes: no.
+
+Both external sources are used as technical evidence only. No source tree,
+assembly block, disassembly block, firmware word, or cartridge byte is copied
+into fn64.
 
 ## Current fn64 owners
 
