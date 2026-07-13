@@ -1,0 +1,10 @@
+state	bounded_relation	owner	materialize	status	limitation
+SP_IMEM	selected profile copy known; x105 consumes local 0x000..0x01F; 0x020..0x02B overwritten before initial read	profiled PIF copy	already represented	PROVEN	bytes after copy range remain Unknown
+SP_DMEM	cartridge 0x040..0x0FFF copied to equal offsets; x105 t3-relative reads are within this span	cartridge bootstrap	already represented	PROVEN	bytes below 0x040 remain unstaged
+RDRAM	no inherited byte read in bounded window	unknown	no	UNUSED	broader initialization absent
+PIF_RAM	IPL3 does not directly read it in bounded window; derived s3-s7 are retained	PIF/CIC then IPL2	derived facts only	PROVEN	no PIF RAM device added
+RI_SELECT	zero selects cold path before first write	explicit reset-kind path	predicate only	PROVEN	no RI device; NMI unsupported
+PI	no direct bounded access	unknown	no	UNUSED	no PI device
+SI	no direct bounded access	unknown	no	UNUSED	no SI device
+SP_STATUS_DMA_RSP	no direct bounded access	unknown	no	UNUSED	no RSP or DMA system
+CIC_CHALLENGE	x105 family supplies only the required seed relation	explicit IPL3 family	derived s6 only	PROVEN	no CIC table or device

@@ -1,0 +1,11 @@
+fact	entry_relation	first_bounded_use	first_bounded_write	materialize	owner	status	limitation
+Status	0x34000000; kernel; IE=0; EXL=0	mode relation is active at entry	not overwritten in bounded window	yes	IPL1 Status write	PROVEN	Config remains unstaged
+Cause	inherited value not needed	none before write	common IPL3 clears it	no	common IPL3	OVERWRITTEN_FIRST	backing zero is not claimed as handoff provenance
+EPC	unused	none	none in bounded window	no	unknown	UNUSED	no exception handoff
+BadVAddr	unused	none	none in bounded window	no	unknown	UNUSED	no exception handoff
+Count	inherited value not needed	none before write	common IPL3 clears it	no	common IPL3	OVERWRITTEN_FIRST	current backing zero is not a sourced handoff fact
+Compare	inherited value not needed	none before write	common IPL3 clears it	no	common IPL3	OVERWRITTEN_FIRST	current backing zero is not a sourced handoff fact
+Config	not required by bounded first use	none	none in bounded window	no	IPL1	UNSTAGED	broader CPU completeness absent
+PRId	not required by bounded first use	none	none in bounded window	no	CPU	UNSTAGED	broader CPU completeness absent
+Cause.BD	false relation at entry	none	Cause clear	no	completed final jr delay	PROVEN	no active exception
+timer_pending	no required inherited fact	none	Count and Compare clear	no	unknown	UNSTAGED	interrupt delivery absent
