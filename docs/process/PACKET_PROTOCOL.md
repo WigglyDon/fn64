@@ -1,5 +1,10 @@
 # fn64 Packet Protocol V1
 
+> Current use: one complete Master GPT work packet enters and one complete
+> Master Codex report returns under
+> [Master Direct Workflow](MASTER_DIRECT_WORKFLOW.md). Supervisor/Worker packet
+> types below are retained as historical protocol documentation only.
+
 Context role: canonical packet-envelope and causality contract.
 Scope: packets crossing fn64's manual isolated-agent boundary.
 Canonical for: required fields, packet types, staleness, replies, and stop classes.
@@ -30,7 +35,9 @@ does not weaken causality or imply a direct-agent messaging layer.
 ## Packet types
 
 - `MASTER_TO_MASTER_CODEX_WORK`
+- `MASTER_TO_MASTER_CODEX_DIRECT_WORK`
 - `MASTER_CODEX_FINAL_REPORT`
+- `MASTER_CODEX_FINAL_DIRECT_PRODUCT_REPORT`
 - `SUPERVISOR_SEED`
 - `SUPERVISOR_TO_WORKER_WORK`
 - `WORKER_FINAL_REPORT`

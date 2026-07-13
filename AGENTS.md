@@ -32,10 +32,9 @@ the transport block, and make `END PROJECT PACKET` the final payload line.
 
 The Markdown fence is transport-only, not part of the packet payload. Store a
 packet in a `.txt` file or archive member as raw payload without that fence.
-Every packet that requests another packet reply must carry this rule forward
-through Worker, repair, supervisor-review, and Master handoffs. Unless a later
-authorized project instruction explicitly replaces it, `copy-paste-ready`
-means exactly this single-block transport.
+Every packet that requests another packet reply must carry this rule forward.
+Unless a later authorized project instruction explicitly replaces it,
+`copy-paste-ready` means exactly this single-block transport.
 
 ## Agent discovery
 
@@ -45,15 +44,16 @@ owned by [CURRENT_STATE.md](docs/context/CURRENT_STATE.md), accepted decisions
 by [DECISION_LOG.md](docs/context/DECISION_LOG.md), and detailed
 represented-machine capability by [rust/PARITY.md](rust/PARITY.md).
 
-Workers do not push, deploy, mutate canonical `main`, discard unknown work, or
-expand product authority. Stop for contradictory accepted law, data-loss risk,
-security risk, or a product/authority decision—not for routine Git mechanics or
-an ordinary compile failure.
+The current delivery loop and Git authority are owned by the
+[Master direct workflow](docs/process/MASTER_DIRECT_WORKFLOW.md). Supervisor GPT
+and Worker Codex lane roles are retired; their preserved process pages,
+branches, worktrees, commits, and artifacts are historical only. Master Codex
+works directly in one packet-bound Master worktree, preserves unknown work,
+validates before integration, and pushes only with explicit authority and
+remote freshness.
 
-Master Codex alone [provisions and verifies worker worktrees and branches](docs/process/WORKTREE_PROVISIONING.md)
-and integrates worker commits. Worker Codex may not manage worktrees or
-branches and must stop without modification when its repository root, assigned
-branch, starting base, cleanliness, index, or Context-SHA differs from its
-Master-provisioned packet.
+Stop for contradictory accepted law, data-loss risk, security risk, or a
+product/authority decision—not for routine Git mechanics or an ordinary compile
+failure.
 
 Update this file only when standing project law or root discovery changes.

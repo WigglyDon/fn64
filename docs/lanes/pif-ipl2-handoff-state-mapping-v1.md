@@ -1,6 +1,6 @@
 # PIF IPL2 Handoff State Mapping V1
 
-Context role: active lane coordination memory.
+Context role: retired historical lane and donor-state memory.
 Scope: evidence-only mapping of every pre-IPL3 Machine-state fact consumed before cartridge code overwrites it.
 Canonical for: this lane's topology, evidence authority, writable boundary, required questions, dependencies, overlap, stop conditions, and retirement condition.
 Not canonical for: Rust product behavior, private firmware content, candidate acceptance, or canonical integration.
@@ -22,24 +22,26 @@ Update triggers: provisioning, packet launch, evidence creation, classification,
 - Governing Context-SHA: the exact committed Wave 4 registration value owned by
   the Master report and first executable packet. This page cannot embed its own
   digest.
-- Status: **NEEDS_FIX — FOCUSED_REPAIR_1 ENVIRONMENT RECOVERY**
-- Provisioning state: `MASTER_PROVISIONED_VERIFIED`
+- Status: **RETIRED — UNACCEPTED HISTORICAL DONOR**
+- Historical provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: blocked; do not relaunch until Master GPT issues the
-  `FOCUSED_REPAIR_1_RETRY` amendment after Master context propagation.
+- Launch state: retired; no supervisor, Worker, retry, or relaunch is active or
+  authorized.
 
 Unaccepted candidate:
 `c24ab78c9a4b93fe79b660f3428d06a6a570c4dd`. Its stale artifact
 `/tmp/UPLOAD_ME_fn64_pif_ipl2_handoff_state_mapping_v1.tar.gz` has SHA-256
 `f1d864415d64c51a03ebcd3890b92a2f5ebc6b1676decd6d11ba80b9047fd2c6`
 and is not accepted or promoted. The first repair attempt stopped before
-modification because tmpfs user-quota headroom was exhausted. It remains
-`FOCUSED_REPAIR_1_RETRY`, not a second semantic repair.
+modification because tmpfs user-quota headroom was exhausted. The later
+context-propagation merge `96840e996208d35baabbfd6ffe921f01272699c9` and
+preserved branch/worktree remain historical donor state.
 
-The unresolved evidence defect is exact: reconstruct retained IPL2 r31/ra
+The unresolved historical evidence defect is exact: reconstruct retained IPL2 r31/ra
 separately for `NTSC_PINNED`, `PAL_PINNED`, and `MPAL_PINNED`, distinguishing
 the signed relation directly consumed by the first x105 branch from the
-complete retained link address as control-flow provenance.
+complete retained link address as control-flow provenance. A direct Master pass
+may inspect these claims as leads only; it does not resume or accept this lane.
 
 ## Evidence mission
 

@@ -220,6 +220,21 @@ product or reference lane requires a new explicit product decision.
 - Status: profiled-copy lane accepted and integrated; handoff evidence lane
   remains active and blocked for `FOCUSED_REPAIR_1_RETRY`.
 
+## Era 14 — direct Master workflow and fleet-operation retirement (2026-07-13)
+
+- `USER_DECISION`: the active loop is now Don -> Master GPT -> Master Codex ->
+  Master GPT. Supervisor GPT and Worker Codex lane roles are retired; Master
+  Codex directly owns bounded implementation, validation, integration,
+  authorized normal push, evidence, and reporting.
+- Preserved history: prior branches, worktrees, commits, pages, and artifacts
+  remain intact. Fleet tools remain dormant diagnostics rather than active
+  delivery architecture.
+- Unaccepted donor: `pif-ipl2-handoff-state-mapping-v1` candidate `c24ab78c`
+  and context merge `96840e99` remain historical only. Their stale artifact is
+  not accepted, and the known profile-qualified r31/ra defect remains explicit.
+- Coordination state: no active supervisor/Worker lane and no queued Worker
+  candidate remain.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

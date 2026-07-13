@@ -15,4 +15,5 @@ Machine-readable owner: `ops/fleet/integration-queue.json`
 
 | Lane ID | Candidate HEAD | Base | Context-SHA | Artifact | Targeted validation | Full verify | Overlap | Dependency | Authority impact | Revalidation | Decision | Push |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| pif-ipl2-handoff-state-mapping-v1 | c24ab78c9a4b93fe79b660f3428d06a6a570c4dd | ba13d1c50f9c6c3f38c48d215d8d383f0900145e | 89eb10064573b423f4b8b63eff10b22a8bb867650db6c9f77dbd881605a5f04b | /tmp/UPLOAD_ME_fn64_pif_ipl2_handoff_state_mapping_v1.tar.gz#f1d864415d64c51a03ebcd3890b92a2f5ebc6b1676decd6d11ba80b9047fd2c6 | FAIL | UNKNOWN | NONE | profiled-copy product integrated; FOCUSED_REPAIR_1_RETRY must profile-qualify retained IPL2 r31/ra after Master context propagation | EVIDENCE_ONLY_NO_PRODUCT_CHANGE | FAIL | BLOCKED | NOT_AUTHORIZED |
+
+No active worker-lane candidates are queued.

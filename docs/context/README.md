@@ -54,15 +54,13 @@ commit SHA; Git owns revision history.
 
 ## Update and integration duties
 
-Update context when source ownership, current authority, a decision, a lane,
-verification policy, or a canonical evidence owner changes. Master Codex
-revalidates live facts, updates the smallest canonical owner, verifies links and
-the manifest, records the new Context-SHA, and propagates a context delta to
-active lanes. Master Codex also provisions and verifies literal worker topology
-under [WORKTREE_PROVISIONING.md](../process/WORKTREE_PROVISIONING.md).
-Supervisors seed semantic lane context only after provisioning; Worker Codex
-discovers live root-to-local law and verifies its assigned topology before
-acting.
+Update context when source ownership, current authority, a decision, an
+operation, verification policy, or a canonical evidence owner changes. Master
+Codex revalidates live facts, updates the smallest canonical owner, verifies
+links and the manifest, records the new Context-SHA, and reconciles that context
+inside the current direct Master pass. The active role contract is
+[MASTER_DIRECT_WORKFLOW.md](../process/MASTER_DIRECT_WORKFLOW.md); former
+Worker topology and context-delta contracts are historical.
 
 Packets carry context across isolated manual transport. They do not replace
 durable repository context, confer live truth by assertion, or imply direct

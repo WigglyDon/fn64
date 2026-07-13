@@ -1,5 +1,9 @@
 # Context Delta Protocol
 
+> Historical process: Worker context-delta delivery is retired. Current direct
+> Master passes read and reconcile committed context under
+> [Master Direct Workflow](MASTER_DIRECT_WORKFLOW.md).
+
 Context role: canonical context-amendment contract.
 Scope: safe propagation of accepted context to existing lanes.
 Canonical for: amendment fields and update behavior.

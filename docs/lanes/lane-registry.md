@@ -11,15 +11,8 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-- [`pif-ipl2-handoff-state-mapping-v1`](pif-ipl2-handoff-state-mapping-v1.md)
-  - Status: **NEEDS_FIX — FOCUSED_REPAIR_1 ENVIRONMENT RECOVERY**
-  - Topology: evidence-only pre-IPL3 state-mapping lane
-  - Implementation/candidate: unaccepted `c24ab78c`; focused retry pending
-  - Writable owner: `ops/evidence/pif-ipl2-handoff-state-mapping-v1/**` only
-
-Master retains lane, queue, context, branch, worktree, and integration
-ownership. No Worker is authorized to relaunch until Master GPT issues the
-focused retry packet.
+None. Supervisor GPT and Worker Codex lane roles are retired under the
+[Master direct workflow](../process/MASTER_DIRECT_WORKFLOW.md).
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
@@ -39,6 +32,13 @@ None. Minimal IPL2 execution remains unearned and unprovisioned.
 None established from live repository evidence.
 
 ## Retired lanes
+
+- [`pif-ipl2-handoff-state-mapping-v1`](pif-ipl2-handoff-state-mapping-v1.md):
+  **RETIRED — UNACCEPTED HISTORICAL DONOR**. Original candidate `c24ab78c`,
+  context merge `96840e99`, preserved branch/worktree, and stale artifact
+  remain historical and unaccepted. The operation was retired before its first
+  semantic repair; r31/ra profile qualification remains defective. No automatic
+  merge, retry, cleanup, deletion, or reuse is authorized.
 
 - [`pif-ipl2-profiled-copy-materialization-v1`](pif-ipl2-profiled-copy-materialization-v1.md):
   **ACCEPTED — PROFILED COPY MATERIALIZATION PRODUCT** at complete candidate

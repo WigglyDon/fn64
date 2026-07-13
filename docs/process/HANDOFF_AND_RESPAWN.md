@@ -1,5 +1,9 @@
 # Handoff And Respawn
 
+> Historical process: supervisor/Worker respawn is retired. This page preserves
+> donor and non-destructive retirement law only; current work follows
+> [Master Direct Workflow](MASTER_DIRECT_WORKFLOW.md).
+
 Context role: canonical lane handoff and respawn contract.
 Scope: stale supervisors/workers, donor work, lane retirement, and restart seeds.
 Canonical for: when delta, respawn, parking, or retirement is appropriate.

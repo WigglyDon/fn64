@@ -1,5 +1,9 @@
 # Master-Provisioned Worker Worktrees
 
+> Historical process: Supervisor GPT and Worker Codex lane roles are retired.
+> This page preserves the former topology contract and grants no current launch
+> or provisioning authority. See [Master Direct Workflow](MASTER_DIRECT_WORKFLOW.md).
+
 Context role: canonical worker-topology provisioning process.
 Scope: fn64 Worker Codex branches, worktrees, launch commands, cancellation, and reprovisioning.
 Canonical for: who chooses, creates, verifies, reattaches, and integrates worker topology.

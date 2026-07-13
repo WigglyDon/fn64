@@ -15,7 +15,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: no active C/C++ source, header, CMake build owner, C++ proof binary, C++ host shell, or C++-only launch script remains in the current tree.
 - `USER_DECISION`: the former C++ machine, host, proof, and build lane is retired without semantic-equivalence or inventory prerequisites. Git history is its only archive; unported behavior is intentionally absent.
 - `LIVE_REPO_FACT`: `./rust/verify-forward` is the sole required product gate and has no CMake, C++, ROM, SDL/window/audio, or Git dependency.
-- `USER_DECISION`: Master Codex alone provisions Worker topology and integrates Worker commits.
+- `USER_DECISION`: the active delivery loop is Don -> Master GPT -> Master
+  Codex -> Master GPT. Master GPT owns architecture, sequencing, scope, and
+  interpretation; Master Codex directly owns repository inspection,
+  implementation, validation, commits, canonical integration, authorized normal
+  push, evidence, and reporting.
+- `USER_DECISION`: Supervisor GPT and Worker Codex lane roles are retired. Their
+  branches, worktrees, commits, pages, and artifacts remain preserved historical
+  state and carry no current execution authority.
 - `USER_DECISION`: fn64 may accept one explicitly selected user-supplied PIF
   firmware file as local runtime input. The host owns only the path, file read,
   read failure, and owned-byte transfer; the Machine must own accepted bytes,
@@ -119,13 +126,15 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   malformed chat delivery is recorded separately as a
   `WORKFLOW_DELIVERY_DEFECT`. No private input was used and BOOT-2 did not
   advance.
-- `pif-ipl2-handoff-state-mapping-v1`: unaccepted evidence candidate
-  `c24ab78c` remains active **NEEDS_FIX — FOCUSED_REPAIR_1 ENVIRONMENT
-  RECOVERY**. The retry must reconstruct retained IPL2 r31/ra separately for
-  the three pinned profiles and distinguish the first consumed signed relation
-  from the complete retained link address.
-- Integration queue: one blocked handoff candidate entry. Its stale artifact
-  is not accepted, validation is failed, and push remains unauthorized.
+- Active supervisor operations: none. Active Worker operations and lanes: none.
+- `pif-ipl2-handoff-state-mapping-v1`: retired as an unaccepted historical
+  donor operation. Candidate `c24ab78c`, context-propagation merge `96840e99`,
+  its preserved worktree/branch, and its stale artifact remain unaccepted. Its
+  known r31/ra profile-qualification defect remains a donor-audit warning, not
+  an active repair assignment.
+- Integration queue: empty. No Worker candidate awaits review or integration.
+- `LIVE_REPO_FACT`: fleet tools remain available as dormant diagnostics and
+  historical infrastructure; they are not the active delivery architecture.
 - Repository-purity cleanup is complete for its accepted non-product scope.
 - Product Acceleration Wave 1 selected one combined frontier because
   storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,
