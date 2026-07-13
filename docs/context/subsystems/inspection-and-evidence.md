@@ -37,6 +37,13 @@ bootstrap copy. Output reports input/profile state and materialized range
 without logging successful firmware paths or bytes. Neither input alone
 produces SP IMEM state, and generated combined proof earns no checkpoint.
 
+Four additional explicit spellings request the bounded handoff:
+`--ipl3-family x105`, `--reset-kind cold`, `--boot-medium cartridge`, and
+`--pif-version-bit 0|1`. Inspection transfers typed choices without assigning
+their meaning. Machine owns completeness, profile support, values, provenance,
+and atomic rejection. Generated CLI proof reports the NTSC staged GPRs,
+Status, PC/next-PC, and completed-transfer lineage; PAL/MPAL requests reject.
+
 Inspection may depend on public core APIs. Core-to-inspection, private seam
 calls, mutable CPU/COP0 backdoors, host event loops, and proprietary assets are
 forbidden. Rollback and observability claims must cite the exact case.
@@ -49,7 +56,7 @@ authority. Structural acceptance is not authentic firmware validation.
 Integrated public-source evidence records profile-qualified IPL1 copy ranges
 without copying firmware or external source. The probe may select an explicit
 profile and report the resulting Machine-owned effect, but it does not author
-SP IMEM, authenticate firmware, or prove complete handoff.
+SP IMEM, authenticate firmware, or prove a firmware-executed handoff.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use

@@ -2,16 +2,19 @@
 
 No external code or byte sequence is reproduced here.
 
-Current fn64 anchors at base `a17f8dc980ecc68f81e686b33ac14958ef878601`:
+Current fn64 product anchors at commit `8ba3456`:
 
-- Machine input lifecycle: `rust/crates/fn64-core/src/machine.rs:2472-2544`.
+- Machine input lifecycle: `rust/crates/fn64-core/src/machine.rs:2481-2624`.
 - Bootstrap plan and atomic assignment:
-  `rust/crates/fn64-core/src/machine/cartridge_bootstrap.rs:308-406`.
-- GPR knownness ledger: the same file at `29-135` and `408-472`.
+  `rust/crates/fn64-core/src/machine/cartridge_bootstrap.rs:426-708`.
+- GPR/COP0/control-flow source ledgers: the same file at `125-170` and
+  `635-695`.
 - CPU registers/control flow/COP0: `cpu/registers.rs`, `cpu/scalars.rs`, and
   `cpu/cop0.rs`.
 - PIF copy layout: `rust/crates/fn64-core/src/pif_firmware.rs`.
 - SP IMEM knownness/provenance: `rust/crates/fn64-core/src/sp_imem.rs`.
+- Host-only selectors and report plumbing:
+  `rust/crates/fn64-inspection/src/boot_probe.rs:58-325` and `505-552`.
 
 Pinned reconstruction `928f59089c18a95cbffa59938a18fa6032c5d78c`:
 

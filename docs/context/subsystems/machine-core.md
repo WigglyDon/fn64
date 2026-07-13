@@ -14,7 +14,7 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, reset/power state,
 optional structurally accepted immutable PIF firmware input, optional explicit
-PIF IPL2 copy profile, and narrow
+PIF IPL2 copy profile, explicit narrow cold-handoff selector inputs, and narrow
 machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
 ledger that earned BOOT-2. SP IMEM has separate backing bytes and per-byte
@@ -52,6 +52,12 @@ preflights known bootstrap operands, address classification, alignment, and all
 four source bytes before application owns writeback, lineage, and cadence. No
 serialization format is a product contract yet.
 
+The supported coupled handoff follows the same ownership rule. Machine first
+plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
+cartridge medium, PIF-version bit, all staged GPR values/sources, Status, and
+completed-transfer control flow. Only a complete plan may replace runtime CPU
+and memory state. PAL/MPAL or incomplete requests reject before mutation.
+
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
@@ -62,9 +68,10 @@ Machine-owned SP IMEM representation and complete aligned `Lw` for direct
 RDRAM and known SP IMEM. Explicit profile materialization now gives generated
 or user-supplied firmware bytes a production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
-unknown. It does not prove bootstrap handoff,
-BOOT-3, timing, full ISA, game compatibility, renderer, audio, performance, or
-host integration.
+unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
+handoff and source lineage, but it does not prove an authentic
+firmware-executed handoff, BOOT-3, timing, full ISA, game compatibility,
+renderer, audio, performance, or host integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
@@ -84,10 +91,14 @@ Integrated mapping evidence establishes three pinned copy profiles: NTSC raw
 not select one. Machine now owns the profile meanings and atomically copies the
 complete selected range at bootstrap into a replacement SP IMEM image. Copied
 bytes are known with source provenance and every other byte remains `Unknown`.
-Copying those bytes still does not establish the complete IPL2 handoff state.
+Copying those bytes alone does not establish coupled CPU handoff state. The
+bounded product now adds one explicit NTSC cold cartridge x105 path: t3, sp,
+profile-qualified ra, s3-s7, Status, PC/next-PC, and cleared delay context.
+Other profiles, reset kinds, media, IPL3 families, and physical PIF revisions
+remain unsupported or unknown.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-host integration, complete handoff
-state, and whether any later fact requires minimal firmware execution.
+host integration, broader handoff state, and whether any later fact requires
+minimal firmware execution.

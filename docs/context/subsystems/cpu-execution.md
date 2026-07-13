@@ -39,13 +39,24 @@ before mutation.
 
 Machine-owned bootstrap state distinguishes concrete GPR storage from known
 architectural state. Each selected CPU-local bootstrap instruction checks all
-consumed GPR sources before helper invocation. The accepted BOOT-2
+consumed GPR sources before helper invocation. The generated-only supported
+NTSC cold-x105 handoff marks exactly t3, sp, ra, and s3-s7 with distinct
+Machine-owned lineage; all other inherited GPRs remain unknown unless a later
+instruction produces them. Its ra value is the complete retained link
+`0xFFFFFFFFA4001550`, not merely the negative relation consumed by the first
+x105 branch. The accepted authentic BOOT-2
 `SpecialAdd` reads known r29 and r0, writes known r9=`0xFFFFFFFFA4001FF0`, and
 commits cadence once. The following aligned `Lw` is represented through one
 Machine-owned plan/application rule; it reads its old base before destination
 write, sign-extends the loaded word, preserves GPR zero, records successful
 destination lineage, and commits cadence once. Its authentic SP IMEM source is
 unknown, so that instance rejects without mutation.
+
+Coupled staging also owns Status=`0x34000000`,
+PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
+not source Count, Compare, EPC, BadVAddr, Cause, timer state, or unrelated GPRs.
+The private plan is complete before CPU replacement, so rejected profile or
+missing-input paths retain the prior CPU, COP0, control-flow, and memory state.
 
 Accepted proof: current source anchors, CPU/helper unit tests, focused Machine
 step tests, and the synthetic step probe. Historical output cannot establish

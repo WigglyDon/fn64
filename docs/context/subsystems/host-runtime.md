@@ -35,6 +35,13 @@ Machine owns profile meaning and copy layout. The host must not infer a profile
 from firmware content, digest, filename, cartridge identity, platform, or any
 expected trace.
 
+For the coupled handoff, the probe additionally owns only the literal syntax
+`--ipl3-family x105`, `--reset-kind cold`, `--boot-medium cartridge`, and
+`--pif-version-bit 0|1`. These are separate emulated-machine inputs, not one
+game profile. The host neither defaults nor derives them; Machine owns the
+supported combination, complete plan, state production, lineage, and
+fail-closed behavior.
+
 Allowed future direction is thin host → public Machine/inspection surface.
 Core → host, renderer → machine state, platform clock → stepping, and host-owned
 emulator policy remain forbidden. User-local commercial assets stay outside

@@ -31,6 +31,7 @@ Current durable integration records:
 - [Ordinary control flow and one delay slot](ordinary-control-flow-delay-slot-v1/README.md)
 - [Profile-specific PIF IPL2 source mapping](pif-ipl2-source-mapping-v1/README.md)
 - [Profiled PIF IPL2 copy materialization](pif-ipl2-profiled-copy-materialization-v1/README.md)
+- [Cold x105 coupled handoff reconstruction and materialization](pif-ipl2-coupled-handoff-materialization-v1/README.md)
 
 The lineage contract is:
 

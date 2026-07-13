@@ -235,6 +235,27 @@ product or reference lane requires a new explicit product decision.
 - Coordination state: no active supervisor/Worker lane and no queued Worker
   candidate remain.
 
+## Era 15 — coupled cold x105 handoff materialization (2026-07-13)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned N64-IPL reconstruction,
+  R4300 documentation, and independent emulator corroboration;
+  `LIVE_REPO_FACT`, direct Master evidence and product commits;
+  `RUNTIME_FACT`, generated-only focused tests and the complete Rust gate.
+- Donor handling: historical candidate `c24ab78c` supplied hypotheses and
+  source leads only. Independent review retained its useful t3/sp/s3-s7
+  direction but rejected its universal ra claim.
+- Accepted product increment: one explicit `NTSC_PINNED`, x105, cold,
+  cartridge path stages the bounded inherited GPRs, Status, PC/next-PC, and
+  completed-transfer lineage through one Machine-owned plan and atomic
+  bootstrap application. The PIF-version bit is a separate explicit input.
+- Fail-closed boundary: PAL_PINNED and MPAL_PINNED retained-link arithmetic is
+  not independently corroborated for product use, so coupled handoff requests
+  for those profiles reject without partial CPU or memory mutation.
+- Proof boundary: all bytes and instructions were generated. No private PIF or
+  cartridge ROM was accessed; no firmware or IPL execution, authentic
+  advancement, BOOT-3, or compatibility fact was earned. BOOT-2 remains the
+  highest authentic checkpoint.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

@@ -39,8 +39,8 @@ history.
 | `Rdram` | 4 MiB zero-filled storage and checked raw fixed-width reads | no general bus, device routing, or CPU instruction semantics |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, checked known big-endian word reads, and an atomic profiled-copy constructor | no public mutable access, profile policy, SP register/status/DMA, or RSP execution |
-| `Machine` | Cartridge, optional accepted PifFirmware and PifIpl2Profile, Cpu, Rdram, SpDmem, SpImem, bootstrap provenance/GPR-knownness state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
-| `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs | no machine truth, general runtime loop, graphics, or compatibility authority |
+| `Machine` | Cartridge, optional accepted PifFirmware and PifIpl2Profile, explicit handoff selectors, Cpu, Rdram, SpDmem, SpImem, bootstrap provenance/GPR-knownness/COP0/control-flow state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
+| `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs; exact CLI spellings for explicit firmware, profile, family, reset, medium, and PIF-version inputs | no machine truth, selector meaning, general runtime loop, graphics, or compatibility authority |
 
 ## Cartridge representation
 
@@ -79,6 +79,13 @@ structural only: they do not authenticate firmware, establish a revision,
 prove executability, or claim compatibility. Content, filenames, cartridge
 identity, and digests do not select acceptance or behavior.
 
+The same probe accepts a separate explicit selector set for the bounded
+handoff: `--ipl3-family x105`, `--reset-kind cold`, `--boot-medium cartridge`,
+and `--pif-version-bit 0|1`. Inspection parses only those tokens. Machine owns
+their semantic independence and requires the complete set before coupled
+handoff materialization. There is no default, title/product-code/filename/full-
+ROM-digest selector, host-region inference, or compatibility database.
+
 Accepted bytes remain private and immutable, survive reset and repeated
 cartridge-bootstrap staging, and are exposed only as absent/accepted
 classification plus size. Profile selection is an independent Machine input;
@@ -114,10 +121,21 @@ the replacement SP IMEM atomically materializes that profile's complete copy
 range before assignment; otherwise its bytes remain zero-backed and
 `Unknown`. It sets
 `pc / next_pc` to `0xA4000040 / 0xA4000044`, represents GPR zero as known
-architectural zero, and represents GPR29 as the known general PIF reset stack
+architectural zero, and represents GPR29 as the known restored PIF IPL2 stack
 pointer `0xFFFFFFFFA4001FF0`. Every other unstaged PIF-produced GPR remains
 explicitly unknown even though its concrete storage is zero. Reset clears the
 staged bootstrap bytes and provenance.
+
+When all explicit selectors request the supported `NTSC_PINNED` cold
+cartridge x105 path, the same creation point first produces a private complete
+plan and then atomically applies the coupled state. Known entry GPRs are
+t3=`0xFFFFFFFFA4000040`, sp=`0xFFFFFFFFA4001FF0`,
+ra=`0xFFFFFFFFA4001550`, s3=0, s4=1, s5=0, s6=`0x91`, and s7 equal to the
+explicit PIF-version bit. Status=`0x34000000`, PC/next-PC are
+`0xA4000040 / 0xA4000044`, and delay-slot context is clear. GPR, Status, and
+completed-control-transfer sources are inspectable. All other inherited GPRs
+remain `Unknown`; Count, Compare, EPC, BadVAddr, Cause, and timer state receive
+no source-backed handoff claim. PAL/MPAL coupled requests fail before mutation.
 
 There is no power-off transition, boot reset, PIF execution source, broad
 mutable CPU accessor, savestate format, or serialization contract.
@@ -314,6 +332,10 @@ and an explicit pinned profile, a synthetic test proves the profiled production
 event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
+Generated tests separately prove the NTSC cold x105 coupled creation point:
+one instruction consumes source-backed t3, and the existing SP-IMEM `Lw`
+consumes bytes produced by the selected copy. These tests are synthetic
+composition proof and are not an authentic IPL2-to-IPL3 run.
 One-word staging would be both incomplete and unauthorized: the observed x105
 prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
@@ -331,9 +353,10 @@ execute. Current explicit absences include:
 - multiply, divide, trap, COP0 instruction, ERET, and LL/SC execution;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
-  PI DMA, authentic bootstrap handoff, and cartridge-entry execution;
+  PI DMA, authentic firmware-executed bootstrap handoff, and cartridge-entry
+  execution;
 - authentic PIF firmware/revision validation, firmware execution, and
-  complete IPL2 handoff-state production;
+  coupled PAL/MPAL or other-family/NMI/DD handoff-state production;
 - authentic private-firmware-backed SP IMEM observations, RSP/COP2 execution, and SP
   register/status/DMA/control behavior;
 - a broad bus or memory map, device/MMIO routing, DMA, and N64 scheduling or
@@ -379,10 +402,12 @@ path, passes those owned bytes into structural Machine validation, and reports
 only absent/accepted classification and size. A separate explicit
 `--pif-profile` selects one parsed Machine profile; inspection duplicates no
 copy layout and mutates no SP IMEM. Generated CLI tests prove explicit-profile
-materialization and no-search behavior. Against the accepted private cartridge
-input without PIF firmware it reproduces BOOT-2 after two attempted steps and
-one commit, then reports the represented `Lw` rejection at unknown SP IMEM
-offset zero. The input remains untracked and
+materialization and no-search behavior. The four explicit cold-x105 selector
+options can request the NTSC-only coupled handoff; generated CLI proof reports
+the exact staged state, while PAL/MPAL requests fail closed. Against the
+accepted private cartridge input without PIF firmware it reproduces BOOT-2
+after two attempted steps and one commit, then reports the represented `Lw`
+rejection at unknown SP IMEM offset zero. The input remains untracked and
 is identified externally only by digest and size; no ROM bytes are committed or
 packaged. This proof does not belong to the default forward gate and does not
 claim BOOT-3 or game compatibility.

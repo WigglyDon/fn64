@@ -34,7 +34,10 @@ Integrated provenance evidence identifies the missing source category as
 retained IPL2 firmware content. Explicit profiled bootstrap materialization can
 now satisfy the known-byte gate from generated or user-supplied bytes; external
 source knowledge alone cannot bypass it. Synthetic `Lw` success proves the
-represented composition, not authentic boot or complete handoff.
+represented composition, not authentic boot. A separate generated-only NTSC
+cold-x105 test proves the Machine bootstrap plan can source the inherited t3
+operand before `Machine::step`; that source gate still rejects every unstaged
+GPR and does not imply IPL2 execution.
 
 Ordinary `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` identities now select
 one bounded Machine-owned action before sequential staging. A control-flow

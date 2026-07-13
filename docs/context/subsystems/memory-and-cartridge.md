@@ -32,6 +32,14 @@ unsupported, and rejects other lengths as malformed. Acceptance does not prove
 authenticity. Firmware and profile installation remain independent and neither
 alone produces SP IMEM state.
 
+Cold-x105 coupled handoff adds four independent explicit host spellings for
+family, reset kind, boot medium, and PIF-version bit. They are transferred as
+typed Machine inputs and never inferred from a filename, game identity,
+cartridge digest, PIF contents, host region, or expected trace. The only
+supported coupled path is `NTSC_PINNED` + x105 + cold + cartridge; PAL/MPAL
+continue to support their byte-copy layouts but their coupled CPU handoff
+requests fail closed.
+
 The named `Machine::stage_cartridge_bootstrap` creation point preflights the
 normalized cartridge span `[0x40, 0x1000)`, stages it into the same SP DMEM
 offsets, and records cartridge provenance. The bounded inspection host supplies
@@ -57,8 +65,9 @@ KSEG0/KSEG1 CPU-data route to that range, and aligned `Lw` over direct RDRAM or
 known SP IMEM. Source-qualified evidence identifies retained IPL2 firmware as
 the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
-byte-transfer effect from lawful input, but no private PIF was used. It does not
-establish authentic SP IMEM contents, complete handoff,
+byte-transfer effect from lawful input, but no private PIF was used. Generated
+proof combines it atomically with the bounded NTSC cold-x105 CPU handoff. It
+does not establish authentic SP IMEM contents, firmware-executed handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists
 only where the detailed ledger says it is sealed.
@@ -69,5 +78,6 @@ Pinned mapping evidence now identifies NTSC raw `[0x0d4,0x71c)` to SP IMEM
 `[0x000,0x648)` and PAL/MPAL raw `[0x0d4,0x720)` to
 `[0x000,0x64c)`. Shape-only input cannot select a mapping. The represented
 Machine profile and full-range generated proof now cover the copy effect; the
-remaining evidence pressure is complete pre-IPL3 handoff state. Neither earns
-an architecture-first bus abstraction.
+remaining evidence pressure is profile-qualified PAL/MPAL and broader
+pre-cartridge-entry state. Neither earns an architecture-first bus
+abstraction.

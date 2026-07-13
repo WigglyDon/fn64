@@ -21,6 +21,13 @@ write. Count and normal cadence do not advance on represented fault entry.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 
+The explicit generated-only NTSC cold-x105 handoff is the sole bootstrap path
+that sources inherited COP0 state. It stages Status=`0x34000000` with named
+IPL1 cold-boot lineage and a clear delay-slot context. Count, Compare, EPC,
+BadVAddr, Cause, software/timer pending state, Config, and PRId receive no
+handoff-source claim. Missing or unsupported handoff input rejects before any
+COP0 or control-flow mutation.
+
 For the represented ordinary-control-flow family, CPU-owned delay-slot context
 names the owning branch/jump PC. Arithmetic overflow, instruction-fetch AdEL,
 and unaligned-`Lw` data-AdEL entry from that slot set Cause.BD, write the owner

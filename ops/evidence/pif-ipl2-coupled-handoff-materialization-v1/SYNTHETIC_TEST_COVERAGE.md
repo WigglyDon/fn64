@@ -1,6 +1,6 @@
 # Synthetic test coverage
 
-Planned and required product proof:
+Implemented product proof:
 
 - independent explicit input installation and reset persistence;
 - complete NTSC GPR values and sources;
@@ -15,6 +15,11 @@ Planned and required product proof:
 - all unstaged GPRs remain source-Unknown;
 - no fabricated Count, Compare, EPC, BadVAddr, or timer provenance;
 - CLI parsing and no-search behavior using temporary generated files.
+
+Focused filters `cold_x105`, `cartridge_bootstrap`, `boot_probe`, and the
+direct `boot_probe_cli` target exercise these rules. The complete gate covers
+the existing SP IMEM, aligned `Lw`, ordinary-control-flow, reset, and
+Machine-step regressions.
 
 Synthetic proof demonstrates the represented rule only. It is not authentic
 firmware compatibility, executed IPL2, BOOT-3, or game compatibility.
