@@ -4,14 +4,16 @@ use std::process::ExitCode;
 use fn64_core::cpu::address::CpuAddress;
 use fn64_core::{
     load_cartridge, Cartridge, CartridgeLoadError, CpuAddressErrorKind, CpuInstructionIdentity,
-    Machine, MachineCartridgeBootstrapError, MachineCpuInstructionFetchError,
-    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachinePifIpl2HandoffBootMedium,
-    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineSpDmemLoadWordProvenance,
-    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
-    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
-    MachineStepUnsupportedInstructionCategory, PifFirmwareValidationError, PifIpl2Profile,
-    RdramAccessError, SpDmemOffset, PIF_BOOT_ROM_SIZE_BYTES,
+    Machine, MachineBootstrapGprSource, MachineCartridgeBootstrapError,
+    MachineCpuInstructionFetchError, MachineLoadWordRejectionReason, MachineLoadWordTarget,
+    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
+    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineSpDmemLoadWordProvenance, MachineStepCadenceSource, MachineStepControlFlowAction,
+    MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory,
+    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
+    MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
+    PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
+    PIF_BOOT_ROM_SIZE_BYTES,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -30,7 +32,17 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: sp-dmem-lw-committed ok\
 \ncase: sp-dmem-lw-unknown-rejection ok\
 \ncase: sp-dmem-lw-delay-slot-adel ok\
-\ncase: generated-x105-next-frontier ok\
+\ncase: sp-imem-sw-committed ok\
+\ncase: sp-imem-sw-big-endian ok\
+\ncase: sp-imem-sw-lw-round-trip ok\
+\ncase: sp-imem-sw-zero-source ok\
+\ncase: sp-imem-sw-rs-rt-alias ok\
+\ncase: sp-imem-sw-ades ok\
+\ncase: sp-imem-sw-delay-slot-ades ok\
+\ncase: sp-imem-sw-unknown-base-rejection ok\
+\ncase: sp-imem-sw-unknown-source-rejection ok\
+\ncase: sp-imem-sw-unsupported-target-rejection ok\
+\ncase: generated-x105-post-sw-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -130,7 +142,10 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_unsupported_rollback()?;
     probe_instruction_fetch_adel()?;
     probe_source_clear_rejection()?;
-    probe_generated_x105_sp_dmem_lw_frontier()?;
+    probe_sp_imem_sw_successes()?;
+    probe_sp_imem_sw_ades_cases()?;
+    probe_sp_imem_sw_rejections()?;
+    probe_generated_x105_post_sw_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
     probe_control_flow_taken_delay_slot()?;
@@ -480,141 +495,414 @@ fn probe_source_clear_rejection() -> Result<(), StepProbeError> {
     assert_rejected_state_unchanged(&machine, CASE, pc_before, next_pc_before)
 }
 
-fn probe_generated_x105_sp_dmem_lw_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "generated-x105-next-frontier";
-    const GENERATED_SP_DMEM_WORD: u32 = 0x1357_9bdf;
+fn probe_sp_imem_sw_successes() -> Result<(), StepProbeError> {
+    const CASE: &str = "sp-imem-sw-committed";
+    let words = [
+        (0x40, immediate_word(0x2b, 29, 31, 0xf010)),
+        (0x44, immediate_word(0x23, 29, 8, 0xf010)),
+    ];
+    let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
+
+    match step(&mut machine, CASE)? {
+        MachineRepresentedStepOutcome::StoreWordCommitted {
+            effective_address,
+            target,
+            source_gpr,
+            stored_word,
+            stored_bytes,
+            provenance,
+            cadence_plan,
+        } => {
+            require(
+                CASE,
+                effective_address == 0xffff_ffff_a400_1000,
+                "SP-IMEM Sw effective address",
+            )?;
+            require(
+                CASE,
+                target == MachineStoreWordTarget::SpImem { offset: 0 },
+                "SP-IMEM Sw target",
+            )?;
+            require(CASE, source_gpr == 31, "SP-IMEM Sw source GPR")?;
+            require(CASE, stored_word == 0xa400_1550, "Sw low-word value")?;
+            require(
+                CASE,
+                stored_bytes == [0xa4, 0x00, 0x15, 0x50],
+                "Sw big-endian bytes",
+            )?;
+            require(
+                CASE,
+                provenance.instruction_pc() == CpuAddress::new(0xa400_0040),
+                "Sw provenance instruction PC",
+            )?;
+            require(CASE, provenance.source_gpr() == 31, "Sw provenance GPR")?;
+            require(
+                CASE,
+                matches!(
+                    provenance.source_lineage(),
+                    MachineBootstrapGprSource::PifIpl2RetainedLink { .. }
+                ),
+                "Sw retained-link source lineage",
+            )?;
+            require(
+                CASE,
+                cadence_plan.source() == MachineStepCadenceSource::CommittedInstruction,
+                "Sw committed cadence",
+            )?;
+        }
+        _ => return assertion(CASE, "SP-IMEM Sw committed outcome"),
+    }
+    require(CASE, machine.cpu().pc() == 0xa400_0044, "Sw committed pc")?;
+    require(
+        CASE,
+        machine.cpu().next_pc() == 0xa400_0048,
+        "Sw committed next_pc",
+    )?;
+    require(CASE, machine.cpu().cop0_count() == 1, "Sw committed Count")?;
+
+    match step(&mut machine, CASE)? {
+        MachineRepresentedStepOutcome::LoadWordCommitted {
+            target: MachineLoadWordTarget::SpImem { offset: 0 },
+            destination_gpr: 8,
+            loaded_word: 0xa400_1550,
+            result_value: 0xffff_ffff_a400_1550,
+            ..
+        } => {}
+        _ => return assertion(CASE, "Sw followed by Lw round trip"),
+    }
+
+    let zero_words = [
+        (0x40, immediate_word(0x2b, 29, 0, 0xf010)),
+        (0x44, immediate_word(0x23, 29, 8, 0xf010)),
+    ];
+    let (mut zero, _) = generated_cold_x105_machine(CASE, &zero_words)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut zero, CASE)?,
+            MachineRepresentedStepOutcome::StoreWordCommitted {
+                source_gpr: 0,
+                stored_word: 0,
+                stored_bytes: [0, 0, 0, 0],
+                ..
+            }
+        ),
+        "r0 writes one known zero word",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut zero, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                loaded_word: 0,
+                result_value: 0,
+                ..
+            }
+        ),
+        "r0 store round trip",
+    )?;
+
+    let alias_words = [(0x40, immediate_word(0x2b, 29, 29, 0xf010))];
+    let (mut alias, _) = generated_cold_x105_machine(CASE, &alias_words)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut alias, CASE)?,
+            MachineRepresentedStepOutcome::StoreWordCommitted {
+                effective_address: 0xffff_ffff_a400_1000,
+                source_gpr: 29,
+                stored_word: 0xa400_1ff0,
+                stored_bytes: [0xa4, 0x00, 0x1f, 0xf0],
+                ..
+            }
+        ),
+        "rs equals rt uses old value for address and data",
+    )
+}
+
+fn probe_sp_imem_sw_ades_cases() -> Result<(), StepProbeError> {
+    const CASE: &str = "sp-imem-sw-ades";
+    let words = [(0x40, immediate_word(0x2b, 29, 7, 0xf011))];
+    let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
+
+    match step(&mut machine, CASE)? {
+        MachineRepresentedStepOutcome::DataAddressError {
+            identity,
+            effective_address,
+            address_error,
+            cadence_plan,
+        } => {
+            require(
+                CASE,
+                identity == CpuInstructionIdentity::Sw,
+                "AdES Sw identity",
+            )?;
+            require(
+                CASE,
+                effective_address == 0xffff_ffff_a400_1001,
+                "AdES effective address",
+            )?;
+            require(
+                CASE,
+                address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore,
+                "AdES exception kind",
+            )?;
+            require(CASE, address_error.cause_exception_code() == 5, "AdES code")?;
+            require(
+                CASE,
+                cadence_plan.source() == MachineStepCadenceSource::EnteredException,
+                "AdES exception cadence",
+            )?;
+        }
+        _ => return assertion(CASE, "sequential Sw AdES outcome"),
+    }
+    require(
+        CASE,
+        machine.cpu().cop0_bad_vaddr() == 0xa400_1001,
+        "AdES BadVAddr",
+    )?;
+    require(CASE, machine.cpu().cop0_epc() == 0xa400_0040, "AdES EPC")?;
+    require(
+        CASE,
+        !machine.cpu().cop0_exception_branch_delay(),
+        "sequential AdES BD clear",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == 0,
+        "AdES Count unchanged",
+    )?;
+
+    let delay_words = [
+        (0x40, branch_word(0x04, 0, 0, 1)),
+        (0x44, immediate_word(0x2b, 29, 7, 0xf011)),
+        (0x48, special_word(0, 0, 0, 0)),
+    ];
+    let (mut delay, _) = generated_cold_x105_machine(CASE, &delay_words)?;
+    require_committed_identity(CASE, step(&mut delay, CASE)?, CpuInstructionIdentity::Beq)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut delay, CASE)?,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Sw,
+                effective_address: 0xffff_ffff_a400_1001,
+                ..
+            }
+        ),
+        "delay-slot Sw AdES outcome",
+    )?;
+    require(CASE, delay.cpu().cop0_epc() == 0xa400_0040, "slot AdES EPC")?;
+    require(
+        CASE,
+        delay.cpu().cop0_exception_branch_delay(),
+        "slot AdES BD",
+    )?;
+    require(CASE, delay.cpu().cop0_count() == 1, "slot AdES Count")?;
+    require(
+        CASE,
+        delay.cpu_delay_slot_context().is_none(),
+        "slot AdES context cleared",
+    )?;
+    require(
+        CASE,
+        delay.cpu().pc() == GENERAL_EXCEPTION_VECTOR_PC,
+        "slot AdES vector",
+    )
+}
+
+fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
+    const CASE: &str = "sp-imem-sw-unknown-base-rejection";
+    let mut unknown_base =
+        synthetic_direct_machine_with_instruction(CASE, immediate_word(0x2b, 1, 0, 0))?;
+    let pc_before = unknown_base.cpu().pc();
+    let next_pc_before = unknown_base.cpu().next_pc();
+    match unknown_base.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            CASE,
+            matches!(
+                rejection.reason(),
+                MachineStoreWordRejectionReason::BaseSourceUnavailable {
+                    register_index: 1,
+                    ..
+                }
+            ),
+            "unknown base rejection",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "unknown base Sw rejection"),
+    }
+    assert_rejected_state_unchanged(&unknown_base, CASE, pc_before, next_pc_before)?;
+
+    let unknown_source_words = [(0x40, immediate_word(0x2b, 29, 7, 0xf010))];
+    let (mut unknown_source, _) = generated_cold_x105_machine(CASE, &unknown_source_words)?;
+    match unknown_source.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            CASE,
+            matches!(
+                rejection.reason(),
+                MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                    register_index: 7,
+                    ..
+                }
+            ),
+            "unknown source rejection",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "unknown source Sw rejection"),
+    }
+    require(
+        CASE,
+        unknown_source.cpu().cop0_count() == 0,
+        "unknown source Count unchanged",
+    )?;
+
+    let unsupported_words = [
+        (0x40, immediate_word(0x0f, 0, 1, 0x8000)),
+        (0x44, immediate_word(0x0d, 1, 1, 0x0100)),
+        (0x48, immediate_word(0x2b, 1, 0, 0)),
+    ];
+    let (mut unsupported, _) = generated_cold_x105_machine(CASE, &unsupported_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut unsupported, CASE)?,
+        CpuInstructionIdentity::Lui,
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut unsupported, CASE)?,
+        CpuInstructionIdentity::Ori,
+    )?;
+    let pc_before = unsupported.cpu().pc();
+    let next_pc_before = unsupported.cpu().next_pc();
+    let count_before = unsupported.cpu().cop0_count();
+    match unsupported.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            CASE,
+            matches!(
+                rejection.reason(),
+                MachineStoreWordRejectionReason::UnsupportedTarget {
+                    target: MachineStoreWordUnsupportedTarget::DirectRdram { .. }
+                }
+            ),
+            "unsupported RDRAM target rejection",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "unsupported target Sw rejection"),
+    }
+    require(
+        CASE,
+        unsupported.cpu().pc() == pc_before,
+        "unsupported target pc",
+    )?;
+    require(
+        CASE,
+        unsupported.cpu().next_pc() == next_pc_before,
+        "unsupported target next_pc",
+    )?;
+    require(
+        CASE,
+        unsupported.cpu().cop0_count() == count_before,
+        "unsupported target Count",
+    )
+}
+
+fn probe_generated_x105_post_sw_frontier() -> Result<(), StepProbeError> {
+    const CASE: &str = "generated-x105-post-sw-frontier";
+    const FIRST_DATA_WORD: u32 = 0x1357_9000;
+    const SECOND_DATA_WORD: u32 = 0x1122_3344;
+    const THIRD_DATA_WORD: u32 = 0x89ab_cdef;
     let words = [
         (0x40, special_word(29, 0, 9, 0x20)),
         (0x44, immediate_word(0x23, 9, 8, 0xf010)),
         (0x48, immediate_word(0x23, 11, 10, 0x0044)),
         (0x4c, special_word(10, 8, 10, 0x26)),
         (0x50, immediate_word(0x2b, 9, 10, 0xf010)),
-        (0x84, GENERATED_SP_DMEM_WORD),
+        (0x54, immediate_word(0x08, 11, 11, 4)),
+        (0x58, immediate_word(0x0c, 8, 8, 0x0fff)),
+        (0x5c, branch_word(0x05, 8, 0, -7)),
+        (0x60, immediate_word(0x08, 9, 9, 4)),
+        (0x64, immediate_word(0x23, 11, 8, 0x0044)),
+        (0x68, immediate_word(0x23, 11, 10, 0x0048)),
+        (0x6c, immediate_word(0x2b, 9, 8, 0xf010)),
+        (0x70, immediate_word(0x2b, 9, 10, 0xf014)),
+        (0x74, immediate_word(0x01, 31, 0, 1)),
+        (0x84, FIRST_DATA_WORD),
+        (0x88, SECOND_DATA_WORD),
+        (0x8c, THIRD_DATA_WORD),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
-    let expected_sp_imem_value = sign_extend_word(generated_sp_imem_word);
-    let expected_sp_dmem_value = sign_extend_word(GENERATED_SP_DMEM_WORD);
-
-    require_committed_identity(
+    require(
         CASE,
-        step(&mut machine, CASE)?,
+        generated_sp_imem_word & 0x0fff == 0,
+        "generated branch relation",
+    )?;
+    let expected = [
         CpuInstructionIdentity::SpecialAdd,
-    )?;
-    require(
-        CASE,
-        machine.cpu().gpr(9) == Some(0xffff_ffff_a400_1ff0),
-        "generated entry register copy",
-    )?;
-
-    match step(&mut machine, CASE)? {
-        MachineRepresentedStepOutcome::LoadWordCommitted {
-            effective_address,
-            target,
-            destination_gpr,
-            loaded_word,
-            result_value,
-            ..
-        } => {
-            require(
-                CASE,
-                effective_address == 0xffff_ffff_a400_1000,
-                "generated SP-IMEM load address",
-            )?;
-            require(
-                CASE,
-                target == MachineLoadWordTarget::SpImem { offset: 0 },
-                "generated SP-IMEM load target",
-            )?;
-            require(CASE, destination_gpr == 8, "generated SP-IMEM destination")?;
-            require(
-                CASE,
-                loaded_word == generated_sp_imem_word,
-                "generated SP-IMEM word",
-            )?;
-            require(
-                CASE,
-                result_value == expected_sp_imem_value,
-                "generated SP-IMEM result",
-            )?;
-        }
-        _ => return assertion(CASE, "generated SP-IMEM Lw outcome"),
-    }
-
-    match step(&mut machine, CASE)? {
-        MachineRepresentedStepOutcome::LoadWordCommitted {
-            effective_address,
-            target: MachineLoadWordTarget::SpDmem { offset, provenance },
-            destination_gpr,
-            loaded_word,
-            result_value,
-            ..
-        } => {
-            require(
-                CASE,
-                effective_address == 0xffff_ffff_a400_0084,
-                "generated SP-DMEM load address",
-            )?;
-            require(
-                CASE,
-                offset == SpDmemOffset::new(0x84),
-                "generated SP-DMEM offset",
-            )?;
-            require(
-                CASE,
-                provenance
-                    == MachineSpDmemLoadWordProvenance::CartridgeBootstrap {
-                        cartridge_offset: 0x84,
-                    },
-                "generated SP-DMEM cartridge provenance",
-            )?;
-            require(CASE, destination_gpr == 10, "generated SP-DMEM destination")?;
-            require(
-                CASE,
-                loaded_word == GENERATED_SP_DMEM_WORD,
-                "generated SP-DMEM word",
-            )?;
-            require(
-                CASE,
-                result_value == expected_sp_dmem_value,
-                "generated SP-DMEM result",
-            )?;
-        }
-        _ => return assertion(CASE, "generated SP-DMEM Lw outcome"),
-    }
-
-    require_committed_identity(
-        CASE,
-        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Lw,
+        CpuInstructionIdentity::Lw,
         CpuInstructionIdentity::SpecialXor,
+        CpuInstructionIdentity::Sw,
+        CpuInstructionIdentity::Addi,
+        CpuInstructionIdentity::Andi,
+        CpuInstructionIdentity::Bne,
+        CpuInstructionIdentity::Addi,
+        CpuInstructionIdentity::Lw,
+        CpuInstructionIdentity::Lw,
+        CpuInstructionIdentity::Sw,
+        CpuInstructionIdentity::Sw,
+    ];
+    for (index, identity) in expected.into_iter().enumerate() {
+        let outcome = step(&mut machine, CASE)?;
+        require(
+            CASE,
+            outcome.identity() == Some(identity),
+            "generated identity",
+        )?;
+        require(
+            CASE,
+            machine.cpu().cop0_count() == (index + 1) as u32,
+            "generated Count cadence",
+        )?;
+        if index == 4 {
+            require(
+                CASE,
+                matches!(
+                    outcome,
+                    MachineRepresentedStepOutcome::StoreWordCommitted {
+                        target: MachineStoreWordTarget::SpImem { offset: 0 },
+                        ..
+                    }
+                ),
+                "frontier Sw committed to SP IMEM",
+            )?;
+        }
+    }
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0074,
+        "post-Sw frontier pc",
     )?;
     require(
         CASE,
-        machine.cpu().gpr(10) == Some(expected_sp_dmem_value ^ expected_sp_imem_value),
-        "generated transformed value",
-    )?;
-    require(CASE, machine.cpu().pc() == 0xa400_0050, "next frontier pc")?;
-    require(
-        CASE,
-        machine.cpu().next_pc() == 0xa400_0054,
-        "next frontier next_pc",
+        machine.cpu().next_pc() == 0xa400_0078,
+        "post-Sw frontier next_pc",
     )?;
     require(
         CASE,
-        machine.cpu().cop0_count() == 4,
-        "four committed steps",
+        machine.cpu().cop0_count() == 13,
+        "post-Sw frontier Count",
     )?;
-
     let pc_before = machine.cpu().pc();
     let next_pc_before = machine.cpu().next_pc();
     let count_before = machine.cpu().cop0_count();
-    let result_before = machine.cpu().gpr(10);
     match machine.step() {
         Err(MachineRepresentedStepError::UnrepresentedInstruction {
-            identity: CpuInstructionIdentity::Sw,
+            identity: CpuInstructionIdentity::RegimmBltz,
             ..
         }) => {}
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "aligned Sw next frontier"),
+        Ok(_) => return assertion(CASE, "RegimmBltz next frontier"),
     }
     require(
         CASE,
@@ -630,11 +918,6 @@ fn probe_generated_x105_sp_dmem_lw_frontier() -> Result<(), StepProbeError> {
         CASE,
         machine.cpu().cop0_count() == count_before,
         "frontier Count rollback",
-    )?;
-    require(
-        CASE,
-        machine.cpu().gpr(10) == result_before,
-        "frontier GPR rollback",
     )
 }
 
@@ -1181,12 +1464,13 @@ fn generated_cold_x105_machine(
 ) -> Result<(Machine, u32), StepProbeError> {
     let cartridge = generated_cartridge(case, words)?;
     let mut machine = Machine::from_cartridge(cartridge);
-    let firmware: Vec<u8> = (0..PIF_BOOT_ROM_SIZE_BYTES)
+    let mut firmware: Vec<u8> = (0..PIF_BOOT_ROM_SIZE_BYTES)
         .map(|index| 0xa5_u8.wrapping_add((index as u8).wrapping_mul(29)))
         .collect();
     let source_start = PifIpl2Profile::NtscPinned
         .copy_layout()
         .source_start_offset() as usize;
+    write_be_u32(&mut firmware, source_start, 0x81ab_c000);
     let generated_sp_imem_word = u32::from_be_bytes(
         firmware[source_start..source_start + 4]
             .try_into()
@@ -1212,10 +1496,6 @@ fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset + 1] = (value >> 16) as u8;
     bytes[offset + 2] = (value >> 8) as u8;
     bytes[offset + 3] = value as u8;
-}
-
-fn sign_extend_word(value: u32) -> u64 {
-    (value as i32 as i64) as u64
 }
 
 fn synthetic_direct_machine_with_instruction(
