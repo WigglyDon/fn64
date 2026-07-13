@@ -3,11 +3,15 @@ use std::process::ExitCode;
 
 use fn64_core::cpu::address::CpuAddress;
 use fn64_core::{
-    Cartridge, CpuInstructionIdentity, Machine, MachineCpuInstructionFetchError,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineStepCadenceSource,
-    MachineStepControlFlowAction, MachineStepCountAction,
+    load_cartridge, Cartridge, CartridgeLoadError, CpuAddressErrorKind, CpuInstructionIdentity,
+    Machine, MachineCartridgeBootstrapError, MachineCpuInstructionFetchError,
+    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineSpDmemLoadWordProvenance,
+    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
     MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
-    MachineStepUnsupportedInstructionCategory, RdramAccessError,
+    MachineStepUnsupportedInstructionCategory, PifFirmwareValidationError, PifIpl2Profile,
+    RdramAccessError, SpDmemOffset, PIF_BOOT_ROM_SIZE_BYTES,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -23,6 +27,10 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: unsupported-rollback ok\
 \ncase: instruction-fetch-adel ok\
 \ncase: source-clear-rejection ok\
+\ncase: sp-dmem-lw-committed ok\
+\ncase: sp-dmem-lw-unknown-rejection ok\
+\ncase: sp-dmem-lw-delay-slot-adel ok\
+\ncase: generated-x105-next-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -37,6 +45,18 @@ enum StepProbeError {
     Rdram {
         case: &'static str,
         source: RdramAccessError,
+    },
+    Cartridge {
+        case: &'static str,
+        source: CartridgeLoadError,
+    },
+    PifFirmware {
+        case: &'static str,
+        source: PifFirmwareValidationError,
+    },
+    Bootstrap {
+        case: &'static str,
+        source: MachineCartridgeBootstrapError,
     },
     Step {
         case: &'static str,
@@ -53,6 +73,15 @@ impl fmt::Display for StepProbeError {
         match self {
             Self::Rdram { case, source } => {
                 write!(f, "{case}: synthetic RDRAM seed failed: {source}")
+            }
+            Self::Cartridge { case, source } => {
+                write!(f, "{case}: generated cartridge setup failed: {source}")
+            }
+            Self::PifFirmware { case, source } => {
+                write!(f, "{case}: generated PIF-shaped input failed: {source}")
+            }
+            Self::Bootstrap { case, source } => {
+                write!(f, "{case}: generated bootstrap setup failed: {source}")
             }
             Self::Step { case, source } => write!(f, "{case}: Machine::step failed: {source}"),
             Self::Assertion { case, check } => write!(f, "{case}: assertion failed: {check}"),
@@ -101,6 +130,9 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_unsupported_rollback()?;
     probe_instruction_fetch_adel()?;
     probe_source_clear_rejection()?;
+    probe_generated_x105_sp_dmem_lw_frontier()?;
+    probe_sp_dmem_lw_unknown_rejection()?;
+    probe_sp_dmem_lw_delay_slot_adel()?;
     probe_control_flow_taken_delay_slot()?;
     probe_control_flow_untaken_delay_slot()?;
     probe_control_flow_jal_link()?;
@@ -446,6 +478,315 @@ fn probe_source_clear_rejection() -> Result<(), StepProbeError> {
     }
 
     assert_rejected_state_unchanged(&machine, CASE, pc_before, next_pc_before)
+}
+
+fn probe_generated_x105_sp_dmem_lw_frontier() -> Result<(), StepProbeError> {
+    const CASE: &str = "generated-x105-next-frontier";
+    const GENERATED_SP_DMEM_WORD: u32 = 0x1357_9bdf;
+    let words = [
+        (0x40, special_word(29, 0, 9, 0x20)),
+        (0x44, immediate_word(0x23, 9, 8, 0xf010)),
+        (0x48, immediate_word(0x23, 11, 10, 0x0044)),
+        (0x4c, special_word(10, 8, 10, 0x26)),
+        (0x50, immediate_word(0x2b, 9, 10, 0xf010)),
+        (0x84, GENERATED_SP_DMEM_WORD),
+    ];
+    let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
+    let expected_sp_imem_value = sign_extend_word(generated_sp_imem_word);
+    let expected_sp_dmem_value = sign_extend_word(GENERATED_SP_DMEM_WORD);
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialAdd,
+    )?;
+    require(
+        CASE,
+        machine.cpu().gpr(9) == Some(0xffff_ffff_a400_1ff0),
+        "generated entry register copy",
+    )?;
+
+    match step(&mut machine, CASE)? {
+        MachineRepresentedStepOutcome::LoadWordCommitted {
+            effective_address,
+            target,
+            destination_gpr,
+            loaded_word,
+            result_value,
+            ..
+        } => {
+            require(
+                CASE,
+                effective_address == 0xffff_ffff_a400_1000,
+                "generated SP-IMEM load address",
+            )?;
+            require(
+                CASE,
+                target == MachineLoadWordTarget::SpImem { offset: 0 },
+                "generated SP-IMEM load target",
+            )?;
+            require(CASE, destination_gpr == 8, "generated SP-IMEM destination")?;
+            require(
+                CASE,
+                loaded_word == generated_sp_imem_word,
+                "generated SP-IMEM word",
+            )?;
+            require(
+                CASE,
+                result_value == expected_sp_imem_value,
+                "generated SP-IMEM result",
+            )?;
+        }
+        _ => return assertion(CASE, "generated SP-IMEM Lw outcome"),
+    }
+
+    match step(&mut machine, CASE)? {
+        MachineRepresentedStepOutcome::LoadWordCommitted {
+            effective_address,
+            target: MachineLoadWordTarget::SpDmem { offset, provenance },
+            destination_gpr,
+            loaded_word,
+            result_value,
+            ..
+        } => {
+            require(
+                CASE,
+                effective_address == 0xffff_ffff_a400_0084,
+                "generated SP-DMEM load address",
+            )?;
+            require(
+                CASE,
+                offset == SpDmemOffset::new(0x84),
+                "generated SP-DMEM offset",
+            )?;
+            require(
+                CASE,
+                provenance
+                    == MachineSpDmemLoadWordProvenance::CartridgeBootstrap {
+                        cartridge_offset: 0x84,
+                    },
+                "generated SP-DMEM cartridge provenance",
+            )?;
+            require(CASE, destination_gpr == 10, "generated SP-DMEM destination")?;
+            require(
+                CASE,
+                loaded_word == GENERATED_SP_DMEM_WORD,
+                "generated SP-DMEM word",
+            )?;
+            require(
+                CASE,
+                result_value == expected_sp_dmem_value,
+                "generated SP-DMEM result",
+            )?;
+        }
+        _ => return assertion(CASE, "generated SP-DMEM Lw outcome"),
+    }
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialXor,
+    )?;
+    require(
+        CASE,
+        machine.cpu().gpr(10) == Some(expected_sp_dmem_value ^ expected_sp_imem_value),
+        "generated transformed value",
+    )?;
+    require(CASE, machine.cpu().pc() == 0xa400_0050, "next frontier pc")?;
+    require(
+        CASE,
+        machine.cpu().next_pc() == 0xa400_0054,
+        "next frontier next_pc",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == 4,
+        "four committed steps",
+    )?;
+
+    let pc_before = machine.cpu().pc();
+    let next_pc_before = machine.cpu().next_pc();
+    let count_before = machine.cpu().cop0_count();
+    let result_before = machine.cpu().gpr(10);
+    match machine.step() {
+        Err(MachineRepresentedStepError::UnrepresentedInstruction {
+            identity: CpuInstructionIdentity::Sw,
+            ..
+        }) => {}
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "aligned Sw next frontier"),
+    }
+    require(
+        CASE,
+        machine.cpu().pc() == pc_before,
+        "frontier pc rollback",
+    )?;
+    require(
+        CASE,
+        machine.cpu().next_pc() == next_pc_before,
+        "frontier next_pc rollback",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == count_before,
+        "frontier Count rollback",
+    )?;
+    require(
+        CASE,
+        machine.cpu().gpr(10) == result_before,
+        "frontier GPR rollback",
+    )
+}
+
+fn probe_sp_dmem_lw_unknown_rejection() -> Result<(), StepProbeError> {
+    const CASE: &str = "sp-dmem-lw-unknown-rejection";
+    let words = [
+        (0x40, special_word(29, 0, 9, 0x20)),
+        (0x44, immediate_word(0x23, 9, 8, 0xe010)),
+    ];
+    let cartridge = generated_cartridge(CASE, &words)?;
+    let mut machine = Machine::from_cartridge(cartridge);
+    machine
+        .stage_cartridge_bootstrap()
+        .map_err(|source| StepProbeError::Bootstrap { case: CASE, source })?;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialAdd,
+    )?;
+    let pc_before = machine.cpu().pc();
+    let next_pc_before = machine.cpu().next_pc();
+    let count_before = machine.cpu().cop0_count();
+
+    match machine.step() {
+        Err(MachineRepresentedStepError::LoadWordRejected(rejection)) => {
+            require(
+                CASE,
+                rejection.effective_address() == 0xffff_ffff_a400_0000,
+                "unknown SP-DMEM effective address",
+            )?;
+            require(
+                CASE,
+                rejection.target()
+                    == Some(MachineLoadWordTarget::SpDmem {
+                        offset: SpDmemOffset::new(0),
+                        provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
+                    }),
+                "unknown SP-DMEM target",
+            )?;
+            require(
+                CASE,
+                rejection.reason()
+                    == MachineLoadWordRejectionReason::SpDmemUnknown {
+                        first_unknown_offset: 0,
+                    },
+                "unknown SP-DMEM rejection reason",
+            )?;
+        }
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "unknown SP-DMEM rejection"),
+    }
+
+    require(
+        CASE,
+        machine.cpu().pc() == pc_before,
+        "unknown rejection pc",
+    )?;
+    require(
+        CASE,
+        machine.cpu().next_pc() == next_pc_before,
+        "unknown rejection next_pc",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == count_before,
+        "unknown rejection Count",
+    )
+}
+
+fn probe_sp_dmem_lw_delay_slot_adel() -> Result<(), StepProbeError> {
+    const CASE: &str = "sp-dmem-lw-delay-slot-adel";
+    let words = [
+        (0x40, branch_word(0x04, 0, 0, 1)),
+        (0x44, immediate_word(0x23, 11, 10, 0x0045)),
+        (0x48, special_word(0, 0, 0, 0x00)),
+    ];
+    let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Beq)?;
+    require(CASE, machine.cpu().cop0_count() == 1, "branch Count")?;
+
+    match step(&mut machine, CASE)? {
+        MachineRepresentedStepOutcome::DataAddressError {
+            identity,
+            effective_address,
+            address_error,
+            cadence_plan,
+        } => {
+            require(
+                CASE,
+                identity == CpuInstructionIdentity::Lw,
+                "slot Lw identity",
+            )?;
+            require(
+                CASE,
+                effective_address == 0xffff_ffff_a400_0085,
+                "slot AdEL effective address",
+            )?;
+            require(
+                CASE,
+                address_error.exception_kind() == CpuAddressErrorKind::AddressErrorLoad,
+                "slot AdEL kind",
+            )?;
+            require(
+                CASE,
+                address_error.cause_exception_code() == 4,
+                "slot AdEL code",
+            )?;
+            require(
+                CASE,
+                cadence_plan.source() == MachineStepCadenceSource::EnteredException,
+                "slot AdEL cadence",
+            )?;
+        }
+        _ => return assertion(CASE, "delay-slot AdEL outcome"),
+    }
+
+    require(
+        CASE,
+        machine.cpu().cop0_epc() == 0xa400_0040,
+        "slot AdEL EPC",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_exception_branch_delay(),
+        "slot AdEL BD",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_bad_vaddr() == 0xa400_0085,
+        "slot AdEL BadVAddr",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == 1,
+        "slot AdEL Count unchanged",
+    )?;
+    require(
+        CASE,
+        machine.cpu().pc() == GENERAL_EXCEPTION_VECTOR_PC,
+        "slot AdEL vector pc",
+    )?;
+    require(
+        CASE,
+        machine.cpu().next_pc() == GENERAL_EXCEPTION_VECTOR_NEXT_PC,
+        "slot AdEL vector next_pc",
+    )?;
+    require(
+        CASE,
+        machine.cpu_delay_slot_context().is_none(),
+        "slot AdEL context cleared",
+    )
 }
 
 fn probe_control_flow_taken_delay_slot() -> Result<(), StepProbeError> {
@@ -808,6 +1149,73 @@ fn immediate_word(opcode: u8, rs: u8, rt: u8, immediate: u16) -> u32 {
 
 fn special_word(rs: u8, rt: u8, rd: u8, funct: u8) -> u32 {
     (u32::from(rs) << 21) | (u32::from(rt) << 16) | (u32::from(rd) << 11) | u32::from(funct)
+}
+
+fn generated_cartridge(
+    case: &'static str,
+    words: &[(usize, u32)],
+) -> Result<Cartridge, StepProbeError> {
+    let mut bytes = vec![0; 0x1000];
+    write_be_u32(&mut bytes, 0x00, 0x8037_1240);
+    write_be_u32(&mut bytes, 0x04, 0x0102_0304);
+    write_be_u32(&mut bytes, 0x08, 0x8000_1000);
+    write_be_u32(&mut bytes, 0x0c, 0x0506_0708);
+    write_be_u32(&mut bytes, 0x10, 0x1112_1314);
+    write_be_u32(&mut bytes, 0x14, 0x1516_1718);
+    let title = b"FN64 X105 GENERATED";
+    bytes[0x20..0x20 + title.len()].copy_from_slice(title);
+    bytes[0x3c] = b'G';
+    bytes[0x3d] = b'X';
+    bytes[0x3e] = 0x45;
+    bytes[0x3f] = 1;
+    for &(offset, word) in words {
+        write_be_u32(&mut bytes, offset, word);
+    }
+
+    load_cartridge(bytes).map_err(|source| StepProbeError::Cartridge { case, source })
+}
+
+fn generated_cold_x105_machine(
+    case: &'static str,
+    words: &[(usize, u32)],
+) -> Result<(Machine, u32), StepProbeError> {
+    let cartridge = generated_cartridge(case, words)?;
+    let mut machine = Machine::from_cartridge(cartridge);
+    let firmware: Vec<u8> = (0..PIF_BOOT_ROM_SIZE_BYTES)
+        .map(|index| 0xa5_u8.wrapping_add((index as u8).wrapping_mul(29)))
+        .collect();
+    let source_start = PifIpl2Profile::NtscPinned
+        .copy_layout()
+        .source_start_offset() as usize;
+    let generated_sp_imem_word = u32::from_be_bytes(
+        firmware[source_start..source_start + 4]
+            .try_into()
+            .expect("generated PIF-shaped word span is exact"),
+    );
+    machine
+        .install_pif_firmware(firmware)
+        .map_err(|source| StepProbeError::PifFirmware { case, source })?;
+    machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+    machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+    machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+    machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+    machine.install_pif_version_bit(MachinePifVersionBit::Zero);
+    machine
+        .stage_cartridge_bootstrap()
+        .map_err(|source| StepProbeError::Bootstrap { case, source })?;
+
+    Ok((machine, generated_sp_imem_word))
+}
+
+fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset] = (value >> 24) as u8;
+    bytes[offset + 1] = (value >> 16) as u8;
+    bytes[offset + 2] = (value >> 8) as u8;
+    bytes[offset + 3] = value as u8;
+}
+
+fn sign_extend_word(value: u32) -> u64 {
+    (value as i32 as i64) as u64
 }
 
 fn synthetic_direct_machine_with_instruction(

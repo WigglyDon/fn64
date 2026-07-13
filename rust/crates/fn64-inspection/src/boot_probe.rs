@@ -10,13 +10,13 @@ use fn64_core::{
     MachineLoadWordRejection, MachineLoadWordRejectionReason, MachineLoadWordTarget,
     MachinePifFirmwareState, MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind,
     MachinePifIpl3Family, MachinePifVersionBit, MachineRepresentedStepError,
-    MachineRepresentedStepOutcome, MachineSpDmemInstructionProvenance, PifFirmwareValidationError,
-    PifIpl2Profile, RomMetadata, RomSourceLayout, CPU_GPR_COUNT,
-    MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX,
-    MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX,
-    MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX,
-    MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_SP_VALUE,
-    MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX,
+    MachineRepresentedStepOutcome, MachineSpDmemInstructionProvenance,
+    MachineSpDmemLoadWordProvenance, PifFirmwareValidationError, PifIpl2Profile, RomMetadata,
+    RomSourceLayout, CPU_GPR_COUNT, MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S4_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_S5_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_S7_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX,
+    MACHINE_PIF_IPL2_HANDOFF_SP_VALUE, MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX,
 };
 
 pub const DEFAULT_BOOT_PROBE_MAX_STEPS: u64 = 100_000;
@@ -882,6 +882,18 @@ fn format_load_word_rejection_frontier(
         Some(MachineLoadWordTarget::DirectRdram { offset }) => {
             format!("direct-rdram offset=0x{:08X}", offset.value())
         }
+        Some(MachineLoadWordTarget::SpDmem { offset, provenance }) => match provenance {
+            MachineSpDmemLoadWordProvenance::CartridgeBootstrap { cartridge_offset } => format!(
+                "sp-dmem offset=0x{:08X} cartridge_offset=0x{cartridge_offset:08X}",
+                offset.value()
+            ),
+            MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage => {
+                format!(
+                    "sp-dmem offset=0x{:08X} source=unclassified",
+                    offset.value()
+                )
+            }
+        },
         Some(MachineLoadWordTarget::SpImem { offset }) => {
             format!("sp-imem offset=0x{offset:08X}")
         }
@@ -893,6 +905,10 @@ fn format_load_word_rejection_frontier(
         MachineLoadWordRejectionReason::DirectRdramReadRejected => {
             "direct-rdram-read-rejected".to_owned()
         }
+        MachineLoadWordRejectionReason::SpDmemUnknown {
+            first_unknown_offset,
+        } => format!("sp-dmem-unknown first_unknown_offset=0x{first_unknown_offset:08X}"),
+        MachineLoadWordRejectionReason::SpDmemReadRejected => "sp-dmem-read-rejected".to_owned(),
         MachineLoadWordRejectionReason::SpImemUnknown {
             first_unknown_offset,
         } => format!("sp-imem-unknown first_unknown_offset=0x{first_unknown_offset:08X}"),
