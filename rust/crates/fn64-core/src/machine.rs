@@ -90,23 +90,60 @@ impl fmt::Display for DirectRdramAccessError {
 impl std::error::Error for DirectRdramAccessError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDmemLoadWordProvenance {
+    CartridgeBootstrap { cartridge_offset: u32 },
+    UnclassifiedMachineStorage,
+}
+
+impl MachineSpDmemLoadWordProvenance {
+    pub const fn cartridge_offset(self) -> Option<u32> {
+        match self {
+            Self::CartridgeBootstrap { cartridge_offset } => Some(cartridge_offset),
+            Self::UnclassifiedMachineStorage => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineLoadWordTarget {
-    DirectRdram { offset: RdramOffset },
-    SpImem { offset: u32 },
+    DirectRdram {
+        offset: RdramOffset,
+    },
+    SpDmem {
+        offset: SpDmemOffset,
+        provenance: MachineSpDmemLoadWordProvenance,
+    },
+    SpImem {
+        offset: u32,
+    },
 }
 
 impl MachineLoadWordTarget {
     pub const fn direct_rdram_offset(self) -> Option<RdramOffset> {
         match self {
             Self::DirectRdram { offset } => Some(offset),
-            Self::SpImem { .. } => None,
+            Self::SpDmem { .. } | Self::SpImem { .. } => None,
+        }
+    }
+
+    pub const fn sp_dmem_offset(self) -> Option<SpDmemOffset> {
+        match self {
+            Self::SpDmem { offset, .. } => Some(offset),
+            Self::DirectRdram { .. } | Self::SpImem { .. } => None,
+        }
+    }
+
+    pub const fn sp_dmem_provenance(self) -> Option<MachineSpDmemLoadWordProvenance> {
+        match self {
+            Self::SpDmem { provenance, .. } => Some(provenance),
+            Self::DirectRdram { .. } | Self::SpImem { .. } => None,
         }
     }
 
     pub const fn sp_imem_offset(self) -> Option<u32> {
         match self {
             Self::SpImem { offset } => Some(offset),
-            Self::DirectRdram { .. } => None,
+            Self::DirectRdram { .. } | Self::SpDmem { .. } => None,
         }
     }
 }
@@ -116,6 +153,8 @@ pub enum MachineLoadWordRejectionReason {
     NonDirectUnsupported,
     DirectTargetMiss,
     DirectRdramReadRejected,
+    SpDmemUnknown { first_unknown_offset: u32 },
+    SpDmemReadRejected,
     SpImemUnknown { first_unknown_offset: u32 },
     SpImemReadRejected,
 }
@@ -2848,7 +2887,7 @@ impl Machine {
         let effective_address = base_value.wrapping_add_signed(signed_immediate);
         let cpu_address = CpuAddress::new(effective_address as u32);
 
-        let target = match classify_cpu_data_word_target(cpu_address) {
+        let target = match classify_cpu_data_word_target(cpu_address, self.cartridge_bootstrap) {
             Ok(target) => target,
             Err(MachineCpuDataWordTargetError::Unaligned { .. }) => {
                 let address_error = select_cpu_data_address_error_for_access(
@@ -2893,6 +2932,29 @@ impl Machine {
                         cpu_address,
                         Some(target),
                         MachineLoadWordRejectionReason::DirectRdramReadRejected,
+                    )
+                })?
+            }
+            MachineLoadWordTarget::SpDmem { offset, provenance } => {
+                if provenance == MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage {
+                    return Err(MachineLoadWordRejection::new(
+                        fields,
+                        effective_address,
+                        cpu_address,
+                        Some(target),
+                        MachineLoadWordRejectionReason::SpDmemUnknown {
+                            first_unknown_offset: offset.value(),
+                        },
+                    ));
+                }
+
+                self.sp_dmem.read_u32_be(offset).map_err(|_| {
+                    MachineLoadWordRejection::new(
+                        fields,
+                        effective_address,
+                        cpu_address,
+                        Some(target),
+                        MachineLoadWordRejectionReason::SpDmemReadRejected,
                     )
                 })?
             }
@@ -3821,6 +3883,7 @@ const fn sign_extend_cpu_address(value: u32) -> u64 {
 
 fn classify_cpu_data_word_target(
     cpu_address: CpuAddress,
+    cartridge_bootstrap: Option<MachineCartridgeBootstrapState>,
 ) -> Result<MachineLoadWordTarget, MachineCpuDataWordTargetError> {
     if (cpu_address.value() & 0x3) != 0 {
         return Err(MachineCpuDataWordTargetError::Unaligned { cpu_address });
@@ -3837,12 +3900,42 @@ fn classify_cpu_data_word_target(
     }
 
     if let Some(offset) =
+        translate_cpu_physical_sp_dmem_data_word_address(physical_address, CPU_DATA_WORD_WIDTH)
+    {
+        let provenance = match cartridge_bootstrap {
+            Some(state) if state.contains_sp_dmem_word(offset) => {
+                MachineSpDmemLoadWordProvenance::CartridgeBootstrap {
+                    cartridge_offset: state.cartridge_offset_for_sp_dmem(offset),
+                }
+            }
+            Some(_) | None => MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
+        };
+        return Ok(MachineLoadWordTarget::SpDmem { offset, provenance });
+    }
+
+    if let Some(offset) =
         translate_cpu_physical_sp_imem_data_word_address(physical_address, CPU_DATA_WORD_WIDTH)
     {
         return Ok(MachineLoadWordTarget::SpImem { offset });
     }
 
     Err(MachineCpuDataWordTargetError::DirectTargetMiss { cpu_address })
+}
+
+fn translate_cpu_physical_sp_dmem_data_word_address(
+    physical_address: u32,
+    width: usize,
+) -> Option<SpDmemOffset> {
+    if width == 0 || width > SP_DMEM_SIZE_BYTES || physical_address < SP_DMEM_PHYSICAL_BASE {
+        return None;
+    }
+
+    let offset = physical_address - SP_DMEM_PHYSICAL_BASE;
+    if (offset as usize) > SP_DMEM_SIZE_BYTES - width {
+        return None;
+    }
+
+    Some(SpDmemOffset::new(offset))
 }
 
 fn translate_cpu_physical_sp_imem_data_word_address(
@@ -14463,6 +14556,51 @@ mod tests {
         machine
     }
 
+    fn staged_generated_cold_x105_frontier_machine() -> (Machine, u32, u32) {
+        const GENERATED_SP_DMEM_WORD: u32 = 0x1357_9bdf;
+        let mut cartridge_bytes = make_generated_lw_bootstrap_cartridge(
+            special_add_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 9),
+            lw_word(9, 8, 0xf010),
+        );
+        write_be_u32(
+            &mut cartridge_bytes,
+            0x48,
+            lw_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 10, 0x0044),
+        );
+        write_be_u32(
+            &mut cartridge_bytes,
+            0x4c,
+            special_shift_word(10, 8, 10, 0, 0x26),
+        );
+        write_be_u32(
+            &mut cartridge_bytes,
+            0x50,
+            immediate_word(0x2b, 9, 10, 0xf010),
+        );
+        write_be_u32(&mut cartridge_bytes, 0x84, GENERATED_SP_DMEM_WORD);
+
+        let cartridge = load_cartridge(cartridge_bytes).expect("generated cartridge should load");
+        let mut machine = Machine::from_cartridge(cartridge);
+        let firmware = generated_pif_firmware(0xa5, PIF_BOOT_ROM_SIZE_BYTES);
+        let source_start = PifIpl2Profile::NtscPinned
+            .copy_layout()
+            .source_start_offset() as usize;
+        let generated_sp_imem_word = u32::from_be_bytes(
+            firmware[source_start..source_start + 4]
+                .try_into()
+                .expect("generated PIF word span should be exact"),
+        );
+        machine.install_pif_firmware(firmware).unwrap();
+        machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+        machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+        machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+        machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+        machine.install_pif_version_bit(MachinePifVersionBit::Zero);
+        machine.stage_cartridge_bootstrap().unwrap();
+
+        (machine, generated_sp_imem_word, GENERATED_SP_DMEM_WORD)
+    }
+
     #[derive(Debug, PartialEq, Eq)]
     struct MachineLwSnapshot {
         cartridge: Vec<u8>,
@@ -14543,49 +14681,264 @@ mod tests {
     }
 
     #[test]
-    fn cpu_data_word_routing_is_narrow_for_direct_rdram_and_sp_imem() {
+    fn cpu_data_word_routing_is_narrow_for_direct_rdram_and_sp_memories() {
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_1000)),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_1000), None),
             Ok(MachineLoadWordTarget::SpImem { offset: 0 })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0x8400_1000)),
+            classify_cpu_data_word_target(CpuAddress::new(0x8400_1000), None),
             Ok(MachineLoadWordTarget::SpImem { offset: 0 })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_1ffc)),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_1ffc), None),
             Ok(MachineLoadWordTarget::SpImem { offset: 0x0ffc })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0x8000_0100)),
+            classify_cpu_data_word_target(CpuAddress::new(0x8000_0100), None),
             Ok(MachineLoadWordTarget::DirectRdram {
                 offset: RdramOffset::new(0x100),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_1001)),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_0040), None),
+            Ok(MachineLoadWordTarget::SpDmem {
+                offset: SpDmemOffset::new(0x40),
+                provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
+            })
+        );
+        assert_eq!(
+            classify_cpu_data_word_target(CpuAddress::new(0x8400_0ffc), None),
+            Ok(MachineLoadWordTarget::SpDmem {
+                offset: SpDmemOffset::new(0x0ffc),
+                provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
+            })
+        );
+        assert_eq!(
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_1001), None),
             Err(MachineCpuDataWordTargetError::Unaligned {
                 cpu_address: CpuAddress::new(0xa400_1001),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_2000)),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_2000), None),
             Err(MachineCpuDataWordTargetError::DirectTargetMiss {
                 cpu_address: CpuAddress::new(0xa400_2000),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa404_0000)),
+            classify_cpu_data_word_target(CpuAddress::new(0xa404_0000), None),
             Err(MachineCpuDataWordTargetError::DirectTargetMiss {
                 cpu_address: CpuAddress::new(0xa404_0000),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0x0400_1000)),
+            classify_cpu_data_word_target(CpuAddress::new(0x0400_1000), None),
             Err(MachineCpuDataWordTargetError::NonDirectUnsupported {
                 cpu_address: CpuAddress::new(0x0400_1000),
             })
         );
+    }
+
+    #[test]
+    fn sp_dmem_load_word_target_records_cartridge_bootstrap_provenance() {
+        let machine = staged_lw_bootstrap_machine(
+            special_add_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 9),
+            lw_word(9, 8, 0xf050),
+        );
+        let bootstrap = machine.cartridge_bootstrap_state();
+
+        for (cpu_address, offset, cartridge_offset) in [
+            (0xa400_0040, 0x40, 0x40),
+            (0xa400_0084, 0x84, 0x84),
+            (0xa400_0ffc, 0x0ffc, 0x0ffc),
+        ] {
+            assert_eq!(
+                classify_cpu_data_word_target(CpuAddress::new(cpu_address), bootstrap),
+                Ok(MachineLoadWordTarget::SpDmem {
+                    offset: SpDmemOffset::new(offset),
+                    provenance: MachineSpDmemLoadWordProvenance::CartridgeBootstrap {
+                        cartridge_offset,
+                    },
+                })
+            );
+        }
+
+        assert_eq!(
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_0000), bootstrap),
+            Ok(MachineLoadWordTarget::SpDmem {
+                offset: SpDmemOffset::new(0),
+                provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
+            })
+        );
+    }
+
+    #[test]
+    fn generated_cold_x105_shape_loads_cartridge_staged_sp_dmem_before_sw_frontier() {
+        let (mut machine, generated_sp_imem_word, generated_sp_dmem_word) =
+            staged_generated_cold_x105_frontier_machine();
+        let expected_sp_imem_value = sign_extend_loaded_word(generated_sp_imem_word);
+        let expected_sp_dmem_value = sign_extend_loaded_word(generated_sp_dmem_word);
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::SpecialAdd,
+                ..
+            })
+        ));
+        assert_eq!(
+            machine.cpu().gpr(9),
+            Some(MACHINE_PIF_IPL2_HANDOFF_SP_VALUE)
+        );
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                effective_address: 0xffff_ffff_a400_1000,
+                target: MachineLoadWordTarget::SpImem { offset: 0 },
+                destination_gpr: 8,
+                loaded_word,
+                result_value,
+                ..
+            }) if loaded_word == generated_sp_imem_word
+                && result_value == expected_sp_imem_value
+        ));
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                effective_address: 0xffff_ffff_a400_0084,
+                target: MachineLoadWordTarget::SpDmem {
+                    offset,
+                    provenance: MachineSpDmemLoadWordProvenance::CartridgeBootstrap {
+                        cartridge_offset: 0x84,
+                    },
+                },
+                destination_gpr: 10,
+                loaded_word,
+                result_value,
+                ..
+            }) if offset == SpDmemOffset::new(0x84)
+                && loaded_word == generated_sp_dmem_word
+                && result_value == expected_sp_dmem_value
+        ));
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::SpecialXor,
+                ..
+            })
+        ));
+        assert_eq!(
+            machine.cpu().gpr(10),
+            Some(expected_sp_dmem_value ^ expected_sp_imem_value)
+        );
+        assert_eq!(machine.cpu().pc(), 0xa400_0050);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0054);
+        assert_eq!(machine.cpu().cop0_count(), 4);
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(10),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_004c),
+                identity: CpuInstructionIdentity::SpecialXor,
+                source_gpr_a: Some(10),
+                source_gpr_b: Some(8),
+            })
+        );
+
+        let before_frontier = lw_snapshot(&machine);
+        assert!(matches!(
+            machine.step(),
+            Err(MachineRepresentedStepError::UnrepresentedInstruction {
+                identity: CpuInstructionIdentity::Sw,
+                ..
+            })
+        ));
+        assert_eq!(lw_snapshot(&machine), before_frontier);
+    }
+
+    #[test]
+    fn sp_dmem_load_word_rejects_unstaged_backing_without_partial_mutation() {
+        let mut machine = staged_lw_bootstrap_machine(
+            special_add_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 9),
+            lw_word(9, 8, 0xe010),
+        );
+        machine.step().unwrap();
+        let before = lw_snapshot(&machine);
+
+        let rejection = machine.step().unwrap_err().load_word_rejection().unwrap();
+
+        assert_eq!(rejection.effective_address(), 0xffff_ffff_a400_0000);
+        assert_eq!(
+            rejection.target(),
+            Some(MachineLoadWordTarget::SpDmem {
+                offset: SpDmemOffset::new(0),
+                provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
+            })
+        );
+        assert_eq!(
+            rejection.reason(),
+            MachineLoadWordRejectionReason::SpDmemUnknown {
+                first_unknown_offset: 0,
+            }
+        );
+        assert_eq!(lw_snapshot(&machine), before);
+    }
+
+    #[test]
+    fn sp_dmem_shaped_unaligned_load_word_in_delay_slot_enters_adel() {
+        let mut cartridge_bytes = make_generated_lw_bootstrap_cartridge(
+            control_flow_branch_word(0x04, 0, 0, 1),
+            lw_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 10, 0x0045),
+        );
+        write_be_u32(
+            &mut cartridge_bytes,
+            0x48,
+            special_shift_word(0, 0, 0, 0, 0),
+        );
+        let cartridge = load_cartridge(cartridge_bytes).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        machine
+            .install_pif_firmware(generated_pif_firmware(0x71, PIF_BOOT_ROM_SIZE_BYTES))
+            .unwrap();
+        machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+        machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+        machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+        machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+        machine.install_pif_version_bit(MachinePifVersionBit::One);
+        machine.stage_cartridge_bootstrap().unwrap();
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Beq,
+                ..
+            })
+        ));
+        assert_eq!(machine.cpu().cop0_count(), 1);
+        let outcome = machine.step().unwrap();
+
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Lw,
+                effective_address: 0xffff_ffff_a400_0085,
+                address_error,
+                cadence_plan,
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorLoad
+                && address_error.bad_vaddr() == CpuAddress::new(0xa400_0085)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(machine.cpu().cop0_epc(), 0xa400_0040);
+        assert!(machine.cpu().cop0_exception_branch_delay());
+        assert_eq!(machine.cpu().cop0_bad_vaddr(), 0xa400_0085);
+        assert_eq!(machine.cpu().cop0_exception_code(), 4);
+        assert_eq!(machine.cpu().cop0_count(), 1);
+        assert_eq!(machine.cpu().pc(), LOCAL_EXCEPTION_VECTOR_PC);
+        assert_ne!(machine.cpu().pc(), 0xa400_0048);
+        assert!(machine.cpu_delay_slot_context().is_none());
     }
 
     #[test]

@@ -262,7 +262,7 @@ impl MachineCartridgeBootstrapState {
             .map(MachineBootstrapGprSource::is_known)
     }
 
-    fn contains_sp_dmem_instruction(self, offset: SpDmemOffset) -> bool {
+    pub(super) fn contains_sp_dmem_word(self, offset: SpDmemOffset) -> bool {
         let start = self.sp_dmem_start_offset;
         let Some(end) = offset.value().checked_add(4) else {
             return false;
@@ -271,7 +271,7 @@ impl MachineCartridgeBootstrapState {
         offset.value() >= start && end <= self.sp_dmem_end_offset_exclusive
     }
 
-    fn cartridge_offset_for_sp_dmem(self, offset: SpDmemOffset) -> u32 {
+    pub(super) fn cartridge_offset_for_sp_dmem(self, offset: SpDmemOffset) -> u32 {
         self.cartridge_start_offset + (offset.value() - self.sp_dmem_start_offset)
     }
 }
@@ -794,7 +794,7 @@ impl Machine {
             }
             MachineCpuInstructionFetchTarget::SpDmem { offset } => {
                 let provenance = match self.cartridge_bootstrap {
-                    Some(state) if state.contains_sp_dmem_instruction(offset) => {
+                    Some(state) if state.contains_sp_dmem_word(offset) => {
                         MachineSpDmemInstructionProvenance::CartridgeBootstrap {
                             cartridge_offset: state.cartridge_offset_for_sp_dmem(offset),
                         }
