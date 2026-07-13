@@ -1,5 +1,6 @@
 use core::fmt;
 
+use crate::machine::MachineSpImemStoreWordProvenance;
 use crate::pif_firmware::{PifIpl2Copy, PifIpl2Profile};
 
 pub(crate) const SP_IMEM_SIZE_BYTES: usize = 4 * 1024;
@@ -27,6 +28,9 @@ pub(crate) enum SpImemByteProvenance {
     UserSuppliedPifFirmware {
         profile: PifIpl2Profile,
         source_offset: u32,
+    },
+    CpuStoreWord {
+        provenance: MachineSpImemStoreWordProvenance,
     },
     #[cfg(test)]
     GeneratedMachineTestStaging,
@@ -117,6 +121,52 @@ impl fmt::Display for SpImemReadError {
 }
 
 impl std::error::Error for SpImemReadError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpImemStoreWordError {
+    Unaligned { offset: SpImemOffset },
+    OutOfRange { offset: SpImemOffset },
+}
+
+impl fmt::Display for SpImemStoreWordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Unaligned { offset } => write!(
+                f,
+                "SP IMEM word store requires aligned local offset: {}",
+                offset.value()
+            ),
+            Self::OutOfRange { offset } => write!(
+                f,
+                "SP IMEM word store exceeds local range: {}",
+                offset.value()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SpImemStoreWordError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpImemStoreWordPlan {
+    offset: SpImemOffset,
+    bytes: [u8; 4],
+    provenance: MachineSpImemStoreWordProvenance,
+}
+
+impl SpImemStoreWordPlan {
+    pub(crate) const fn offset(self) -> SpImemOffset {
+        self.offset
+    }
+
+    pub(crate) const fn bytes(self) -> [u8; 4] {
+        self.bytes
+    }
+
+    pub(crate) const fn provenance(self) -> MachineSpImemStoreWordProvenance {
+        self.provenance
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SpImemPifIpl2CopyError {
@@ -255,6 +305,40 @@ impl SpImem {
         })
     }
 
+    pub(crate) fn plan_cpu_store_word(
+        &self,
+        offset: SpImemOffset,
+        value: u32,
+        provenance: MachineSpImemStoreWordProvenance,
+    ) -> Result<SpImemStoreWordPlan, SpImemStoreWordError> {
+        if (offset.value() & 0x3) != 0 {
+            return Err(SpImemStoreWordError::Unaligned { offset });
+        }
+
+        let offset_usize = offset.as_usize();
+        let Some(end) = offset_usize.checked_add(4) else {
+            return Err(SpImemStoreWordError::OutOfRange { offset });
+        };
+        if end > self.bytes.len() {
+            return Err(SpImemStoreWordError::OutOfRange { offset });
+        }
+
+        Ok(SpImemStoreWordPlan {
+            offset,
+            bytes: value.to_be_bytes(),
+            provenance,
+        })
+    }
+
+    pub(crate) fn apply_cpu_store_word(&mut self, plan: SpImemStoreWordPlan) {
+        let start = plan.offset().as_usize();
+        let end = start + plan.bytes().len();
+        self.bytes[start..end].copy_from_slice(&plan.bytes());
+        self.byte_provenance[start..end].fill(SpImemByteProvenance::CpuStoreWord {
+            provenance: plan.provenance(),
+        });
+    }
+
     fn require_span(&self, offset: SpImemOffset, width: usize) -> Result<usize, SpImemReadError> {
         let offset_usize = offset.as_usize();
         let Some(end) = offset_usize.checked_add(width) else {
@@ -303,6 +387,7 @@ impl Default for SpImem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::machine::MachineBootstrapGprSource;
     use crate::pif_firmware::{PifFirmware, PIF_BOOT_ROM_SIZE_BYTES};
 
     fn generated_pif_firmware(seed: u8) -> Vec<u8> {
@@ -454,5 +539,106 @@ mod tests {
             .unwrap();
         assert_eq!(first_untouched.value(), 0);
         assert_eq!(first_untouched.provenance(), SpImemByteProvenance::Unknown);
+    }
+
+    #[test]
+    fn cpu_store_word_plan_is_bounded_big_endian_and_replaces_only_selected_provenance() {
+        let mut sp_imem = SpImem::default();
+        sp_imem
+            .stage_known_u32_be_for_test(SpImemOffset::new(0), 0x1112_1314)
+            .unwrap();
+        sp_imem
+            .stage_known_u32_be_for_test(SpImemOffset::new(8), 0x2122_2324)
+            .unwrap();
+        let provenance = MachineSpImemStoreWordProvenance::new(
+            crate::cpu::address::CpuAddress::new(0xa400_0050),
+            10,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: crate::cpu::address::CpuAddress::new(0xa400_004c),
+                identity: crate::cpu::CpuInstructionIdentity::SpecialXor,
+                source_gpr_a: Some(10),
+                source_gpr_b: Some(8),
+            },
+        );
+
+        let plan = sp_imem
+            .plan_cpu_store_word(SpImemOffset::new(4), 0x89ab_cdef, provenance)
+            .unwrap();
+        assert_eq!(plan.bytes(), [0x89, 0xab, 0xcd, 0xef]);
+        sp_imem.apply_cpu_store_word(plan);
+
+        assert_eq!(
+            sp_imem
+                .read_known_u32_be(SpImemOffset::new(4))
+                .unwrap()
+                .value(),
+            0x89ab_cdef
+        );
+        for (index, expected) in [0x89, 0xab, 0xcd, 0xef].into_iter().enumerate() {
+            let observed = sp_imem
+                .observe_byte(SpImemOffset::new(4 + index as u32))
+                .unwrap();
+            assert_eq!(observed.value(), expected);
+            assert_eq!(
+                observed.provenance(),
+                SpImemByteProvenance::CpuStoreWord { provenance }
+            );
+        }
+        assert_eq!(
+            sp_imem.observe_byte(SpImemOffset::new(3)).unwrap().value(),
+            0x14
+        );
+        assert_eq!(
+            sp_imem
+                .observe_byte(SpImemOffset::new(3))
+                .unwrap()
+                .provenance(),
+            SpImemByteProvenance::GeneratedMachineTestStaging
+        );
+        assert_eq!(
+            sp_imem.observe_byte(SpImemOffset::new(8)).unwrap().value(),
+            0x21
+        );
+        assert_eq!(
+            sp_imem
+                .observe_byte(SpImemOffset::new(8))
+                .unwrap()
+                .provenance(),
+            SpImemByteProvenance::GeneratedMachineTestStaging
+        );
+    }
+
+    #[test]
+    fn cpu_store_word_plan_rejects_unaligned_and_past_end_without_mutation() {
+        let sp_imem = SpImem::default();
+        let provenance = MachineSpImemStoreWordProvenance::new(
+            crate::cpu::address::CpuAddress::new(0xa400_0050),
+            0,
+            MachineBootstrapGprSource::ArchitecturalZero,
+        );
+
+        assert_eq!(
+            sp_imem.plan_cpu_store_word(SpImemOffset::new(1), 0, provenance),
+            Err(SpImemStoreWordError::Unaligned {
+                offset: SpImemOffset::new(1),
+            })
+        );
+        assert_eq!(
+            sp_imem.plan_cpu_store_word(
+                SpImemOffset::new(SP_IMEM_SIZE_BYTES as u32),
+                0,
+                provenance,
+            ),
+            Err(SpImemStoreWordError::OutOfRange {
+                offset: SpImemOffset::new(SP_IMEM_SIZE_BYTES as u32),
+            })
+        );
+        assert_eq!(
+            sp_imem
+                .observe_byte(SpImemOffset::new(0))
+                .unwrap()
+                .provenance(),
+            SpImemByteProvenance::Unknown
+        );
     }
 }

@@ -594,6 +594,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                 match outcome {
                     MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
                     | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
                     MachineRepresentedStepOutcome::DataAddressError { .. } => {
                         first_frontier = Some(format_frontier(
@@ -730,6 +731,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
         outcome,
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
             | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
+            | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
     )
 }
@@ -748,6 +750,7 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
     match outcome {
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. } => "cpu-local-committed",
         MachineRepresentedStepOutcome::LoadWordCommitted { .. } => "load-word-committed",
+        MachineRepresentedStepOutcome::StoreWordCommitted { .. } => "store-word-committed",
         MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
         MachineRepresentedStepOutcome::ArithmeticOverflowException { .. } => {
             "arithmetic-overflow-exception"
