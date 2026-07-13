@@ -7,5 +7,17 @@ at `0xA4000040`, commits the accepted add/load/load/xor prefix, commits the new
 SP-IMEM `Sw`, and then follows only already represented identities until the
 next explicit frontier.
 
-Exact post-implementation values, Count, memory effects, and next frontier are
-recorded after validation. The proof is synthetic and is not cartridge boot.
+The generated first copied word is `0x81ABC000`; generated SP-DMEM data words
+are `0x13579000`, `0x11223344`, and `0x89ABCDEF`. The committed identities are
+`SpecialAdd`, `Lw`, `Lw`, `SpecialXor`, `Sw`, `Addi`, `Andi`, `Bne`, its
+`Addi` delay slot, `Lw`, `Lw`, `Sw`, and `Sw`. The branch is untaken, but its
+slot still commits.
+
+The first store writes transformed low word `0x92FC5000` as bytes
+`[0x92,0xFC,0x50,0x00]` at SP IMEM local `0x000`; later stores write
+`0x11223344` at `0x004` and `0x89ABCDEF` at `0x008`. Each byte receives exact
+CPU-store provenance. The final state is PC/next-PC
+`0xA4000074 / 0xA4000078`, Count `13`, with recognized but unrepresented
+`RegimmBltz` as the next frontier. Its rejected step preserves that state.
+
+The proof is synthetic and is not cartridge boot.

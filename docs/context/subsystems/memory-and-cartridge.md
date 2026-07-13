@@ -61,6 +61,14 @@ provenance; every other byte remains `Unknown`. An aligned big-endian word is
 readable only when all four bytes have represented provenance. Test-only
 staging remains distinct from this production creation event.
 
+Aligned CPU `Sw` now mutates only direct SP-IMEM words. A known source creates
+four known big-endian bytes even when prior bytes were Unknown. Each selected
+byte receives CPU-store provenance carrying instruction PC, source GPR, and
+source lineage; neighboring value/provenance is unchanged. Reset clears the
+runtime bytes to Unknown, and bootstrap restaging replaces overwritten bytes
+inside the copied range with their original user-PIF provenance. RDRAM,
+SP-DMEM, device, and other store targets remain unsupported.
+
 Lineage is `lawful bytes → normalized layout → named address domain → preflight → storage mutation/read → narrow observable result`. Failed writes must leave no
 ghost state. Synthetic instruction words and small generated fixtures are valid
 proof; user-local ROMs are outside routine inspection and evidence packaging.
@@ -74,7 +82,8 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated
 proof combines it atomically with the bounded NTSC cold-x105 CPU handoff and
-advances a generated four-step composition to aligned `Sw`. It
+advances a generated thirteen-step composition through SP-IMEM `Sw` to
+`RegimmBltz`. It
 does not establish authentic SP IMEM contents, firmware-executed handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists

@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, or one CPU-local helper selection → classified action`.
+`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-SP-IMEM-Sw planning, or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the eighteen-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the twenty-eight-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct
@@ -39,8 +39,14 @@ represented composition, not authentic boot. A separate generated-only NTSC
 cold-x105 test proves the Machine bootstrap plan can source the inherited t3
 operand before `Machine::step`; that source gate still rejects every unstaged
 GPR and does not imply IPL2 execution. Generated-only continuation now commits
-the SP-IMEM load, the earlier-missing SP-DMEM load, and the following logical
-transform, then stops atomically at aligned `Sw`.
+the SP-IMEM load, the earlier-missing SP-DMEM load, the following logical
+transform, three SP-IMEM stores, and an ordinary branch/slot, then stops
+atomically at recognized but unrepresented `RegimmBltz`.
+
+The `Sw` producer checks base knownness, computes address, selects AdES before
+source-value consumption, rejects every target except direct SP IMEM, and only
+then captures source value/lineage and constructs an infallible write plan.
+Application neither reclassifies nor discovers a new failure.
 
 Ordinary `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` identities now select
 one bounded Machine-owned action before sequential staging. A control-flow

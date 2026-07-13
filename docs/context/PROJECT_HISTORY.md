@@ -276,6 +276,25 @@ product or reference lane requires a new explicit product decision.
   bus, or generalized memory map was added. BOOT-2 remains the highest
   authentic checkpoint.
 
+## Era 17 — aligned SP-IMEM Sw and generated store frontier (2026-07-13)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, bounded x105 identity/operand order
+  and primary VR4300 store rules; `LIVE_REPO_FACT`, direct Master product and
+  inspection commits; `RUNTIME_FACT`, generated focused tests, expanded step
+  probe, clean checkout, and complete Rust gates.
+- Accepted product increment: `Sw` stores old `rt` low 32 bits to aligned SP
+  IMEM only, using direct aliases, four-byte big-endian mutation, exact
+  instruction/source provenance, read-before-write aliasing, and one committed
+  cadence. Unaligned access enters AdES code 5 through existing COP0 ownership.
+- Fail-closed boundary: unknown operands, RDRAM, SP DMEM, non-direct forms,
+  target misses, bounds failures, and blocked exception entry preserve state.
+  No other store identity, generic store path, bus, or map was added.
+- Generated composition: thirteen public `Machine::step` commits reach
+  PC/next-PC `0xA4000074 / 0xA4000078`, Count `13`, then stop atomically at
+  recognized but unrepresented `RegimmBltz`.
+- Proof boundary: all inputs and instruction fields are generated. No private
+  input or authentic execution was used; BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

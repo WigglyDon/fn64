@@ -47,6 +47,13 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   SP DMEM, including sign extension, alias/zero-register behavior, data AdEL,
   source lineage, cadence, and rollback. Concrete SP-DMEM backing outside the
   staged cartridge span remains explicitly unclassified and unreadable.
+- `LIVE_REPO_FACT`: aligned `Sw` now executes through one Machine-owned plan
+  and applicator for direct KSEG0/KSEG1 aliases of SP IMEM only. It stores old
+  `rt` low 32 bits as four known big-endian bytes with instruction-PC,
+  source-GPR, and source-lineage provenance. Unknown operands and every other
+  target reject before mutation. Unaligned stores enter AdES code 5 through
+  the existing COP0 owner, including exact BadVAddr and delay-slot EPC/BD;
+  success advances Count once and faults advance it zero times.
 - `RUNTIME_FACT`: the authentic trace still stops at `Lw` at `0xA4000044`.
   Known r9 produces CPU address `0xA4001000`, but SP IMEM offset zero is
   `Unknown`, so the load rejects before mutation.
@@ -100,12 +107,12 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   arithmetic, but independent matching corroboration is insufficient for
   product authority. The three copy profiles remain supported independently;
   only the coupled handoff is NTSC-only.
-- `LIVE_REPO_FACT`: generated-only public-step composition now commits four
-  bounded x105-shaped instructions: `SpecialAdd`, retained SP-IMEM `Lw`,
-  cartridge-staged SP-DMEM `Lw`, and `SpecialXor`. The SP-DMEM load records its
-  exact cartridge offset, and unaligned delay-slot access uses the existing
-  AdEL/EPC/BD owner. The next synthetic frontier is aligned `Sw` at
-  `0xA4000050`; it remains unrepresented. This changes no authentic checkpoint.
+- `LIVE_REPO_FACT`: generated-only public-step composition now commits thirteen
+  bounded x105-shaped instructions through the first `Sw`, one ordinary branch
+  and delay slot, two later loads, and two later SP-IMEM stores. It ends at
+  PC/next-PC `0xA4000074 / 0xA4000078`, Count `13`, then rejects recognized but
+  unrepresented `RegimmBltz` without mutation. Every instruction and byte is
+  independently generated. This changes no authentic checkpoint.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -160,6 +167,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   bounded source order selected the missing SP-DMEM data target for existing
   aligned `Lw` before `Sw`. Generated proof reaches `Sw` without creating a
   Worker lane or queue entry.
+- `master-direct-aligned-sw-x105-store-frontier-v1`: direct Master product
+  operation; generated proof represents aligned SP-IMEM-only `Sw`, AdES, and
+  CPU-store provenance, then reaches `RegimmBltz` without creating a Worker
+  lane or queue entry.
 - Active supervisor operations: none. Active Worker operations and lanes: none.
 - `pif-ipl2-handoff-state-mapping-v1`: retired as an unaccepted historical
   donor operation. Candidate `c24ab78c`, context-propagation merge `96840e99`,
@@ -191,9 +202,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: aligned `Sw`, instruction-store provenance, and its AdES
-  execution path are the next generated pressure. They remain absent; no
-  generic store route, bus, or generalized memory map is implied.
+- `LIVE_REPO_FACT`: recognized but unrepresented `RegimmBltz` is the next
+  generated pressure. RDRAM/SP-DMEM/device stores and every store identity
+  other than SP-IMEM `Sw` remain absent; no generic store route, bus, or
+  generalized memory map is implied.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that

@@ -20,6 +20,10 @@ existing load address-error owner with its exact BadVAddr and no destination
 write, including when the address would otherwise select SP DMEM. Alignment is
 decided before target/source access. Count and normal cadence do not advance on
 represented fault entry.
+An unaligned `Sw` enters the same sealed data-address-error owner with write
+kind, AdES code 5, and exact BadVAddr. Alignment is resolved before store-source
+consumption. No SP-IMEM byte or provenance changes, no normal cadence commits,
+and Count advances zero times.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 
@@ -32,10 +36,10 @@ COP0 or control-flow mutation.
 
 For the represented ordinary-control-flow family, CPU-owned delay-slot context
 names the owning branch/jump PC. Arithmetic overflow, instruction-fetch AdEL,
-and unaligned-`Lw` data-AdEL entry from that slot set Cause.BD, write the owner
-PC to EPC, leave the faulting slot Count unchanged, prevent target commit, and
-clear context after successful entry. A branch/jump in the slot is unsupported
-rollback, not an exception.
+unaligned-`Lw` data-AdEL, and unaligned-`Sw` data-AdES entry from that slot set
+Cause.BD, write the owner PC to EPC, leave the faulting slot Count unchanged,
+prevent target commit, and clear context after successful entry. A branch/jump
+in the slot is unsupported rollback, not an exception.
 
 Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
 owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting

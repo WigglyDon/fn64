@@ -12,3 +12,7 @@ provenance, AdES for unaligned addresses, current cadence and delay-slot
 lineage, and fail-closed rejection elsewhere. All bytes and instruction fields
 used for proof are generated. This is not authentic IPL execution, cartridge
 execution, BOOT-3, or compatibility evidence.
+
+The accepted generated continuation commits thirteen instructions through
+three SP-IMEM stores and stops without mutation at recognized but unrepresented
+`RegimmBltz` at `0xA4000074`.

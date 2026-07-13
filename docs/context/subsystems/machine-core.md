@@ -54,6 +54,13 @@ Direct SP-DMEM reads are additionally gated by the current cartridge-bootstrap
 span and record the exact source cartridge offset; concrete but unclassified
 backing rejects. No serialization format is a product contract yet.
 
+Aligned `Sw` uses a separate Machine plan/application path for SP IMEM only.
+The plan resolves old base, alignment, direct target, old source value, exact
+four-byte span, and CPU-store provenance before application. Application has no
+fallible memory operation: it writes once, commits control flow once, and
+advances Count once. Rejection restores the captured snapshot; AdES delegates
+to existing sealed COP0 entry.
+
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
 cartridge medium, PIF-version bit, all staged GPR values/sources, Status, and
@@ -63,7 +70,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the eighteen-case step probe, the bounded BOOT-2 probe,
+construction/reset probe, the twenty-eight-case step probe, the bounded BOOT-2 probe,
 and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -72,8 +79,8 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a four-step generated x105 composition to the aligned-`Sw`
-frontier, but it does not prove an authentic firmware-executed handoff,
+handoff and a thirteen-step generated x105 composition through SP-IMEM `Sw` to
+the `RegimmBltz` frontier, but it does not prove an authentic firmware-executed handoff,
 BOOT-3, timing, full ISA, game compatibility,
 renderer, audio, performance, or host integration.
 

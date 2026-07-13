@@ -33,6 +33,7 @@ Current durable integration records:
 - [Profiled PIF IPL2 copy materialization](pif-ipl2-profiled-copy-materialization-v1/README.md)
 - [Cold x105 coupled handoff reconstruction and materialization](pif-ipl2-coupled-handoff-materialization-v1/README.md)
 - [Generated x105 SP-DMEM load frontier](generated-x105-instruction-frontier-v1/README.md)
+- [Aligned Sw generated x105 store frontier](aligned-sw-generated-x105-frontier-v1/README.md)
 
 The lineage contract is:
 

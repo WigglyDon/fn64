@@ -198,6 +198,10 @@ bootstrap span classifies all four offsets as staged production bytes; other
 concrete backing remains unclassified. This does not introduce mirroring,
 MMIO policy, a bus, or a generalized memory map.
 
+The aligned `Sw` data route accepts only direct KSEG0/KSEG1 aliases of SP
+IMEM. RDRAM, SP DMEM, device/MMIO, non-direct, and target-miss addresses reject
+without routing. It adds no generic store abstraction or broader address map.
+
 The represented address-error entry owns BadVAddr, Cause code, branch-delay
 flag, EPC, Status.EXL, and exception-vector `pc` / `next_pc` mutation. It does
 not execute a load/store instruction, write a destination GPR, route a device,
@@ -235,9 +239,10 @@ The represented sequence is:
 
 `control-flow snapshot -> one fetch -> one decode -> one identity -> ordinary-control-flow planning or sequential next-PC staging -> one represented action -> one application`
 
-At most one selected CPU-local helper runs. Application owns exactly one of
-committed cadence, stopped cadence, unsupported rollback, arithmetic-overflow
-entry, fetch-address-error entry, or explicit rejection.
+At most one selected CPU-local helper or one Machine-owned load/store action
+runs. Application owns exactly one of committed cadence, stopped cadence,
+unsupported rollback, arithmetic-overflow entry, fetch/data-address-error
+entry, or explicit rejection.
 
 ### CPU-local committed instruction families
 
@@ -300,6 +305,24 @@ form, blocked exception entry, and lower read failure leave all represented
 state unchanged. An unaligned SP-DMEM-shaped load uses the same AdEL owner,
 including delay-slot EPC/BD and zero faulting-instruction Count.
 
+### Machine-owned aligned SP-IMEM `Sw`
+
+`Sw` executes through a separate immutable Machine-owned plan and applicator.
+Planning captures the old base, applies the sign-extended immediate with the
+same wrapping represented-address rule as `Lw`, checks word alignment before
+source-value consumption, and accepts only direct KSEG0/KSEG1 aliases of SP
+IMEM. The supported path captures old `rt`, stores its low 32 bits as four
+big-endian bytes, replaces only those bytes' provenance with the instruction
+PC, source GPR, and source lineage, then commits `pc` / `next_pc` and Count
+once. `rs == rt` uses the old shared value and r0 stores a known zero word.
+
+Unaligned `Sw` enters AdES code 5 through the existing COP0 owner with exact
+BadVAddr and sequential or delay-slot EPC/BD lineage. It performs no store or
+normal cadence and advances Count zero times. Unknown base/source, non-direct
+address, target miss, RDRAM, SP DMEM, blocked exception entry, and bounds
+failure preserve all represented state. RDRAM/SP-DMEM/device stores, other
+store identities, a generic store path, bus, and generalized map remain absent.
+
 ### Other represented outcomes
 
 - `SYNC` commits as an explicit no-effect instruction.
@@ -341,11 +364,12 @@ event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
 Generated tests separately prove the NTSC cold x105 coupled creation point and
-four public-step commits: `SpecialAdd`, source-backed SP-IMEM `Lw`,
-cartridge-staged SP-DMEM `Lw`, and `SpecialXor`. The final synthetic state is
-PC/next-PC `0xA4000050 / 0xA4000054` with Count `4`; aligned `Sw` is the next
-unrepresented frontier and rejects without mutation. These tests are synthetic
-composition proof and are not an authentic IPL2-to-IPL3 run.
+thirteen public-step commits through the accepted prefix, three SP-IMEM `Sw`
+operations, one BNE and its slot, and already represented arithmetic/loads.
+The final synthetic state is PC/next-PC `0xA4000074 / 0xA4000078` with Count
+`13`; recognized `RegimmBltz` is the next unrepresented frontier and rejects
+without mutation. These tests are synthetic composition proof and are not an
+authentic IPL2-to-IPL3 run.
 One-word staging would be both incomplete and unauthorized: the observed x105
 prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
@@ -358,9 +382,10 @@ execute. Current explicit absences include:
 
 - branch-likely annul, REGIMM branches, COP0 branches, and execution of a
   branch or jump inside a delay slot;
-- CPU load/store instructions other than aligned `Lw`, including `Sw`, plus
-  unaligned merge operations; aligned `Lw` has no device/MMIO or unclassified
-  SP-DMEM source route;
+- CPU load/store instructions other than aligned `Lw` and SP-IMEM-only aligned
+  `Sw`, plus unaligned merge operations; `Lw` has no device/MMIO or
+  unclassified SP-DMEM source route, and `Sw` has no RDRAM, SP-DMEM, or device
+  target;
 - multiply, divide, trap, COP0 instruction, ERET, and LL/SC execution;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
@@ -385,7 +410,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its eighteen cases cover:
+calls only public `Machine::step` for execution. Its twenty-eight cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -398,7 +423,9 @@ calls only public `Machine::step` for execution. Its eighteen cases cover:
 - cartridge-staged SP-DMEM `Lw` success with exact provenance;
 - unclassified SP-DMEM rejection;
 - delay-slot SP-DMEM-shaped AdEL;
-- four-step generated x105 composition to the aligned-`Sw` frontier;
+- SP-IMEM `Sw` commit, big-endian bytes/provenance, `Lw` round trip, r0 and
+  `rs == rt`, AdES, delay-slot AdES, and fail-closed operand/target rejection;
+- thirteen-step generated x105 composition to the `RegimmBltz` frontier;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

@@ -54,6 +54,13 @@ cartridge-bootstrap-staged SP DMEM with exact source-offset provenance; other
 concrete SP-DMEM backing is not treated as known. Its authentic SP IMEM source
 is unknown, so that instance rejects without mutation.
 
+Aligned `Sw` is a separate Machine-owned action. It reads the old base,
+resolves alignment before source consumption, accepts direct SP IMEM only,
+then captures old source low word and exact lineage. Success writes no GPR and
+advances normal cadence once. Sequential or delay-slot AdES delegates to COP0
+with zero faulting-instruction Count; unknown sources and unsupported targets
+restore the complete pre-step state.
+
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
 not source Count, Compare, EPC, BadVAddr, Cause, timer state, or unrelated GPRs.
@@ -67,8 +74,8 @@ Current observability is deterministic state inspection; no instruction trace
 format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
-tests for changes. Generated composition reaches aligned `Sw` as the next
-unrepresented identity. Known unknowns include complete public-step ISA
+tests for changes. Generated composition reaches recognized but unrepresented
+`RegimmBltz` as the next identity. Known unknowns include complete public-step ISA
 integration, real timing, branch-likely/REGIMM/COP0 branches, nested control
 flow, other load/store families, and performance. Next authority must be earned
 by a bounded product packet, not a generic dispatcher.
