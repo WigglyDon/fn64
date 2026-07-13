@@ -24,10 +24,13 @@ path, file read/failure, and owned-byte transfer. The Machine must own accepted
 bytes, validation/classification, reset/bootstrap lifecycle, SP IMEM production,
 and provenance. The no-window probe now implements that input boundary with one
 optional literal `--pif-rom` path and no default, search, download, bundled
-fallback, reconstructed table, or firmware-derived profile. Machine accepts a
+fallback, reconstructed table, or firmware-derived profile. A separate
+explicit `--pif-profile` spelling selects one Machine-owned pinned layout; the
+host does not own layout meaning or infer a value. Machine accepts a
 1,984-byte candidate structurally, rejects a 2,048-byte full-map shape as
 unsupported, and rejects other lengths as malformed. Acceptance does not prove
-authenticity and currently produces no SP IMEM state.
+authenticity. Firmware and profile installation remain independent and neither
+alone produces SP IMEM state.
 
 The named `Machine::stage_cartridge_bootstrap` creation point preflights the
 normalized cartridge span `[0x40, 0x1000)`, stages it into the same SP DMEM
@@ -36,12 +39,13 @@ owned bytes; it never gives the core a file path. This narrow path is not PI
 DMA, a general cartridge mapping, or a PIF/CIC implementation.
 
 SP IMEM is exactly 4 KiB of private Machine-owned backing storage for physical
-addresses `0x04001000..0x04001fff`. Construction, reset, and cartridge-bootstrap
-restaging create zero backing with every byte explicitly `Unknown`. An aligned
-big-endian word is readable only when all four bytes have represented
-provenance. The current product has no production creation event for authentic
-SP IMEM offset zero; test-only staging cannot be reached by production or the
-boot probe.
+addresses `0x04001000..0x04001fff`. Construction and reset create zero backing
+with every byte explicitly `Unknown`. Cartridge-bootstrap restaging builds a
+replacement image and, when both inputs exist, copies the complete selected
+range before assignment. Every copied byte receives user-supplied-PIF source
+provenance; every other byte remains `Unknown`. An aligned big-endian word is
+readable only when all four bytes have represented provenance. Test-only
+staging remains distinct from this production creation event.
 
 Lineage is `lawful bytes → normalized layout → named address domain → preflight → storage mutation/read → narrow observable result`. Failed writes must leave no
 ghost state. Synthetic instruction words and small generated fixtures are valid
@@ -52,8 +56,9 @@ staging, one cartridge-derived instruction commit, SP IMEM storage, the narrow
 KSEG0/KSEG1 CPU-data route to that range, and aligned `Lw` over direct RDRAM or
 known SP IMEM. Source-qualified evidence identifies retained IPL2 firmware as
 the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
-mutation range `[0x000, 0x02c)`, but does not establish product bytes. It does
-not establish authentic SP IMEM contents, handoff,
+mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
+byte-transfer effect from lawful input, but no private PIF was used. It does not
+establish authentic SP IMEM contents, complete handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists
 only where the detailed ledger says it is sealed.
@@ -62,7 +67,7 @@ Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.
 Pinned mapping evidence now identifies NTSC raw `[0x0d4,0x71c)` to SP IMEM
 `[0x000,0x648)` and PAL/MPAL raw `[0x0d4,0x720)` to
-`[0x000,0x64c)`. Shape-only input cannot select a mapping, so the next product
-pressure is explicit Machine-owned profile selection and full-range synthetic
-copy proof. The separate evidence pressure is complete pre-IPL3 handoff state;
-neither earns an architecture-first bus abstraction.
+`[0x000,0x64c)`. Shape-only input cannot select a mapping. The represented
+Machine profile and full-range generated proof now cover the copy effect; the
+remaining evidence pressure is complete pre-IPL3 handoff state. Neither earns
+an architecture-first bus abstraction.

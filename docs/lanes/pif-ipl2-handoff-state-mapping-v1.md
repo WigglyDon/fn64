@@ -22,11 +22,24 @@ Update triggers: provisioning, packet launch, evidence creation, classification,
 - Governing Context-SHA: the exact committed Wave 4 registration value owned by
   the Master report and first executable packet. This page cannot embed its own
   digest.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Status: **NEEDS_FIX — FOCUSED_REPAIR_1 ENVIRONMENT RECOVERY**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: persistent Worker topology is Master-owned; no command is
-  executable until Master GPT issues the matching supervisor seed.
+- Launch state: blocked; do not relaunch until Master GPT issues the
+  `FOCUSED_REPAIR_1_RETRY` amendment after Master context propagation.
+
+Unaccepted candidate:
+`c24ab78c9a4b93fe79b660f3428d06a6a570c4dd`. Its stale artifact
+`/tmp/UPLOAD_ME_fn64_pif_ipl2_handoff_state_mapping_v1.tar.gz` has SHA-256
+`f1d864415d64c51a03ebcd3890b92a2f5ebc6b1676decd6d11ba80b9047fd2c6`
+and is not accepted or promoted. The first repair attempt stopped before
+modification because tmpfs user-quota headroom was exhausted. It remains
+`FOCUSED_REPAIR_1_RETRY`, not a second semantic repair.
+
+The unresolved evidence defect is exact: reconstruct retained IPL2 r31/ra
+separately for `NTSC_PINNED`, `PAL_PINNED`, and `MPAL_PINNED`, distinguishing
+the signed relation directly consumed by the first x105 branch from the
+complete retained link address as control-flow provenance.
 
 ## Evidence mission
 

@@ -11,20 +11,15 @@ Update triggers: lane creation, activation, blocking, parking, retirement, or in
 
 ## Active lanes
 
-- [`pif-ipl2-profiled-copy-materialization-v1`](pif-ipl2-profiled-copy-materialization-v1.md)
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
-  - Topology: generated-proof Rust product lane
-  - Implementation/candidate: not started / none
-  - Writable owner: exact registered PIF/Machine/bootstrap/SP-IMEM/boot-probe
-    paths plus its own evidence directory
 - [`pif-ipl2-handoff-state-mapping-v1`](pif-ipl2-handoff-state-mapping-v1.md)
-  - Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+  - Status: **NEEDS_FIX — FOCUSED_REPAIR_1 ENVIRONMENT RECOVERY**
   - Topology: evidence-only pre-IPL3 state-mapping lane
-  - Implementation/candidate: not started / none
+  - Implementation/candidate: unaccepted `c24ab78c`; focused retry pending
   - Writable owner: `ops/evidence/pif-ipl2-handoff-state-mapping-v1/**` only
 
-The two lanes have zero direct writable-path overlap. Master retains lane,
-queue, context, branch, worktree, and integration ownership.
+Master retains lane, queue, context, branch, worktree, and integration
+ownership. No Worker is authorized to relaunch until Master GPT issues the
+focused retry packet.
 
 Master process worktrees are not worker lanes and do not receive active Worker
 lane pages merely because they are registered Git worktrees.
@@ -45,6 +40,13 @@ None established from live repository evidence.
 
 ## Retired lanes
 
+- [`pif-ipl2-profiled-copy-materialization-v1`](pif-ipl2-profiled-copy-materialization-v1.md):
+  **ACCEPTED — PROFILED COPY MATERIALIZATION PRODUCT** at complete candidate
+  `a2a8ca51`. Explicit NTSC/PAL/MPAL profiles drive atomic source-backed SP
+  IMEM copies from accepted bytes at the named bootstrap creation point. No
+  private input, PIF execution, complete handoff, checkpoint advance, or
+  compatibility fact was earned; Worker history remains preserved and
+  unpushed.
 - [`ordinary-control-flow-delay-slot-v1`](ordinary-control-flow-delay-slot-v1.md):
   **ACCEPTED — INTEGRATED** at candidate `01b06e5a`. All six ordinary
   identities, one explicit slot, link/alias/Count rules, branch-in-slot

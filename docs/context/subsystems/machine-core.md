@@ -13,7 +13,8 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, reset/power state,
-optional structurally accepted immutable PIF firmware input, and narrow
+optional structurally accepted immutable PIF firmware input, optional explicit
+PIF IPL2 copy profile, and narrow
 machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
 ledger that earned BOOT-2. SP IMEM has separate backing bytes and per-byte
@@ -58,8 +59,10 @@ construction/reset probe, the fourteen-case step probe, the bounded BOOT-2 probe
 and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
-RDRAM and known SP IMEM; the authentic SP-IMEM load still rejects before
-mutation because byte zero is unknown. It does not prove bootstrap handoff,
+RDRAM and known SP IMEM. Explicit profile materialization now gives generated
+or user-supplied firmware bytes a production copy event; the authentic
+no-firmware SP-IMEM load still rejects before mutation because byte zero is
+unknown. It does not prove bootstrap handoff,
 BOOT-3, timing, full ISA, game compatibility, renderer, audio, performance, or
 host integration.
 
@@ -67,23 +70,24 @@ Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
 artifacts. Performance/resource truth is `UNKNOWN` unless separately measured.
 
-Integrated evidence identifies the missing hardware producer as IPL1 copying
-retained IPL2 firmware content into SP IMEM. That finding changes no Machine
-state production: current SP IMEM bytes remain `Unknown`. The product now has
-one explicit user-supplied firmware input boundary. After host byte transfer,
-Machine owns structural validation, immutable accepted bytes, reset/bootstrap
-persistence, classification, and rejection. Acceptance alone executes nothing
-and produces no SP IMEM provenance.
+Integrated evidence identifies the hardware producer as IPL1 copying retained
+IPL2 firmware content into SP IMEM. The product has one explicit user-supplied
+firmware input boundary. After host byte transfer, Machine owns structural
+validation, immutable accepted bytes, reset/bootstrap persistence,
+classification, and rejection. Acceptance alone executes nothing and produces
+no SP IMEM provenance.
 
-Integrated mapping evidence establishes three pinned copy profiles without
-changing Machine state: NTSC raw `[0x0d4,0x71c)` to SP IMEM
+Integrated mapping evidence establishes three pinned copy profiles: NTSC raw
+`[0x0d4,0x71c)` to SP IMEM
 `[0x000,0x648)`, and PAL/MPAL raw `[0x0d4,0x720)` to
 `[0x000,0x64c)`. An explicit profile is required; shape-only acceptance does
-not select one. Copying those bytes still does not establish the complete IPL2
-handoff state.
+not select one. Machine now owns the profile meanings and atomically copies the
+complete selected range at bootstrap into a replacement SP IMEM image. Copied
+bytes are known with source provenance and every other byte remains `Unknown`.
+Copying those bytes still does not establish the complete IPL2 handoff state.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-host integration, profile-selected copy materialization, complete handoff
+host integration, complete handoff
 state, and whether any later fact requires minimal firmware execution.

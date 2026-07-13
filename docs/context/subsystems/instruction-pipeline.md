@@ -31,8 +31,10 @@ RDRAM and known SP IMEM, with a separate pre-mutation rejection when any SP
 IMEM source byte is unknown. The authentic first frontier remains that
 represented rejection at `0xA4000044`, not absent decode or load semantics.
 Integrated provenance evidence identifies the missing source category as
-retained IPL2 firmware content, but adds no instruction or state-production
-behavior. External source knowledge cannot bypass the existing known-byte gate.
+retained IPL2 firmware content. Explicit profiled bootstrap materialization can
+now satisfy the known-byte gate from generated or user-supplied bytes; external
+source knowledge alone cannot bypass it. Synthetic `Lw` success proves the
+represented composition, not authentic boot or complete handoff.
 
 Ordinary `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` identities now select
 one bounded Machine-owned action before sequential staging. A control-flow

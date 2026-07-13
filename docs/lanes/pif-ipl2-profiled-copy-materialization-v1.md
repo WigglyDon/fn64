@@ -22,11 +22,22 @@ Update triggers: provisioning, packet launch, implementation decision, candidate
 - Governing Context-SHA: the exact committed Wave 4 registration value owned by
   the Master report and first executable packet. This page cannot embed its own
   digest.
-- Status: **PROVISIONED — AWAITING SUPERVISOR PACKET**
+- Status: **ACCEPTED — PROFILED COPY MATERIALIZATION PRODUCT**
 - Provisioning state: `MASTER_PROVISIONED_VERIFIED`
 - Provisioning exception: `NONE`
-- Launch state: persistent Worker topology is Master-owned; no command is
-  executable until Master GPT issues the matching supervisor seed.
+- Launch state: closed; do not relaunch without a new Master packet.
+
+Accepted candidate:
+`a2a8ca51b9a5c4c7b80a8d9f4fc39cf60942239c`, preserving all eight Worker
+commits from `0a095487` through `a2a8ca51`. The verified artifact is
+`/home/don/Downloads/UPLOAD_ME_fn64_pif_ipl2_profiled_copy_materialization_v1.tar.gz`
+with SHA-256
+`b0bc3859838bbf09d66d8631d2ae9a2fb3b6c2f95df5d02439b4952a87c344d0`.
+Master independently reproduced the patch tree and reran focused plus complete
+Rust gates. The artifact's raw report passed line-integrity checks; the
+chat-delivered Worker packet was not protocol-compliant and is recorded as a
+`WORKFLOW_DELIVERY_DEFECT`, not a product defect. No Worker branch was pushed
+and no private input was used.
 
 ## Mission and exact profile law
 

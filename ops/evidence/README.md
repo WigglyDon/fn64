@@ -30,6 +30,7 @@ Current durable integration records:
 - [User-supplied PIF input-boundary evidence](user-supplied-pif-boot-source-v1/README.md)
 - [Ordinary control flow and one delay slot](ordinary-control-flow-delay-slot-v1/README.md)
 - [Profile-specific PIF IPL2 source mapping](pif-ipl2-source-mapping-v1/README.md)
+- [Profiled PIF IPL2 copy materialization](pif-ipl2-profiled-copy-materialization-v1/README.md)
 
 The lineage contract is:
 

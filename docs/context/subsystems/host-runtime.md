@@ -29,6 +29,12 @@ not a runtime host. Automatic search, hidden defaults, downloads, acquisition
 instructions, bundled fallbacks, and host-owned validation or boot policy are
 forbidden.
 
+The probe also owns the exact `--pif-profile` spellings
+`ntsc-pinned`, `pal-pinned`, and `mpal-pinned`. It transfers the parsed choice;
+Machine owns profile meaning and copy layout. The host must not infer a profile
+from firmware content, digest, filename, cartridge identity, platform, or any
+expected trace.
+
 Allowed future direction is thin host → public Machine/inspection surface.
 Core → host, renderer → machine state, platform clock → stepping, and host-owned
 emulator policy remain forbidden. User-local commercial assets stay outside

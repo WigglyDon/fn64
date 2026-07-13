@@ -60,8 +60,19 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   1,984-byte raw-Boot-ROM-shaped input, rejects the 2,048-byte full-map shape as
   unsupported, and classifies other lengths as malformed. Acceptance proves no
   authenticity, revision, executability, or compatibility. Accepted bytes are
-  immutable Machine input that survives reset and repeated bootstrap staging;
-  they currently execute nothing and produce no known SP IMEM byte.
+  immutable Machine input that survives reset and repeated bootstrap staging.
+- `LIVE_REPO_FACT`: the no-window probe accepts a separate explicit
+  `--pif-profile` value of `ntsc-pinned`, `pal-pinned`, or `mpal-pinned`.
+  Inspection owns those spellings; Machine owns the three distinct profile
+  meanings. Neither firmware nor profile installation alone materializes
+  state, and there is no default or inference.
+- `LIVE_REPO_FACT`: `Machine::stage_cartridge_bootstrap` atomically copies the
+  selected generated or user-supplied firmware slice into a replacement SP
+  IMEM image: NTSC raw `[0x0d4,0x71c)` to `[0x000,0x648)`, or PAL/MPAL raw
+  `[0x0d4,0x720)` to `[0x000,0x64c)`. Copied bytes become known with
+  user-supplied-PIF source provenance; all other bytes remain `Unknown`.
+  Reset preserves both immutable inputs while clearing runtime SP IMEM, and
+  repeated bootstrap rematerializes only the selected range.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -102,17 +113,19 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - `pif-ipl2-source-mapping-v1`: evidence-only candidate `2ee4b3c7` was
   independently verified and integrated **ACCEPTED — VARIANT-SPECIFIC SOURCE
   MAPPING**. It changed no product behavior and used no private input.
-- Product Wave 4: `pif-ipl2-profiled-copy-materialization-v1` and
-  `pif-ipl2-handoff-state-mapping-v1` are provisioned and await matching
-  supervisor packets. The product lane owns narrow PIF/Machine/bootstrap/
-  SP-IMEM/boot-probe paths; the evidence lane owns only its evidence directory.
-  Direct writable overlap is zero.
-- Integration queue: two honest no-candidate Wave 4 entries. Candidate,
-  artifact, and base identities remain `UNKNOWN`; validation is `NOT_RUN`, and
-  integration/push are pending and unauthorized.
-- `USER_DECISION`: the profiled-copy product lane may run concurrently with the
-  evidence-only handoff mapping lane. Neither receives private-ROM or
-  private-PIF authority, and no Worker implementation has started.
+- `pif-ipl2-profiled-copy-materialization-v1`: complete eight-commit candidate
+  `a2a8ca51` was independently verified and integrated **ACCEPTED — PROFILED
+  COPY MATERIALIZATION PRODUCT**. The artifact raw report is compliant; the
+  malformed chat delivery is recorded separately as a
+  `WORKFLOW_DELIVERY_DEFECT`. No private input was used and BOOT-2 did not
+  advance.
+- `pif-ipl2-handoff-state-mapping-v1`: unaccepted evidence candidate
+  `c24ab78c` remains active **NEEDS_FIX — FOCUSED_REPAIR_1 ENVIRONMENT
+  RECOVERY**. The retry must reconstruct retained IPL2 r31/ra separately for
+  the three pinned profiles and distinguish the first consumed signed relation
+  from the complete retained link address.
+- Integration queue: one blocked handoff candidate entry. Its stale artifact
+  is not accepted, validation is failed, and push remains unauthorized.
 - Repository-purity cleanup is complete for its accepted non-product scope.
 - Product Acceleration Wave 1 selected one combined frontier because
   storage/routing, aligned `Lw`, bootstrap knownness, Machine step application,
@@ -127,13 +140,13 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   unmeasured or unavailable.
 - `LIVE_REPO_FACT`: fn64 has an explicit PIF-firmware input, structural
   validation, immutable Machine ownership, and reset/bootstrap persistence. It
-  still has no authentic firmware classification, firmware execution, or
-  source-backed SP IMEM production. The authentic `Lw` still rejects because
-  its first SP IMEM source byte is `Unknown`.
-- `LIVE_REPO_FACT`: accepted firmware still has no SP IMEM production effect.
-  A future copy effect requires an explicit pinned NTSC, PAL, or MPAL Machine
-  profile; it may not infer one from byte shape, content, filename, cartridge,
-  or digest.
+  still has no authentic firmware classification or firmware execution.
+  Explicit profile selection now permits a source-backed copy effect, but no
+  private PIF was used, so the authentic `Lw` result and BOOT-2 checkpoint are
+  unchanged.
+- `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
+  It does not synthesize CPU handoff registers, PIF RAM, PI/SI state, execute
+  IPL2, or establish complete handoff.
 - `UNKNOWN`: the complete pre-IPL3 handoff state, including source-qualified
   ownership for `t3`, `ra`, other consumed GPRs, COP0, and device facts. The
   mapping evidence does not prove that minimal IPL2 execution is required.

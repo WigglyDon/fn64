@@ -29,12 +29,13 @@ aligned `Lw` that rejects before mutation because SP IMEM offset zero is
 unknown. None proves BOOT-3, full ISA, timing, window/audio/runtime,
 performance, or game compatibility.
 
-The same existing probe now accepts one optional literal `--pif-rom` path. The
-inspection shell owns only parsing, the exact file read/failure, and owned-byte
-transfer. Machine owns structural classification and lifecycle. Output reports
-absent/accepted state, classification, and size without logging successful
-firmware paths or bytes. Accepted input produces no SP IMEM state and earns no
-checkpoint.
+The same existing probe now accepts one optional literal `--pif-rom` path and a
+separate explicit `--pif-profile` value. The inspection shell owns only CLI
+spellings, parsing, the exact file read/failure, and owned-byte transfer.
+Machine owns structural classification, profile meaning, lifecycle, and the
+bootstrap copy. Output reports input/profile state and materialized range
+without logging successful firmware paths or bytes. Neither input alone
+produces SP IMEM state, and generated combined proof earns no checkpoint.
 
 Inspection may depend on public core APIs. Core-to-inspection, private seam
 calls, mutable CPU/COP0 backdoors, host event loops, and proprietary assets are
@@ -46,8 +47,9 @@ select game behavior; Machine validation and state production remain core
 authority. Structural acceptance is not authentic firmware validation.
 
 Integrated public-source evidence records profile-qualified IPL1 copy ranges
-without copying firmware or external source. It is technical evidence, not a
-probe-authored Machine effect or proof that accepted firmware is authentic.
+without copying firmware or external source. The probe may select an explicit
+profile and report the resulting Machine-owned effect, but it does not author
+SP IMEM, authenticate firmware, or prove complete handoff.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use
