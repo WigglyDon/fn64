@@ -30,12 +30,14 @@ and one CPU-owned context now represent a selected ordinary delay slot. Count
 advances only through the committed-step owner. Exception actions restore or
 preserve control flow before delegating to the sealed entry owner.
 
-`BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` share one bounded Machine
-planning/application family. Target and link arithmetic is explicit, including
-PC+4 jump-region selection, PC+8 links, JALR alias read-before-write, and r0
-discard. Taken and untaken branches schedule one slot. A slot exception uses
-the owning branch/jump PC for EPC and sets BD; inner control flow is rejected
-before mutation.
+`BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and `JALR`
+share one bounded Machine planning/application family. BLTZ reuses the exact
+full-GPR signed comparison already used by SLT/SLTI; it does not create an
+execution-width owner. Target and link arithmetic is explicit, including PC+4
+jump-region selection, PC+8 links, JALR alias read-before-write, and r0 discard.
+Taken and untaken branches schedule one slot. A slot exception uses the owning
+branch/jump PC for EPC and sets BD; inner control flow is rejected before
+source consumption or mutation.
 
 Machine-owned bootstrap state distinguishes concrete GPR storage from known
 architectural state. Each selected CPU-local bootstrap instruction checks all
@@ -74,8 +76,9 @@ Current observability is deterministic state inspection; no instruction trace
 format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
-tests for changes. Generated composition reaches recognized but unrepresented
-`RegimmBltz` as the next identity. Known unknowns include complete public-step ISA
-integration, real timing, branch-likely/REGIMM/COP0 branches, nested control
-flow, other load/store families, and performance. Next authority must be earned
-by a bounded product packet, not a generic dispatcher.
+tests for changes. Generated composition commits BLTZ and its SP-IMEM zero-word
+slot, then reaches recognized but unrepresented `Cop0Mtc0` to Cause. Known
+unknowns include complete public-step ISA integration, real timing,
+branch-likely/other REGIMM/COP0 execution, nested control flow, other
+load/store families, and performance. Next authority must be earned by a
+bounded product packet, not a generic dispatcher.

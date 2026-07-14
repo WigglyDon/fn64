@@ -66,12 +66,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
   BOOT-3, authentic handoff, cartridge-entry/game execution, compatibility,
   graphics, window, and audio are not claimed.
-- `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR`
+- `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`,
+  `J`, `JAL`, `JR`, and `JALR`
   execute through `Machine::step` with one CPU-owned delay-slot context.
   Taken and untaken branches both execute one slot; link, alias, Count,
   branch-in-delay-slot rejection, and delay-slot EPC/BD behavior are explicit.
-  This is the first ordinary control-flow family, not complete MIPS control
-  flow.
+  BLTZ reuses the established full-GPR signed comparison used by SLT/SLTI;
+  every other REGIMM identity remains unrepresented. This is bounded ordinary
+  control flow, not complete MIPS control flow.
 - `LIVE_REPO_FACT`: Machine structurally accepts an explicitly supplied
   1,984-byte raw-Boot-ROM-shaped input, rejects the 2,048-byte full-map shape as
   unsupported, and classifies other lengths as malformed. Acceptance proves no
@@ -107,12 +109,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   arithmetic, but independent matching corroboration is insufficient for
   product authority. The three copy profiles remain supported independently;
   only the coupled handoff is NTSC-only.
-- `LIVE_REPO_FACT`: generated-only public-step composition now commits thirteen
-  bounded x105-shaped instructions through the first `Sw`, one ordinary branch
-  and delay slot, two later loads, and two later SP-IMEM stores. It ends at
-  PC/next-PC `0xA4000074 / 0xA4000078`, Count `13`, then rejects recognized but
-  unrepresented `RegimmBltz` without mutation. Every instruction and byte is
-  independently generated. This changes no authentic checkpoint.
+- `LIVE_REPO_FACT`: generated-only public-step composition now commits fifteen
+  bounded x105-shaped instructions. After the accepted thirteen-step prefix,
+  `RegimmBltz` consumes the known retained r31 link, takes the branch, and its
+  ordinary `Sw` slot writes one known zero word to SP IMEM local `0x00C` with
+  CPU-store provenance. It ends at PC/next-PC
+  `0xA400007C / 0xA4000080`, Count `15`, then rejects recognized but
+  unrepresented `Cop0Mtc0` to Cause without mutation. Every instruction and
+  byte is independently generated. This changes no authentic checkpoint.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -171,6 +175,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   operation; generated proof represents aligned SP-IMEM-only `Sw`, AdES, and
   CPU-store provenance, then reaches `RegimmBltz` without creating a Worker
   lane or queue entry.
+- `master-direct-bltz-x105-branch-frontier-v1`: direct Master product operation;
+  generated proof represents non-linking/non-likely BLTZ through the existing
+  full-width signed and ordinary-delay-slot owners, commits the x105 zero-store
+  slot, and reaches `Cop0Mtc0` without creating a Worker lane or queue entry.
 - Active supervisor operations: none. Active Worker operations and lanes: none.
 - `pif-ipl2-handoff-state-mapping-v1`: retired as an unaccepted historical
   donor operation. Candidate `c24ab78c`, context-propagation merge `96840e99`,
@@ -202,10 +210,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: recognized but unrepresented `RegimmBltz` is the next
-  generated pressure. RDRAM/SP-DMEM/device stores and every store identity
-  other than SP-IMEM `Sw` remain absent; no generic store route, bus, or
-  generalized memory map is implied.
+- `LIVE_REPO_FACT`: recognized but unrepresented `Cop0Mtc0` to Cause is the
+  next generated pressure. All other REGIMM identities, COP0 execution,
+  RDRAM/SP-DMEM/device stores, and every store identity other than SP-IMEM
+  `Sw` remain absent; no generic branch/store route, bus, or generalized
+  memory map is implied.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that

@@ -295,6 +295,29 @@ product or reference lane requires a new explicit product decision.
 - Proof boundary: all inputs and instruction fields are generated. No private
   input or authentic execution was used; BOOT-2 remains highest.
 
+## Era 18 — BLTZ and generated x105 branch frontier (2026-07-13)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, the primary VR4300 BLTZ rule and
+  pinned bounded x105 identity/operand order; `LIVE_REPO_FACT`, direct Master
+  product and inspection commits; `RUNTIME_FACT`, generated focused tests,
+  expanded step probe, clean checkout, and complete Rust gates.
+- Signed-width decision: BLTZ reuses the existing full-GPR signed comparator
+  already owned by SLT/SLTI. Discriminating positive-low-word-negative and
+  negative-low-word-zero values prevent accidental 32-bit interpretation. No
+  CPU-mode framework was added.
+- Accepted product increment: only non-linking/non-likely `RegimmBltz` joins
+  ordinary control-flow planning/application. Known source, signed condition,
+  branch target, untaken successor, one slot, Count, nested-control-flow
+  rejection, and slot exception EPC/BD are exact. Every other REGIMM identity
+  remains unrepresented.
+- Generated composition: BLTZ commits as step 14 and its aligned r0 `Sw` slot
+  writes SP IMEM local `0x00C` as step 15. PC/next-PC become
+  `0xA400007C / 0xA4000080`, Count is `15`, and `Cop0Mtc0` to Cause is the next
+  explicit unrepresented frontier.
+- Proof boundary: all inputs and instruction fields are generated. No private
+  input, COP0 execution, authentic execution, BOOT-3, or compatibility fact was
+  added. BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

@@ -41,6 +41,13 @@ Cause.BD, write the owner PC to EPC, leave the faulting slot Count unchanged,
 prevent target commit, and clear context after successful entry. A branch/jump
 in the slot is unsupported rollback, not an exception.
 
+Non-linking/non-likely BLTZ uses that same owner without adding exception
+semantics. Focused generated proof covers taken BLTZ with an AdES slot and
+untaken BLTZ with an AdEL slot: EPC is the BLTZ PC, BD is set, BadVAddr is
+exact, the branch Count remains, the faulting slot adds zero, and neither
+target nor fall-through commits. `Cop0Mtc0` at the next generated frontier is
+decoded but unrepresented; this page gains no COP0 instruction executor.
+
 Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
 owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting
 load. It reuses the existing exception entry and adds no COP0 field or policy.

@@ -70,7 +70,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the twenty-eight-case step probe, the bounded BOOT-2 probe,
+construction/reset probe, the thirty-eight-case step probe, the bounded BOOT-2 probe,
 and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -79,8 +79,9 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a thirteen-step generated x105 composition through SP-IMEM `Sw` to
-the `RegimmBltz` frontier, but it does not prove an authentic firmware-executed handoff,
+handoff and a fifteen-step generated x105 composition through BLTZ and its
+SP-IMEM zero-store slot to the `Cop0Mtc0` frontier, but it does not prove an
+authentic firmware-executed handoff,
 BOOT-3, timing, full ISA, game compatibility,
 renderer, audio, performance, or host integration.
 

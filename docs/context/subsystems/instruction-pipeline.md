@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the twenty-eight-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the thirty-eight-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct
@@ -40,21 +40,22 @@ cold-x105 test proves the Machine bootstrap plan can source the inherited t3
 operand before `Machine::step`; that source gate still rejects every unstaged
 GPR and does not imply IPL2 execution. Generated-only continuation now commits
 the SP-IMEM load, the earlier-missing SP-DMEM load, the following logical
-transform, three SP-IMEM stores, and an ordinary branch/slot, then stops
-atomically at recognized but unrepresented `RegimmBltz`.
+transform, four SP-IMEM stores, BNE/BLTZ, and both ordinary slots, then stops
+atomically at recognized but unrepresented `Cop0Mtc0` to Cause.
 
 The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct SP IMEM, and only
 then captures source value/lineage and constructs an infallible write plan.
 Application neither reclassifies nor discovers a new failure.
 
-Ordinary `BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` identities now select
-one bounded Machine-owned action before sequential staging. A control-flow
-identity inside a represented slot selects explicit unsupported rollback.
-Application schedules or clears the CPU-owned slot context; it does not refetch
-or re-identify.
+Ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and
+`JALR` identities now select one bounded Machine-owned action before sequential
+staging. BLTZ alone reuses the existing full-GPR signed comparator; no generic
+REGIMM executor exists. A control-flow identity inside a represented slot
+selects explicit unsupported rollback. Application schedules or clears the
+CPU-owned slot context; it does not refetch or re-identify.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, branch-likely
-and other control-flow families, nested control-flow behavior, broad fetch
-mapping, and instruction timing.
+and other REGIMM/control-flow families, COP0 instruction execution, nested
+control-flow behavior, broad fetch mapping, and instruction timing.

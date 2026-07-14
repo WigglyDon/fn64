@@ -323,6 +323,23 @@ address, target miss, RDRAM, SP DMEM, blocked exception entry, and bounds
 failure preserve all represented state. RDRAM/SP-DMEM/device stores, other
 store identities, a generic store path, bus, and generalized map remain absent.
 
+### Machine-owned non-likely `BLTZ`
+
+`RegimmBltz` extends the existing ordinary-control-flow planner and applicator
+without generalizing REGIMM. Planning reads old known `rs`, reuses the exact
+full-GPR signed comparison already owned by SLT/SLTI, and selects the common
+wrapping branch target `PC + 4 + (sign_extend(offset16) << 2)` or wrapping
+untaken successor `PC + 8`. Both paths schedule exactly one ordinary delay
+slot. BLTZ writes no destination, creates no link, performs no annul, preserves
+the source value/lineage, and advances Count once.
+
+Unknown bootstrap source rejects before application. BLTZ inside an active
+delay slot joins the existing control-flow rejection matrix before source
+consumption. A represented slot fault retains the branch Count, advances the
+slot Count zero times, uses the BLTZ PC for EPC with BD set, commits neither
+target nor fall-through, and reuses the existing AdEL/AdES owner. BGEZ, likely
+and link variants, and REGIMM traps remain unrepresented.
+
 ### Other represented outcomes
 
 - `SYNC` commits as an explicit no-effect instruction.
@@ -364,10 +381,11 @@ event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
 Generated tests separately prove the NTSC cold x105 coupled creation point and
-thirteen public-step commits through the accepted prefix, three SP-IMEM `Sw`
-operations, one BNE and its slot, and already represented arithmetic/loads.
-The final synthetic state is PC/next-PC `0xA4000074 / 0xA4000078` with Count
-`13`; recognized `RegimmBltz` is the next unrepresented frontier and rejects
+fifteen public-step commits through the accepted prefix, SP-IMEM stores, BNE
+and BLTZ with their ordinary slots, and already represented arithmetic/loads.
+The BLTZ slot writes one known zero word at SP IMEM local `0x00C`. The final
+synthetic state is PC/next-PC `0xA400007C / 0xA4000080` with Count `15`;
+recognized `Cop0Mtc0` to Cause is the next unrepresented frontier and rejects
 without mutation. These tests are synthetic composition proof and are not an
 authentic IPL2-to-IPL3 run.
 One-word staging would be both incomplete and unauthorized: the observed x105
@@ -380,8 +398,8 @@ reached.
 Identity classification may name instructions that the public step does not
 execute. Current explicit absences include:
 
-- branch-likely annul, REGIMM branches, COP0 branches, and execution of a
-  branch or jump inside a delay slot;
+- branch-likely annul, every REGIMM identity except non-linking/non-likely
+  BLTZ, COP0 branches, and execution of a branch or jump inside a delay slot;
 - CPU load/store instructions other than aligned `Lw` and SP-IMEM-only aligned
   `Sw`, plus unaligned merge operations; `Lw` has no device/MMIO or
   unclassified SP-DMEM source route, and `Sw` has no RDRAM, SP-DMEM, or device
@@ -410,7 +428,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its twenty-eight cases cover:
+calls only public `Machine::step` for execution. Its thirty-eight cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -425,7 +443,11 @@ calls only public `Machine::step` for execution. Its twenty-eight cases cover:
 - delay-slot SP-DMEM-shaped AdEL;
 - SP-IMEM `Sw` commit, big-endian bytes/provenance, `Lw` round trip, r0 and
   `rs == rt`, AdES, delay-slot AdES, and fail-closed operand/target rejection;
-- thirteen-step generated x105 composition to the `RegimmBltz` frontier;
+- BLTZ taken/untaken/full-width signed discrimination, positive/negative
+  targets, ordinary slot commit, slot exception, nested-control-flow rejection,
+  and unknown-source rejection;
+- fifteen-step generated x105 composition through BLTZ and its zero-store slot
+  to the `Cop0Mtc0` frontier;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

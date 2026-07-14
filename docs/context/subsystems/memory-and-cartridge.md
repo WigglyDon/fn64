@@ -82,8 +82,8 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated
 proof combines it atomically with the bounded NTSC cold-x105 CPU handoff and
-advances a generated thirteen-step composition through SP-IMEM `Sw` to
-`RegimmBltz`. It
+advances a generated fifteen-step composition through BLTZ and its fourth
+SP-IMEM `Sw`, a zero word at local `0x00C`, to `Cop0Mtc0`. It
 does not establish authentic SP IMEM contents, firmware-executed handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists
