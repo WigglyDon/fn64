@@ -22,9 +22,9 @@ decided before target/source access. Count and normal cadence do not advance on
 represented fault entry.
 An unaligned `Sw` enters the same sealed data-address-error owner with write
 kind, AdES code 5, and exact BadVAddr. Alignment is resolved before store-source
-consumption. No SP-IMEM byte or provenance changes, no normal cadence commits,
-no RI_CONFIG state changes, no normal cadence commits, and Count advances zero
-times. The exact RI_CONFIG route adds no RI-specific exception.
+consumption. No SP-IMEM byte or provenance changes, no RI_CONFIG or
+RI_CURRENT_LOAD state changes, no normal cadence commits, and Count advances
+zero times. The two exact RI write routes add no RI-specific exception.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 

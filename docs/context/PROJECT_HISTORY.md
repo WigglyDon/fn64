@@ -387,6 +387,29 @@ product or reference lane requires a new explicit product decision.
   calibration. RI_CURRENT_LOAD, RDRAM initialization, generic MMIO, authentic
   execution, BOOT-3, and compatibility remain absent. BOOT-2 remains highest.
 
+## Era 22 — RI_CURRENT_LOAD event and generated RI_SELECT frontier (2026-07-14)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned RI definitions naming
+  RI_CURRENT_LOAD write-only and any-write update behavior plus bounded x105
+  source order; `LIVE_REPO_FACT`, direct Master evidence, product, and
+  inspection commits; `RUNTIME_FACT`, generated focused tests and public-step
+  proof.
+- Source decision: `RI_CURRENT_LOAD_UPDATE_EVENT_REPRESENTABLE`. The event
+  records which stored RI_CONFIG input/enable fields the known CPU store
+  consumed, plus low-word store evidence and source lineage. It does not invent
+  a current-control output or calibration result.
+- Accepted product increment: exact direct KSEG0/KSEG1 aligned `Sw` aliases of
+  physical `0x04700008` create the Machine-owned event only when RI_CONFIG is
+  available. Reset and repeated cold bootstrap clear stale state; RI_SELECT,
+  RI_CONFIG, and all memory remain otherwise unchanged.
+- Generated composition: commit 32,036 stores r0 to RI_CURRENT_LOAD and
+  snapshots input zero/enable true. Commit 32,037 executes `Ori r9,r0,0x14`.
+  Final PC/next-PC are `0xA40000E4 / 0xA40000E8`, Count is `32021`, and the
+  next `Sw` to RI_SELECT at physical `0x0470000C` rejects atomically.
+- Proof boundary: no current-control output, hardware timing, RDRAM readiness,
+  RI_SELECT write, RI_MODE, authentic execution, BOOT-3, or compatibility is
+  represented. BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

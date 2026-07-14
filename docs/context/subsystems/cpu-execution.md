@@ -58,10 +58,12 @@ is unknown, so that instance rejects without mutation.
 
 Aligned `Sw` is a separate Machine-owned action. It reads the old base,
 resolves alignment before source consumption, accepts direct SP IMEM or exact
-RI_CONFIG only, then captures old source low word and exact lineage. RI_CONFIG
-planning additionally rejects undefined high bits and selects only its input
-and enable fields. Success writes no GPR and advances normal cadence once;
-RI_CONFIG changes no memory. Sequential or delay-slot AdES delegates to COP0
+RI_CONFIG/RI_CURRENT_LOAD only, then captures old source low word and exact
+lineage. RI_CONFIG planning rejects undefined high bits and selects only its
+input/enable fields. RI_CURRENT_LOAD planning requires stored RI_CONFIG and
+snapshots those fields into one event. Success writes no GPR and advances
+normal cadence once; neither RI route changes memory. Sequential or delay-slot
+AdES delegates to COP0
 with zero faulting-instruction Count; unknown sources and unsupported targets
 restore the complete pre-step state.
 
@@ -73,12 +75,14 @@ pending before normal cadence. Unsupported contexts, encodings, and
 destinations reject before mutation, and no general CP0 executor exists.
 
 The same complete cold-x105 plan creates optional Machine-owned RI_SELECT zero
-with `ColdX105Entry` provenance and clears optional RI_CONFIG. The aligned-`Lw`
+with `ColdX105Entry` provenance and clears optional RI_CONFIG and
+RI_CURRENT_LOAD state. The aligned-`Lw`
 planner reads only RI_SELECT physical `0x0470000C`; aligned `Sw` writes only
-RI_CONFIG physical `0x04700004`, with CPU-store provenance and ordinary
-cadence. Neither path derives state from reset kind or generalizes CPU device
-access. RI_CONFIG reads, RI_CURRENT_LOAD, calibration, and timing remain
-absent.
+RI_CONFIG physical `0x04700004` or RI_CURRENT_LOAD physical `0x04700008`, with
+CPU-store provenance and ordinary cadence. The event consumes stored RI_CONFIG
+without creating a hardware result. No path derives state from reset kind or
+generalizes CPU device access. RI_CONFIG/RI_CURRENT_LOAD reads, RI_SELECT
+writes, calibration, and timing remain absent.
 
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
@@ -94,11 +98,12 @@ format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
 tests for changes. Generated composition commits the exact RI_CONFIG `Sw`,
-installs wait count 8,000, executes 8,000 four-instruction loop iterations, and
-then rejects the RI_CURRENT_LOAD `Sw` as a direct target miss. This is CPU
+installs wait count 8,000, executes 8,000 four-instruction loop iterations,
+commits RI_CURRENT_LOAD and `Ori r9,r0,0x14`, and then rejects the RI_SELECT
+`Sw` as a direct target miss. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 branch-likely/other REGIMM and broader COP0 execution, every RI action except
-the exact RI_SELECT read and RI_CONFIG write, NMI, generic MMIO, nested control
-flow, other load/store families, and
+the exact RI_SELECT read, RI_CONFIG write, and RI_CURRENT_LOAD event, NMI,
+generic MMIO, nested control flow, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

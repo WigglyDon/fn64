@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-Sw planning for SP IMEM or exact RI_CONFIG, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
+`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-Sw planning for SP IMEM or exact RI_CONFIG/RI_CURRENT_LOAD, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the seventy-five-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the eighty-seven-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -44,10 +44,10 @@ GPR and does not imply IPL2 execution. Generated-only continuation now commits t
 earlier-missing
 SP-DMEM load, logical transforms, four prefix SP-IMEM stores, BNE/BLTZ, both
 ordinary slots, the bounded MTC0 trio, the stored RI_SELECT load, the cold BNE
-and NOP slot, five high-SP-IMEM stack saves, the exact RI_CONFIG store, and
-8,000 four-instruction CPU-loop iterations. It stops atomically when the
-RI_CURRENT_LOAD `Sw` target classification misses; this proves no RI timing or
-calibration process.
+and NOP slot, five high-SP-IMEM stack saves, the exact RI_CONFIG store, 8,000
+four-instruction CPU-loop iterations, RI_CURRENT_LOAD update event, and
+following `Ori`. It stops atomically when the RI_SELECT `Sw` target
+classification misses; this proves no RI timing or calibration process.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
 source-backed cold-x105 access scope, and a known old source. Its immutable
@@ -57,9 +57,10 @@ introduced.
 
 The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct SP IMEM or exact
-RI_CONFIG, and only then captures source value/lineage and constructs a closed
-destination plan. RI_CONFIG planning also rejects undefined high bits before
-mutation. Application neither reclassifies nor discovers a new failure.
+RI_CONFIG/RI_CURRENT_LOAD, and only then captures source value/lineage and
+constructs a closed destination plan. RI_CONFIG planning rejects undefined
+high bits; RI_CURRENT_LOAD planning requires stored RI_CONFIG and snapshots its
+fields. Application neither reclassifies nor discovers a new failure.
 
 Ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and
 `JALR` identities now select one bounded Machine-owned action before sequential
@@ -71,5 +72,5 @@ CPU-owned slot context; it does not refetch or re-identify.
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, branch-likely
 and other REGIMM/control-flow families, broader COP0 instruction execution,
-RI_CURRENT_LOAD/other RI actions/NMI and generic MMIO, nested control-flow
+RI_SELECT writes/other RI actions/NMI and generic MMIO, nested control-flow
 behavior, broad fetch mapping, and instruction timing.
