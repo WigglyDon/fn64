@@ -6,14 +6,15 @@ use fn64_core::{
     load_cartridge, Cartridge, CartridgeLoadError, CpuAddressErrorKind, CpuInstructionIdentity,
     Machine, MachineBootstrapGprSource, MachineCartridgeBootstrapError,
     MachineCpuInstructionFetchError, MachineLoadWordRejectionReason, MachineLoadWordTarget,
-    MachineOrdinaryControlFlowRejectionReason, MachinePifIpl2HandoffBootMedium,
-    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineSpDmemLoadWordProvenance,
-    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
-    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
-    MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
-    MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
-    PifIpl2Profile, RdramAccessError, SpDmemOffset, PIF_BOOT_ROM_SIZE_BYTES,
+    MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
+    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
+    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineSpDmemLoadWordProvenance, MachineStepCadenceSource, MachineStepControlFlowAction,
+    MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory,
+    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
+    MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
+    PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
+    PIF_BOOT_ROM_SIZE_BYTES,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -53,6 +54,19 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: bltz-in-delay-slot-rejection ok\
 \ncase: bltz-unknown-source-rejection ok\
 \ncase: generated-x105-post-bltz-frontier ok\
+\ncase: mtc0-cause-clear-software-pending ok\
+\ncase: mtc0-cause-set-ip0 ok\
+\ncase: mtc0-cause-set-ip1 ok\
+\ncase: mtc0-cause-preserve-readonly-state ok\
+\ncase: mtc0-cause-preserve-timer-pending ok\
+\ncase: mtc0-count-write-before-cadence ok\
+\ncase: mtc0-count-compare-match-after-cadence ok\
+\ncase: mtc0-compare-clear-timer ok\
+\ncase: mtc0-compare-relatch-after-cadence ok\
+\ncase: mtc0-delay-slot-committed ok\
+\ncase: mtc0-unknown-source-rejection ok\
+\ncase: mtc0-unsupported-destination-rejection ok\
+\ncase: generated-x105-post-mtc0-trio-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -158,7 +172,10 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_bltz_conditions_and_targets()?;
     probe_bltz_delay_slot_paths()?;
     probe_bltz_rejections()?;
-    probe_generated_x105_post_bltz_frontier()?;
+    probe_mtc0_cause_and_timer()?;
+    probe_mtc0_count_and_compare_ordering()?;
+    probe_mtc0_delay_slot_and_rejections()?;
+    probe_generated_x105_post_mtc0_trio_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
     probe_control_flow_taken_delay_slot()?;
@@ -1114,11 +1131,356 @@ fn probe_bltz_rejections() -> Result<(), StepProbeError> {
     )
 }
 
-fn probe_generated_x105_post_bltz_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "generated-x105-post-bltz-frontier";
-    const FIRST_DATA_WORD: u32 = 0x1357_9000;
-    const SECOND_DATA_WORD: u32 = 0x1122_3344;
-    const THIRD_DATA_WORD: u32 = 0x89ab_cdef;
+fn probe_mtc0_cause_and_timer() -> Result<(), StepProbeError> {
+    const CLEAR_CASE: &str = "mtc0-cause-clear-software-pending";
+    let words = [
+        (0x40, immediate_word(0x0d, 0, 8, 0x0100)),
+        (0x44, cop0_move_word(4, 8, 13)),
+        (0x48, immediate_word(0x0d, 0, 8, 0)),
+        (0x4c, cop0_move_word(4, 8, 13)),
+    ];
+    let (mut clear, _) = generated_cold_x105_machine(CLEAR_CASE, &words)?;
+    require(
+        CLEAR_CASE,
+        !clear.cpu().cop0_software_interrupt_pending_known(),
+        "software pending initially unknown",
+    )?;
+    require_committed_identity(
+        CLEAR_CASE,
+        step(&mut clear, CLEAR_CASE)?,
+        CpuInstructionIdentity::Ori,
+    )?;
+    require_mtc0_commit(
+        CLEAR_CASE,
+        step(&mut clear, CLEAR_CASE)?,
+        MachineMtc0Destination::CauseSoftwareInterruptPending,
+        0x0100,
+    )?;
+    require(
+        CLEAR_CASE,
+        clear.cpu().cop0_software_interrupt_pending() == 0x0100,
+        "IP0 set",
+    )?;
+    require_committed_identity(
+        CLEAR_CASE,
+        step(&mut clear, CLEAR_CASE)?,
+        CpuInstructionIdentity::Ori,
+    )?;
+    require_mtc0_commit(
+        CLEAR_CASE,
+        step(&mut clear, CLEAR_CASE)?,
+        MachineMtc0Destination::CauseSoftwareInterruptPending,
+        0,
+    )?;
+    require(
+        CLEAR_CASE,
+        clear.cpu().cop0_software_interrupt_pending() == 0
+            && clear.cpu().cop0_software_interrupt_pending_known(),
+        "known cleared software pending",
+    )?;
+
+    const IP1_CASE: &str = "mtc0-cause-set-ip1";
+    let words = [
+        (0x40, immediate_word(0x0d, 0, 8, 0x0200)),
+        (0x44, cop0_move_word(4, 8, 13)),
+    ];
+    let (mut ip1, _) = generated_cold_x105_machine(IP1_CASE, &words)?;
+    step(&mut ip1, IP1_CASE)?;
+    require_mtc0_commit(
+        IP1_CASE,
+        step(&mut ip1, IP1_CASE)?,
+        MachineMtc0Destination::CauseSoftwareInterruptPending,
+        0x0200,
+    )?;
+    require(
+        IP1_CASE,
+        ip1.cpu().cop0_software_interrupt_pending() == 0x0200,
+        "IP1 set without IP0",
+    )?;
+
+    const READONLY_CASE: &str = "mtc0-cause-preserve-readonly-state";
+    let words = [(0x40, immediate_word(0x23, 11, 8, 0x0041))];
+    let (mut readonly, _) = generated_cold_x105_machine(READONLY_CASE, &words)?;
+    readonly
+        .write_rdram_u32_be(0x180, cop0_move_word(4, 0, 13))
+        .map_err(|source| StepProbeError::Rdram {
+            case: READONLY_CASE,
+            source,
+        })?;
+    require(
+        READONLY_CASE,
+        matches!(
+            step(&mut readonly, READONLY_CASE)?,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Lw,
+                ..
+            }
+        ),
+        "generated AdEL entered",
+    )?;
+    let readonly_before = (
+        readonly.cpu().cop0_status(),
+        readonly.cpu().cop0_epc(),
+        readonly.cpu().cop0_bad_vaddr(),
+        readonly.cpu().cop0_exception_code(),
+        readonly.cpu().cop0_exception_branch_delay(),
+    );
+    require_mtc0_commit(
+        READONLY_CASE,
+        step(&mut readonly, READONLY_CASE)?,
+        MachineMtc0Destination::CauseSoftwareInterruptPending,
+        0,
+    )?;
+    require(
+        READONLY_CASE,
+        readonly_before
+            == (
+                readonly.cpu().cop0_status(),
+                readonly.cpu().cop0_epc(),
+                readonly.cpu().cop0_bad_vaddr(),
+                readonly.cpu().cop0_exception_code(),
+                readonly.cpu().cop0_exception_branch_delay(),
+            ),
+        "Cause read-only fields preserved",
+    )?;
+
+    const TIMER_CASE: &str = "mtc0-cause-preserve-timer-pending";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xffff)),
+        (0x44, immediate_word(0x0d, 8, 8, 0xffff)),
+        (0x48, cop0_move_word(4, 8, 9)),
+        (0x4c, cop0_move_word(4, 0, 13)),
+    ];
+    let (mut timer, _) = generated_cold_x105_machine(TIMER_CASE, &words)?;
+    step(&mut timer, TIMER_CASE)?;
+    step(&mut timer, TIMER_CASE)?;
+    require_mtc0_commit(
+        TIMER_CASE,
+        step(&mut timer, TIMER_CASE)?,
+        MachineMtc0Destination::Count,
+        0xffff_ffff,
+    )?;
+    require(
+        TIMER_CASE,
+        timer.cpu().cop0_count() == 0 && timer.cpu().cop0_timer_interrupt_pending(),
+        "post-write equality latched timer",
+    )?;
+    require_mtc0_commit(
+        TIMER_CASE,
+        step(&mut timer, TIMER_CASE)?,
+        MachineMtc0Destination::CauseSoftwareInterruptPending,
+        0,
+    )?;
+    require(
+        TIMER_CASE,
+        timer.cpu().cop0_timer_interrupt_pending(),
+        "Cause preserved timer pending",
+    )
+}
+
+fn probe_mtc0_count_and_compare_ordering() -> Result<(), StepProbeError> {
+    const COUNT_CASE: &str = "mtc0-count-write-before-cadence";
+    let (mut zero, _) =
+        generated_cold_x105_machine(COUNT_CASE, &[(0x40, cop0_move_word(4, 0, 9))])?;
+    require_mtc0_commit(
+        COUNT_CASE,
+        step(&mut zero, COUNT_CASE)?,
+        MachineMtc0Destination::Count,
+        0,
+    )?;
+    require(
+        COUNT_CASE,
+        zero.cpu().cop0_count() == 1,
+        "Count zero write precedes one cadence increment",
+    )?;
+
+    const MATCH_CASE: &str = "mtc0-count-compare-match-after-cadence";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xffff)),
+        (0x44, immediate_word(0x0d, 8, 8, 0xffff)),
+        (0x48, cop0_move_word(4, 8, 9)),
+    ];
+    let (mut matching, _) = generated_cold_x105_machine(MATCH_CASE, &words)?;
+    step(&mut matching, MATCH_CASE)?;
+    step(&mut matching, MATCH_CASE)?;
+    require_mtc0_commit(
+        MATCH_CASE,
+        step(&mut matching, MATCH_CASE)?,
+        MachineMtc0Destination::Count,
+        0xffff_ffff,
+    )?;
+    require(
+        MATCH_CASE,
+        matching.cpu().cop0_count() == 0 && matching.cpu().cop0_timer_interrupt_pending(),
+        "Count cadence equality latches timer",
+    )?;
+
+    const CLEAR_CASE: &str = "mtc0-compare-clear-timer";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xffff)),
+        (0x44, immediate_word(0x0d, 8, 8, 0xffff)),
+        (0x48, cop0_move_word(4, 8, 9)),
+        (0x4c, cop0_move_word(4, 22, 11)),
+    ];
+    let (mut clear, _) = generated_cold_x105_machine(CLEAR_CASE, &words)?;
+    step(&mut clear, CLEAR_CASE)?;
+    step(&mut clear, CLEAR_CASE)?;
+    step(&mut clear, CLEAR_CASE)?;
+    require(
+        CLEAR_CASE,
+        clear.cpu().cop0_timer_interrupt_pending(),
+        "timer preset",
+    )?;
+    require_mtc0_commit(
+        CLEAR_CASE,
+        step(&mut clear, CLEAR_CASE)?,
+        MachineMtc0Destination::Compare,
+        0x91,
+    )?;
+    require(
+        CLEAR_CASE,
+        clear.cpu().cop0_compare() == 0x91
+            && clear.cpu().cop0_count() == 1
+            && !clear.cpu().cop0_timer_interrupt_pending(),
+        "Compare clears before nonmatching cadence",
+    )?;
+
+    const RELATCH_CASE: &str = "mtc0-compare-relatch-after-cadence";
+    let words = [
+        (0x40, immediate_word(0x0d, 0, 8, 0x008f)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x0091)),
+        (0x48, cop0_move_word(4, 8, 9)),
+        (0x4c, cop0_move_word(4, 9, 11)),
+    ];
+    let (mut relatch, _) = generated_cold_x105_machine(RELATCH_CASE, &words)?;
+    step(&mut relatch, RELATCH_CASE)?;
+    step(&mut relatch, RELATCH_CASE)?;
+    step(&mut relatch, RELATCH_CASE)?;
+    require(
+        RELATCH_CASE,
+        relatch.cpu().cop0_count() == 0x90,
+        "Count staged one below new Compare",
+    )?;
+    require_mtc0_commit(
+        RELATCH_CASE,
+        step(&mut relatch, RELATCH_CASE)?,
+        MachineMtc0Destination::Compare,
+        0x91,
+    )?;
+    require(
+        RELATCH_CASE,
+        relatch.cpu().cop0_count() == 0x91
+            && relatch.cpu().cop0_compare() == 0x91
+            && relatch.cpu().cop0_timer_interrupt_pending(),
+        "Compare clear precedes post-cadence relatch",
+    )
+}
+
+fn probe_mtc0_delay_slot_and_rejections() -> Result<(), StepProbeError> {
+    const DELAY_CASE: &str = "mtc0-delay-slot-committed";
+    let words = [
+        (0x40, branch_word(0x04, 0, 0, 1)),
+        (0x44, cop0_move_word(4, 0, 13)),
+        (0x48, special_word(0, 0, 0, 0)),
+    ];
+    let (mut delay, _) = generated_cold_x105_machine(DELAY_CASE, &words)?;
+    require_committed_identity(
+        DELAY_CASE,
+        step(&mut delay, DELAY_CASE)?,
+        CpuInstructionIdentity::Beq,
+    )?;
+    require_mtc0_commit(
+        DELAY_CASE,
+        step(&mut delay, DELAY_CASE)?,
+        MachineMtc0Destination::CauseSoftwareInterruptPending,
+        0,
+    )?;
+    require(
+        DELAY_CASE,
+        delay.cpu().pc() == 0xa400_0048
+            && delay.cpu().next_pc() == 0xa400_004c
+            && delay.cpu_delay_slot_context().is_none()
+            && delay.cpu().cop0_count() == 2,
+        "ordinary slot destination and cadence committed",
+    )?;
+
+    const UNKNOWN_CASE: &str = "mtc0-unknown-source-rejection";
+    let (mut unknown, _) =
+        generated_cold_x105_machine(UNKNOWN_CASE, &[(0x40, cop0_move_word(4, 8, 13))])?;
+    let before = (
+        unknown.cpu().pc(),
+        unknown.cpu().next_pc(),
+        unknown.cpu().cop0_count(),
+    );
+    match unknown.step() {
+        Err(MachineRepresentedStepError::Mtc0Rejected(rejection)) => require(
+            UNKNOWN_CASE,
+            rejection.reason()
+                == MachineMtc0RejectionReason::SourceUnavailable {
+                    register_index: 8,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
+                },
+            "unknown source rejection",
+        )?,
+        Err(source) => {
+            return Err(StepProbeError::Step {
+                case: UNKNOWN_CASE,
+                source,
+            })
+        }
+        Ok(_) => return assertion(UNKNOWN_CASE, "unknown source rejected"),
+    }
+    require(
+        UNKNOWN_CASE,
+        before
+            == (
+                unknown.cpu().pc(),
+                unknown.cpu().next_pc(),
+                unknown.cpu().cop0_count(),
+            ),
+        "unknown source complete rollback",
+    )?;
+
+    const DEST_CASE: &str = "mtc0-unsupported-destination-rejection";
+    let (mut destination, _) =
+        generated_cold_x105_machine(DEST_CASE, &[(0x40, cop0_move_word(4, 0, 12))])?;
+    let before = (
+        destination.cpu().pc(),
+        destination.cpu().next_pc(),
+        destination.cpu().cop0_count(),
+    );
+    match destination.step() {
+        Err(MachineRepresentedStepError::Mtc0Rejected(rejection)) => require(
+            DEST_CASE,
+            rejection.reason()
+                == MachineMtc0RejectionReason::UnsupportedDestination { register_index: 12 },
+            "unsupported destination rejection",
+        )?,
+        Err(source) => {
+            return Err(StepProbeError::Step {
+                case: DEST_CASE,
+                source,
+            })
+        }
+        Ok(_) => return assertion(DEST_CASE, "unsupported destination rejected"),
+    }
+    require(
+        DEST_CASE,
+        before
+            == (
+                destination.cpu().pc(),
+                destination.cpu().next_pc(),
+                destination.cpu().cop0_count(),
+            ),
+        "unsupported destination complete rollback",
+    )
+}
+
+fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> {
+    const CASE: &str = "generated-x105-post-mtc0-trio-frontier";
+    let compare_word = cop0_move_word(4, 0, 11);
+    let ri_base_word = immediate_word(0x0f, 0, 8, 0xa470);
+    let ri_select_load_word = immediate_word(0x23, 8, 9, 0x000c);
     let words = [
         (0x40, special_word(29, 0, 9, 0x20)),
         (0x44, immediate_word(0x23, 9, 8, 0xf010)),
@@ -1136,9 +1498,10 @@ fn probe_generated_x105_post_bltz_frontier() -> Result<(), StepProbeError> {
         (0x74, immediate_word(0x01, 31, 0, 1)),
         (0x78, immediate_word(0x2b, 9, 0, 0xf018)),
         (0x7c, cop0_move_word(4, 0, 13)),
-        (0x84, FIRST_DATA_WORD),
-        (0x88, SECOND_DATA_WORD),
-        (0x8c, THIRD_DATA_WORD),
+        (0x80, cop0_move_word(4, 0, 9)),
+        (0x84, compare_word),
+        (0x88, ri_base_word),
+        (0x8c, ri_select_load_word),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -1246,31 +1609,91 @@ fn probe_generated_x105_post_bltz_frontier() -> Result<(), StepProbeError> {
         machine.cpu_delay_slot_context().is_none(),
         "post-slot context cleared",
     )?;
+    require_mtc0_commit(
+        CASE,
+        step(&mut machine, CASE)?,
+        MachineMtc0Destination::CauseSoftwareInterruptPending,
+        0,
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_software_interrupt_pending_known()
+            && machine.cpu().cop0_software_interrupt_pending() == 0
+            && machine.cpu().cop0_count() == 16,
+        "generated MTC0 Cause",
+    )?;
+    require_mtc0_commit(
+        CASE,
+        step(&mut machine, CASE)?,
+        MachineMtc0Destination::Count,
+        0,
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == 1,
+        "generated MTC0 Count",
+    )?;
+    require_mtc0_commit(
+        CASE,
+        step(&mut machine, CASE)?,
+        MachineMtc0Destination::Compare,
+        0,
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_compare() == 0
+            && machine.cpu().cop0_count() == 2
+            && !machine.cpu().cop0_timer_interrupt_pending(),
+        "generated MTC0 Compare",
+    )?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require(
+        CASE,
+        machine.cpu().gpr(8) == Some(0xffff_ffff_a470_0000)
+            && machine.cpu().pc() == 0xa400_008c
+            && machine.cpu().next_pc() == 0xa400_0090
+            && machine.cpu().cop0_count() == 3,
+        "generated RI base construction",
+    )?;
+
     let pc_before = machine.cpu().pc();
     let next_pc_before = machine.cpu().next_pc();
     let count_before = machine.cpu().cop0_count();
     match machine.step() {
-        Err(MachineRepresentedStepError::UnrepresentedInstruction {
-            identity: CpuInstructionIdentity::Cop0Mtc0,
-            ..
-        }) => {}
+        Err(MachineRepresentedStepError::LoadWordRejected(rejection)) => {
+            require(
+                CASE,
+                rejection.effective_address() == 0xffff_ffff_a470_000c,
+                "RI_SELECT effective address",
+            )?;
+            require(
+                CASE,
+                rejection.cpu_address() == CpuAddress::new(0xa470_000c),
+                "RI_SELECT CPU address",
+            )?;
+            require(
+                CASE,
+                rejection.reason() == MachineLoadWordRejectionReason::DirectTargetMiss,
+                "RI_SELECT direct target miss",
+            )?;
+        }
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "MTC0 Cause next frontier"),
+        Ok(_) => return assertion(CASE, "RI_SELECT next frontier"),
     }
     require(
         CASE,
         machine.cpu().pc() == pc_before,
-        "frontier pc rollback",
+        "RI frontier pc rollback",
     )?;
     require(
         CASE,
         machine.cpu().next_pc() == next_pc_before,
-        "frontier next_pc rollback",
+        "RI frontier next_pc rollback",
     )?;
     require(
         CASE,
         machine.cpu().cop0_count() == count_before,
-        "frontier Count rollback",
+        "RI frontier Count rollback",
     )
 }
 
@@ -1761,6 +2184,30 @@ fn require_committed_identity(
                 && cadence_plan.count_action() == MachineStepCountAction::Advance
         ),
         "committed identity and cadence",
+    )
+}
+
+fn require_mtc0_commit(
+    case: &'static str,
+    outcome: MachineRepresentedStepOutcome,
+    expected_destination: MachineMtc0Destination,
+    expected_transfer_word: u32,
+) -> Result<(), StepProbeError> {
+    require(
+        case,
+        matches!(
+            outcome,
+            MachineRepresentedStepOutcome::Mtc0Committed {
+                destination,
+                transfer_word,
+                cadence_plan,
+                ..
+            } if destination == expected_destination
+                && transfer_word == expected_transfer_word
+                && cadence_plan.source() == MachineStepCadenceSource::CommittedInstruction
+                && cadence_plan.count_action() == MachineStepCountAction::Advance
+        ),
+        "MTC0 destination, transfer word, and cadence",
     )
 }
 
