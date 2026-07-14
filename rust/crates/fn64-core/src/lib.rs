@@ -5,6 +5,7 @@ pub mod cpu;
 pub mod machine;
 mod pif_firmware;
 pub mod rdram;
+mod ri;
 pub mod sp_dmem;
 mod sp_imem;
 
@@ -63,4 +64,5 @@ pub use pif_firmware::{
     PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
 };
 pub use rdram::{Rdram, RdramAccessError, RDRAM_SIZE_BYTES};
+pub use ri::{MachineRiSelectSource, MachineRiSelectState, RI_SELECT_PHYSICAL_ADDRESS};
 pub use sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};

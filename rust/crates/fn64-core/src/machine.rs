@@ -19,6 +19,7 @@ use crate::pif_firmware::{
     MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError, PifIpl2Profile,
 };
 use crate::rdram::{Rdram, RdramAccessError};
+use crate::ri::{MachineRiSelectSource, MachineRiSelectState, Ri, RI_SELECT_PHYSICAL_ADDRESS};
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
 use crate::sp_imem::{SpImem, SpImemOffset, SpImemStoreWordPlan, SP_IMEM_SIZE_BYTES};
 #[cfg(test)]
@@ -117,34 +118,44 @@ pub enum MachineLoadWordTarget {
     SpImem {
         offset: u32,
     },
+    RiSelect {
+        source: MachineRiSelectSource,
+    },
 }
 
 impl MachineLoadWordTarget {
     pub const fn direct_rdram_offset(self) -> Option<RdramOffset> {
         match self {
             Self::DirectRdram { offset } => Some(offset),
-            Self::SpDmem { .. } | Self::SpImem { .. } => None,
+            Self::SpDmem { .. } | Self::SpImem { .. } | Self::RiSelect { .. } => None,
         }
     }
 
     pub const fn sp_dmem_offset(self) -> Option<SpDmemOffset> {
         match self {
             Self::SpDmem { offset, .. } => Some(offset),
-            Self::DirectRdram { .. } | Self::SpImem { .. } => None,
+            Self::DirectRdram { .. } | Self::SpImem { .. } | Self::RiSelect { .. } => None,
         }
     }
 
     pub const fn sp_dmem_provenance(self) -> Option<MachineSpDmemLoadWordProvenance> {
         match self {
             Self::SpDmem { provenance, .. } => Some(provenance),
-            Self::DirectRdram { .. } | Self::SpImem { .. } => None,
+            Self::DirectRdram { .. } | Self::SpImem { .. } | Self::RiSelect { .. } => None,
         }
     }
 
     pub const fn sp_imem_offset(self) -> Option<u32> {
         match self {
             Self::SpImem { offset } => Some(offset),
-            Self::DirectRdram { .. } | Self::SpDmem { .. } => None,
+            Self::DirectRdram { .. } | Self::SpDmem { .. } | Self::RiSelect { .. } => None,
+        }
+    }
+
+    pub const fn ri_select_source(self) -> Option<MachineRiSelectSource> {
+        match self {
+            Self::RiSelect { source } => Some(source),
+            Self::DirectRdram { .. } | Self::SpDmem { .. } | Self::SpImem { .. } => None,
         }
     }
 }
@@ -158,6 +169,7 @@ pub enum MachineLoadWordRejectionReason {
     SpDmemReadRejected,
     SpImemUnknown { first_unknown_offset: u32 },
     SpImemReadRejected,
+    RiSelectUnavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,6 +379,7 @@ pub(crate) enum MachineCpuDataWordTargetError {
     Unaligned { cpu_address: CpuAddress },
     NonDirectUnsupported { cpu_address: CpuAddress },
     DirectTargetMiss { cpu_address: CpuAddress },
+    RiSelectUnavailable { cpu_address: CpuAddress },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2983,6 +2996,7 @@ pub struct Machine {
     rdram: Rdram,
     sp_dmem: SpDmem,
     sp_imem: SpImem,
+    ri: Ri,
     cpu_rdram_reservation: CpuRdramReservation,
     cartridge_bootstrap: Option<MachineCartridgeBootstrapState>,
     powered_on: bool,
@@ -3002,6 +3016,7 @@ impl Machine {
             rdram: Rdram::default(),
             sp_dmem: SpDmem::default(),
             sp_imem: SpImem::default(),
+            ri: Ri::default(),
             cpu_rdram_reservation: CpuRdramReservation::new(),
             cartridge_bootstrap: None,
             powered_on: true,
@@ -3013,9 +3028,14 @@ impl Machine {
         self.rdram = Rdram::default();
         self.sp_dmem = SpDmem::default();
         self.sp_imem = SpImem::default();
+        self.ri = Ri::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.cartridge_bootstrap = None;
         self.powered_on = true;
+    }
+
+    pub const fn ri_select_state(&self) -> Option<MachineRiSelectState> {
+        self.ri.select_state()
     }
 
     /// Validates and transfers one owned raw PIF Boot ROM into this Machine.
@@ -3372,7 +3392,11 @@ impl Machine {
         let effective_address = base_value.wrapping_add_signed(signed_immediate);
         let cpu_address = CpuAddress::new(effective_address as u32);
 
-        let target = match classify_cpu_data_word_target(cpu_address, self.cartridge_bootstrap) {
+        let target = match classify_cpu_data_word_target(
+            cpu_address,
+            self.cartridge_bootstrap,
+            self.ri.select_state(),
+        ) {
             Ok(target) => target,
             Err(MachineCpuDataWordTargetError::Unaligned { .. }) => {
                 let address_error = select_cpu_data_address_error_for_access(
@@ -3404,6 +3428,15 @@ impl Machine {
                     cpu_address,
                     None,
                     MachineLoadWordRejectionReason::DirectTargetMiss,
+                ));
+            }
+            Err(MachineCpuDataWordTargetError::RiSelectUnavailable { .. }) => {
+                return Err(MachineLoadWordRejection::new(
+                    fields,
+                    effective_address,
+                    cpu_address,
+                    None,
+                    MachineLoadWordRejectionReason::RiSelectUnavailable,
                 ));
             }
         };
@@ -3463,6 +3496,14 @@ impl Machine {
                         )
                     })?;
                 known_word.value()
+            }
+            MachineLoadWordTarget::RiSelect { source } => {
+                let state = self
+                    .ri
+                    .select_state()
+                    .expect("RI_SELECT availability preflighted before the load plan");
+                debug_assert_eq!(state.source(), source);
+                state.value()
             }
         };
         let result_value = sign_extend_loaded_word(loaded_word);
@@ -4673,6 +4714,7 @@ const fn sign_extend_cpu_address(value: u32) -> u64 {
 fn classify_cpu_data_word_target(
     cpu_address: CpuAddress,
     cartridge_bootstrap: Option<MachineCartridgeBootstrapState>,
+    ri_select_state: Option<MachineRiSelectState>,
 ) -> Result<MachineLoadWordTarget, MachineCpuDataWordTargetError> {
     if (cpu_address.value() & 0x3) != 0 {
         return Err(MachineCpuDataWordTargetError::Unaligned { cpu_address });
@@ -4686,6 +4728,15 @@ fn classify_cpu_data_word_target(
         classify_direct_rdram_address(cpu_address, CPU_DATA_WORD_WIDTH)
     {
         return Ok(MachineLoadWordTarget::DirectRdram { offset });
+    }
+
+    if physical_address == RI_SELECT_PHYSICAL_ADDRESS {
+        let Some(state) = ri_select_state else {
+            return Err(MachineCpuDataWordTargetError::RiSelectUnavailable { cpu_address });
+        };
+        return Ok(MachineLoadWordTarget::RiSelect {
+            source: state.source(),
+        });
     }
 
     if let Some(offset) =
@@ -15516,6 +15567,7 @@ mod tests {
         rdram: Vec<u8>,
         sp_dmem: Vec<u8>,
         sp_imem: Vec<crate::sp_imem::SpImemByteObservation>,
+        ri_select: Option<MachineRiSelectState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
         reservation: (bool, u32, usize),
         powered_on: bool,
@@ -15563,6 +15615,7 @@ mod tests {
                         .unwrap()
                 })
                 .collect(),
+            ri_select: machine.ri_select_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
             reservation: (
                 machine.cpu_rdram_reservation.is_valid(),
@@ -15576,61 +15629,193 @@ mod tests {
     #[test]
     fn cpu_data_word_routing_is_narrow_for_direct_rdram_and_sp_memories() {
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_1000), None),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_1000), None, None),
             Ok(MachineLoadWordTarget::SpImem { offset: 0 })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0x8400_1000), None),
+            classify_cpu_data_word_target(CpuAddress::new(0x8400_1000), None, None),
             Ok(MachineLoadWordTarget::SpImem { offset: 0 })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_1ffc), None),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_1ffc), None, None),
             Ok(MachineLoadWordTarget::SpImem { offset: 0x0ffc })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0x8000_0100), None),
+            classify_cpu_data_word_target(CpuAddress::new(0x8000_0100), None, None),
             Ok(MachineLoadWordTarget::DirectRdram {
                 offset: RdramOffset::new(0x100),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_0040), None),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_0040), None, None),
             Ok(MachineLoadWordTarget::SpDmem {
                 offset: SpDmemOffset::new(0x40),
                 provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0x8400_0ffc), None),
+            classify_cpu_data_word_target(CpuAddress::new(0x8400_0ffc), None, None),
             Ok(MachineLoadWordTarget::SpDmem {
                 offset: SpDmemOffset::new(0x0ffc),
                 provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_1001), None),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_1001), None, None),
             Err(MachineCpuDataWordTargetError::Unaligned {
                 cpu_address: CpuAddress::new(0xa400_1001),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_2000), None),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_2000), None, None),
             Err(MachineCpuDataWordTargetError::DirectTargetMiss {
                 cpu_address: CpuAddress::new(0xa400_2000),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa404_0000), None),
+            classify_cpu_data_word_target(CpuAddress::new(0xa404_0000), None, None),
             Err(MachineCpuDataWordTargetError::DirectTargetMiss {
                 cpu_address: CpuAddress::new(0xa404_0000),
             })
         );
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0x0400_1000), None),
+            classify_cpu_data_word_target(CpuAddress::new(0x0400_1000), None, None),
             Err(MachineCpuDataWordTargetError::NonDirectUnsupported {
                 cpu_address: CpuAddress::new(0x0400_1000),
             })
         );
+
+        let ri_select_state = Some(MachineRiSelectState::cold_x105_entry());
+        for cpu_address in [0x8470_000c, 0xa470_000c] {
+            assert_eq!(
+                classify_cpu_data_word_target(CpuAddress::new(cpu_address), None, ri_select_state),
+                Ok(MachineLoadWordTarget::RiSelect {
+                    source: MachineRiSelectSource::ColdX105Entry,
+                })
+            );
+        }
+        assert_eq!(
+            classify_cpu_data_word_target(CpuAddress::new(0xa470_000c), None, None),
+            Err(MachineCpuDataWordTargetError::RiSelectUnavailable {
+                cpu_address: CpuAddress::new(0xa470_000c),
+            })
+        );
+        for cpu_address in [
+            0xa470_0000,
+            0xa470_0004,
+            0xa470_0008,
+            0xa470_0010,
+            0xa470_0014,
+            0xa46f_fffc,
+            0xa480_0000,
+        ] {
+            assert_eq!(
+                classify_cpu_data_word_target(CpuAddress::new(cpu_address), None, ri_select_state),
+                Err(MachineCpuDataWordTargetError::DirectTargetMiss {
+                    cpu_address: CpuAddress::new(cpu_address),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn ri_select_load_word_uses_exact_aliases_without_read_side_effects() {
+        for ri_base in [0x8470_u16, 0xa470_u16] {
+            let words = [
+                (0x40, immediate_word(0x0f, 0, 8, ri_base)),
+                (0x44, lw_word(8, 9, 0x000c)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x61);
+            let expected_ri_state = Some(MachineRiSelectState::cold_x105_entry());
+            assert_eq!(machine.ri_select_state(), expected_ri_state);
+
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                    identity: CpuInstructionIdentity::Lui,
+                    ..
+                })
+            ));
+            let ri_before = machine.ri_select_state();
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                    effective_address,
+                    target: MachineLoadWordTarget::RiSelect {
+                        source: MachineRiSelectSource::ColdX105Entry,
+                    },
+                    destination_gpr: 9,
+                    loaded_word: 0,
+                    result_value: 0,
+                    cadence_plan,
+                }) if effective_address == sign_extend_cpu_address(
+                    (u32::from(ri_base) << 16).wrapping_add(0x000c)
+                ) && cadence_plan.advances_count()
+            ));
+            assert_eq!(machine.cpu().gpr(9), Some(0));
+            assert_eq!(
+                machine.cartridge_bootstrap_state().unwrap().gpr_source(9),
+                Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0044),
+                    identity: CpuInstructionIdentity::Lw,
+                    source_gpr_a: Some(8),
+                    source_gpr_b: None,
+                })
+            );
+            assert_eq!(machine.cpu().pc(), 0xa400_0048);
+            assert_eq!(machine.cpu().next_pc(), 0xa400_004c);
+            assert_eq!(machine.cpu().cop0_count(), 2);
+            assert_eq!(machine.ri_select_state(), ri_before);
+        }
+    }
+
+    #[test]
+    fn ri_select_unavailable_and_unaligned_loads_preserve_or_enter_existing_truth() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, lw_word(8, 9, 0x000c)),
+        ];
+        let cartridge = load_cartridge(make_generated_lw_bootstrap_cartridge(
+            words[0].1, words[1].1,
+        ))
+        .unwrap();
+        let mut unavailable = Machine::from_cartridge(cartridge);
+        unavailable.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(unavailable.ri_select_state(), None);
+        unavailable.step().unwrap();
+        let before = lw_snapshot(&unavailable);
+        let rejection = unavailable
+            .step()
+            .unwrap_err()
+            .load_word_rejection()
+            .unwrap();
+        assert_eq!(rejection.cpu_address(), CpuAddress::new(0xa470_000c));
+        assert_eq!(
+            rejection.reason(),
+            MachineLoadWordRejectionReason::RiSelectUnavailable
+        );
+        assert_eq!(lw_snapshot(&unavailable), before);
+
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, lw_word(8, 9, 0x000d)),
+        ];
+        let (mut unaligned, _) = staged_generated_cold_x105_machine(&words, 0x62);
+        unaligned.step().unwrap();
+        let ri_before = unaligned.ri_select_state();
+        assert!(matches!(
+            unaligned.step(),
+            Ok(MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Lw,
+                effective_address: 0xffff_ffff_a470_000d,
+                address_error,
+                cadence_plan,
+            }) if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorLoad
+                && address_error.bad_vaddr() == CpuAddress::new(0xa470_000d)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(unaligned.ri_select_state(), ri_before);
+        assert_eq!(unaligned.cpu().cop0_count(), 1);
     }
 
     #[test]
@@ -15647,7 +15832,7 @@ mod tests {
             (0xa400_0ffc, 0x0ffc, 0x0ffc),
         ] {
             assert_eq!(
-                classify_cpu_data_word_target(CpuAddress::new(cpu_address), bootstrap),
+                classify_cpu_data_word_target(CpuAddress::new(cpu_address), bootstrap, None),
                 Ok(MachineLoadWordTarget::SpDmem {
                     offset: SpDmemOffset::new(offset),
                     provenance: MachineSpDmemLoadWordProvenance::CartridgeBootstrap {
@@ -15658,7 +15843,7 @@ mod tests {
         }
 
         assert_eq!(
-            classify_cpu_data_word_target(CpuAddress::new(0xa400_0000), bootstrap),
+            classify_cpu_data_word_target(CpuAddress::new(0xa400_0000), bootstrap, None),
             Ok(MachineLoadWordTarget::SpDmem {
                 offset: SpDmemOffset::new(0),
                 provenance: MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage,
@@ -16776,6 +16961,20 @@ mod tests {
             (0x84, first_data_word),
             (0x88, ri_base_word),
             (0x8c, ri_select_load_word),
+            (0x90, control_flow_branch_word(0x05, 9, 0, 15)),
+            (0x94, special_shift_word(0, 0, 0, 0, 0)),
+            (0x98, immediate_word(0x09, 29, 29, 0xffe8)),
+            (0x9c, sw_word(29, 19, 0x0000)),
+            (0xa0, sw_word(29, 20, 0x0004)),
+            (0xa4, sw_word(29, 21, 0x0008)),
+            (0xa8, sw_word(29, 22, 0x000c)),
+            (0xac, sw_word(29, 23, 0x0010)),
+            (0xb0, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0xb4, immediate_word(0x0f, 0, 10, 0xa3f8)),
+            (0xb8, immediate_word(0x0f, 0, 11, 0xa3f0)),
+            (0xbc, immediate_word(0x0f, 0, 12, 0xa430)),
+            (0xc0, immediate_word(0x0d, 0, 9, 0x0040)),
+            (0xc4, sw_word(8, 9, 0x0004)),
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -16964,16 +17163,152 @@ mod tests {
         assert_eq!(machine.cpu().pc(), 0xa400_008c);
         assert_eq!(machine.cpu().next_pc(), 0xa400_0090);
 
-        let before_ri_frontier = lw_snapshot(&machine);
-        let rejection = machine.step().unwrap_err().load_word_rejection().unwrap();
-        assert_eq!(rejection.effective_address(), 0xffff_ffff_a470_000c);
-        assert_eq!(rejection.cpu_address(), CpuAddress::new(0xa470_000c));
+        let ri_before = machine.ri_select_state();
+        assert_eq!(ri_before, Some(MachineRiSelectState::cold_x105_entry()));
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                effective_address: 0xffff_ffff_a470_000c,
+                target: MachineLoadWordTarget::RiSelect {
+                    source: MachineRiSelectSource::ColdX105Entry,
+                },
+                destination_gpr: 9,
+                loaded_word: 0,
+                result_value: 0,
+                cadence_plan,
+            }) if cadence_plan.advances_count()
+        ));
+        assert_eq!(machine.cpu().gpr(9), Some(0));
+        assert_eq!(machine.cpu().pc(), 0xa400_0090);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0094);
+        assert_eq!(machine.cpu().cop0_count(), 4);
+        assert_eq!(machine.ri_select_state(), ri_before);
+
+        assert_control_flow_commit(machine.step().unwrap(), CpuInstructionIdentity::Bne);
+        assert_scheduled_delay_slot(&machine, 0xa400_0090, 0xa400_0094, 0xa400_0098);
+        assert_eq!(machine.cpu().cop0_count(), 5);
+        assert_eq!(machine.ri_select_state(), ri_before);
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::SpecialSll,
+                cadence_plan,
+            }) if cadence_plan.advances_count()
+        ));
+        assert_eq!(machine.cpu().gpr(0), Some(0));
+        assert_eq!(machine.cpu().pc(), 0xa400_0098);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_009c);
+        assert_eq!(machine.cpu().cop0_count(), 6);
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Addiu,
+                cadence_plan,
+            }) if cadence_plan.advances_count()
+        ));
+        assert_eq!(machine.cpu().gpr(29), Some(0xffff_ffff_a400_1fd8));
+        assert_eq!(machine.cpu().cop0_count(), 7);
+
+        let untouched_before = [
+            0x0fd4, 0x0fd5, 0x0fd6, 0x0fd7, 0x0fec, 0x0fed, 0x0fee, 0x0fef,
+        ]
+        .map(|offset| {
+            machine
+                .sp_imem
+                .observe_byte(SpImemOffset::new(offset))
+                .unwrap()
+        });
+        for (index, (offset, source_gpr, stored_word)) in [
+            (0x0fd8, 19, 0_u32),
+            (0x0fdc, 20, 1_u32),
+            (0x0fe0, 21, 0_u32),
+            (0x0fe4, 22, 0x91_u32),
+            (0x0fe8, 23, 0_u32),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let instruction_pc = 0xa400_009c + (index as u32 * 4);
+            let expected_provenance = MachineSpImemStoreWordProvenance::new(
+                CpuAddress::new(instruction_pc),
+                source_gpr,
+                machine
+                    .cartridge_bootstrap_state()
+                    .unwrap()
+                    .gpr_source(usize::from(source_gpr))
+                    .unwrap(),
+            );
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::StoreWordCommitted {
+                    effective_address,
+                    target: MachineStoreWordTarget::SpImem { offset: observed_offset },
+                    source_gpr: observed_source,
+                    stored_word: observed_word,
+                    stored_bytes,
+                    provenance,
+                    cadence_plan,
+                }) if effective_address == 0xffff_ffff_a400_1000_u64 + u64::from(offset)
+                    && observed_offset == offset
+                    && observed_source == source_gpr
+                    && observed_word == stored_word
+                    && stored_bytes == stored_word.to_be_bytes()
+                    && provenance == expected_provenance
+                    && cadence_plan.advances_count()
+            ));
+            for (byte_index, expected_byte) in stored_word.to_be_bytes().into_iter().enumerate() {
+                let observation = machine
+                    .sp_imem
+                    .observe_byte(SpImemOffset::new(offset + byte_index as u32))
+                    .unwrap();
+                assert_eq!(observation.value(), expected_byte);
+                assert_eq!(
+                    observation.provenance(),
+                    SpImemByteProvenance::CpuStoreWord {
+                        provenance: expected_provenance,
+                    }
+                );
+            }
+        }
+        assert_eq!(
+            [0x0fd4, 0x0fd5, 0x0fd6, 0x0fd7, 0x0fec, 0x0fed, 0x0fee, 0x0fef].map(|offset| {
+                machine
+                    .sp_imem
+                    .observe_byte(SpImemOffset::new(offset))
+                    .unwrap()
+            }),
+            untouched_before
+        );
+        assert_eq!(machine.cpu().cop0_count(), 12);
+
+        for (identity, register_index, expected_value) in [
+            (CpuInstructionIdentity::Lui, 8, 0xffff_ffff_a470_0000),
+            (CpuInstructionIdentity::Lui, 10, 0xffff_ffff_a3f8_0000),
+            (CpuInstructionIdentity::Lui, 11, 0xffff_ffff_a3f0_0000),
+            (CpuInstructionIdentity::Lui, 12, 0xffff_ffff_a430_0000),
+            (CpuInstructionIdentity::Ori, 9, 0x40),
+        ] {
+            assert_eq!(machine.step().unwrap().identity(), Some(identity));
+            assert_eq!(machine.cpu().gpr(register_index), Some(expected_value));
+        }
+        assert_eq!(machine.cpu().pc(), 0xa400_00c4);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_00c8);
+        assert_eq!(machine.cpu().cop0_count(), 17);
+        assert_eq!(machine.ri_select_state(), ri_before);
+
+        let before_ri_config_frontier = lw_snapshot(&machine);
+        let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(rejection.effective_address(), Some(0xffff_ffff_a470_0004));
+        assert_eq!(rejection.cpu_address(), Some(CpuAddress::new(0xa470_0004)));
         assert_eq!(rejection.target(), None);
         assert_eq!(
             rejection.reason(),
-            MachineLoadWordRejectionReason::DirectTargetMiss
+            MachineStoreWordRejectionReason::DirectTargetMiss
         );
-        assert_eq!(lw_snapshot(&machine), before_ri_frontier);
+        assert_eq!(lw_snapshot(&machine), before_ri_config_frontier);
     }
 
     #[test]

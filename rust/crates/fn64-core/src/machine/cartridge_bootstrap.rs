@@ -693,11 +693,17 @@ impl Machine {
             ),
             gpr_sources,
         };
+        let replacement_ri = if handoff_plan.is_some() {
+            crate::ri::Ri::cold_x105_entry()
+        } else {
+            crate::ri::Ri::default()
+        };
 
         self.cpu = replacement_cpu;
         self.rdram = Rdram::default();
         self.sp_dmem = replacement_sp_dmem;
         self.sp_imem = replacement_sp_imem;
+        self.ri = replacement_ri;
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.powered_on = true;
         self.cartridge_bootstrap = Some(state);
@@ -929,6 +935,7 @@ mod tests {
         rdram: Vec<u8>,
         sp_dmem: Vec<u8>,
         sp_imem: Vec<SpImemByteObservation>,
+        ri_select: Option<crate::ri::MachineRiSelectState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
 
@@ -977,6 +984,7 @@ mod tests {
                         .unwrap()
                 })
                 .collect(),
+            ri_select: machine.ri_select_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }
     }
@@ -1217,6 +1225,7 @@ mod tests {
             Ok(0xaabb_ccdd)
         );
         assert_eq!(machine.cartridge_bootstrap_state(), None);
+        assert_eq!(machine.ri_select_state(), None);
         assert_eq!(architectural_snapshot(&machine), before);
     }
 
@@ -1543,6 +1552,7 @@ mod tests {
         );
         assert_eq!(machine.pif_version_bit(), Some(MachinePifVersionBit::One));
         assert_eq!(machine.cartridge_bootstrap_state(), None);
+        assert_eq!(machine.ri_select_state(), None);
         assert_eq!(machine.cpu().pc(), NON_BOOT_RESET_VECTOR_PC);
         assert_eq!(machine.cpu().cop0_status(), 0);
         assert_eq!(machine.cpu_delay_slot_context(), None);
@@ -1558,6 +1568,10 @@ mod tests {
         assert_eq!(second, first);
         assert_eq!(second_gprs, first_gprs);
         assert_eq!(machine.cpu().cop0_status(), MACHINE_PIF_IPL1_STATUS);
+        assert_eq!(
+            machine.ri_select_state(),
+            Some(crate::ri::MachineRiSelectState::cold_x105_entry())
+        );
 
         let third = machine.stage_cartridge_bootstrap().unwrap();
         assert_eq!(third, second);
@@ -1566,6 +1580,10 @@ mod tests {
                 machine.cpu().gpr(index).unwrap()
             }),
             second_gprs
+        );
+        assert_eq!(
+            machine.ri_select_state(),
+            Some(crate::ri::MachineRiSelectState::cold_x105_entry())
         );
     }
 
@@ -1589,6 +1607,15 @@ mod tests {
 
         zero.stage_cartridge_bootstrap().unwrap();
         one.stage_cartridge_bootstrap().unwrap();
+
+        assert_eq!(
+            zero.ri_select_state(),
+            Some(crate::ri::MachineRiSelectState::cold_x105_entry())
+        );
+        assert_eq!(
+            one.ri_select_state(),
+            Some(crate::ri::MachineRiSelectState::cold_x105_entry())
+        );
 
         assert_eq!(
             zero.cpu()
