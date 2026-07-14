@@ -365,6 +365,28 @@ product or reference lane requires a new explicit product decision.
   RI initialization, NMI, authentic execution, BOOT-3, and compatibility
   remain absent. BOOT-2 remains highest.
 
+## Era 21 — RI_CONFIG write and generated current-load frontier (2026-07-14)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned RI_CONFIG field definitions
+  and bounded x105 store/loop order; `LIVE_REPO_FACT`, direct Master evidence,
+  product, and inspection commits; `RUNTIME_FACT`, generated focused tests,
+  public-step probe, clean checkout, and complete Rust gates.
+- Field decision: RI_CONFIG represents only current-control input bits 5:0 and
+  enable bit 6. Undefined high bits reject before mutation as an explicit fn64
+  boundary; no raw register value or hardware trap behavior is invented.
+- Accepted product increment: exact direct KSEG0/KSEG1 aligned `Sw` aliases of
+  physical `0x04700004` create Machine-owned RI_CONFIG field state with exact
+  CPU-store lineage. Reset and repeated cold bootstrap clear stale state;
+  RI_SELECT and memory remain unchanged. No RI_CONFIG read exists.
+- Generated composition: commit 34 stores `0x40`, commit 35 installs wait count
+  8,000, and 8,000 generated loop iterations commit 32,000 more instructions.
+  Final PC/next-PC are `0xA40000DC / 0xA40000E0`, Count is `32019`, total
+  commits are 32,035, and `Sw r0` to RI_CURRENT_LOAD at physical `0x04700008`
+  rejects atomically.
+- Proof boundary: the loop proves CPU composition, not RCP time or analog
+  calibration. RI_CURRENT_LOAD, RDRAM initialization, generic MMIO, authentic
+  execution, BOOT-3, and compatibility remain absent. BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

@@ -57,9 +57,11 @@ concrete SP-DMEM backing is not treated as known. Its authentic SP IMEM source
 is unknown, so that instance rejects without mutation.
 
 Aligned `Sw` is a separate Machine-owned action. It reads the old base,
-resolves alignment before source consumption, accepts direct SP IMEM only,
-then captures old source low word and exact lineage. Success writes no GPR and
-advances normal cadence once. Sequential or delay-slot AdES delegates to COP0
+resolves alignment before source consumption, accepts direct SP IMEM or exact
+RI_CONFIG only, then captures old source low word and exact lineage. RI_CONFIG
+planning additionally rejects undefined high bits and selects only its input
+and enable fields. Success writes no GPR and advances normal cadence once;
+RI_CONFIG changes no memory. Sequential or delay-slot AdES delegates to COP0
 with zero faulting-instruction Count; unknown sources and unsupported targets
 restore the complete pre-step state.
 
@@ -71,10 +73,12 @@ pending before normal cadence. Unsupported contexts, encodings, and
 destinations reject before mutation, and no general CP0 executor exists.
 
 The same complete cold-x105 plan creates optional Machine-owned RI_SELECT zero
-with `ColdX105Entry` provenance. The existing aligned-`Lw` planner reads only
-physical `0x0470000C` through direct aliases, uses ordinary sign extension and
-cadence, and rejects when the stored state is unavailable. It does not derive
-RI_SELECT from reset kind or generalize CPU device access.
+with `ColdX105Entry` provenance and clears optional RI_CONFIG. The aligned-`Lw`
+planner reads only RI_SELECT physical `0x0470000C`; aligned `Sw` writes only
+RI_CONFIG physical `0x04700004`, with CPU-store provenance and ordinary
+cadence. Neither path derives state from reset kind or generalizes CPU device
+access. RI_CONFIG reads, RI_CURRENT_LOAD, calibration, and timing remain
+absent.
 
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
@@ -89,10 +93,12 @@ Current observability is deterministic state inspection; no instruction trace
 format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
-tests for changes. Generated composition commits the stored RI_SELECT `Lw`, the cold BNE
-and NOP slot, the five high-SP-IMEM stack stores, and represented RI_CONFIG address
-construction, then rejects the RI_CONFIG `Sw` as a direct target miss. Known
+tests for changes. Generated composition commits the exact RI_CONFIG `Sw`,
+installs wait count 8,000, executes 8,000 four-instruction loop iterations, and
+then rejects the RI_CURRENT_LOAD `Sw` as a direct target miss. This is CPU
+composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
-branch-likely/other REGIMM and broader COP0 execution, every RI write/other RI
-register/NMI, generic MMIO, nested control flow, other load/store families, and
+branch-likely/other REGIMM and broader COP0 execution, every RI action except
+the exact RI_SELECT read and RI_CONFIG write, NMI, generic MMIO, nested control
+flow, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

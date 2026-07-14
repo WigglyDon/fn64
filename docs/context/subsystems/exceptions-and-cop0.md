@@ -23,7 +23,8 @@ represented fault entry.
 An unaligned `Sw` enters the same sealed data-address-error owner with write
 kind, AdES code 5, and exact BadVAddr. Alignment is resolved before store-source
 consumption. No SP-IMEM byte or provenance changes, no normal cadence commits,
-and Count advances zero times.
+no RI_CONFIG state changes, no normal cadence commits, and Count advances zero
+times. The exact RI_CONFIG route adds no RI-specific exception.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 

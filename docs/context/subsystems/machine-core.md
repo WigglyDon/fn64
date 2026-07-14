@@ -12,8 +12,10 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 ## Mission and owner
 
 `fn64-core::Machine` is the current production owner of each represented
-machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_SELECT, reset/power state, optional structurally accepted immutable PIF firmware input, optional explicit
-PIF IPL2 copy profile, explicit narrow cold-handoff selector inputs, and narrow
+machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_SELECT
+and RI_CONFIG state, reset/power state, optional structurally accepted immutable
+PIF firmware input, optional explicit PIF IPL2 copy profile, explicit narrow
+cold-handoff selector inputs, and narrow
 machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
 ledger that earned BOOT-2. SP IMEM has separate backing bytes and per-byte
@@ -53,12 +55,14 @@ Direct SP-DMEM reads are additionally gated by the current cartridge-bootstrap
 span and record the exact source cartridge offset; concrete but unclassified
 backing rejects. No serialization format is a product contract yet.
 
-Aligned `Sw` uses a separate Machine plan/application path for SP IMEM only.
+Aligned `Sw` uses a separate Machine plan/application path for SP IMEM or the
+one exact RI_CONFIG target.
 The plan resolves old base, alignment, direct target, old source value, exact
-four-byte span, and CPU-store provenance before application. Application has no
-fallible memory operation: it writes once, commits control flow once, and
-advances Count once. Rejection restores the captured snapshot; AdES delegates
-to existing sealed COP0 entry.
+SP-IMEM span or RI_CONFIG fields, and CPU-store provenance before application.
+Undefined RI_CONFIG high bits reject during planning. Application has no
+fallible operation: it mutates one selected owner, commits control flow once,
+and advances Count once. Rejection restores the captured snapshot; AdES
+delegates to existing sealed COP0 entry.
 
 Bounded `Cop0Mtc0` uses another closed plan/application path. The plan captures
 the cold-x105 access proof, exact Cause/Count/Compare destination, known old
@@ -66,13 +70,16 @@ source, and low transfer word before mutation. Application performs the
 destination-specific COP0 write before the existing committed cadence. It is
 not a numeric CP0 map or a general register-write framework.
 
-One private `Ri` owner stores optional RI_SELECT separately from bootstrap
-selectors. Construction and general reset leave it unavailable. The complete
-supported cold-x105 plan creates known zero with `ColdX105Entry` provenance
-atomically with the handoff. The aligned-`Lw` plan reads only physical
-`0x0470000C` through current direct aliases and never derives the result from
-reset kind. Other RI registers, RI writes, NMI, generic MMIO, and a bus remain
-absent.
+One private `Ri` owner stores optional RI_SELECT and RI_CONFIG separately from
+bootstrap selectors. Construction and general reset leave both unavailable.
+The complete supported cold-x105 plan creates RI_SELECT zero with
+`ColdX105Entry` provenance and leaves RI_CONFIG unavailable; repeated complete
+staging clears stale RI_CONFIG. The aligned-`Lw` plan reads only RI_SELECT at
+physical `0x0470000C`. The aligned-`Sw` plan writes only RI_CONFIG at physical
+`0x04700004`, storing defined input/enable fields and CPU-store lineage without
+memory mutation. Neither path derives RI state from reset kind. RI_CONFIG
+reads, RI_SELECT writes, RI_CURRENT_LOAD, current-control processing/timing,
+NMI, generic MMIO, and a bus remain absent.
 
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
@@ -83,7 +90,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the sixty-two-case step probe, the bounded BOOT-2
+construction/reset probe, the seventy-five-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -92,12 +99,12 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a thirty-three-step generated composition through the stored
-RI_SELECT
-read, cold BNE/NOP slot, five high-SP-IMEM stack stores, and RI_CONFIG address
-construction. It stops at the RI_CONFIG store target miss and does not prove an authentic firmware-executed handoff, BOOT-3, timing, full
-ISA, game compatibility,
-renderer, audio, performance, or host integration.
+handoff and a 32,035-step generated composition through the stored RI_SELECT
+read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
+8,000 generated CPU-loop iterations. It stops at the RI_CURRENT_LOAD store
+target miss and does not prove an authentic firmware-executed handoff, RI
+calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
+game compatibility, renderer, audio, performance, or host integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
