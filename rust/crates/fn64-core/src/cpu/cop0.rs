@@ -6,6 +6,7 @@ use crate::cpu::address::{
 };
 
 const COP0_STATUS_EXL: u32 = 0x0000_0002;
+const COP0_CAUSE_SOFTWARE_INTERRUPT_PENDING_MASK: u32 = 0x0000_0300;
 const COP0_EXCEPTION_CODE_SIGNED_OVERFLOW: u8 = 12;
 const LOCAL_EXCEPTION_VECTOR_PC: u32 = 0x8000_0180;
 const LOCAL_EXCEPTION_VECTOR_NEXT_PC: u32 = 0x8000_0184;
@@ -16,6 +17,7 @@ pub(super) struct Cop0 {
     timer_interrupt_pending: bool,
     status: u32,
     software_interrupt_pending: u32,
+    software_interrupt_pending_known: bool,
     epc: u32,
     bad_vaddr: u32,
     exception_code: u8,
@@ -30,6 +32,7 @@ impl Cop0 {
             timer_interrupt_pending: false,
             status: 0,
             software_interrupt_pending: 0,
+            software_interrupt_pending_known: false,
             epc: 0,
             bad_vaddr: 0,
             exception_code: 0,
@@ -63,6 +66,24 @@ impl Cop0 {
 
     fn software_interrupt_pending(&self) -> u32 {
         self.software_interrupt_pending
+    }
+
+    fn software_interrupt_pending_known(&self) -> bool {
+        self.software_interrupt_pending_known
+    }
+
+    fn write_cause_software_interrupt_pending(&mut self, value: u32) {
+        self.software_interrupt_pending = value & COP0_CAUSE_SOFTWARE_INTERRUPT_PENDING_MASK;
+        self.software_interrupt_pending_known = true;
+    }
+
+    fn write_count(&mut self, value: u32) {
+        self.count = value;
+    }
+
+    fn write_compare(&mut self, value: u32) {
+        self.compare = value;
+        self.timer_interrupt_pending = false;
     }
 
     fn epc(&self) -> u32 {
@@ -146,6 +167,10 @@ impl Cpu {
         self.cop0.software_interrupt_pending()
     }
 
+    pub fn cop0_software_interrupt_pending_known(&self) -> bool {
+        self.cop0.software_interrupt_pending_known()
+    }
+
     pub fn cop0_epc(&self) -> u32 {
         self.cop0.epc()
     }
@@ -171,6 +196,18 @@ impl Cpu {
         self.cop0.advance_count_for_committed_step();
     }
 
+    pub(crate) fn write_cop0_cause_software_interrupt_pending(&mut self, value: u32) {
+        self.cop0.write_cause_software_interrupt_pending(value);
+    }
+
+    pub(crate) fn write_cop0_count(&mut self, value: u32) {
+        self.cop0.write_count(value);
+    }
+
+    pub(crate) fn write_cop0_compare(&mut self, value: u32) {
+        self.cop0.write_compare(value);
+    }
+
     #[cfg(test)]
     pub(crate) fn stage_cop0_count_compare_timer_for_test(
         &mut self,
@@ -186,6 +223,21 @@ impl Cpu {
     #[cfg(test)]
     pub(crate) fn stage_cop0_bad_vaddr_for_test(&mut self, bad_vaddr: u32) {
         self.cop0.bad_vaddr = bad_vaddr;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage_cop0_cause_state_for_test(
+        &mut self,
+        software_interrupt_pending: u32,
+        software_interrupt_pending_known: bool,
+        exception_code: u8,
+        exception_branch_delay: bool,
+    ) {
+        self.cop0.software_interrupt_pending =
+            software_interrupt_pending & COP0_CAUSE_SOFTWARE_INTERRUPT_PENDING_MASK;
+        self.cop0.software_interrupt_pending_known = software_interrupt_pending_known;
+        self.cop0.exception_code = exception_code;
+        self.cop0.exception_branch_delay = exception_branch_delay;
     }
 
     pub fn enter_data_address_error_exception(
@@ -302,6 +354,7 @@ mod tests {
         assert!(!cpu.cop0_timer_interrupt_pending());
         assert_eq!(cpu.cop0_status(), 0);
         assert_eq!(cpu.cop0_software_interrupt_pending(), 0);
+        assert!(!cpu.cop0_software_interrupt_pending_known());
         assert_eq!(cpu.cop0_epc(), 0);
         assert_eq!(cpu.cop0_bad_vaddr(), 0);
         assert_eq!(cpu.cop0_exception_code(), 0);

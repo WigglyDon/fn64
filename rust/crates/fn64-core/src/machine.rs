@@ -56,6 +56,7 @@ const COP0_COMPARE_REGISTER_INDEX: u8 = 11;
 const COP0_STATUS_REGISTER_INDEX: u8 = 12;
 const COP0_CAUSE_REGISTER_INDEX: u8 = 13;
 const COP0_EPC_REGISTER_INDEX: u8 = 14;
+const COP0_MTC0_RESERVED_LOW_BITS_MASK: u32 = 0x0000_07ff;
 const SP_DMEM_PHYSICAL_BASE: u32 = 0x0400_0000;
 const SP_IMEM_PHYSICAL_BASE: u32 = 0x0400_1000;
 const UNAVAILABLE_PIF_ROM_RESET_PHYSICAL_ADDRESS: u32 = 0x1fc0_0000;
@@ -1378,11 +1379,7 @@ const fn is_supported_cop0_mfc0_register(rd: u8) -> bool {
 const fn is_supported_cop0_mtc0_register(rd: u8) -> bool {
     matches!(
         rd,
-        COP0_COUNT_REGISTER_INDEX
-            | COP0_COMPARE_REGISTER_INDEX
-            | COP0_STATUS_REGISTER_INDEX
-            | COP0_CAUSE_REGISTER_INDEX
-            | COP0_EPC_REGISTER_INDEX
+        COP0_COUNT_REGISTER_INDEX | COP0_COMPARE_REGISTER_INDEX | COP0_CAUSE_REGISTER_INDEX
     )
 }
 
@@ -1855,6 +1852,96 @@ pub(crate) enum MachineStoreWordStepApplicationError {
     DataAddressErrorEntry(CpuAddressErrorExceptionEntryError),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineMtc0Destination {
+    CauseSoftwareInterruptPending,
+    Count,
+    Compare,
+}
+
+impl MachineMtc0Destination {
+    pub const fn register_index(self) -> u8 {
+        match self {
+            Self::CauseSoftwareInterruptPending => COP0_CAUSE_REGISTER_INDEX,
+            Self::Count => COP0_COUNT_REGISTER_INDEX,
+            Self::Compare => COP0_COMPARE_REGISTER_INDEX,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineMtc0RejectionReason {
+    ColdX105AccessUnavailable {
+        cpu_state_kind: Option<MachineBootstrapCpuStateKind>,
+        status_source: Option<MachineBootstrapCop0StatusSource>,
+    },
+    MalformedEncoding {
+        low_bits: u16,
+    },
+    UnsupportedDestination {
+        register_index: u8,
+    },
+    SourceUnavailable {
+        register_index: u8,
+        source: MachineBootstrapGprSource,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineMtc0Rejection {
+    fields: CpuInstructionFields,
+    reason: MachineMtc0RejectionReason,
+}
+
+impl MachineMtc0Rejection {
+    const fn new(fields: CpuInstructionFields, reason: MachineMtc0RejectionReason) -> Self {
+        Self { fields, reason }
+    }
+
+    pub const fn fields(self) -> CpuInstructionFields {
+        self.fields
+    }
+
+    pub const fn reason(self) -> MachineMtc0RejectionReason {
+        self.reason
+    }
+}
+
+impl fmt::Display for MachineMtc0Rejection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "MTC0 rejected before mutation: raw=0x{:08X} reason={:?}",
+            self.fields.raw().bits(),
+            self.reason
+        )
+    }
+}
+
+impl std::error::Error for MachineMtc0Rejection {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineMtc0CommitPlan {
+    fields: CpuInstructionFields,
+    destination: MachineMtc0Destination,
+    source_value: u64,
+    source: MachineBootstrapGprSource,
+    transfer_word: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MachineMtc0StepAction {
+    Commit(MachineMtc0CommitPlan),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MachineMtc0StepApplication {
+    Committed {
+        plan: MachineMtc0CommitPlan,
+        cadence_plan: MachineStepCadencePlan,
+    },
+}
+
 impl fmt::Display for MachineStoreWordStepApplicationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -2006,6 +2093,7 @@ pub(crate) enum MachineClassifiedStepAction {
     OrdinaryControlFlow(MachineOrdinaryControlFlowStepAction),
     LoadWord(MachineLoadWordStepAction),
     StoreWord(MachineStoreWordStepAction),
+    Mtc0(MachineMtc0StepAction),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierAction),
 }
 
@@ -2016,6 +2104,7 @@ pub(crate) enum MachineClassifiedStepActionApplication {
     OrdinaryControlFlow(MachineOrdinaryControlFlowStepApplication),
     LoadWord(MachineLoadWordStepApplication),
     StoreWord(MachineStoreWordStepApplication),
+    Mtc0(MachineMtc0StepApplication),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierApplication),
 }
 
@@ -2027,6 +2116,7 @@ impl MachineClassifiedStepActionApplication {
             Self::OrdinaryControlFlow(_)
             | Self::LoadWord(_)
             | Self::StoreWord(_)
+            | Self::Mtc0(_)
             | Self::NonCpuLocalFrontier(_) => None,
         }
     }
@@ -2039,7 +2129,8 @@ impl MachineClassifiedStepActionApplication {
             Self::CpuLocal(_)
             | Self::OrdinaryControlFlow(_)
             | Self::LoadWord(_)
-            | Self::StoreWord(_) => None,
+            | Self::StoreWord(_)
+            | Self::Mtc0(_) => None,
         }
     }
 }
@@ -2092,6 +2183,7 @@ pub(crate) enum MachineCurrentPcClassifiedStepActionError {
     OrdinaryControlFlowRejected(MachineOrdinaryControlFlowRejection),
     LoadWordRejected(MachineLoadWordRejection),
     StoreWordRejected(MachineStoreWordRejection),
+    Mtc0Rejected(MachineMtc0Rejection),
     CpuLocalInvocation(CpuLocalExecutedHelperInvocationError),
     UnrepresentedInstruction {
         fields: CpuInstructionFields,
@@ -2108,6 +2200,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
         }
@@ -2122,6 +2215,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
         }
@@ -2135,6 +2229,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::UnrepresentedInstruction { .. } => None,
         }
     }
@@ -2147,6 +2242,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocation(_) => None,
         }
     }
@@ -2158,6 +2254,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             Self::OrdinaryControlFlowRejected(error) => Some(error.identity()),
             Self::LoadWordRejected(error) => Some(error.identity()),
             Self::StoreWordRejected(error) => Some(error.identity()),
+            Self::Mtc0Rejected(_) => Some(CpuInstructionIdentity::Cop0Mtc0),
             Self::FetchFaultRethrow(_) | Self::CpuLocalInvocation(_) => None,
         }
     }
@@ -2169,6 +2266,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::BootstrapCpuStateUnavailable(_)
             | Self::OrdinaryControlFlowRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
         }
@@ -2181,6 +2279,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::BootstrapCpuStateUnavailable(_)
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
         }
@@ -2213,6 +2312,9 @@ impl fmt::Display for MachineCurrentPcClassifiedStepActionError {
                 write!(f, "current-PC classified step action production {error}")
             }
             Self::StoreWordRejected(error) => {
+                write!(f, "current-PC classified step action production {error}")
+            }
+            Self::Mtc0Rejected(error) => {
                 write!(f, "current-PC classified step action production {error}")
             }
             Self::UnrepresentedInstruction { fields, identity } => {
@@ -2373,6 +2475,14 @@ pub enum MachineRepresentedStepOutcome {
         provenance: MachineSpImemStoreWordProvenance,
         cadence_plan: MachineStepCadencePlan,
     },
+    Mtc0Committed {
+        destination: MachineMtc0Destination,
+        source_gpr: u8,
+        source_value: u64,
+        source: MachineBootstrapGprSource,
+        transfer_word: u32,
+        cadence_plan: MachineStepCadencePlan,
+    },
     DataAddressError {
         identity: CpuInstructionIdentity,
         effective_address: u64,
@@ -2457,6 +2567,16 @@ impl MachineRepresentedStepOutcome {
                 address_error: plan.address_error,
                 cadence_plan,
             },
+            MachineClassifiedStepActionApplication::Mtc0(
+                MachineMtc0StepApplication::Committed { plan, cadence_plan },
+            ) => Self::Mtc0Committed {
+                destination: plan.destination,
+                source_gpr: plan.fields.rt(),
+                source_value: plan.source_value,
+                source: plan.source,
+                transfer_word: plan.transfer_word,
+                cadence_plan,
+            },
             MachineClassifiedStepActionApplication::NonCpuLocalFrontier(
                 MachineNonCpuLocalStepFrontierApplication::NoEffectExecuted {
                     instruction,
@@ -2500,6 +2620,7 @@ impl MachineRepresentedStepOutcome {
             | Self::ArithmeticOverflowException { identity } => Some(identity),
             Self::LoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lw),
             Self::StoreWordCommitted { .. } => Some(CpuInstructionIdentity::Sw),
+            Self::Mtc0Committed { .. } => Some(CpuInstructionIdentity::Cop0Mtc0),
             Self::NoEffectCommitted { instruction, .. } => Some(instruction.identity()),
             Self::Stopped { instruction, .. } => Some(instruction.identity()),
             Self::Unsupported { instruction, .. } => Some(instruction.identity()),
@@ -2512,6 +2633,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { cadence_plan, .. }
             | Self::LoadWordCommitted { cadence_plan, .. }
             | Self::StoreWordCommitted { cadence_plan, .. }
+            | Self::Mtc0Committed { cadence_plan, .. }
             | Self::DataAddressError { cadence_plan, .. }
             | Self::NoEffectCommitted { cadence_plan, .. }
             | Self::Stopped { cadence_plan, .. }
@@ -2527,6 +2649,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -2541,6 +2664,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -2555,6 +2679,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::Stopped { .. }
@@ -2569,6 +2694,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -2585,6 +2711,7 @@ pub enum MachineRepresentedStepError {
     OrdinaryControlFlowRejected(MachineOrdinaryControlFlowRejection),
     LoadWordRejected(MachineLoadWordRejection),
     StoreWordRejected(MachineStoreWordRejection),
+    Mtc0Rejected(MachineMtc0Rejection),
     CpuLocalInvocationRejected(MachineStepCpuLocalInvocationRejection),
     UnrepresentedInstruction {
         fields: CpuInstructionFields,
@@ -2613,6 +2740,9 @@ impl MachineRepresentedStepError {
             }
             MachineCurrentPcClassifiedStepActionError::StoreWordRejected(error) => {
                 Self::StoreWordRejected(error)
+            }
+            MachineCurrentPcClassifiedStepActionError::Mtc0Rejected(error) => {
+                Self::Mtc0Rejected(error)
             }
             MachineCurrentPcClassifiedStepActionError::CpuLocalInvocation(error) => {
                 Self::CpuLocalInvocationRejected(
@@ -2673,6 +2803,7 @@ impl MachineRepresentedStepError {
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
@@ -2688,6 +2819,7 @@ impl MachineRepresentedStepError {
             Self::OrdinaryControlFlowRejected(error) => Some(error.identity()),
             Self::LoadWordRejected(error) => Some(error.identity()),
             Self::StoreWordRejected(error) => Some(error.identity()),
+            Self::Mtc0Rejected(_) => Some(CpuInstructionIdentity::Cop0Mtc0),
             Self::CpuLocalInvocationRejected(rejection) => rejection.identity(),
             Self::UnrepresentedInstruction { identity, .. } => Some(identity),
             Self::FetchRejected(_)
@@ -2707,6 +2839,7 @@ impl MachineRepresentedStepError {
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
@@ -2723,6 +2856,7 @@ impl MachineRepresentedStepError {
             | Self::BootstrapCpuStateUnavailable(_)
             | Self::OrdinaryControlFlowRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
@@ -2739,6 +2873,24 @@ impl MachineRepresentedStepError {
             | Self::BootstrapCpuStateUnavailable(_)
             | Self::OrdinaryControlFlowRejected(_)
             | Self::LoadWordRejected(_)
+            | Self::Mtc0Rejected(_)
+            | Self::CpuLocalInvocationRejected(_)
+            | Self::UnrepresentedInstruction { .. }
+            | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::DataAddressErrorExceptionEntryRejected(_)
+            | Self::InstructionFetchAddressErrorEntryRejected(_)
+            | Self::CompositionInvariantRejected => None,
+        }
+    }
+
+    pub const fn mtc0_rejection(self) -> Option<MachineMtc0Rejection> {
+        match self {
+            Self::Mtc0Rejected(rejection) => Some(rejection),
+            Self::FetchRejected(_)
+            | Self::BootstrapCpuStateUnavailable(_)
+            | Self::OrdinaryControlFlowRejected(_)
+            | Self::LoadWordRejected(_)
+            | Self::StoreWordRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
@@ -2757,6 +2909,7 @@ impl MachineRepresentedStepError {
             | Self::BootstrapCpuStateUnavailable(_)
             | Self::LoadWordRejected(_)
             | Self::StoreWordRejected(_)
+            | Self::Mtc0Rejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
@@ -2784,6 +2937,9 @@ impl fmt::Display for MachineRepresentedStepError {
                 write!(f, "represented Machine::step {error}")
             }
             Self::StoreWordRejected(error) => {
+                write!(f, "represented Machine::step {error}")
+            }
+            Self::Mtc0Rejected(error) => {
                 write!(f, "represented Machine::step {error}")
             }
             Self::CpuLocalInvocationRejected(rejection) => write!(
@@ -3525,6 +3681,105 @@ impl Machine {
         }
     }
 
+    fn produce_mtc0_step_action(
+        &self,
+        fields: CpuInstructionFields,
+    ) -> Result<MachineMtc0StepAction, MachineMtc0Rejection> {
+        let low_bits = (fields.raw().bits() & COP0_MTC0_RESERVED_LOW_BITS_MASK) as u16;
+        if low_bits != 0 {
+            return Err(MachineMtc0Rejection::new(
+                fields,
+                MachineMtc0RejectionReason::MalformedEncoding { low_bits },
+            ));
+        }
+
+        let destination = match fields.rd() {
+            COP0_CAUSE_REGISTER_INDEX => MachineMtc0Destination::CauseSoftwareInterruptPending,
+            COP0_COUNT_REGISTER_INDEX => MachineMtc0Destination::Count,
+            COP0_COMPARE_REGISTER_INDEX => MachineMtc0Destination::Compare,
+            register_index => {
+                return Err(MachineMtc0Rejection::new(
+                    fields,
+                    MachineMtc0RejectionReason::UnsupportedDestination { register_index },
+                ));
+            }
+        };
+
+        let cpu_state_kind = self
+            .cartridge_bootstrap
+            .map(MachineCartridgeBootstrapState::cpu_state_kind);
+        let status_source = self
+            .cartridge_bootstrap
+            .map(MachineCartridgeBootstrapState::cop0_status_source);
+        if cpu_state_kind != Some(MachineBootstrapCpuStateKind::CoupledColdX105NtscPinned)
+            || status_source != Some(MachineBootstrapCop0StatusSource::PifIpl1ColdBootStatus)
+        {
+            return Err(MachineMtc0Rejection::new(
+                fields,
+                MachineMtc0RejectionReason::ColdX105AccessUnavailable {
+                    cpu_state_kind,
+                    status_source,
+                },
+            ));
+        }
+
+        let source = if fields.rt() == 0 {
+            MachineBootstrapGprSource::ArchitecturalZero
+        } else {
+            self.cartridge_bootstrap
+                .and_then(|state| state.gpr_source(usize::from(fields.rt())))
+                .unwrap_or(MachineBootstrapGprSource::UnknownPifProduced)
+        };
+        if !source.is_known() {
+            return Err(MachineMtc0Rejection::new(
+                fields,
+                MachineMtc0RejectionReason::SourceUnavailable {
+                    register_index: fields.rt(),
+                    source,
+                },
+            ));
+        }
+
+        let source_value = self
+            .cpu
+            .gpr(usize::from(fields.rt()))
+            .expect("decoded CPU register index is five bits");
+
+        Ok(MachineMtc0StepAction::Commit(MachineMtc0CommitPlan {
+            fields,
+            destination,
+            source_value,
+            source,
+            transfer_word: source_value as u32,
+        }))
+    }
+
+    fn apply_mtc0_step_action(
+        &mut self,
+        action: MachineMtc0StepAction,
+        control_flow_snapshot: CpuControlFlowSnapshot,
+    ) -> MachineMtc0StepApplication {
+        let MachineMtc0StepAction::Commit(plan) = action;
+
+        match plan.destination {
+            MachineMtc0Destination::CauseSoftwareInterruptPending => self
+                .cpu
+                .write_cop0_cause_software_interrupt_pending(plan.transfer_word),
+            MachineMtc0Destination::Count => self.cpu.write_cop0_count(plan.transfer_word),
+            MachineMtc0Destination::Compare => self.cpu.write_cop0_compare(plan.transfer_word),
+        }
+        self.cpu
+            .commit_staged_step_control_flow(control_flow_snapshot);
+        self.cpu.advance_count_for_committed_step();
+
+        MachineMtc0StepApplication::Committed {
+            plan,
+            cadence_plan: classify_machine_step_cadence(
+                MachineStepCadenceSource::CommittedInstruction,
+            ),
+        }
+    }
+
     #[allow(dead_code)]
     pub(crate) fn apply_cpu_local_committed_success_cadence(
         &mut self,
@@ -3699,6 +3954,11 @@ impl Machine {
                 .apply_store_word_step_action(action, control_flow_snapshot)
                 .map(MachineClassifiedStepActionApplication::StoreWord)
                 .map_err(MachineClassifiedStepActionApplicationError::StoreWord),
+            MachineClassifiedStepAction::Mtc0(action) => {
+                Ok(MachineClassifiedStepActionApplication::Mtc0(
+                    self.apply_mtc0_step_action(action, control_flow_snapshot),
+                ))
+            }
             MachineClassifiedStepAction::NonCpuLocalFrontier(frontier_action) => self
                 .apply_non_cpu_local_step_frontier_action(frontier_action, control_flow_snapshot)
                 .map(MachineClassifiedStepActionApplication::NonCpuLocalFrontier)
@@ -3789,6 +4049,21 @@ impl Machine {
                     MachineNonCpuLocalStepFrontierAction::Stopped(instruction),
                 ),
             });
+        }
+
+        if identity == CpuInstructionIdentity::Cop0Mtc0 {
+            return match self.produce_mtc0_step_action(fields) {
+                Ok(action) => Ok(MachineCurrentPcClassifiedStepAction {
+                    control_flow_snapshot,
+                    action: MachineClassifiedStepAction::Mtc0(action),
+                }),
+                Err(rejection) => {
+                    self.cpu.restore_control_flow(control_flow_snapshot);
+                    Err(MachineCurrentPcClassifiedStepActionError::Mtc0Rejected(
+                        rejection,
+                    ))
+                }
+            };
         }
 
         if let Some(instruction) = classify_step_unsupported_instruction(fields, identity) {
@@ -15191,6 +15466,32 @@ mod tests {
         (machine, generated_sp_imem_word, GENERATED_SP_DMEM_WORD)
     }
 
+    fn assert_mtc0_commit(
+        outcome: MachineRepresentedStepOutcome,
+        destination: MachineMtc0Destination,
+        source_gpr: u8,
+        source_value: u64,
+        source: MachineBootstrapGprSource,
+        transfer_word: u32,
+    ) {
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::Mtc0Committed {
+                destination: observed_destination,
+                source_gpr: observed_source_gpr,
+                source_value: observed_source_value,
+                source: observed_source,
+                transfer_word: observed_transfer_word,
+                cadence_plan,
+            } if observed_destination == destination
+                && observed_source_gpr == source_gpr
+                && observed_source_value == source_value
+                && observed_source == source
+                && observed_transfer_word == transfer_word
+                && cadence_plan.advances_count()
+        ));
+    }
+
     #[derive(Debug, PartialEq, Eq)]
     struct MachineLwSnapshot {
         cartridge: Vec<u8>,
@@ -15207,6 +15508,7 @@ mod tests {
         timer_interrupt_pending: bool,
         status: u32,
         software_interrupt_pending: u32,
+        software_interrupt_pending_known: bool,
         epc: u32,
         bad_vaddr: u32,
         exception_code: u8,
@@ -15237,6 +15539,7 @@ mod tests {
             timer_interrupt_pending: machine.cpu().cop0_timer_interrupt_pending(),
             status: machine.cpu().cop0_status(),
             software_interrupt_pending: machine.cpu().cop0_software_interrupt_pending(),
+            software_interrupt_pending_known: machine.cpu().cop0_software_interrupt_pending_known(),
             epc: machine.cpu().cop0_epc(),
             bad_vaddr: machine.cpu().cop0_bad_vaddr(),
             exception_code: machine.cpu().cop0_exception_code(),
@@ -16124,20 +16427,324 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_advances_through_bltz_slot_to_cop0_frontier() {
+    fn mtc0_cause_masks_software_interrupt_bits_and_preserves_read_only_cop0_state() {
+        for (source_word, expected_pending) in [
+            (0x0000, 0x0000),
+            (0x0100, 0x0100),
+            (0x0200, 0x0200),
+            (0x0300, 0x0300),
+            (0xffff, 0x0300),
+        ] {
+            let words = [
+                (0x40, immediate_word(0x0d, 0, 8, source_word)),
+                (0x44, cop0_move_word(4, 8, COP0_CAUSE_REGISTER_INDEX)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x91);
+            machine.step().unwrap();
+            let source_value = machine.cpu().gpr(8).unwrap();
+            let source = machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(8)
+                .unwrap();
+            machine
+                .cpu
+                .stage_cop0_count_compare_timer_for_test(0x20, 0x40, true);
+            machine
+                .cpu
+                .stage_cop0_cause_state_for_test(0x0300, false, 12, true);
+            machine.cpu.stage_cop0_bad_vaddr_for_test(0x8123_4567);
+            machine
+                .cpu
+                .stage_cop0_status_for_bootstrap(MACHINE_PIF_IPL1_STATUS);
+
+            assert_mtc0_commit(
+                machine.step().unwrap(),
+                MachineMtc0Destination::CauseSoftwareInterruptPending,
+                8,
+                source_value,
+                source,
+                u32::from(source_word),
+            );
+            assert_eq!(
+                machine.cpu().cop0_software_interrupt_pending(),
+                expected_pending
+            );
+            assert!(machine.cpu().cop0_software_interrupt_pending_known());
+            assert_eq!(machine.cpu().cop0_exception_code(), 12);
+            assert!(machine.cpu().cop0_exception_branch_delay());
+            assert!(machine.cpu().cop0_timer_interrupt_pending());
+            assert_eq!(machine.cpu().cop0_count(), 0x21);
+            assert_eq!(machine.cpu().cop0_compare(), 0x40);
+            assert_eq!(machine.cpu().cop0_bad_vaddr(), 0x8123_4567);
+            assert_eq!(machine.cpu().cop0_status(), MACHINE_PIF_IPL1_STATUS);
+            assert_eq!(machine.cpu().gpr(8), Some(source_value));
+            assert_eq!(
+                machine.cartridge_bootstrap_state().unwrap().gpr_source(8),
+                Some(source)
+            );
+        }
+    }
+
+    #[test]
+    fn mtc0_count_writes_low_word_before_normal_count_cadence() {
+        let (mut low_word, _) = staged_generated_cold_x105_machine(
+            &[(
+                0x40,
+                cop0_move_word(
+                    4,
+                    MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX,
+                    COP0_COUNT_REGISTER_INDEX,
+                ),
+            )],
+            0x92,
+        );
+        let source_value = low_word
+            .cpu()
+            .gpr(usize::from(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX))
+            .unwrap();
+        assert_mtc0_commit(
+            low_word.step().unwrap(),
+            MachineMtc0Destination::Count,
+            MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX,
+            source_value,
+            MachineBootstrapGprSource::PifIpl2HandoffEntryPointer,
+            0xa400_0040,
+        );
+        assert_eq!(low_word.cpu().cop0_count(), 0xa400_0041);
+
+        let (mut zero, _) = staged_generated_cold_x105_machine(
+            &[(0x40, cop0_move_word(4, 0, COP0_COUNT_REGISTER_INDEX))],
+            0x93,
+        );
+        assert_mtc0_commit(
+            zero.step().unwrap(),
+            MachineMtc0Destination::Count,
+            0,
+            0,
+            MachineBootstrapGprSource::ArchitecturalZero,
+            0,
+        );
+        assert_eq!(zero.cpu().cop0_count(), 1);
+
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xffff)),
+            (0x44, immediate_word(0x0d, 8, 8, 0xffff)),
+            (0x48, cop0_move_word(4, 8, COP0_COUNT_REGISTER_INDEX)),
+        ];
+        let (mut wrapping, _) = staged_generated_cold_x105_machine(&words, 0x94);
+        wrapping.step().unwrap();
+        wrapping.step().unwrap();
+        assert_eq!(wrapping.cpu().gpr(8), Some(0xffff_ffff_ffff_ffff));
+        wrapping.step().unwrap();
+        assert_eq!(wrapping.cpu().cop0_count(), 0);
+        assert!(wrapping.cpu().cop0_timer_interrupt_pending());
+
+        let (mut compare_match, _) = staged_generated_cold_x105_machine(
+            &[(
+                0x40,
+                cop0_move_word(
+                    4,
+                    MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX,
+                    COP0_COUNT_REGISTER_INDEX,
+                ),
+            )],
+            0x95,
+        );
+        compare_match
+            .cpu
+            .stage_cop0_count_compare_timer_for_test(0x44, 0x92, false);
+        compare_match.step().unwrap();
+        assert_eq!(compare_match.cpu().cop0_count(), 0x92);
+        assert!(compare_match.cpu().cop0_timer_interrupt_pending());
+    }
+
+    #[test]
+    fn mtc0_compare_clears_timer_before_cadence_and_relatches_only_after_match() {
+        for (pre_count, expected_count, expected_pending) in
+            [(0x20, 0x21, false), (0x90, 0x91, true)]
+        {
+            let (mut machine, _) = staged_generated_cold_x105_machine(
+                &[(
+                    0x40,
+                    cop0_move_word(
+                        4,
+                        MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX,
+                        COP0_COMPARE_REGISTER_INDEX,
+                    ),
+                )],
+                0x96,
+            );
+            machine
+                .cpu
+                .stage_cop0_count_compare_timer_for_test(pre_count, 0xdead_beef, true);
+            machine
+                .cpu
+                .stage_cop0_cause_state_for_test(0x0300, true, 12, true);
+
+            assert_mtc0_commit(
+                machine.step().unwrap(),
+                MachineMtc0Destination::Compare,
+                MACHINE_PIF_IPL2_HANDOFF_S6_GPR_INDEX,
+                0x91,
+                MachineBootstrapGprSource::X105Seed,
+                0x91,
+            );
+            assert_eq!(machine.cpu().cop0_compare(), 0x91);
+            assert_eq!(machine.cpu().cop0_count(), expected_count);
+            assert_eq!(
+                machine.cpu().cop0_timer_interrupt_pending(),
+                expected_pending
+            );
+            assert_eq!(machine.cpu().cop0_software_interrupt_pending(), 0x0300);
+            assert!(machine.cpu().cop0_software_interrupt_pending_known());
+            assert_eq!(machine.cpu().cop0_exception_code(), 12);
+            assert!(machine.cpu().cop0_exception_branch_delay());
+        }
+    }
+
+    #[test]
+    fn mtc0_rejections_preserve_complete_machine_state_before_mutation() {
+        let cases = [
+            (
+                cop0_move_word(4, 8, COP0_CAUSE_REGISTER_INDEX),
+                MachineMtc0RejectionReason::SourceUnavailable {
+                    register_index: 8,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
+                },
+            ),
+            (
+                cop0_move_word(4, 0, COP0_STATUS_REGISTER_INDEX),
+                MachineMtc0RejectionReason::UnsupportedDestination {
+                    register_index: COP0_STATUS_REGISTER_INDEX,
+                },
+            ),
+            (
+                cop0_move_word(4, 0, COP0_CAUSE_REGISTER_INDEX) | 1,
+                MachineMtc0RejectionReason::MalformedEncoding { low_bits: 1 },
+            ),
+        ];
+
+        for (word, expected_reason) in cases {
+            let (mut machine, _) = staged_generated_cold_x105_machine(&[(0x40, word)], 0x97);
+            let before = lw_snapshot(&machine);
+            assert_eq!(
+                machine
+                    .step()
+                    .unwrap_err()
+                    .mtc0_rejection()
+                    .unwrap()
+                    .reason(),
+                expected_reason
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+
+        let mut unavailable = staged_lw_bootstrap_machine(
+            cop0_move_word(4, 0, COP0_CAUSE_REGISTER_INDEX),
+            special_shift_word(0, 0, 0, 0, 0),
+        );
+        let before = lw_snapshot(&unavailable);
+        assert!(matches!(
+            unavailable
+                .step()
+                .unwrap_err()
+                .mtc0_rejection()
+                .unwrap()
+                .reason(),
+            MachineMtc0RejectionReason::ColdX105AccessUnavailable {
+                cpu_state_kind: Some(MachineBootstrapCpuStateKind::RepresentedResetSubset),
+                status_source: Some(MachineBootstrapCop0StatusSource::UnknownPifProduced),
+            }
+        ));
+        assert_eq!(lw_snapshot(&unavailable), before);
+    }
+
+    #[test]
+    fn mtc0_boot_trio_commits_in_ordinary_delay_slots_without_creating_control_flow() {
+        for destination in [
+            MachineMtc0Destination::CauseSoftwareInterruptPending,
+            MachineMtc0Destination::Count,
+            MachineMtc0Destination::Compare,
+        ] {
+            let words = [
+                (0x40, control_flow_branch_word(0x04, 0, 0, 1)),
+                (0x44, cop0_move_word(4, 0, destination.register_index())),
+                (0x48, special_shift_word(0, 0, 0, 0, 0)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x98);
+            assert_control_flow_commit(machine.step().unwrap(), CpuInstructionIdentity::Beq);
+            assert_scheduled_delay_slot(&machine, 0xa400_0040, 0xa400_0044, 0xa400_0048);
+
+            assert!(matches!(
+                machine.step().unwrap(),
+                MachineRepresentedStepOutcome::Mtc0Committed {
+                    destination: observed,
+                    source_gpr: 0,
+                    source_value: 0,
+                    source: MachineBootstrapGprSource::ArchitecturalZero,
+                    transfer_word: 0,
+                    ..
+                } if observed == destination
+            ));
+            assert_eq!(machine.cpu().pc(), 0xa400_0048);
+            assert_eq!(machine.cpu().next_pc(), 0xa400_004c);
+            assert_eq!(machine.cpu_delay_slot_context(), None);
+            let expected_count = if destination == MachineMtc0Destination::Count {
+                1
+            } else {
+                2
+            };
+            assert_eq!(machine.cpu().cop0_count(), expected_count);
+        }
+    }
+
+    #[test]
+    fn mtc0_state_is_machine_local_and_reset_or_bootstrap_restaging_clears_knownness() {
+        let words = [
+            (0x40, cop0_move_word(4, 0, COP0_CAUSE_REGISTER_INDEX)),
+            (0x44, cop0_move_word(4, 0, COP0_COUNT_REGISTER_INDEX)),
+            (0x48, cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX)),
+        ];
+        let (mut first, _) = staged_generated_cold_x105_machine(&words, 0x99);
+        let (second, _) = staged_generated_cold_x105_machine(&words, 0x99);
+
+        first.step().unwrap();
+        first.step().unwrap();
+        first.step().unwrap();
+        assert!(first.cpu().cop0_software_interrupt_pending_known());
+        assert_eq!(first.cpu().cop0_count(), 2);
+        assert_eq!(first.cpu().cop0_compare(), 0);
+        assert!(!first.cpu().cop0_timer_interrupt_pending());
+        assert!(!second.cpu().cop0_software_interrupt_pending_known());
+        assert_eq!(second.cpu().cop0_count(), 0);
+        assert_eq!(second.cpu().cop0_compare(), 0);
+        assert!(!second.cpu().cop0_timer_interrupt_pending());
+
+        first.reset();
+        assert!(!first.cpu().cop0_software_interrupt_pending_known());
+        assert_eq!(first.cpu().cop0_count(), 0);
+        first.stage_cartridge_bootstrap().unwrap();
+        assert!(!first.cpu().cop0_software_interrupt_pending_known());
+        assert_eq!(first.cpu().cop0_count(), 0);
+    }
+
+    #[test]
+    fn generated_x105_composition_advances_through_mtc0_trio_to_ri_frontier() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
-        const SECOND_DATA_WORD: u32 = 0x1122_3344;
-        const THIRD_DATA_WORD: u32 = 0x89ab_cdef;
+        let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
+        let ri_base_word = immediate_word(0x0f, 0, 8, 0xa470);
+        let ri_select_load_word = lw_word(8, 9, 0x000c);
         let mut firmware = generated_pif_firmware(PIF_SEED, PIF_BOOT_ROM_SIZE_BYTES);
         let source_start = PifIpl2Profile::NtscPinned
             .copy_layout()
             .source_start_offset() as usize;
         write_be_u32(&mut firmware, source_start, FIRST_PIF_WORD);
         let pif_word = FIRST_PIF_WORD;
-        let first_data_word = 0x1357_9000 | (pif_word & 0x0fff);
+        let first_data_word = compare_word;
         let transformed_word = first_data_word ^ pif_word;
-        assert_eq!(transformed_word & 0x0fff, 0);
+        assert_eq!(pif_word & 0x0fff, 0);
 
         let words = [
             (
@@ -16165,9 +16772,10 @@ mod tests {
             (0x74, immediate_word(0x01, 31, 0, 1)),
             (0x78, sw_word(9, 0, 0xf018)),
             (0x7c, cop0_move_word(4, 0, COP0_CAUSE_REGISTER_INDEX)),
+            (0x80, cop0_move_word(4, 0, COP0_COUNT_REGISTER_INDEX)),
             (0x84, first_data_word),
-            (0x88, SECOND_DATA_WORD),
-            (0x8c, THIRD_DATA_WORD),
+            (0x88, ri_base_word),
+            (0x8c, ri_select_load_word),
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -16220,17 +16828,17 @@ mod tests {
                     outcome,
                     MachineRepresentedStepOutcome::StoreWordCommitted {
                         target: MachineStoreWordTarget::SpImem { offset: 4 },
-                        stored_word: SECOND_DATA_WORD,
+                        stored_word,
                         ..
-                    }
+                    } if stored_word == ri_base_word
                 )),
                 12 => assert!(matches!(
                     outcome,
                     MachineRepresentedStepOutcome::StoreWordCommitted {
                         target: MachineStoreWordTarget::SpImem { offset: 8 },
-                        stored_word: THIRD_DATA_WORD,
+                        stored_word,
                         ..
-                    }
+                    } if stored_word == ri_select_load_word
                 )),
                 _ => {}
             }
@@ -16250,7 +16858,7 @@ mod tests {
                 .read_known_u32_be(SpImemOffset::new(4))
                 .unwrap()
                 .value(),
-            SECOND_DATA_WORD
+            ri_base_word
         );
         assert_eq!(
             machine
@@ -16258,7 +16866,7 @@ mod tests {
                 .read_known_u32_be(SpImemOffset::new(8))
                 .unwrap()
                 .value(),
-            THIRD_DATA_WORD
+            ri_select_load_word
         );
         assert_eq!(machine.cpu().pc(), 0xa400_0074);
         assert_eq!(machine.cpu().next_pc(), 0xa400_0078);
@@ -16310,15 +16918,62 @@ mod tests {
         assert_eq!(machine.cpu().cop0_count(), 15);
         assert_eq!(machine.cpu_delay_slot_context(), None);
 
-        let before_frontier = lw_snapshot(&machine);
-        assert!(matches!(
-            machine.step(),
-            Err(MachineRepresentedStepError::UnrepresentedInstruction {
-                identity: CpuInstructionIdentity::Cop0Mtc0,
-                ..
-            })
-        ));
-        assert_eq!(lw_snapshot(&machine), before_frontier);
+        assert!(!machine.cpu().cop0_software_interrupt_pending_known());
+        assert_mtc0_commit(
+            machine.step().unwrap(),
+            MachineMtc0Destination::CauseSoftwareInterruptPending,
+            0,
+            0,
+            MachineBootstrapGprSource::ArchitecturalZero,
+            0,
+        );
+        assert!(machine.cpu().cop0_software_interrupt_pending_known());
+        assert_eq!(machine.cpu().cop0_software_interrupt_pending(), 0);
+        assert_eq!(machine.cpu().cop0_count(), 16);
+        assert_eq!(machine.cpu().pc(), 0xa400_0080);
+
+        assert_mtc0_commit(
+            machine.step().unwrap(),
+            MachineMtc0Destination::Count,
+            0,
+            0,
+            MachineBootstrapGprSource::ArchitecturalZero,
+            0,
+        );
+        assert_eq!(machine.cpu().cop0_count(), 1);
+        assert_eq!(machine.cpu().pc(), 0xa400_0084);
+
+        assert_mtc0_commit(
+            machine.step().unwrap(),
+            MachineMtc0Destination::Compare,
+            0,
+            0,
+            MachineBootstrapGprSource::ArchitecturalZero,
+            0,
+        );
+        assert_eq!(machine.cpu().cop0_compare(), 0);
+        assert_eq!(machine.cpu().cop0_count(), 2);
+        assert!(!machine.cpu().cop0_timer_interrupt_pending());
+        assert_eq!(machine.cpu().pc(), 0xa400_0088);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_008c);
+
+        let outcome = machine.step().unwrap();
+        assert_eq!(outcome.identity(), Some(CpuInstructionIdentity::Lui));
+        assert_eq!(machine.cpu().gpr(8), Some(0xffff_ffff_a470_0000));
+        assert_eq!(machine.cpu().cop0_count(), 3);
+        assert_eq!(machine.cpu().pc(), 0xa400_008c);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0090);
+
+        let before_ri_frontier = lw_snapshot(&machine);
+        let rejection = machine.step().unwrap_err().load_word_rejection().unwrap();
+        assert_eq!(rejection.effective_address(), 0xffff_ffff_a470_000c);
+        assert_eq!(rejection.cpu_address(), CpuAddress::new(0xa470_000c));
+        assert_eq!(rejection.target(), None);
+        assert_eq!(
+            rejection.reason(),
+            MachineLoadWordRejectionReason::DirectTargetMiss
+        );
+        assert_eq!(lw_snapshot(&machine), before_ri_frontier);
     }
 
     #[test]

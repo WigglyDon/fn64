@@ -921,6 +921,7 @@ mod tests {
         cop0_timer_interrupt_pending: bool,
         cop0_status: u32,
         cop0_software_interrupt_pending: u32,
+        cop0_software_interrupt_pending_known: bool,
         cop0_epc: u32,
         cop0_bad_vaddr: u32,
         cop0_exception_code: u8,
@@ -950,6 +951,9 @@ mod tests {
             cop0_timer_interrupt_pending: machine.cpu().cop0_timer_interrupt_pending(),
             cop0_status: machine.cpu().cop0_status(),
             cop0_software_interrupt_pending: machine.cpu().cop0_software_interrupt_pending(),
+            cop0_software_interrupt_pending_known: machine
+                .cpu()
+                .cop0_software_interrupt_pending_known(),
             cop0_epc: machine.cpu().cop0_epc(),
             cop0_bad_vaddr: machine.cpu().cop0_bad_vaddr(),
             cop0_exception_code: machine.cpu().cop0_exception_code(),
