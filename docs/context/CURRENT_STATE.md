@@ -74,6 +74,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   BLTZ reuses the established full-GPR signed comparison used by SLT/SLTI;
   every other REGIMM identity remains unrepresented. This is bounded ordinary
   control flow, not complete MIPS control flow.
+- `LIVE_REPO_FACT`: `Cop0Mtc0` executes only for Cause software-pending bits,
+  Count, and Compare while the source-backed cold-x105 kernel state is active.
+  It transfers the known source GPR's low word, preserves the source, and
+  rejects malformed encodings, other destinations, unavailable sources, or
+  other access contexts before mutation. Cause writes only IP1/IP0 and does
+  not clear timer pending; Count writes before normal committed cadence;
+  Compare clears timer pending before that cadence, whose post-increment
+  equality check may relatch it. Interrupt delivery and general COP0 access
+  remain absent.
 - `LIVE_REPO_FACT`: Machine structurally accepts an explicitly supplied
   1,984-byte raw-Boot-ROM-shaped input, rejects the 2,048-byte full-map shape as
   unsupported, and classifies other lengths as malformed. Acceptance proves no
@@ -109,14 +118,17 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   arithmetic, but independent matching corroboration is insufficient for
   product authority. The three copy profiles remain supported independently;
   only the coupled handoff is NTSC-only.
-- `LIVE_REPO_FACT`: generated-only public-step composition now commits fifteen
-  bounded x105-shaped instructions. After the accepted thirteen-step prefix,
-  `RegimmBltz` consumes the known retained r31 link, takes the branch, and its
-  ordinary `Sw` slot writes one known zero word to SP IMEM local `0x00C` with
-  CPU-store provenance. It ends at PC/next-PC
-  `0xA400007C / 0xA4000080`, Count `15`, then rejects recognized but
-  unrepresented `Cop0Mtc0` to Cause without mutation. Every instruction and
-  byte is independently generated. This changes no authentic checkpoint.
+- `LIVE_REPO_FACT`: generated-only public-step composition now commits
+  nineteen bounded x105-shaped instructions. After the accepted fifteen-step
+  prefix, `MTC0 r0,Cause`, `MTC0 r0,Count`, and `MTC0 r0,Compare` commit in
+  source order, followed by represented address construction. It ends at
+  PC/next-PC `0xA400008C / 0xA4000090`, Count `3`, Compare `0`, known-cleared
+  software pending, and clear timer pending. The next aligned `Lw` computes
+  RI_SELECT effective address `0xFFFFFFFFA470000C`, represented CPU address
+  `0xA470000C`, and physical address `0x0470000C`, then rejects as a direct
+  target miss without mutation. Every instruction and byte is
+  independently generated. RI behavior and the authentic checkpoint do not
+  change.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -179,6 +191,15 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   generated proof represents non-linking/non-likely BLTZ through the existing
   full-width signed and ordinary-delay-slot owners, commits the x105 zero-store
   slot, and reaches `Cop0Mtc0` without creating a Worker lane or queue entry.
+- `master-direct-mtc0-boot-trio-x105-ri-frontier-v1`: direct Master product
+  operation; generated proof represents only MTC0 Cause/Count/Compare plus
+  their exact cadence and reaches the RI_SELECT `Lw` direct-target miss without
+  creating a Worker lane or queue entry.
+- `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
+  preserved worktree was and remains registered to
+  `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
+  `MASTER_BRANCH_LABEL_OR_TOPOLOGY_DRIFT`; prior topology and accepted product
+  history were not modified.
 - Active supervisor operations: none. Active Worker operations and lanes: none.
 - `pif-ipl2-handoff-state-mapping-v1`: retired as an unaccepted historical
   donor operation. Candidate `c24ab78c`, context-propagation merge `96840e99`,
@@ -210,11 +231,13 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: recognized but unrepresented `Cop0Mtc0` to Cause is the
-  next generated pressure. All other REGIMM identities, COP0 execution,
-  RDRAM/SP-DMEM/device stores, and every store identity other than SP-IMEM
-  `Sw` remain absent; no generic branch/store route, bus, or generalized
-  memory map is implied.
+- `LIVE_REPO_FACT`: an aligned `Lw` at RI_SELECT address
+  `0xA470000C` (effective GPR address `0xFFFFFFFFA470000C`) is the next
+  generated pressure and rejects as a direct target miss. RI/MMIO behavior,
+  all other REGIMM identities, every other COP0 instruction or MTC0
+  destination, RDRAM/SP-DMEM/device stores, and every store identity other than
+  SP-IMEM `Sw` remain absent; no generic CP0, branch/store, bus, MMIO, or
+  generalized memory-map route is implied.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that

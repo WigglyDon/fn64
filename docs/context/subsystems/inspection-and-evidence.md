@@ -18,12 +18,13 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for thirty-eight represented cases, including ordinary
+public `Machine::step` for fifty-one represented cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
 `Sw`/AdES/provenance/rejection cases, BLTZ signed/target/slot/rejection cases,
-and fifteen generated commits to the `Cop0Mtc0` frontier. The probe ends
+bounded MTC0 mask/cadence/timer/rejection cases, and nineteen generated commits
+to the RI_SELECT direct-target miss. The probe ends
 deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -65,9 +66,10 @@ SP IMEM, authenticate firmware, or prove a firmware-executed handoff.
 The generated x105 evidence records only bounded instruction identity order
 and independently encoded data-flow shape. It copies no instruction stream.
 Public-step proof commits aligned SP-IMEM `Sw` at `0xA4000050`, BLTZ at
-`0xA4000074`, and the zero-store slot at `0xA4000078`, then stops at
-unrepresented `Cop0Mtc0` at `0xA400007C`; it is synthetic evidence, not
-authentic cartridge execution.
+`0xA4000074`, its zero-store slot, the MTC0 Cause/Count/Compare trio, and RI
+address construction, then stops at the RI_SELECT `Lw` direct-target miss at
+`0xA400008C`; it is synthetic evidence, not authentic cartridge or RI
+execution.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use

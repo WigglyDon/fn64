@@ -340,6 +340,25 @@ slot Count zero times, uses the BLTZ PC for EPC with BD set, commits neither
 target nor fall-through, and reuses the existing AdEL/AdES owner. BGEZ, likely
 and link variants, and REGIMM traps remain unrepresented.
 
+### Machine-owned bounded `MTC0` boot trio
+
+`Cop0Mtc0` selects a closed Machine plan only for Cause register 13, Count
+register 9, and Compare register 11 while the source-backed NTSC cold-x105
+kernel handoff is active. Planning validates zero reserved low bits, the exact
+destination, access scope, and a known old `rt`, then transfers only its low
+32 bits. Unsupported destinations, malformed encodings, unavailable sources,
+and other contexts reject before COP0, control-flow, or Count mutation.
+
+Cause writes only software-pending IP1/IP0 (`0x00000300`) and makes that
+two-bit state known; it preserves exception code, BD, timer pending, and all
+other read-only state. Count installs the transfer word before normal cadence,
+which then advances Count once and performs the existing Compare equality
+check. Compare installs the transfer word and clears timer pending before
+normal cadence, whose post-increment equality may relatch it. Successful MTC0
+in an ordinary delay slot uses the existing slot cadence and creates no branch
+or GPR write. Interrupt delivery, RI behavior, other MTC0 destinations, MFC0,
+DMTC0, privilege completeness, and a generic CP0 register bank remain absent.
+
 ### Other represented outcomes
 
 - `SYNC` commits as an explicit no-effect instruction.
@@ -381,13 +400,15 @@ event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
 Generated tests separately prove the NTSC cold x105 coupled creation point and
-fifteen public-step commits through the accepted prefix, SP-IMEM stores, BNE
-and BLTZ with their ordinary slots, and already represented arithmetic/loads.
-The BLTZ slot writes one known zero word at SP IMEM local `0x00C`. The final
-synthetic state is PC/next-PC `0xA400007C / 0xA4000080` with Count `15`;
-recognized `Cop0Mtc0` to Cause is the next unrepresented frontier and rejects
-without mutation. These tests are synthetic composition proof and are not an
-authentic IPL2-to-IPL3 run.
+nineteen public-step commits through the accepted prefix, SP-IMEM stores,
+BNE/BLTZ and their ordinary slots, the three bounded MTC0 destinations, and
+represented RI-address construction. The final synthetic state before the
+next instruction is PC/next-PC `0xA400008C / 0xA4000090`, Count `3`, Compare
+`0`, known-cleared software pending, and clear timer pending. The aligned `Lw`
+from represented CPU address `0xA470000C` (effective GPR address
+`0xFFFFFFFFA470000C`) rejects as a direct target miss without mutation. These
+tests are synthetic composition proof, not an authentic
+IPL2-to-IPL3 run or RI execution.
 One-word staging would be both incomplete and unauthorized: the observed x105
 prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
@@ -404,7 +425,8 @@ execute. Current explicit absences include:
   `Sw`, plus unaligned merge operations; `Lw` has no device/MMIO or
   unclassified SP-DMEM source route, and `Sw` has no RDRAM, SP-DMEM, or device
   target;
-- multiply, divide, trap, COP0 instruction, ERET, and LL/SC execution;
+- multiply, divide, trap, every COP0 instruction except the bounded MTC0 trio,
+  ERET, and LL/SC execution;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
   PI DMA, authentic firmware-executed bootstrap handoff, and cartridge-entry
@@ -428,7 +450,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its thirty-eight cases cover:
+calls only public `Machine::step` for execution. Its fifty-one cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -446,8 +468,10 @@ calls only public `Machine::step` for execution. Its thirty-eight cases cover:
 - BLTZ taken/untaken/full-width signed discrimination, positive/negative
   targets, ordinary slot commit, slot exception, nested-control-flow rejection,
   and unknown-source rejection;
-- fifteen-step generated x105 composition through BLTZ and its zero-store slot
-  to the `Cop0Mtc0` frontier;
+- bounded MTC0 Cause masking/knownness, Count and Compare write-before-cadence,
+  timer clear/relatch ordering, ordinary-slot success, and atomic rejection;
+- nineteen-step generated x105 composition through the MTC0 trio and RI
+  address construction to the RI_SELECT direct-target miss;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

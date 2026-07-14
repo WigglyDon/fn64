@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-SP-IMEM-Sw planning, or one CPU-local helper selection → classified action`.
+`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-SP-IMEM-Sw planning, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the thirty-eight-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the fifty-one-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct
@@ -40,8 +40,15 @@ cold-x105 test proves the Machine bootstrap plan can source the inherited t3
 operand before `Machine::step`; that source gate still rejects every unstaged
 GPR and does not imply IPL2 execution. Generated-only continuation now commits
 the SP-IMEM load, the earlier-missing SP-DMEM load, the following logical
-transform, four SP-IMEM stores, BNE/BLTZ, and both ordinary slots, then stops
-atomically at recognized but unrepresented `Cop0Mtc0` to Cause.
+transform, four SP-IMEM stores, BNE/BLTZ, both ordinary slots, the three
+bounded MTC0 writes, and RI-address construction, then stops atomically when
+the RI_SELECT `Lw` target classification misses.
+
+The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
+source-backed cold-x105 access scope, and a known old source. Its immutable
+plan resolves all fallible facts before destination-specific COP0 mutation and
+existing cadence application. No numeric CP0 register map or generic writer is
+introduced.
 
 The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct SP IMEM, and only
@@ -57,5 +64,6 @@ CPU-owned slot context; it does not refetch or re-identify.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, branch-likely
-and other REGIMM/control-flow families, COP0 instruction execution, nested
-control-flow behavior, broad fetch mapping, and instruction timing.
+and other REGIMM/control-flow families, broader COP0 instruction execution,
+RI/MMIO, nested control-flow behavior, broad fetch mapping, and instruction
+timing.

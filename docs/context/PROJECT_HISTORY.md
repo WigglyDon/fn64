@@ -318,6 +318,29 @@ product or reference lane requires a new explicit product decision.
   input, COP0 execution, authentic execution, BOOT-3, or compatibility fact was
   added. BOOT-2 remains highest.
 
+## Era 19 — bounded MTC0 boot trio and RI frontier (2026-07-14)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, primary VR4300 MTC0 and
+  Cause/Count/Compare rules plus pinned bounded identity order;
+  `LIVE_REPO_FACT`, direct Master implementation and inspection commits;
+  `RUNTIME_FACT`, generated focused tests, step probe, clean checkout, and
+  complete Rust gates.
+- Accepted product increment: `Cop0Mtc0` transfers a known GPR low word only
+  to Cause IP1/IP0, Count, or Compare on the source-backed cold-x105 path.
+  Cause preserves read-only and timer state; Count writes before cadence;
+  Compare clears timer pending before cadence and equality may relatch it.
+- Generated composition: the trio commits as steps 16-18, represented address
+  construction commits as step 19, and the RI_SELECT `Lw` at represented CPU
+  address `0xA470000C` (effective GPR address `0xFFFFFFFFA470000C`) rejects as
+  a direct target miss. Final PC/next-PC are
+  `0xA400008C / 0xA4000090` and Count is `3`.
+- Workflow audit: the accepted BLTZ report's branch name was a report-only
+  `MASTER_BRANCH_LABEL_OR_TOPOLOGY_DRIFT`; its worktree was registered to the
+  assigned branch, and no historical topology or accepted product was changed.
+- Proof boundary: all inputs and instruction fields are generated. RI,
+  interrupt delivery, general COP0, authentic execution, BOOT-3, and
+  compatibility remain absent. BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

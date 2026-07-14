@@ -61,6 +61,12 @@ fallible memory operation: it writes once, commits control flow once, and
 advances Count once. Rejection restores the captured snapshot; AdES delegates
 to existing sealed COP0 entry.
 
+Bounded `Cop0Mtc0` uses another closed plan/application path. The plan captures
+the cold-x105 access proof, exact Cause/Count/Compare destination, known old
+source, and low transfer word before mutation. Application performs the
+destination-specific COP0 write before the existing committed cadence. It is
+not a numeric CP0 map or a general register-write framework.
+
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
 cartridge medium, PIF-version bit, all staged GPR values/sources, Status, and
@@ -70,7 +76,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the thirty-eight-case step probe, the bounded BOOT-2 probe,
+construction/reset probe, the fifty-one-case step probe, the bounded BOOT-2 probe,
 and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -79,8 +85,9 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a fifteen-step generated x105 composition through BLTZ and its
-SP-IMEM zero-store slot to the `Cop0Mtc0` frontier, but it does not prove an
+handoff and a nineteen-step generated x105 composition through the bounded
+MTC0 trio and RI-address construction to an RI_SELECT direct-target miss, but
+it does not prove an
 authentic firmware-executed handoff,
 BOOT-3, timing, full ISA, game compatibility,
 renderer, audio, performance, or host integration.

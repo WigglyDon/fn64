@@ -35,6 +35,7 @@ Current durable integration records:
 - [Generated x105 SP-DMEM load frontier](generated-x105-instruction-frontier-v1/README.md)
 - [Aligned Sw generated x105 store frontier](aligned-sw-generated-x105-frontier-v1/README.md)
 - [BLTZ generated x105 branch frontier](bltz-generated-x105-branch-frontier-v1/README.md)
+- [Bounded MTC0 boot trio and generated x105 RI frontier](mtc0-boot-trio-generated-x105-ri-frontier-v1/README.md)
 
 The lineage contract is:
 

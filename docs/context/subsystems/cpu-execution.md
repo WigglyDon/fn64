@@ -63,6 +63,13 @@ advances normal cadence once. Sequential or delay-slot AdES delegates to COP0
 with zero faulting-instruction Count; unknown sources and unsupported targets
 restore the complete pre-step state.
 
+Bounded `Cop0Mtc0` is a closed Machine-owned action for Cause software
+pending, Count, and Compare only. It reads a known old source, transfers its
+low word, and requires the source-backed cold-x105 kernel access state. Cause
+updates only IP1/IP0; Count writes before normal cadence; Compare clears timer
+pending before normal cadence. Unsupported contexts, encodings, and
+destinations reject before mutation, and no general CP0 executor exists.
+
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
 not source Count, Compare, EPC, BadVAddr, Cause, timer state, or unrelated GPRs.
@@ -76,9 +83,9 @@ Current observability is deterministic state inspection; no instruction trace
 format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
-tests for changes. Generated composition commits BLTZ and its SP-IMEM zero-word
-slot, then reaches recognized but unrepresented `Cop0Mtc0` to Cause. Known
-unknowns include complete public-step ISA integration, real timing,
-branch-likely/other REGIMM/COP0 execution, nested control flow, other
-load/store families, and performance. Next authority must be earned by a
-bounded product packet, not a generic dispatcher.
+tests for changes. Generated composition commits the MTC0 trio and represented
+RI-address construction, then rejects the RI_SELECT `Lw` as a direct target
+miss. Known unknowns include complete public-step ISA integration, real timing,
+branch-likely/other REGIMM and broader COP0 execution, RI/MMIO, nested control
+flow, other load/store families, and performance. Next authority must be earned
+by a bounded product packet, not a generic dispatcher.

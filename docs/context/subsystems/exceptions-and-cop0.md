@@ -34,6 +34,15 @@ BadVAddr, Cause, software/timer pending state, Config, and PRId receive no
 handoff-source claim. Missing or unsupported handoff input rejects before any
 COP0 or control-flow mutation.
 
+The same source-backed cold-x105 state is the only represented MTC0 access
+scope. Cause register 13 writes only IP1/IP0 (`0x00000300`) and makes that
+two-bit software-pending state known while preserving exception code, BD, and
+timer pending. Count register 9 installs its low word before committed cadence.
+Compare register 11 installs its low word and clears timer pending before
+committed cadence; the existing post-increment Count/Compare equality owner
+may relatch pending. This is pending-state representation only: no interrupt
+delivery, masking, or general CP0 register access is implied.
+
 For the represented ordinary-control-flow family, CPU-owned delay-slot context
 names the owning branch/jump PC. Arithmetic overflow, instruction-fetch AdEL,
 unaligned-`Lw` data-AdEL, and unaligned-`Sw` data-AdES entry from that slot set
@@ -45,8 +54,10 @@ Non-linking/non-likely BLTZ uses that same owner without adding exception
 semantics. Focused generated proof covers taken BLTZ with an AdES slot and
 untaken BLTZ with an AdEL slot: EPC is the BLTZ PC, BD is set, BadVAddr is
 exact, the branch Count remains, the faulting slot adds zero, and neither
-target nor fall-through commits. `Cop0Mtc0` at the next generated frontier is
-decoded but unrepresented; this page gains no COP0 instruction executor.
+target nor fall-through commits. Bounded `Cop0Mtc0` in an ordinary slot commits
+its destination once and then uses the existing slot cadence; it has no
+intrinsic represented exception. Other COP0 instructions and destinations
+remain unrepresented.
 
 Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
 owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting
