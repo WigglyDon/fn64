@@ -6,14 +6,14 @@ use fn64_core::{
     load_cartridge, Cartridge, CartridgeLoadError, CpuAddressErrorKind, CpuInstructionIdentity,
     Machine, MachineBootstrapGprSource, MachineCartridgeBootstrapError,
     MachineCpuInstructionFetchError, MachineLoadWordRejectionReason, MachineLoadWordTarget,
-    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineSpDmemLoadWordProvenance, MachineStepCadenceSource, MachineStepControlFlowAction,
-    MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory,
-    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
-    MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
-    PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
-    PIF_BOOT_ROM_SIZE_BYTES,
+    MachineOrdinaryControlFlowRejectionReason, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineSpDmemLoadWordProvenance,
+    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
+    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
+    MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
+    MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
+    PifIpl2Profile, RdramAccessError, SpDmemOffset, PIF_BOOT_ROM_SIZE_BYTES,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -42,7 +42,17 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: sp-imem-sw-unknown-base-rejection ok\
 \ncase: sp-imem-sw-unknown-source-rejection ok\
 \ncase: sp-imem-sw-unsupported-target-rejection ok\
-\ncase: generated-x105-post-sw-frontier ok\
+\ncase: bltz-taken ok\
+\ncase: bltz-untaken ok\
+\ncase: bltz-zero-source ok\
+\ncase: bltz-signed-width-discriminator ok\
+\ncase: bltz-positive-offset ok\
+\ncase: bltz-negative-offset ok\
+\ncase: bltz-delay-slot-committed ok\
+\ncase: bltz-delay-slot-exception ok\
+\ncase: bltz-in-delay-slot-rejection ok\
+\ncase: bltz-unknown-source-rejection ok\
+\ncase: generated-x105-post-bltz-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -145,7 +155,10 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_sp_imem_sw_successes()?;
     probe_sp_imem_sw_ades_cases()?;
     probe_sp_imem_sw_rejections()?;
-    probe_generated_x105_post_sw_frontier()?;
+    probe_bltz_conditions_and_targets()?;
+    probe_bltz_delay_slot_paths()?;
+    probe_bltz_rejections()?;
+    probe_generated_x105_post_bltz_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
     probe_control_flow_taken_delay_slot()?;
@@ -807,8 +820,302 @@ fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
     )
 }
 
-fn probe_generated_x105_post_sw_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "generated-x105-post-sw-frontier";
+fn probe_bltz_conditions_and_targets() -> Result<(), StepProbeError> {
+    const CASE: &str = "bltz-taken";
+    let taken_words = [
+        (0x40, branch_word(0x01, 31, 0, 2)),
+        (0x44, special_word(0, 0, 0, 0)),
+    ];
+    let (mut taken, _) = generated_cold_x105_machine(CASE, &taken_words)?;
+    let retained_ra = taken.cpu().gpr(31);
+    let retained_source = taken.cartridge_bootstrap_state().unwrap().gpr_source(31);
+    require_committed_identity(
+        CASE,
+        step(&mut taken, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(CASE, taken.cpu().pc() == 0xa400_0044, "taken slot pc")?;
+    require(
+        CASE,
+        taken.cpu().next_pc() == 0xa400_004c,
+        "positive-offset target",
+    )?;
+    require(CASE, taken.cpu().gpr(31) == retained_ra, "BLTZ no link")?;
+    require(
+        CASE,
+        taken.cartridge_bootstrap_state().unwrap().gpr_source(31) == retained_source,
+        "BLTZ source lineage preserved",
+    )?;
+
+    let zero_words = [
+        (0x40, branch_word(0x01, 0, 0, 2)),
+        (0x44, special_word(0, 0, 0, 0)),
+    ];
+    let (mut zero, _) = generated_cold_x105_machine(CASE, &zero_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut zero, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(
+        CASE,
+        zero.cpu().next_pc() == 0xa400_0048,
+        "zero source is untaken",
+    )?;
+    require(
+        CASE,
+        zero.cpu().gpr(0) == Some(0),
+        "architectural r0 preserved",
+    )?;
+
+    let positive_words = [
+        (0x40, immediate_word(0x0d, 0, 4, 1)),
+        (0x44, special_shift_word(0, 4, 4, 31, 0x38)),
+        (0x48, branch_word(0x01, 4, 0, 2)),
+        (0x4c, special_word(0, 0, 0, 0)),
+    ];
+    let (mut positive, _) = generated_cold_x105_machine(CASE, &positive_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut positive, CASE)?,
+        CpuInstructionIdentity::Ori,
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut positive, CASE)?,
+        CpuInstructionIdentity::SpecialDsll,
+    )?;
+    require(
+        CASE,
+        positive.cpu().gpr(4) == Some(0x0000_0000_8000_0000),
+        "positive full-width discriminator value",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut positive, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(
+        CASE,
+        positive.cpu().next_pc() == 0xa400_0050,
+        "positive full-width discriminator untaken",
+    )?;
+
+    let negative_words = [
+        (0x40, immediate_word(0x0f, 0, 4, 0xffff)),
+        (0x44, special_shift_word(0, 4, 4, 16, 0x38)),
+        (0x48, branch_word(0x01, 4, 0, 2)),
+        (0x4c, special_word(0, 0, 0, 0)),
+    ];
+    let (mut negative, _) = generated_cold_x105_machine(CASE, &negative_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut negative, CASE)?,
+        CpuInstructionIdentity::Lui,
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut negative, CASE)?,
+        CpuInstructionIdentity::SpecialDsll,
+    )?;
+    require(
+        CASE,
+        negative.cpu().gpr(4) == Some(0xffff_ffff_0000_0000),
+        "negative full-width discriminator value",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut negative, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(
+        CASE,
+        negative.cpu().next_pc() == 0xa400_0054,
+        "negative full-width discriminator taken",
+    )?;
+
+    let negative_offset_words = [
+        (0x40, branch_word(0x01, 31, 0, -2)),
+        (0x44, special_word(0, 0, 0, 0)),
+    ];
+    let (mut negative_offset, _) = generated_cold_x105_machine(CASE, &negative_offset_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut negative_offset, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(
+        CASE,
+        negative_offset.cpu().next_pc() == 0xa400_003c,
+        "negative-offset target",
+    )
+}
+
+fn probe_bltz_delay_slot_paths() -> Result<(), StepProbeError> {
+    const CASE: &str = "bltz-delay-slot-committed";
+    let success_words = [
+        (0x40, branch_word(0x01, 31, 0, 1)),
+        (0x44, immediate_word(0x2b, 29, 0, 0xf010)),
+        (0x48, special_word(0, 0, 0, 0)),
+    ];
+    let (mut success, _) = generated_cold_x105_machine(CASE, &success_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut success, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut success, CASE)?,
+            MachineRepresentedStepOutcome::StoreWordCommitted {
+                target: MachineStoreWordTarget::SpImem { offset: 0 },
+                source_gpr: 0,
+                stored_word: 0,
+                ..
+            }
+        ),
+        "BLTZ delay-slot Sw committed",
+    )?;
+    require(CASE, success.cpu().pc() == 0xa400_0048, "slot target pc")?;
+    require(
+        CASE,
+        success.cpu().cop0_count() == 2,
+        "branch plus slot Count",
+    )?;
+    require(
+        CASE,
+        success.cpu_delay_slot_context().is_none(),
+        "slot context cleared",
+    )?;
+
+    let fault_words = [
+        (0x40, branch_word(0x01, 31, 0, 1)),
+        (0x44, immediate_word(0x2b, 29, 0, 0xf011)),
+        (0x48, special_word(0, 0, 0, 0)),
+    ];
+    let (mut fault, _) = generated_cold_x105_machine(CASE, &fault_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut fault, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut fault, CASE)?,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Sw,
+                address_error,
+                ..
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && address_error.bad_vaddr() == CpuAddress::new(0xa400_1001)
+        ),
+        "BLTZ slot AdES",
+    )?;
+    require(
+        CASE,
+        fault.cpu().cop0_epc() == 0xa400_0040,
+        "slot owner EPC",
+    )?;
+    require(CASE, fault.cpu().cop0_exception_branch_delay(), "slot BD")?;
+    require(
+        CASE,
+        fault.cpu().cop0_count() == 1,
+        "faulting slot Count zero",
+    )?;
+    require(
+        CASE,
+        fault.cpu().pc() == GENERAL_EXCEPTION_VECTOR_PC,
+        "slot exception vector",
+    )?;
+    require(
+        CASE,
+        fault.cpu_delay_slot_context().is_none(),
+        "slot exception context cleared",
+    )
+}
+
+fn probe_bltz_rejections() -> Result<(), StepProbeError> {
+    const CASE: &str = "bltz-in-delay-slot-rejection";
+    let nested_words = [
+        (0x40, branch_word(0x04, 0, 0, 1)),
+        (0x44, branch_word(0x01, 31, 0, 1)),
+        (0x48, special_word(0, 0, 0, 0)),
+    ];
+    let (mut nested, _) = generated_cold_x105_machine(CASE, &nested_words)?;
+    require_committed_identity(CASE, step(&mut nested, CASE)?, CpuInstructionIdentity::Beq)?;
+    let pc_before = nested.cpu().pc();
+    let next_pc_before = nested.cpu().next_pc();
+    let count_before = nested.cpu().cop0_count();
+    let context_before = nested.cpu_delay_slot_context();
+    require(
+        CASE,
+        matches!(
+            step(&mut nested, CASE)?,
+            MachineRepresentedStepOutcome::Unsupported {
+                instruction,
+                cadence_plan,
+            } if instruction.identity() == CpuInstructionIdentity::RegimmBltz
+                && instruction.category()
+                    == MachineStepUnsupportedInstructionCategory::ControlFlowInDelaySlot
+                && cadence_plan.count_action() == MachineStepCountAction::DoNotAdvance
+        ),
+        "BLTZ in delay slot rejected",
+    )?;
+    require(CASE, nested.cpu().pc() == pc_before, "nested rejection pc")?;
+    require(
+        CASE,
+        nested.cpu().next_pc() == next_pc_before,
+        "nested rejection next_pc",
+    )?;
+    require(
+        CASE,
+        nested.cpu().cop0_count() == count_before,
+        "nested rejection Count",
+    )?;
+    require(
+        CASE,
+        nested.cpu_delay_slot_context() == context_before,
+        "nested rejection context",
+    )?;
+
+    let unknown_words = [(0x40, branch_word(0x01, 7, 0, 1))];
+    let (mut unknown, _) = generated_cold_x105_machine(CASE, &unknown_words)?;
+    let pc_before = unknown.cpu().pc();
+    let next_pc_before = unknown.cpu().next_pc();
+    match unknown.step() {
+        Err(MachineRepresentedStepError::OrdinaryControlFlowRejected(rejection)) => require(
+            CASE,
+            rejection.reason()
+                == MachineOrdinaryControlFlowRejectionReason::BootstrapSourceUnavailable {
+                    register_index: 7,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
+                },
+            "unknown BLTZ source rejection",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "unknown BLTZ source rejected"),
+    }
+    require(
+        CASE,
+        unknown.cpu().pc() == pc_before,
+        "unknown rejection pc",
+    )?;
+    require(
+        CASE,
+        unknown.cpu().next_pc() == next_pc_before,
+        "unknown rejection next_pc",
+    )?;
+    require(
+        CASE,
+        unknown.cpu().cop0_count() == 0,
+        "unknown rejection Count",
+    )
+}
+
+fn probe_generated_x105_post_bltz_frontier() -> Result<(), StepProbeError> {
+    const CASE: &str = "generated-x105-post-bltz-frontier";
     const FIRST_DATA_WORD: u32 = 0x1357_9000;
     const SECOND_DATA_WORD: u32 = 0x1122_3344;
     const THIRD_DATA_WORD: u32 = 0x89ab_cdef;
@@ -827,6 +1134,8 @@ fn probe_generated_x105_post_sw_frontier() -> Result<(), StepProbeError> {
         (0x6c, immediate_word(0x2b, 9, 8, 0xf010)),
         (0x70, immediate_word(0x2b, 9, 10, 0xf014)),
         (0x74, immediate_word(0x01, 31, 0, 1)),
+        (0x78, immediate_word(0x2b, 9, 0, 0xf018)),
+        (0x7c, cop0_move_word(4, 0, 13)),
         (0x84, FIRST_DATA_WORD),
         (0x88, SECOND_DATA_WORD),
         (0x8c, THIRD_DATA_WORD),
@@ -881,28 +1190,72 @@ fn probe_generated_x105_post_sw_frontier() -> Result<(), StepProbeError> {
     require(
         CASE,
         machine.cpu().pc() == 0xa400_0074,
-        "post-Sw frontier pc",
+        "pre-BLTZ frontier pc",
     )?;
     require(
         CASE,
         machine.cpu().next_pc() == 0xa400_0078,
-        "post-Sw frontier next_pc",
+        "pre-BLTZ frontier next_pc",
     )?;
     require(
         CASE,
         machine.cpu().cop0_count() == 13,
-        "post-Sw frontier Count",
+        "pre-BLTZ frontier Count",
+    )?;
+    let retained_ra = machine.cpu().gpr(31);
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::RegimmBltz,
+    )?;
+    require(CASE, machine.cpu().pc() == 0xa400_0078, "BLTZ slot pc")?;
+    require(CASE, machine.cpu().next_pc() == 0xa400_007c, "BLTZ target")?;
+    require(CASE, machine.cpu().cop0_count() == 14, "BLTZ Count")?;
+    require(CASE, machine.cpu().gpr(31) == retained_ra, "BLTZ kept r31")?;
+
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::StoreWordCommitted {
+                effective_address: 0xffff_ffff_a400_100c,
+                target: MachineStoreWordTarget::SpImem { offset: 0x00c },
+                source_gpr: 0,
+                stored_word: 0,
+                stored_bytes: [0, 0, 0, 0],
+                provenance,
+                ..
+            } if provenance.instruction_pc() == CpuAddress::new(0xa400_0078)
+                && provenance.source_lineage() == MachineBootstrapGprSource::ArchitecturalZero
+        ),
+        "x105 BLTZ delay-slot zero store",
+    )?;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_007c,
+        "target frontier pc",
+    )?;
+    require(
+        CASE,
+        machine.cpu().next_pc() == 0xa400_0080,
+        "target frontier next_pc",
+    )?;
+    require(CASE, machine.cpu().cop0_count() == 15, "post-slot Count")?;
+    require(
+        CASE,
+        machine.cpu_delay_slot_context().is_none(),
+        "post-slot context cleared",
     )?;
     let pc_before = machine.cpu().pc();
     let next_pc_before = machine.cpu().next_pc();
     let count_before = machine.cpu().cop0_count();
     match machine.step() {
         Err(MachineRepresentedStepError::UnrepresentedInstruction {
-            identity: CpuInstructionIdentity::RegimmBltz,
+            identity: CpuInstructionIdentity::Cop0Mtc0,
             ..
         }) => {}
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "RegimmBltz next frontier"),
+        Ok(_) => return assertion(CASE, "MTC0 Cause next frontier"),
     }
     require(
         CASE,
@@ -1432,6 +1785,18 @@ fn immediate_word(opcode: u8, rs: u8, rt: u8, immediate: u16) -> u32 {
 
 fn special_word(rs: u8, rt: u8, rd: u8, funct: u8) -> u32 {
     (u32::from(rs) << 21) | (u32::from(rt) << 16) | (u32::from(rd) << 11) | u32::from(funct)
+}
+
+fn special_shift_word(rs: u8, rt: u8, rd: u8, sa: u8, funct: u8) -> u32 {
+    (u32::from(rs) << 21)
+        | (u32::from(rt) << 16)
+        | (u32::from(rd) << 11)
+        | (u32::from(sa) << 6)
+        | u32::from(funct)
+}
+
+fn cop0_move_word(rs: u8, rt: u8, rd: u8) -> u32 {
+    (0x10_u32 << 26) | (u32::from(rs) << 21) | (u32::from(rt) << 16) | (u32::from(rd) << 11)
 }
 
 fn generated_cartridge(
