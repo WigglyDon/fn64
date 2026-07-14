@@ -9,12 +9,12 @@ use fn64_core::{
     MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
     MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineSpDmemLoadWordProvenance, MachineStepCadenceSource, MachineStepControlFlowAction,
-    MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory,
-    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
-    MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
-    PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
-    PIF_BOOT_ROM_SIZE_BYTES,
+    MachineRiSelectSource, MachineSpDmemLoadWordProvenance, MachineStepCadenceSource,
+    MachineStepControlFlowAction, MachineStepCountAction,
+    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
+    MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
+    MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
+    PifIpl2Profile, RdramAccessError, SpDmemOffset, PIF_BOOT_ROM_SIZE_BYTES,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -67,6 +67,17 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: mtc0-unknown-source-rejection ok\
 \ncase: mtc0-unsupported-destination-rejection ok\
 \ncase: generated-x105-post-mtc0-trio-frontier ok\
+\ncase: ri-select-cold-read-committed ok\
+\ncase: ri-select-direct-alias ok\
+\ncase: ri-select-neighbor-target-miss ok\
+\ncase: ri-select-unaligned-adel ok\
+\ncase: ri-select-reset-or-entry-source ok\
+\ncase: ri-select-independent-machines ok\
+\ncase: ri-select-unavailable-rejection ok\
+\ncase: ri-select-bne-cold-path ok\
+\ncase: ri-select-cold-delay-slot ok\
+\ncase: ri-select-stack-save ok\
+\ncase: generated-x105-post-ri-select-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -175,6 +186,7 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_mtc0_cause_and_timer()?;
     probe_mtc0_count_and_compare_ordering()?;
     probe_mtc0_delay_slot_and_rejections()?;
+    probe_ri_select_routes_and_lifecycle()?;
     probe_generated_x105_post_mtc0_trio_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
@@ -1476,6 +1488,188 @@ fn probe_mtc0_delay_slot_and_rejections() -> Result<(), StepProbeError> {
     )
 }
 
+fn probe_ri_select_routes_and_lifecycle() -> Result<(), StepProbeError> {
+    const READ_CASE: &str = "ri-select-cold-read-committed";
+    for ri_base in [0x8470_u16, 0xa470_u16] {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, ri_base)),
+            (0x44, immediate_word(0x23, 8, 9, 0x000c)),
+        ];
+        let (mut machine, _) = generated_cold_x105_machine(READ_CASE, &words)?;
+        let state = machine.ri_select_state().ok_or(StepProbeError::Assertion {
+            case: READ_CASE,
+            check: "cold-entry RI_SELECT available",
+        })?;
+        require(
+            READ_CASE,
+            state.value() == 0 && state.source() == MachineRiSelectSource::ColdX105Entry,
+            "cold-entry value and source",
+        )?;
+        require_committed_identity(
+            READ_CASE,
+            step(&mut machine, READ_CASE)?,
+            CpuInstructionIdentity::Lui,
+        )?;
+        require(
+            READ_CASE,
+            matches!(
+                step(&mut machine, READ_CASE)?,
+                MachineRepresentedStepOutcome::LoadWordCommitted {
+                    target: MachineLoadWordTarget::RiSelect {
+                        source: MachineRiSelectSource::ColdX105Entry,
+                    },
+                    destination_gpr: 9,
+                    loaded_word: 0,
+                    result_value: 0,
+                    cadence_plan,
+                    ..
+                } if cadence_plan.advances_count()
+            ),
+            "exact RI_SELECT load target",
+        )?;
+        require(
+            READ_CASE,
+            machine.cpu().gpr(9) == Some(0)
+                && machine.cpu().cop0_count() == 2
+                && machine.ri_select_state() == Some(state),
+            "load result, cadence, and no RI side effect",
+        )?;
+    }
+
+    const MISS_CASE: &str = "ri-select-neighbor-target-miss";
+    let miss_words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0x44, immediate_word(0x23, 8, 9, 0x0004)),
+    ];
+    let (mut miss, _) = generated_cold_x105_machine(MISS_CASE, &miss_words)?;
+    step(&mut miss, MISS_CASE)?;
+    let miss_before = (
+        miss.cpu().pc(),
+        miss.cpu().next_pc(),
+        miss.cpu().cop0_count(),
+        miss.cpu().gpr(9),
+        miss.ri_select_state(),
+    );
+    match miss.step() {
+        Err(MachineRepresentedStepError::LoadWordRejected(rejection)) => require(
+            MISS_CASE,
+            rejection.cpu_address() == CpuAddress::new(0xa470_0004)
+                && rejection.reason() == MachineLoadWordRejectionReason::DirectTargetMiss,
+            "RI_CONFIG remains a direct target miss",
+        )?,
+        Err(source) => {
+            return Err(StepProbeError::Step {
+                case: MISS_CASE,
+                source,
+            })
+        }
+        Ok(_) => return assertion(MISS_CASE, "neighbor target rejection"),
+    }
+    require(
+        MISS_CASE,
+        miss_before
+            == (
+                miss.cpu().pc(),
+                miss.cpu().next_pc(),
+                miss.cpu().cop0_count(),
+                miss.cpu().gpr(9),
+                miss.ri_select_state(),
+            ),
+        "neighbor rejection rollback",
+    )?;
+
+    const ADEL_CASE: &str = "ri-select-unaligned-adel";
+    let adel_words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0x44, immediate_word(0x23, 8, 9, 0x000d)),
+    ];
+    let (mut adel, _) = generated_cold_x105_machine(ADEL_CASE, &adel_words)?;
+    step(&mut adel, ADEL_CASE)?;
+    require(
+        ADEL_CASE,
+        matches!(
+            step(&mut adel, ADEL_CASE)?,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Lw,
+                effective_address: 0xffff_ffff_a470_000d,
+                address_error,
+                cadence_plan,
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorLoad
+                && address_error.bad_vaddr() == CpuAddress::new(0xa470_000d)
+                && !cadence_plan.advances_count()
+        ),
+        "unaligned RI_SELECT uses existing AdEL",
+    )?;
+
+    const UNAVAILABLE_CASE: &str = "ri-select-unavailable-rejection";
+    let unavailable_cartridge = generated_cartridge(
+        UNAVAILABLE_CASE,
+        &[
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, immediate_word(0x23, 8, 9, 0x000c)),
+        ],
+    )?;
+    let mut unavailable = Machine::from_cartridge(unavailable_cartridge);
+    unavailable
+        .stage_cartridge_bootstrap()
+        .map_err(|source| StepProbeError::Bootstrap {
+            case: UNAVAILABLE_CASE,
+            source,
+        })?;
+    require(
+        UNAVAILABLE_CASE,
+        unavailable.ri_select_state().is_none(),
+        "ordinary bootstrap leaves RI_SELECT unavailable",
+    )?;
+    step(&mut unavailable, UNAVAILABLE_CASE)?;
+    let unavailable_before = (
+        unavailable.cpu().pc(),
+        unavailable.cpu().next_pc(),
+        unavailable.cpu().cop0_count(),
+        unavailable.cpu().gpr(9),
+    );
+    match unavailable.step() {
+        Err(MachineRepresentedStepError::LoadWordRejected(rejection)) => require(
+            UNAVAILABLE_CASE,
+            rejection.reason() == MachineLoadWordRejectionReason::RiSelectUnavailable,
+            "unavailable RI_SELECT rejection",
+        )?,
+        Err(source) => {
+            return Err(StepProbeError::Step {
+                case: UNAVAILABLE_CASE,
+                source,
+            })
+        }
+        Ok(_) => return assertion(UNAVAILABLE_CASE, "unavailable state rejection"),
+    }
+    require(
+        UNAVAILABLE_CASE,
+        unavailable_before
+            == (
+                unavailable.cpu().pc(),
+                unavailable.cpu().next_pc(),
+                unavailable.cpu().cop0_count(),
+                unavailable.cpu().gpr(9),
+            ),
+        "unavailable rejection rollback",
+    )?;
+
+    const LIFECYCLE_CASE: &str = "ri-select-reset-or-entry-source";
+    let (mut first, _) = generated_cold_x105_machine(LIFECYCLE_CASE, &[])?;
+    let (second, _) = generated_cold_x105_machine(LIFECYCLE_CASE, &[])?;
+    require(
+        LIFECYCLE_CASE,
+        first.ri_select_state().is_some() && second.ri_select_state().is_some(),
+        "independent cold-entry states",
+    )?;
+    first.reset();
+    require(
+        LIFECYCLE_CASE,
+        first.ri_select_state().is_none() && second.ri_select_state().is_some(),
+        "reset clears one Machine only",
+    )
+}
+
 fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> {
     const CASE: &str = "generated-x105-post-mtc0-trio-frontier";
     let compare_word = cop0_move_word(4, 0, 11);
@@ -1502,6 +1696,20 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x84, compare_word),
         (0x88, ri_base_word),
         (0x8c, ri_select_load_word),
+        (0x90, branch_word(0x05, 9, 0, 15)),
+        (0x94, special_shift_word(0, 0, 0, 0, 0)),
+        (0x98, immediate_word(0x09, 29, 29, 0xffe8)),
+        (0x9c, immediate_word(0x2b, 29, 19, 0x0000)),
+        (0xa0, immediate_word(0x2b, 29, 20, 0x0004)),
+        (0xa4, immediate_word(0x2b, 29, 21, 0x0008)),
+        (0xa8, immediate_word(0x2b, 29, 22, 0x000c)),
+        (0xac, immediate_word(0x2b, 29, 23, 0x0010)),
+        (0xb0, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0xb4, immediate_word(0x0f, 0, 10, 0xa3f8)),
+        (0xb8, immediate_word(0x0f, 0, 11, 0xa3f0)),
+        (0xbc, immediate_word(0x0f, 0, 12, 0xa430)),
+        (0xc0, immediate_word(0x0d, 0, 9, 0x0040)),
+        (0xc4, immediate_word(0x2b, 8, 9, 0x0004)),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -1656,44 +1864,150 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         "generated RI base construction",
     )?;
 
-    let pc_before = machine.cpu().pc();
-    let next_pc_before = machine.cpu().next_pc();
-    let count_before = machine.cpu().cop0_count();
-    match machine.step() {
-        Err(MachineRepresentedStepError::LoadWordRejected(rejection)) => {
-            require(
-                CASE,
-                rejection.effective_address() == 0xffff_ffff_a470_000c,
-                "RI_SELECT effective address",
-            )?;
-            require(
-                CASE,
-                rejection.cpu_address() == CpuAddress::new(0xa470_000c),
-                "RI_SELECT CPU address",
-            )?;
-            require(
-                CASE,
-                rejection.reason() == MachineLoadWordRejectionReason::DirectTargetMiss,
-                "RI_SELECT direct target miss",
-            )?;
-        }
-        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "RI_SELECT next frontier"),
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                effective_address: 0xffff_ffff_a470_000c,
+                target: MachineLoadWordTarget::RiSelect {
+                    source: MachineRiSelectSource::ColdX105Entry,
+                },
+                destination_gpr: 9,
+                loaded_word: 0,
+                result_value: 0,
+                cadence_plan,
+            } if cadence_plan.advances_count()
+        ),
+        "RI_SELECT cold read",
+    )?;
+    require(
+        CASE,
+        machine.cpu().gpr(9) == Some(0)
+            && machine.cpu().pc() == 0xa400_0090
+            && machine.cpu().next_pc() == 0xa400_0094
+            && machine.cpu().cop0_count() == 4,
+        "RI_SELECT result and cadence",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Bne)?;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0094
+            && machine.cpu().next_pc() == 0xa400_0098
+            && machine.cpu().cop0_count() == 5,
+        "cold BNE fall-through slot",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialSll,
+    )?;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0098
+            && machine.cpu().next_pc() == 0xa400_009c
+            && machine.cpu().cop0_count() == 6
+            && machine.cpu_delay_slot_context().is_none(),
+        "cold NOP delay slot",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    require(
+        CASE,
+        machine.cpu().gpr(29) == Some(0xffff_ffff_a400_1fd8),
+        "cold stack adjustment",
+    )?;
+
+    for (index, (offset, source_gpr, stored_word)) in [
+        (0x0fd8, 19, 0_u32),
+        (0x0fdc, 20, 1_u32),
+        (0x0fe0, 21, 0_u32),
+        (0x0fe4, 22, 0x91_u32),
+        (0x0fe8, 23, 0_u32),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        require(
+            CASE,
+            matches!(
+                step(&mut machine, CASE)?,
+                MachineRepresentedStepOutcome::StoreWordCommitted {
+                    target: MachineStoreWordTarget::SpImem { offset: observed_offset },
+                    source_gpr: observed_source_gpr,
+                    stored_word: observed_word,
+                    stored_bytes,
+                    provenance,
+                    cadence_plan,
+                    ..
+                } if observed_offset == offset
+                    && observed_source_gpr == source_gpr
+                    && observed_word == stored_word
+                    && stored_bytes == stored_word.to_be_bytes()
+                    && provenance.instruction_pc()
+                        == CpuAddress::new(0xa400_009c + index as u32 * 4)
+                    && cadence_plan.advances_count()
+            ),
+            "cold stack store",
+        )?;
+    }
+
+    for (identity, register, value) in [
+        (CpuInstructionIdentity::Lui, 8, 0xffff_ffff_a470_0000),
+        (CpuInstructionIdentity::Lui, 10, 0xffff_ffff_a3f8_0000),
+        (CpuInstructionIdentity::Lui, 11, 0xffff_ffff_a3f0_0000),
+        (CpuInstructionIdentity::Lui, 12, 0xffff_ffff_a430_0000),
+        (CpuInstructionIdentity::Ori, 9, 0x40),
+    ] {
+        require_committed_identity(CASE, step(&mut machine, CASE)?, identity)?;
+        require(
+            CASE,
+            machine.cpu().gpr(register) == Some(value),
+            "RI prefix value",
+        )?;
     }
     require(
         CASE,
-        machine.cpu().pc() == pc_before,
-        "RI frontier pc rollback",
+        machine.cpu().pc() == 0xa400_00c4
+            && machine.cpu().next_pc() == 0xa400_00c8
+            && machine.cpu().cop0_count() == 17,
+        "RI_CONFIG frontier state",
     )?;
+
+    let before = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        machine.cpu().gpr(9),
+        machine.ri_select_state(),
+    );
+    match machine.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            CASE,
+            rejection.effective_address() == Some(0xffff_ffff_a470_0004)
+                && rejection.cpu_address() == Some(CpuAddress::new(0xa470_0004))
+                && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
+            "RI_CONFIG store frontier",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "RI_CONFIG remains unsupported"),
+    }
     require(
         CASE,
-        machine.cpu().next_pc() == next_pc_before,
-        "RI frontier next_pc rollback",
-    )?;
-    require(
-        CASE,
-        machine.cpu().cop0_count() == count_before,
-        "RI frontier Count rollback",
+        before
+            == (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu().gpr(9),
+                machine.ri_select_state(),
+            ),
+        "RI_CONFIG rejection rollback",
     )
 }
 

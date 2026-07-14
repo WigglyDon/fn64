@@ -903,6 +903,9 @@ fn format_load_word_rejection_frontier(
         Some(MachineLoadWordTarget::SpImem { offset }) => {
             format!("sp-imem offset=0x{offset:08X}")
         }
+        Some(MachineLoadWordTarget::RiSelect { source }) => {
+            format!("ri-select source={source:?}")
+        }
         None => "unclassified".to_owned(),
     };
     let reason = match rejection.reason() {
@@ -919,6 +922,7 @@ fn format_load_word_rejection_frontier(
             first_unknown_offset,
         } => format!("sp-imem-unknown first_unknown_offset=0x{first_unknown_offset:08X}"),
         MachineLoadWordRejectionReason::SpImemReadRejected => "sp-imem-read-rejected".to_owned(),
+        MachineLoadWordRejectionReason::RiSelectUnavailable => "ri-select-unavailable".to_owned(),
     };
 
     format!(
