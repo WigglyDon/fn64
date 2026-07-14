@@ -936,6 +936,8 @@ mod tests {
         sp_dmem: Vec<u8>,
         sp_imem: Vec<SpImemByteObservation>,
         ri_select: Option<crate::ri::MachineRiSelectState>,
+        ri_config: Option<crate::ri::MachineRiConfigState>,
+        ri_current_load: Option<crate::ri::MachineRiCurrentLoadState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
 
@@ -985,6 +987,8 @@ mod tests {
                 })
                 .collect(),
             ri_select: machine.ri_select_state(),
+            ri_config: machine.ri_config_state(),
+            ri_current_load: machine.ri_current_load_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }
     }

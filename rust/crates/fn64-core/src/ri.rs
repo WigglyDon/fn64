@@ -6,6 +6,7 @@ pub const RI_CONFIG_CURRENT_CONTROL_INPUT_MASK: u32 = 0x0000_003f;
 pub const RI_CONFIG_CURRENT_CONTROL_ENABLE_MASK: u32 = 0x0000_0040;
 pub const RI_CONFIG_DEFINED_FIELDS_MASK: u32 =
     RI_CONFIG_CURRENT_CONTROL_INPUT_MASK | RI_CONFIG_CURRENT_CONTROL_ENABLE_MASK;
+pub const RI_CURRENT_LOAD_PHYSICAL_ADDRESS: u32 = 0x0470_0008;
 pub const RI_SELECT_PHYSICAL_ADDRESS: u32 = 0x0470_000c;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,10 +105,85 @@ impl MachineRiConfigState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRiCurrentLoadSource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    },
+}
+
+impl MachineRiCurrentLoadSource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRiCurrentLoadState {
+    config_current_control_input: u8,
+    config_current_control_enable: bool,
+    transfer_word: u32,
+    source: MachineRiCurrentLoadSource,
+}
+
+impl MachineRiCurrentLoadState {
+    pub(crate) const fn from_cpu_store_word(
+        config: MachineRiConfigState,
+        transfer_word: u32,
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    ) -> Self {
+        Self {
+            config_current_control_input: config.current_control_input(),
+            config_current_control_enable: config.current_control_enable(),
+            transfer_word,
+            source: MachineRiCurrentLoadSource::CpuStoreWord {
+                instruction_pc,
+                source_gpr,
+                source_lineage,
+            },
+        }
+    }
+
+    pub const fn config_current_control_input(self) -> u8 {
+        self.config_current_control_input
+    }
+
+    pub const fn config_current_control_enable(self) -> bool {
+        self.config_current_control_enable
+    }
+
+    pub const fn transfer_word(self) -> u32 {
+        self.transfer_word
+    }
+
+    pub const fn source(self) -> MachineRiCurrentLoadSource {
+        self.source
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Ri {
     select: Option<MachineRiSelectState>,
     config: Option<MachineRiConfigState>,
+    current_load: Option<MachineRiCurrentLoadState>,
 }
 
 impl Ri {
@@ -115,6 +191,7 @@ impl Ri {
         Self {
             select: Some(MachineRiSelectState::cold_x105_entry()),
             config: None,
+            current_load: None,
         }
     }
 
@@ -126,8 +203,16 @@ impl Ri {
         self.config
     }
 
+    pub(crate) const fn current_load_state(self) -> Option<MachineRiCurrentLoadState> {
+        self.current_load
+    }
+
     pub(crate) fn apply_config_store(&mut self, state: MachineRiConfigState) {
         self.config = Some(state);
+    }
+
+    pub(crate) fn apply_current_load_store(&mut self, state: MachineRiCurrentLoadState) {
+        self.current_load = Some(state);
     }
 }
 
@@ -140,6 +225,7 @@ mod tests {
         assert_eq!(RI_SELECT_PHYSICAL_ADDRESS, 0x0470_000c);
         assert_eq!(Ri::default().select_state(), None);
         assert_eq!(Ri::default().config_state(), None);
+        assert_eq!(Ri::default().current_load_state(), None);
         assert_eq!(
             Ri::cold_x105_entry().select_state(),
             Some(MachineRiSelectState {
@@ -148,6 +234,7 @@ mod tests {
             })
         );
         assert_eq!(Ri::cold_x105_entry().config_state(), None);
+        assert_eq!(Ri::cold_x105_entry().current_load_state(), None);
     }
 
     #[test]
@@ -177,5 +264,39 @@ mod tests {
             assert_eq!(state.source().source_gpr(), 0);
             assert_eq!(state.source().source_lineage(), source_lineage);
         }
+    }
+
+    #[test]
+    fn ri_current_load_records_config_snapshot_and_cpu_store_evidence_only() {
+        assert_eq!(RI_CURRENT_LOAD_PHYSICAL_ADDRESS, 0x0470_0008);
+        let lineage = MachineBootstrapGprSource::X105Seed;
+        let config = MachineRiConfigState::from_cpu_store_word(
+            0x40,
+            CpuAddress::new(0xa400_00c4),
+            9,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_00c0),
+                identity: crate::cpu::CpuInstructionIdentity::Ori,
+                source_gpr_a: Some(0),
+                source_gpr_b: None,
+            },
+        );
+        let state = MachineRiCurrentLoadState::from_cpu_store_word(
+            config,
+            0x89ab_cdef,
+            CpuAddress::new(0xa400_00dc),
+            22,
+            lineage,
+        );
+
+        assert_eq!(state.config_current_control_input(), 0);
+        assert!(state.config_current_control_enable());
+        assert_eq!(state.transfer_word(), 0x89ab_cdef);
+        assert_eq!(
+            state.source().instruction_pc(),
+            CpuAddress::new(0xa400_00dc)
+        );
+        assert_eq!(state.source().source_gpr(), 22);
+        assert_eq!(state.source().source_lineage(), lineage);
     }
 }

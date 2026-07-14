@@ -65,8 +65,10 @@ pub use pif_firmware::{
 };
 pub use rdram::{Rdram, RdramAccessError, RDRAM_SIZE_BYTES};
 pub use ri::{
-    MachineRiConfigSource, MachineRiConfigState, MachineRiSelectSource, MachineRiSelectState,
+    MachineRiConfigSource, MachineRiConfigState, MachineRiCurrentLoadSource,
+    MachineRiCurrentLoadState, MachineRiSelectSource, MachineRiSelectState,
     RI_CONFIG_CURRENT_CONTROL_ENABLE_MASK, RI_CONFIG_CURRENT_CONTROL_INPUT_MASK,
-    RI_CONFIG_DEFINED_FIELDS_MASK, RI_CONFIG_PHYSICAL_ADDRESS, RI_SELECT_PHYSICAL_ADDRESS,
+    RI_CONFIG_DEFINED_FIELDS_MASK, RI_CONFIG_PHYSICAL_ADDRESS, RI_CURRENT_LOAD_PHYSICAL_ADDRESS,
+    RI_SELECT_PHYSICAL_ADDRESS,
 };
 pub use sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
