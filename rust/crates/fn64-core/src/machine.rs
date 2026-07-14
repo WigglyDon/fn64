@@ -8,12 +8,12 @@ use crate::cpu::address::{
     CpuDataAddressError, CpuDataWidth, RdramOffset,
 };
 use crate::cpu::{
-    decode_cpu_instruction_word, identify_cpu_instruction, select_cpu_local_executed_helper, Cpu,
-    CpuArithmeticOverflowExceptionEntryError, CpuControlFlowSnapshot, CpuDelaySlotContext,
-    CpuInstructionFields, CpuInstructionIdentity, CpuInstructionWord,
-    CpuLocalExecutedHelperArithmeticOverflow, CpuLocalExecutedHelperExecutedInstruction,
-    CpuLocalExecutedHelperInvocationError, CpuLocalExecutedHelperInvocationOutcome,
-    CpuRegisterIndexError, NON_BOOT_RESET_VECTOR_PC,
+    decode_cpu_instruction_word, identify_cpu_instruction, select_cpu_local_executed_helper,
+    signed_cpu_value_less_than, Cpu, CpuArithmeticOverflowExceptionEntryError,
+    CpuControlFlowSnapshot, CpuDelaySlotContext, CpuInstructionFields, CpuInstructionIdentity,
+    CpuInstructionWord, CpuLocalExecutedHelperArithmeticOverflow,
+    CpuLocalExecutedHelperExecutedInstruction, CpuLocalExecutedHelperInvocationError,
+    CpuLocalExecutedHelperInvocationOutcome, CpuRegisterIndexError, NON_BOOT_RESET_VECTOR_PC,
 };
 use crate::pif_firmware::{
     MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError, PifIpl2Profile,
@@ -1869,6 +1869,7 @@ impl std::error::Error for MachineStoreWordStepApplicationError {}
 pub(crate) enum MachineOrdinaryControlFlowStepAction {
     Beq(MachineOrdinaryControlFlowResult),
     Bne(MachineOrdinaryControlFlowResult),
+    Bltz(MachineOrdinaryControlFlowResult),
     J(MachineOrdinaryControlFlowResult),
     Jal(MachineOrdinaryControlFlowResult),
     Jr(MachineOrdinaryControlFlowResult),
@@ -1880,6 +1881,7 @@ impl MachineOrdinaryControlFlowStepAction {
         match self {
             Self::Beq(result)
             | Self::Bne(result)
+            | Self::Bltz(result)
             | Self::J(result)
             | Self::Jal(result)
             | Self::Jr(result)
@@ -3041,6 +3043,37 @@ impl Machine {
                 } else {
                     MachineOrdinaryControlFlowStepAction::Bne(result)
                 }
+            }
+            CpuInstructionIdentity::RegimmBltz => {
+                let source_value = self
+                    .cpu
+                    .gpr(usize::from(fields.rs()))
+                    .expect("decoded CPU register index is five bits");
+                let condition_taken = signed_cpu_value_less_than(source_value, 0);
+                let target_pc = CpuAddress::new(conditional_branch_target(
+                    control_flow_snapshot.pc(),
+                    fields.immediate_u16(),
+                ));
+                let selected_next_pc = if condition_taken {
+                    target_pc
+                } else {
+                    CpuAddress::new(control_flow_snapshot.pc().wrapping_add(8))
+                };
+                MachineOrdinaryControlFlowStepAction::Bltz(MachineOrdinaryControlFlowResult {
+                    fields,
+                    identity,
+                    instruction_pc,
+                    delay_slot_pc,
+                    source_a: Some(MachineOrdinaryControlFlowOperand::new(
+                        fields.rs(),
+                        source_value,
+                    )),
+                    source_b: None,
+                    condition_taken: Some(condition_taken),
+                    target_pc,
+                    selected_next_pc,
+                    link: None,
+                })
             }
             CpuInstructionIdentity::J | CpuInstructionIdentity::Jal => {
                 let target_pc = CpuAddress::new(jump_target(
@@ -4340,6 +4373,7 @@ const fn is_ordinary_control_flow_identity(identity: CpuInstructionIdentity) -> 
         identity,
         CpuInstructionIdentity::Beq
             | CpuInstructionIdentity::Bne
+            | CpuInstructionIdentity::RegimmBltz
             | CpuInstructionIdentity::J
             | CpuInstructionIdentity::Jal
             | CpuInstructionIdentity::SpecialJr
@@ -4587,6 +4621,10 @@ mod tests {
             | (u32::from(rs) << 21)
             | (u32::from(rt) << 16)
             | u32::from(immediate)
+    }
+
+    fn cop0_move_word(rs: u8, rt: u8, rd: u8) -> u32 {
+        (0x10_u32 << 26) | (u32::from(rs) << 21) | (u32::from(rt) << 16) | (u32::from(rd) << 11)
     }
 
     const COP0_STATUS_EXL: u32 = 0x0000_0002;
@@ -16086,7 +16124,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_advances_through_sw_to_regimm_bltz_frontier() {
+    fn generated_x105_composition_advances_through_bltz_slot_to_cop0_frontier() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         const SECOND_DATA_WORD: u32 = 0x1122_3344;
@@ -16126,6 +16164,7 @@ mod tests {
             (0x70, sw_word(9, 10, 0xf014)),
             (0x74, immediate_word(0x01, 31, 0, 1)),
             (0x78, sw_word(9, 0, 0xf018)),
+            (0x7c, cop0_move_word(4, 0, COP0_CAUSE_REGISTER_INDEX)),
             (0x84, first_data_word),
             (0x88, SECOND_DATA_WORD),
             (0x8c, THIRD_DATA_WORD),
@@ -16225,11 +16264,57 @@ mod tests {
         assert_eq!(machine.cpu().next_pc(), 0xa400_0078);
         assert_eq!(machine.cpu().cop0_count(), 13);
 
+        let retained_ra = machine.cpu().gpr(31);
+        let retained_ra_source = machine.cartridge_bootstrap_state().unwrap().gpr_source(31);
+        assert_control_flow_commit(machine.step().unwrap(), CpuInstructionIdentity::RegimmBltz);
+        assert_scheduled_delay_slot(&machine, 0xa400_0074, 0xa400_0078, 0xa400_007c);
+        assert_eq!(machine.cpu().cop0_count(), 14);
+        assert_eq!(machine.cpu().gpr(31), retained_ra);
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(31),
+            retained_ra_source
+        );
+
+        let expected_slot_provenance = MachineSpImemStoreWordProvenance::new(
+            CpuAddress::new(0xa400_0078),
+            0,
+            MachineBootstrapGprSource::ArchitecturalZero,
+        );
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::StoreWordCommitted {
+                effective_address: 0xffff_ffff_a400_100c,
+                target: MachineStoreWordTarget::SpImem { offset: 0x00c },
+                source_gpr: 0,
+                stored_word: 0,
+                stored_bytes: [0, 0, 0, 0],
+                provenance,
+                cadence_plan,
+            }) if provenance == expected_slot_provenance && cadence_plan.advances_count()
+        ));
+        for offset in 0x00c..0x010 {
+            let observed = machine
+                .sp_imem
+                .observe_byte(SpImemOffset::new(offset))
+                .unwrap();
+            assert_eq!(observed.value(), 0);
+            assert_eq!(
+                observed.provenance(),
+                SpImemByteProvenance::CpuStoreWord {
+                    provenance: expected_slot_provenance,
+                }
+            );
+        }
+        assert_eq!(machine.cpu().pc(), 0xa400_007c);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0080);
+        assert_eq!(machine.cpu().cop0_count(), 15);
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+
         let before_frontier = lw_snapshot(&machine);
         assert!(matches!(
             machine.step(),
             Err(MachineRepresentedStepError::UnrepresentedInstruction {
-                identity: CpuInstructionIdentity::RegimmBltz,
+                identity: CpuInstructionIdentity::Cop0Mtc0,
                 ..
             })
         ));
@@ -16639,7 +16724,7 @@ mod tests {
     }
 
     #[test]
-    fn control_flow_planning_captures_all_six_identities_without_mutation() {
+    fn control_flow_planning_captures_all_seven_identities_without_mutation() {
         const PC: u32 = 0x8000_1000;
         let mut machine = Machine::from_cartridge(Cartridge::default());
         machine.stage_cpu_pc(PC);
@@ -16665,6 +16750,10 @@ mod tests {
             (
                 control_flow_branch_word(0x05, 4, 5, -2),
                 CpuInstructionIdentity::Bne,
+            ),
+            (
+                control_flow_branch_word(0x01, 4, 0, 2),
+                CpuInstructionIdentity::RegimmBltz,
             ),
             (
                 control_flow_jump_word(0x02, 0x8000_2000),
@@ -16704,6 +16793,14 @@ mod tests {
                     assert_eq!(source_b.value(), 0xffff_ffff_8000_2000);
                     assert!(result.condition_taken().is_some());
                 }
+                CpuInstructionIdentity::RegimmBltz => {
+                    let source = result.source_a().unwrap();
+                    assert_eq!(source.register_index(), 4);
+                    assert_eq!(source.value(), 0xffff_ffff_8000_2000);
+                    assert_eq!(result.source_b(), None);
+                    assert_eq!(result.condition_taken(), Some(true));
+                    assert_eq!(result.link(), None);
+                }
                 CpuInstructionIdentity::SpecialJr | CpuInstructionIdentity::SpecialJalr => {
                     let source = result.source_a().unwrap();
                     assert_eq!(source.register_index(), 4);
@@ -16735,6 +16832,9 @@ mod tests {
 
     #[test]
     fn control_flow_target_and_link_arithmetic_wraps_explicitly() {
+        assert_eq!(conditional_branch_target(0x8000_0000, 0), 0x8000_0004);
+        assert_eq!(conditional_branch_target(0x8000_0000, 2), 0x8000_000c);
+        assert_eq!(conditional_branch_target(0x8000_0020, 0xffff), 0x8000_0020);
         assert_eq!(conditional_branch_target(0xffff_fffc, 1), 0x0000_0004);
         assert_eq!(
             conditional_branch_target(0xffff_fffc, (-1_i16) as u16),
@@ -16815,6 +16915,23 @@ mod tests {
             }
         );
         assert_eq!(lw_snapshot(&unknown_source), unknown_before);
+
+        let mut unknown_bltz =
+            staged_lw_bootstrap_machine(control_flow_branch_word(0x01, 4, 0, 1), 0);
+        let unknown_bltz_before = lw_snapshot(&unknown_bltz);
+        let unknown_bltz_error = unknown_bltz
+            .step()
+            .unwrap_err()
+            .ordinary_control_flow_rejection()
+            .expect("unknown bootstrap BLTZ source should retain exact rejection");
+        assert_eq!(
+            unknown_bltz_error.reason(),
+            MachineOrdinaryControlFlowRejectionReason::BootstrapSourceUnavailable {
+                register_index: 4,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&unknown_bltz), unknown_bltz_before);
 
         let mut link_lineage =
             staged_lw_bootstrap_machine(control_flow_jump_word(0x03, 0xa400_0050), 0);
@@ -16934,6 +17051,175 @@ mod tests {
     }
 
     #[test]
+    fn bltz_reuses_full_gpr_signed_policy_and_preserves_its_source() {
+        const PC: u32 = 0x8000_0000;
+        for (source_value, expected_taken) in [
+            (u64::MAX, true),
+            (0, false),
+            (1, false),
+            (i64::MIN as u64, true),
+            (i64::MAX as u64, false),
+            (0x0000_0000_8000_0000, false),
+            (0xffff_ffff_0000_0000, true),
+        ] {
+            let mut machine = Machine::from_cartridge(Cartridge::default());
+            let word = control_flow_branch_word(0x01, 4, 0, 2);
+            seed_control_flow_word(&mut machine, PC, word);
+            seed_control_flow_word(&mut machine, PC + 4, 0);
+            machine.cpu.set_gpr(4, source_value).unwrap();
+            machine.stage_cpu_pc(PC);
+
+            let result = machine
+                .produce_ordinary_control_flow_step_action(
+                    machine.cpu.capture_control_flow(),
+                    instruction_fields(word),
+                    CpuInstructionIdentity::RegimmBltz,
+                )
+                .unwrap()
+                .result();
+            assert_eq!(result.condition_taken(), Some(expected_taken));
+            assert_eq!(result.link(), None);
+
+            assert_control_flow_commit(machine.step().unwrap(), CpuInstructionIdentity::RegimmBltz);
+            assert_scheduled_delay_slot(
+                &machine,
+                PC,
+                PC + 4,
+                if expected_taken { PC + 12 } else { PC + 8 },
+            );
+            assert_eq!(machine.cpu().gpr(4), Some(source_value));
+            assert_eq!(machine.cpu().cop0_count(), 1);
+        }
+
+        let mut zero = Machine::from_cartridge(Cartridge::default());
+        seed_control_flow_word(&mut zero, PC, control_flow_branch_word(0x01, 0, 0, 2));
+        zero.stage_cpu_pc(PC);
+        assert_control_flow_commit(zero.step().unwrap(), CpuInstructionIdentity::RegimmBltz);
+        assert_scheduled_delay_slot(&zero, PC, PC + 4, PC + 8);
+        assert_eq!(zero.cpu().gpr(0), Some(0));
+    }
+
+    #[test]
+    fn bltz_taken_and_untaken_each_commit_one_ordinary_delay_slot() {
+        const PC: u32 = 0x8000_0020;
+        for (source_value, immediate, expected_next_pc) in [
+            (u64::MAX, 2_i16, PC + 12),
+            (0_u64, 2_i16, PC + 8),
+            (u64::MAX, -2_i16, PC - 4),
+            (1_u64, -2_i16, PC + 8),
+        ] {
+            let mut machine = Machine::from_cartridge(Cartridge::default());
+            seed_control_flow_word(
+                &mut machine,
+                PC,
+                control_flow_branch_word(0x01, 4, 0, immediate),
+            );
+            seed_control_flow_word(&mut machine, PC + 4, immediate_word(0x09, 6, 6, 1));
+            machine.cpu.set_gpr(4, source_value).unwrap();
+            machine.stage_cpu_pc(PC);
+
+            assert_control_flow_commit(machine.step().unwrap(), CpuInstructionIdentity::RegimmBltz);
+            assert_scheduled_delay_slot(&machine, PC, PC + 4, expected_next_pc);
+            assert_eq!(machine.cpu().cop0_count(), 1);
+
+            assert_control_flow_commit(machine.step().unwrap(), CpuInstructionIdentity::Addiu);
+            assert_eq!(machine.cpu().gpr(6), Some(1));
+            assert_eq!(machine.cpu().pc(), expected_next_pc);
+            assert_eq!(machine.cpu().next_pc(), expected_next_pc.wrapping_add(4));
+            assert_eq!(machine.cpu_delay_slot_context(), None);
+            assert_eq!(machine.cpu().cop0_count(), 2);
+        }
+    }
+
+    #[test]
+    fn only_bltz_from_regimm_is_represented_without_mutation() {
+        const PC: u32 = 0x8000_0000;
+        for (subcode, identity) in [
+            (0x01, CpuInstructionIdentity::RegimmBgez),
+            (0x02, CpuInstructionIdentity::RegimmBltzl),
+            (0x03, CpuInstructionIdentity::RegimmBgezl),
+            (0x08, CpuInstructionIdentity::RegimmTgei),
+            (0x09, CpuInstructionIdentity::RegimmTgeiu),
+            (0x0a, CpuInstructionIdentity::RegimmTlti),
+            (0x0b, CpuInstructionIdentity::RegimmTltiu),
+            (0x0c, CpuInstructionIdentity::RegimmTeqi),
+            (0x0e, CpuInstructionIdentity::RegimmTnei),
+            (0x10, CpuInstructionIdentity::RegimmBltzal),
+            (0x11, CpuInstructionIdentity::RegimmBgezal),
+            (0x12, CpuInstructionIdentity::RegimmBltzall),
+            (0x13, CpuInstructionIdentity::RegimmBgezall),
+        ] {
+            let mut machine = Machine::from_cartridge(Cartridge::default());
+            seed_control_flow_word(
+                &mut machine,
+                PC,
+                control_flow_branch_word(0x01, 4, subcode, 1),
+            );
+            machine.cpu.set_gpr(4, u64::MAX).unwrap();
+            machine.stage_cpu_pc(PC);
+            let before = lw_snapshot(&machine);
+            assert!(matches!(
+                machine.step(),
+                Err(MachineRepresentedStepError::UnrepresentedInstruction {
+                    identity: actual_identity,
+                    ..
+                }) if actual_identity == identity
+            ));
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+    }
+
+    #[test]
+    fn bltz_delay_slot_adel_and_ades_keep_owner_lineage_and_zero_slot_count() {
+        for (branch_rs, slot_word, expected_kind, expected_code) in [
+            (
+                MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 0, 0xf011),
+                CpuAddressErrorKind::AddressErrorStore,
+                5,
+            ),
+            (
+                0,
+                lw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 8, 0xf011),
+                CpuAddressErrorKind::AddressErrorLoad,
+                4,
+            ),
+        ] {
+            let (mut machine, _) = staged_generated_cold_x105_machine(
+                &[
+                    (0x40, control_flow_branch_word(0x01, branch_rs, 0, 1)),
+                    (0x44, slot_word),
+                    (0x48, 0),
+                ],
+                0x85,
+            );
+            let slot_memory_before = lw_snapshot(&machine).sp_imem;
+
+            assert_control_flow_commit(machine.step().unwrap(), CpuInstructionIdentity::RegimmBltz);
+            assert_eq!(machine.cpu().cop0_count(), 1);
+            let outcome = machine.step().unwrap();
+            assert!(matches!(
+                outcome,
+                MachineRepresentedStepOutcome::DataAddressError {
+                    address_error,
+                    cadence_plan,
+                    ..
+                } if address_error.exception_kind() == expected_kind
+                    && address_error.bad_vaddr() == CpuAddress::new(0xa400_1001)
+                    && !cadence_plan.advances_count()
+            ));
+            assert_eq!(machine.cpu().cop0_epc(), 0xa400_0040);
+            assert!(machine.cpu().cop0_exception_branch_delay());
+            assert_eq!(machine.cpu().cop0_bad_vaddr(), 0xa400_1001);
+            assert_eq!(machine.cpu().cop0_exception_code(), expected_code);
+            assert_eq!(machine.cpu().cop0_count(), 1);
+            assert_eq!(machine.cpu().pc(), LOCAL_EXCEPTION_VECTOR_PC);
+            assert_eq!(machine.cpu_delay_slot_context(), None);
+            assert_eq!(lw_snapshot(&machine).sp_imem, slot_memory_before);
+        }
+    }
+
+    #[test]
     fn control_flow_jump_uses_pc_plus_four_region_and_executes_slot_once() {
         const PC: u32 = 0x803f_fff8;
         const TARGET: u32 = 0x8000_0100;
@@ -17036,7 +17322,7 @@ mod tests {
     }
 
     #[test]
-    fn branch_in_delay_slot_rejects_all_six_identities_without_mutation() {
+    fn branch_in_delay_slot_rejects_all_seven_identities_without_mutation() {
         const PC: u32 = 0x8000_0000;
         const TARGET: u32 = 0x8000_0020;
         for (inner_word, inner_identity) in [
@@ -17047,6 +17333,10 @@ mod tests {
             (
                 control_flow_branch_word(0x05, 0, 0, 1),
                 CpuInstructionIdentity::Bne,
+            ),
+            (
+                control_flow_branch_word(0x01, 31, 0, 1),
+                CpuInstructionIdentity::RegimmBltz,
             ),
             (
                 control_flow_jump_word(0x02, 0x8000_0040),

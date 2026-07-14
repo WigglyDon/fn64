@@ -11,13 +11,13 @@ pub use address::{
     CpuAddressErrorExceptionEntryError, CpuAddressErrorKind, CpuDataAccessKind,
     CpuDataAddressError, CpuDataAlignmentError, CpuDataWidth,
 };
-pub(crate) use instruction::select_cpu_local_executed_helper;
 #[cfg(test)]
 pub(crate) use instruction::CpuLocalExecutedHelperFamily;
 pub use instruction::{
     decode_cpu_instruction_word, identify_cpu_instruction, CpuInstructionFields,
     CpuInstructionIdentity, CpuInstructionWord,
 };
+pub(crate) use instruction::{select_cpu_local_executed_helper, signed_cpu_value_less_than};
 pub(crate) use instruction::{
     CpuLocalExecutedHelperArithmeticOverflow, CpuLocalExecutedHelperExecutedInstruction,
     CpuLocalExecutedHelperInvocationError, CpuLocalExecutedHelperInvocationOutcome,

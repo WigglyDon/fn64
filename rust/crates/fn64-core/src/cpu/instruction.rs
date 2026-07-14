@@ -1859,7 +1859,7 @@ fn arithmetic_shift_right_cpu_value(value: u64, sa: u8) -> u64 {
     ((value as i64) >> u32::from(sa)) as u64
 }
 
-fn signed_cpu_value_less_than(lhs: u64, rhs: u64) -> bool {
+pub(crate) fn signed_cpu_value_less_than(lhs: u64, rhs: u64) -> bool {
     (lhs as i64) < (rhs as i64)
 }
 
