@@ -70,6 +70,12 @@ updates only IP1/IP0; Count writes before normal cadence; Compare clears timer
 pending before normal cadence. Unsupported contexts, encodings, and
 destinations reject before mutation, and no general CP0 executor exists.
 
+The same complete cold-x105 plan creates optional Machine-owned RI_SELECT zero
+with `ColdX105Entry` provenance. The existing aligned-`Lw` planner reads only
+physical `0x0470000C` through direct aliases, uses ordinary sign extension and
+cadence, and rejects when the stored state is unavailable. It does not derive
+RI_SELECT from reset kind or generalize CPU device access.
+
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
 not source Count, Compare, EPC, BadVAddr, Cause, timer state, or unrelated GPRs.
@@ -83,9 +89,10 @@ Current observability is deterministic state inspection; no instruction trace
 format is yet a runtime product surface.
 
 Required validation: `./rust/verify-forward`, plus focused instruction-family
-tests for changes. Generated composition commits the MTC0 trio and represented
-RI-address construction, then rejects the RI_SELECT `Lw` as a direct target
-miss. Known unknowns include complete public-step ISA integration, real timing,
-branch-likely/other REGIMM and broader COP0 execution, RI/MMIO, nested control
-flow, other load/store families, and performance. Next authority must be earned
-by a bounded product packet, not a generic dispatcher.
+tests for changes. Generated composition commits the stored RI_SELECT `Lw`, the cold BNE
+and NOP slot, the five high-SP-IMEM stack stores, and represented RI_CONFIG address
+construction, then rejects the RI_CONFIG `Sw` as a direct target miss. Known
+unknowns include complete public-step ISA integration, real timing,
+branch-likely/other REGIMM and broader COP0 execution, every RI write/other RI
+register/NMI, generic MMIO, nested control flow, other load/store families, and
+performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

@@ -36,6 +36,7 @@ Current durable integration records:
 - [Aligned Sw generated x105 store frontier](aligned-sw-generated-x105-frontier-v1/README.md)
 - [BLTZ generated x105 branch frontier](bltz-generated-x105-branch-frontier-v1/README.md)
 - [Bounded MTC0 boot trio and generated x105 RI frontier](mtc0-boot-trio-generated-x105-ri-frontier-v1/README.md)
+- [Cold-entry RI_SELECT read and generated x105 RI_CONFIG frontier](ri-select-generated-x105-ri-config-frontier-v1/README.md)
 
 The lineage contract is:
 

@@ -74,19 +74,21 @@ ghost state. Synthetic instruction words and small generated fixtures are valid
 proof; user-local ROMs are outside routine inspection and evidence packaging.
 
 Current integration includes represented cartridge facts, narrow bootstrap
-staging, one cartridge-derived instruction commit, SP IMEM storage, narrow
-KSEG0/KSEG1 CPU-data routes to the represented SP memories, and aligned `Lw`
-over direct RDRAM, known SP IMEM, or cartridge-staged SP DMEM. Source-qualified
+staging, one cartridge-derived instruction commit, SP IMEM storage, one
+optional cold-entry RI_SELECT fact, narrow KSEG0/KSEG1 CPU-data routes to the
+represented SP memories, and aligned `Lw` over direct RDRAM, known SP IMEM,
+cartridge-staged SP DMEM, or exact physical RI_SELECT `0x0470000C`.
+Source-qualified
 evidence identifies retained IPL2 firmware as
 the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
-byte-transfer effect from lawful input, but no private PIF was used. Generated
-proof combines it atomically with the bounded NTSC cold-x105 CPU handoff and
-advances a generated nineteen-step composition through BLTZ, its fourth
-SP-IMEM `Sw`, the bounded MTC0 trio, and RI-address construction. The next
-`Lw` at RI_SELECT rejects as a direct target miss; no RI storage or MMIO route
-exists. It
-does not establish authentic SP IMEM contents, firmware-executed handoff,
+byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
+cold-x105 CPU
+handoff and advances a generated thirty-three-step composition through the
+stored RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, and
+RI_CONFIG address construction. The next `Sw` at RI_CONFIG rejects as a direct
+target miss; no RI write, other RI register, NMI, or generic MMIO route exists. It does not establish authentic SP IMEM contents,
+firmware-executed handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists
 only where the detailed ledger says it is sealed.

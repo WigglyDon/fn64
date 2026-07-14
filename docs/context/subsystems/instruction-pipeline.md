@@ -23,13 +23,15 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the fifty-one-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the sixty-two-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
-identity executes. `Lw` is represented as one Machine-owned rule over direct
-RDRAM, known SP IMEM, and cartridge-bootstrap-staged SP DMEM. The SP-DMEM
-target records exact cartridge provenance; unclassified backing and unknown SP
-IMEM reject before mutation. The authentic first frontier remains that
+identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
+known SP IMEM, cartridge-bootstrap-staged SP DMEM, and exactly the stored RI_SELECT word
+at physical `0x0470000C`. The SP-DMEM target records exact cartridge
+provenance; RI_SELECT records its cold-entry source; unclassified backing,
+unknown SP IMEM, unavailable RI_SELECT, and neighboring RI addresses reject
+before mutation. The authentic first frontier remains that
 represented rejection at `0xA4000044`, not absent decode or load semantics.
 Integrated provenance evidence identifies the missing source category as
 retained IPL2 firmware content. Explicit profiled bootstrap materialization can
@@ -38,11 +40,12 @@ source knowledge alone cannot bypass it. Synthetic `Lw` success proves the
 represented composition, not authentic boot. A separate generated-only NTSC
 cold-x105 test proves the Machine bootstrap plan can source the inherited t3
 operand before `Machine::step`; that source gate still rejects every unstaged
-GPR and does not imply IPL2 execution. Generated-only continuation now commits
-the SP-IMEM load, the earlier-missing SP-DMEM load, the following logical
-transform, four SP-IMEM stores, BNE/BLTZ, both ordinary slots, the three
-bounded MTC0 writes, and RI-address construction, then stops atomically when
-the RI_SELECT `Lw` target classification misses.
+GPR and does not imply IPL2 execution. Generated-only continuation now commits the SP-IMEM load, the
+earlier-missing
+SP-DMEM load, logical transforms, four prefix SP-IMEM stores, BNE/BLTZ, both
+ordinary slots, the bounded MTC0 trio, the stored RI_SELECT load, the cold BNE
+and NOP slot, five high-SP-IMEM stack saves, and RI_CONFIG construction. It
+stops atomically when the RI_CONFIG `Sw` target classification misses.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
 source-backed cold-x105 access scope, and a known old source. Its immutable
@@ -65,5 +68,5 @@ CPU-owned slot context; it does not refetch or re-identify.
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, branch-likely
 and other REGIMM/control-flow families, broader COP0 instruction execution,
-RI/MMIO, nested control-flow behavior, broad fetch mapping, and instruction
-timing.
+RI writes/other RI registers/NMI and generic MMIO, nested control-flow
+behavior, broad fetch mapping, and instruction timing.

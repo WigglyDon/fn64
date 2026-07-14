@@ -118,17 +118,25 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   arithmetic, but independent matching corroboration is insufficient for
   product authority. The three copy profiles remain supported independently;
   only the coupled handoff is NTSC-only.
+- `LIVE_REPO_FACT`: RI_SELECT is one optional Machine-owned RI register fact.
+  Construction and general reset leave it unavailable; the complete supported
+  NTSC cold-cartridge x105 bootstrap atomically creates known zero with
+  `ColdX105Entry` provenance. Exact aligned `Lw` reads at physical
+  `0x0470000C` through the current direct KSEG0/KSEG1 aliases consume that
+  stored value without side effects. Neighboring RI registers remain target
+  misses, and no RI write, NMI lifecycle, register bank, MMIO framework, or bus
+  exists.
 - `LIVE_REPO_FACT`: generated-only public-step composition now commits
-  nineteen bounded x105-shaped instructions. After the accepted fifteen-step
-  prefix, `MTC0 r0,Cause`, `MTC0 r0,Count`, and `MTC0 r0,Compare` commit in
-  source order, followed by represented address construction. It ends at
-  PC/next-PC `0xA400008C / 0xA4000090`, Count `3`, Compare `0`, known-cleared
-  software pending, and clear timer pending. The next aligned `Lw` computes
-  RI_SELECT effective address `0xFFFFFFFFA470000C`, represented CPU address
-  `0xA470000C`, and physical address `0x0470000C`, then rejects as a direct
-  target miss without mutation. Every instruction and byte is
-  independently generated. RI behavior and the authentic checkpoint do not
-  change.
+  thirty-three bounded x105-shaped instructions. After the accepted
+  nineteen-step prefix, the RI_SELECT `Lw` loads known zero, BNE takes the cold
+  fall-through through one generated NOP slot, the stack adjusts to
+  `0xFFFFFFFFA4001FD8`, and five represented `Sw` instructions save s3-s7 at
+  SP-IMEM locals `0xFD8..0xFE8` with CPU-store provenance. Represented address
+  and immediate construction then ends at PC/next-PC
+  `0xA40000C4 / 0xA40000C8`, Count `17`. The next `Sw` computes RI_CONFIG at
+  represented CPU address `0xA4700004`, physical address `0x04700004`, and
+  rejects as a direct target miss without mutation. Every instruction and byte
+  is independently generated. This synthetic proof does not change BOOT-2.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -195,6 +203,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   operation; generated proof represents only MTC0 Cause/Count/Compare plus
   their exact cadence and reaches the RI_SELECT `Lw` direct-target miss without
   creating a Worker lane or queue entry.
+- `master-direct-ri-select-x105-ri-config-frontier-v1`: direct Master product
+  operation; generated proof represents one cold-entry RI_SELECT state/read,
+  commits the cold branch and five high-SP-IMEM stack stores, and reaches the
+  RI_CONFIG `Sw` target miss without creating a Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -231,13 +243,14 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: an aligned `Lw` at RI_SELECT address
-  `0xA470000C` (effective GPR address `0xFFFFFFFFA470000C`) is the next
-  generated pressure and rejects as a direct target miss. RI/MMIO behavior,
-  all other REGIMM identities, every other COP0 instruction or MTC0
-  destination, RDRAM/SP-DMEM/device stores, and every store identity other than
-  SP-IMEM `Sw` remain absent; no generic CP0, branch/store, bus, MMIO, or
-  generalized memory-map route is implied.
+- `LIVE_REPO_FACT`: the next generated pressure is an aligned `Sw` to RI_CONFIG
+  at represented CPU address `0xA4700004` (effective GPR address
+  `0xFFFFFFFFA4700004`, physical `0x04700004`), and it rejects as a direct
+  target miss. Every RI write and every RI register other than the exact
+  RI_SELECT state/read remain absent. NMI, all other REGIMM identities, every
+  other COP0 instruction or MTC0 destination, RDRAM/SP-DMEM/device stores, and
+  every store identity other than SP-IMEM `Sw` remain absent; no generic CP0,
+  branch/store, bus, MMIO, or generalized memory-map route is implied.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that

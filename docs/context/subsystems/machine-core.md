@@ -12,8 +12,7 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 ## Mission and owner
 
 `fn64-core::Machine` is the current production owner of each represented
-machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, reset/power state,
-optional structurally accepted immutable PIF firmware input, optional explicit
+machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_SELECT, reset/power state, optional structurally accepted immutable PIF firmware input, optional explicit
 PIF IPL2 copy profile, explicit narrow cold-handoff selector inputs, and narrow
 machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
@@ -48,8 +47,8 @@ isolation; multiboxing means multiple independent instances.
 
 Numeric values are explicit fixed-width CPU/address/storage types where earned;
 RDRAM/SP words use source-clear big-endian access. An aligned `Lw` plan
-preflights known bootstrap operands, address classification, alignment, and all
-four source bytes before application owns writeback, lineage, and cadence.
+preflights known bootstrap operands, address classification, alignment, and the
+complete source word before application owns writeback, lineage, and cadence.
 Direct SP-DMEM reads are additionally gated by the current cartridge-bootstrap
 span and record the exact source cartridge offset; concrete but unclassified
 backing rejects. No serialization format is a product contract yet.
@@ -67,6 +66,14 @@ source, and low transfer word before mutation. Application performs the
 destination-specific COP0 write before the existing committed cadence. It is
 not a numeric CP0 map or a general register-write framework.
 
+One private `Ri` owner stores optional RI_SELECT separately from bootstrap
+selectors. Construction and general reset leave it unavailable. The complete
+supported cold-x105 plan creates known zero with `ColdX105Entry` provenance
+atomically with the handoff. The aligned-`Lw` plan reads only physical
+`0x0470000C` through current direct aliases and never derives the result from
+reset kind. Other RI registers, RI writes, NMI, generic MMIO, and a bus remain
+absent.
+
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
 cartridge medium, PIF-version bit, all staged GPR values/sources, Status, and
@@ -76,8 +83,8 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the fifty-one-case step probe, the bounded BOOT-2 probe,
-and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
+construction/reset probe, the sixty-two-case step probe, the bounded BOOT-2
+probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
 RDRAM, known SP IMEM, and cartridge-bootstrap-staged SP DMEM. Explicit profile
@@ -85,11 +92,11 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a nineteen-step generated x105 composition through the bounded
-MTC0 trio and RI-address construction to an RI_SELECT direct-target miss, but
-it does not prove an
-authentic firmware-executed handoff,
-BOOT-3, timing, full ISA, game compatibility,
+handoff and a thirty-three-step generated composition through the stored
+RI_SELECT
+read, cold BNE/NOP slot, five high-SP-IMEM stack stores, and RI_CONFIG address
+construction. It stops at the RI_CONFIG store target miss and does not prove an authentic firmware-executed handoff, BOOT-3, timing, full
+ISA, game compatibility,
 renderer, audio, performance, or host integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented

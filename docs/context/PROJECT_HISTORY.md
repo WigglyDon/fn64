@@ -341,6 +341,30 @@ product or reference lane requires a new explicit product decision.
   interrupt delivery, general COP0, authentic execution, BOOT-3, and
   compatibility remain absent. BOOT-2 remains highest.
 
+## Era 20 — cold-entry RI_SELECT read and RI_CONFIG frontier (2026-07-14)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, the pinned RI register definition,
+  bounded cold/NMI source relation, and official CPU-only NMI reset note;
+  `LIVE_REPO_FACT`, direct Master evidence, product, and inspection commits;
+  `RUNTIME_FACT`, generated focused tests and public-step proof.
+- Source decision: public evidence proves RI_SELECT zero at the bounded cold
+  x105 entry but does not state a generic hardware power-on reset value.
+  Therefore the complete coupled bootstrap atomically creates Machine-owned
+  RI_SELECT zero with `ColdX105Entry` provenance; construction and general
+  reset leave it unavailable.
+- Accepted product increment: exact direct KSEG0/KSEG1 aligned `Lw` aliases of
+  physical `0x0470000C` read the stored RI_SELECT word without side effects.
+  Neighboring RI registers, all RI writes, NMI, a register bank, MMIO, and a bus
+  remain absent.
+- Generated composition: RI_SELECT loads zero at step 20, BNE takes the cold
+  fall-through through one NOP slot, five stores save s3-s7 at SP-IMEM locals
+  `0xFD8..0xFE8`, and address/immediate construction reaches step 33. Final
+  PC/next-PC are `0xA40000C4 / 0xA40000C8`, Count is `17`, and the `Sw` to
+  RI_CONFIG at physical `0x04700004` rejects as a direct target miss.
+- Proof boundary: all inputs and instruction fields are generated. RI_CONFIG,
+  RI initialization, NMI, authentic execution, BOOT-3, and compatibility
+  remain absent. BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
