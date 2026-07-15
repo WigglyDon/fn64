@@ -58,7 +58,7 @@ is unknown, so that instance rejects without mutation.
 
 Aligned `Sw` is a separate Machine-owned action. It reads the old base,
 resolves alignment before source consumption, accepts direct SP IMEM or exact
-RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT only, then captures old source low word and exact
+RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE only, then captures old source low word and exact
 lineage. RI_CONFIG planning rejects undefined high bits and selects only its
 input/enable fields. RI_CURRENT_LOAD planning requires stored RI_CONFIG and
 snapshots those fields into one event. Success writes no GPR and advances
@@ -66,6 +66,9 @@ normal cadence once. RI_SELECT accepts only `0x14`, replaces its stored source,
 and does not consult the two earlier RI facts as authorization; no RI route
 changes memory. RI_MODE stores its defined low-nibble fields, rejects nonzero
 bits above bit 3, and does not consult prior RI facts as authorization.
+MI_INIT_MODE accepts only `0x0000010F`, stores length 15 plus initialization
+mode true with source provenance, and does not authorize the following RDRAM
+write.
 Sequential or delay-slot
 AdES delegates to COP0
 with zero faulting-instruction Count; unknown sources and unsupported targets
@@ -91,6 +94,13 @@ state from reset kind or generalizes CPU device access. RI_CONFIG/
 RI_CURRENT_LOAD/RI_MODE reads, general RI_SELECT programming, calibration,
 and timing remain absent.
 
+One private Machine-owned MI initialization fact is unavailable at
+construction, reset, and cold bootstrap. Exact aligned `Sw` to physical
+`0x04300000` creates length 15 / initialization mode true only for word
+`0x0000010F`; other words, nearby MI addresses, and unknown sources reject
+atomically. There is no MI `Lw`, other MI register, physical next-write
+replication, RDRAM-register state, or timing owner.
+
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
 not source Count, Compare, EPC, BadVAddr, Cause, timer state, or unrelated GPRs.
@@ -108,11 +118,13 @@ tests for changes. Generated composition commits the exact RI_CONFIG `Sw`,
 installs wait count 8,000, executes 8,000 four-instruction loop iterations,
 commits RI_CURRENT_LOAD, `Ori r9,r0,0x14`, exact RI_SELECT `Sw`, both RI_MODE
 stores, the four-iteration wait, and the 32-iteration wait with ORI in every
-BNE delay slot, and then rejects the MI_INIT_MODE `Sw` as a direct target miss. This is CPU
+BNE delay slot. It then commits exact MI_INIT_MODE, constructs `0x18082838`
+through the existing `Lui`/`Ori` identities, and rejects the global
+RDRAM_DELAY `Sw` as a direct target miss. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 branch-likely/other REGIMM and broader COP0 execution, every RI action except
 the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
-and RI_MODE defined-field writes, NMI,
+RI_MODE defined-field writes, and the exact MI_INIT_MODE write, NMI,
 generic MMIO, nested control flow, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

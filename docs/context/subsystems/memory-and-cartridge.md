@@ -62,7 +62,8 @@ readable only when all four bytes have represented provenance. Test-only
 staging remains distinct from this production creation event.
 
 Aligned CPU `Sw` now mutates direct SP-IMEM words, exact RI_MODE fields, exact
-RI_CONFIG state, an exact RI_CURRENT_LOAD event, or exact bounded RI_SELECT state.
+RI_CONFIG state, an exact RI_CURRENT_LOAD event, exact bounded RI_SELECT state,
+or the exact bounded MI_INIT_MODE state.
 A known SP-IMEM source creates four known big-endian bytes even when prior
 bytes were Unknown. Each selected byte receives CPU-store provenance carrying
 instruction PC, source GPR, and source lineage; neighboring value/provenance is
@@ -78,9 +79,14 @@ with CPU-store lineage and rejects nonzero high bits before mutation. Reset
 clears runtime SP bytes to Unknown and all RI facts to
 unavailable. Complete
 bootstrap restaging replaces copied SP bytes, recreates RI_SELECT zero, and
-clears stale RI_CONFIG, RI_CURRENT_LOAD, RI_MODE, and CPU-written select state.
-RDRAM, SP-DMEM, MI, general RI_SELECT programming, and other store targets remain
-unsupported.
+clears stale RI_CONFIG, RI_CURRENT_LOAD, RI_MODE, CPU-written select state, and
+MI initialization state. MI_INIT_MODE at physical `0x04300000` accepts only
+low word `0x0000010F`, stores length 15 and initialization mode true with
+CPU-store provenance, and changes no memory or RI fact. Construction, reset,
+and complete cold bootstrap leave that MI fact unavailable; repeated complete
+bootstrap clears it, failed bootstrap preserves it, and independent Machines
+do not share it. RDRAM, SP-DMEM, other MI registers, MI reads, general RI_SELECT
+programming, and other store targets remain unsupported.
 
 Lineage is `lawful bytes → normalized layout → named address domain → preflight → storage mutation/read → narrow observable result`. Failed writes must leave no
 ghost state. Synthetic instruction words and small generated fixtures are valid
@@ -89,7 +95,8 @@ proof; user-local ROMs are outside routine inspection and evidence packaging.
 Current integration includes represented cartridge facts, narrow bootstrap
 staging, one cartridge-derived instruction commit, SP IMEM storage, optional
 cold-entry or exact CPU-written RI_SELECT, CPU-written RI_CONFIG,
-RI_CURRENT_LOAD event, and CPU-written RI_MODE field facts,
+RI_CURRENT_LOAD event, CPU-written RI_MODE field facts, and one exact
+CPU-written MI initialization-mode fact,
 narrow KSEG0/KSEG1 CPU-data routes to the
 represented SP memories, and aligned `Lw` over direct RDRAM, known SP IMEM,
 cartridge-staged SP DMEM, or exact physical RI_SELECT `0x0470000C`.
@@ -99,13 +106,15 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,155-step composition through the stored
+handoff and advances a generated 32,158-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
-exact RI_SELECT write, both RI_MODE writes, and both bounded CPU waits. The
-next `Sw` at MI_INIT_MODE rejects as a direct target miss; no general RI_SELECT
-programming, other RI write/read, MI behavior, calibration/timing process,
-NMI, or generic MMIO route exists. It does not establish authentic SP IMEM contents,
+exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
+MI_INIT_MODE write, and the following delay-word construction. The next `Sw`
+at global RDRAM_DELAY rejects as a direct target miss; no general RI_SELECT
+programming, other RI write/read, other MI register/read, MI next-write
+replication, RDRAM-register behavior, calibration/timing process, NMI, or
+generic MMIO route exists. It does not establish authentic SP IMEM contents,
 firmware-executed handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists

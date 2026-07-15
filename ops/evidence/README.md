@@ -41,6 +41,7 @@ Current durable integration records:
 - [RI_CURRENT_LOAD event and generated x105 RI_SELECT frontier](ri-current-load-generated-x105-ri-select-frontier-v1/README.md)
 - [Exact RI_SELECT write and generated x105 RI_MODE frontier](ri-select-write-generated-x105-ri-mode-frontier-v1/README.md)
 - [RI_MODE sequence and generated x105 MI init frontier](ri-mode-sequence-generated-x105-mi-init-frontier-v1/README.md)
+- [Exact MI_INIT_MODE write and generated x105 RDRAM delay frontier](mi-init-mode-generated-x105-rdram-delay-frontier-v1/README.md)
 
 The lineage contract is:
 

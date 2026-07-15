@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-Sw planning for SP IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
+`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-Sw planning for SP IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 116-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 129-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -48,8 +48,11 @@ and NOP slot, five high-SP-IMEM stack saves, the exact RI_CONFIG store, 8,000
 four-instruction CPU-loop iterations, RI_CURRENT_LOAD update event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, and both bounded CPU wait
 regions. The second BNE delay slot executes the `Ori` that constructs `0x10F`
-on all 32 iterations. It stops atomically when the MI_INIT_MODE `Sw` target
-classification misses; this proves no RI timing, calibration, or MI process.
+on all 32 iterations. The exact MI_INIT_MODE `Sw` commits length 15 and
+initialization mode true with CPU-store provenance, then generated `Lui`/`Ori`
+construct `0x18082838`. It stops atomically when the global RDRAM_DELAY `Sw`
+target classification misses; this proves no RI timing, calibration, MI bus
+effect, or RDRAM process.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
 source-backed cold-x105 access scope, and a known old source. Its immutable
@@ -59,12 +62,14 @@ introduced.
 
 The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct SP IMEM or exact
-RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT, and only then captures source value/lineage and
+RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE, and only then captures source value/lineage and
 constructs a closed destination plan. RI_CONFIG planning rejects undefined
 high bits; RI_CURRENT_LOAD planning requires stored RI_CONFIG and snapshots its
 fields; RI_SELECT planning accepts only low word `0x14` and creates exact
 CPU-store provenance; RI_MODE planning stores bits 1:0 and bits 2/3 while
-rejecting nonzero bits above bit 3. Application neither reclassifies nor
+rejecting nonzero bits above bit 3; MI_INIT_MODE planning accepts only low word
+`0x0000010F` and creates length 15 / initialization mode true with exact
+CPU-store provenance. Application neither reclassifies nor
 discovers a new failure.
 
 Ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and
@@ -77,5 +82,6 @@ CPU-owned slot context; it does not refetch or re-identify.
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, branch-likely
 and other REGIMM/control-flow families, broader COP0 instruction execution,
-general RI_SELECT programming/other RI actions/MI/NMI and generic MMIO, nested control-flow
+general RI_SELECT programming/other RI actions/other MI registers or reads/NMI
+and generic MMIO, MI next-write replication, RDRAM control-register access, nested control-flow
 behavior, broad fetch mapping, and instruction timing.

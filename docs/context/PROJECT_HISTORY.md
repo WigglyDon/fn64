@@ -456,6 +456,27 @@ product or reference lane requires a new explicit product decision.
   hardware time, MI, RDRAM initialization/readiness, authentic execution,
   BOOT-3, and compatibility remain absent. BOOT-2 remains highest.
 
+## Era 25 — exact MI initialization state and RDRAM delay frontier (2026-07-15)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned MI_INIT_MODE command/read
+  definitions and bounded x105 source order; `LIVE_REPO_FACT`, the exact aligned
+  `Sw` planner/application and one private per-Machine `Mi` owner; `RUNTIME_FACT`,
+  deterministic generated public-step proof.
+- Product decision: `MI_INIT_MODE_EXACT_X105_WRITE_ONLY`. Exact low word
+  `0x0000010F` at physical `0x04300000` stores initialization length 15 and
+  initialization mode true with CPU-store provenance. Other words reject
+  atomically; no MI read or general command surface exists.
+- Lifecycle: construction, reset, and complete cold bootstrap leave the MI fact
+  unavailable. Repeated complete bootstrap clears stale state/provenance, failed
+  bootstrap preserves them, and Machines remain independent.
+- Generated composition: commit 32,156 performs the MI store at
+  `0xA4000118`; generated `Lui`/`Ori` construct `0x18082838`. At 32,158 commits,
+  PC/next-PC are `0xA4000124`/`0xA4000128`, Count is 32,142, and the global
+  RDRAM_DELAY store to CPU `0xA3F80008` rejects atomically.
+- Boundary: MI next-write replication, other MI state, RDRAM control-register
+  access, RDRAM initialization/readiness, hardware timing, authentic
+  advancement, BOOT-3, and game compatibility remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
