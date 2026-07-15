@@ -432,6 +432,30 @@ product or reference lane requires a new explicit product decision.
   RDRAM initialization, authentic execution, BOOT-3, or compatibility is
   represented. BOOT-2 remains highest.
 
+## Era 24 — RI_MODE fields, bounded waits, and MI init frontier (2026-07-15)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned RI_MODE field definitions
+  and bounded x105 instruction/order comments; `LIVE_REPO_FACT`, direct Master
+  evidence, product, and inspection commits; `RUNTIME_FACT`, focused core tests
+  and the public-step composition.
+- Field decision: `RI_MODE_DEFINED_FIELDS_REPRESENTABLE`. Bits 1:0 are stored
+  as numeric operating-mode bits, bit 2 as stop-transmit-active, and bit 3 as
+  stop-receive-active. Undefined high bits reject as fn64's unsupported
+  boundary; operating-mode values 1 and 3 receive no undocumented names.
+- Accepted product increment: exact KSEG0/KSEG1 aligned `Sw` aliases of physical
+  `0x04700000` create or replace RI_MODE fields and CPU-store provenance. Reset
+  and repeated cold bootstrap clear stale mode state; failed bootstrap and
+  every rejection preserve all Ri siblings and Machine state.
+- Generated composition: commit 32,039 stores zero. The first wait executes
+  four NOP/Addi/Bne/NOP iterations. Commit 32,057 constructs `0x0E`, commit
+  32,058 replaces RI_MODE, and the second wait executes 32 Addi/Bne/Ori
+  iterations with ORI in every BNE delay slot. At 32,155 commits, PC/next-PC
+  are `0xA4000118 / 0xA400011C`, Count is `32139`, s1 is zero, and r9 is
+  `0x10F`; the MI_INIT_MODE store rejects atomically.
+- Proof boundary: the waits prove CPU composition only. RI electrical effects,
+  hardware time, MI, RDRAM initialization/readiness, authentic execution,
+  BOOT-3, and compatibility remain absent. BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

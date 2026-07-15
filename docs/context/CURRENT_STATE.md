@@ -48,10 +48,10 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   source lineage, cadence, and rollback. Concrete SP-DMEM backing outside the
   staged cartridge span remains explicitly unclassified and unreadable.
 - `LIVE_REPO_FACT`: aligned `Sw` now executes through one Machine-owned plan
-  and applicator for direct KSEG0/KSEG1 aliases of SP IMEM, exact RI_CONFIG,
-  exact RI_CURRENT_LOAD, or exact RI_SELECT. SP IMEM stores old `rt` low 32 bits as four known
+  and applicator for direct KSEG0/KSEG1 aliases of SP IMEM, exact RI_MODE,
+  exact RI_CONFIG, exact RI_CURRENT_LOAD, or exact RI_SELECT. SP IMEM stores old `rt` low 32 bits as four known
   big-endian bytes with instruction-PC, source-GPR, and source-lineage
-  provenance. The three RI targets use destination-specific Machine state and
+  provenance. The four RI targets use destination-specific Machine state and
   write no memory. Unknown operands and every other target reject before
   mutation. Unaligned stores enter AdES code 5 through the existing COP0 owner,
   including exact BadVAddr and delay-slot EPC/BD; success advances Count once
@@ -121,10 +121,10 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   product authority. The three copy profiles remain supported independently;
   only the coupled handoff is NTSC-only.
 - `LIVE_REPO_FACT`: one private per-Machine `Ri` owner stores optional
-  RI_SELECT, RI_CONFIG, and RI_CURRENT_LOAD event facts. Construction and
+  RI_MODE, RI_SELECT, RI_CONFIG, and RI_CURRENT_LOAD event facts. Construction and
   general reset leave all unavailable; the complete supported NTSC
   cold-cartridge x105 bootstrap atomically creates RI_SELECT zero with
-  `ColdX105Entry` provenance and leaves both later facts unavailable. Exact
+  `ColdX105Entry` provenance and leaves the other three facts unavailable. Exact
   aligned `Lw` reads only RI_SELECT at physical `0x0470000C`. Exact aligned
   `Sw` writes RI_CONFIG fields at physical `0x04700004` or creates an
   RI_CURRENT_LOAD event at `0x04700008`. The event requires and snapshots the
@@ -133,19 +133,29 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   fact. Exact RI_SELECT `Sw` at `0x0470000C` accepts only x105 word `0x14`,
   replacing the stored value and `ColdX105Entry` source with CPU-store
   provenance; all other words reject as an unsupported product boundary. The
-  existing `Lw` reads the updated stored value. RI_CONFIG and RI_CURRENT_LOAD
-  have no read route. General RI_SELECT programming, RI_MODE, other RI actions,
+  existing `Lw` reads the updated stored value. RI_MODE at physical
+  `0x04700000` stores operating-mode bits 1:0, stop-transmit-active bit 2, and
+  stop-receive-active bit 3 with CPU-store provenance. Any bit above bit 3
+  rejects before mutation as fn64's unsupported boundary; no hardware-trap
+  claim follows. RI_CONFIG, RI_CURRENT_LOAD, and RI_MODE have no read route.
+  General RI_SELECT programming, other RI actions,
   NMI, a register bank, MMIO framework, and bus remain absent.
 - `LIVE_REPO_FACT`: generated-only public-step composition now commits
-  32,038 bounded x105-shaped instructions. The accepted 32,035-step prefix
+  32,155 bounded x105-shaped instructions. The accepted 32,038-step prefix
   ends after the 8,000-iteration CPU wait loop. Commit 32,036 stores r0 to
   RI_CURRENT_LOAD, snapshotting RI_CONFIG input zero and enable true; commit
   32,037 executes `Ori r9,r0,0x14`. Final PC/next-PC are
   `0xA40000E4 / 0xA40000E8`, Count is `32021`, and r9 is `0x14`. Commit 32,038
-  stores that exact word to RI_SELECT and installs CPU-store provenance. Final
-  PC/next-PC are `0xA40000E8 / 0xA40000EC`, Count is `32022`. The next aligned
-  `Sw r0,0(r8)` targets RI_MODE at represented CPU `0xA4700000`, physical
-  `0x04700000`, and rejects as a direct target miss without mutation. Every
+  stores that exact word to RI_SELECT and installs CPU-store provenance.
+  Commit 32,039 stores RI_MODE zero. An Addiu and four iterations of
+  NOP/Addi/Bne/NOP commit 17 more instructions with three taken and one
+  untaken branch. Commit 32,057 constructs `0x0E`; commit 32,058 replaces
+  RI_MODE with operating mode 2 and both stop-active flags. An Addiu and 32
+  iterations of Addi/Bne/Ori commit 97 more instructions; the ORI is the BNE
+  delay slot on every iteration and leaves r9=`0x10F`. Final PC/next-PC are
+  `0xA4000118 / 0xA400011C`, Count is `32139`, and s1 is zero. The next aligned
+  `Sw r9,0(r12)` targets MI_INIT_MODE at represented CPU `0xA4300000`, physical
+  `0x04300000`, and rejects as a direct target miss without mutation. Every
   instruction and byte is independently generated. This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -231,6 +241,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   product operation; generated proof represents exact x105 RI_SELECT CPU
   write/read-after-write state and reaches the RI_MODE `Sw` target miss without
   creating a Worker lane or queue entry.
+- `master-direct-ri-mode-sequence-x105-mi-init-frontier-v1`: direct Master
+  product operation; generated proof represents RI_MODE defined fields and
+  CPU-store provenance, commits both bounded writes and both CPU waits, and
+  reaches the MI_INIT_MODE `Sw` target miss without creating a Worker lane or
+  queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -267,13 +282,14 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: the next generated pressure is aligned `Sw r0,0(r8)` to
-  RI_MODE at represented CPU address `0xA4700000` (physical `0x04700000`), and
-  it rejects as a direct target miss. RI_CONFIG and RI_CURRENT_LOAD have no
-  read routes or hardware-process model; general RI_SELECT programming and
-  every other RI action remain absent. NMI, all other REGIMM
+- `LIVE_REPO_FACT`: the next generated pressure is aligned `Sw r9,0(r12)` to
+  MI_INIT_MODE at represented CPU address `0xA4300000` (physical `0x04300000`),
+  with transfer word `0x10F`; it rejects as a direct target miss. RI_CONFIG,
+  RI_CURRENT_LOAD, and RI_MODE have no read routes or hardware-process model;
+  general RI_SELECT programming and every other RI action remain absent. NMI,
+  all other REGIMM
   identities, every other COP0 instruction or MTC0 destination,
-  RDRAM/SP-DMEM/device stores beyond the three exact RI writes, and broader store
+  RDRAM/SP-DMEM/device stores beyond the four exact RI writes, and broader store
   identities remain absent; no generic CP0, branch/store, bus, MMIO, or
   generalized memory-map route is implied.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,

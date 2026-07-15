@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for ninety-nine represented cases, including ordinary
+public `Machine::step` for 116 represented cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -28,8 +28,9 @@ alias/AdEL/rejection cases, cold BNE/NOP and high-SP-IMEM stack-save cases,
 RI_CONFIG lifecycle/fields/provenance/alias/reserved-bit/AdES/slot cases,
 RI_CURRENT_LOAD dependency/provenance/alias/AdES/slot/lifecycle cases, and
 exact RI_SELECT write/provenance/read-after-write/value/alias/AdES/slot/
-lifecycle cases, plus 32,038 generated commits through the exact CPU loop and
-RI events to the RI_MODE direct-target miss. The
+lifecycle cases, RI_MODE fields/provenance/aliases/reserved-bit/AdES/slot/
+lifecycle cases, plus 32,155 generated commits through both bounded CPU waits
+and RI events to the MI_INIT_MODE direct-target miss. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -77,8 +78,12 @@ stores. The exact RI_CONFIG `Sw` at `0xA40000C4` commits, then generated
 wait-counter setup and 8,000 four-instruction loop iterations commit.
 RI_CURRENT_LOAD at `0xA40000DC` snapshots stored RI_CONFIG, the following
 `Ori` produces `0x14`, and RI_SELECT `Sw` at `0xA40000E4` commits that exact
-word/provenance. The RI_MODE `Sw` at `0xA40000E8` rejects as a direct target
-miss. This is
+word/provenance. RI_MODE `Sw` at `0xA40000E8` stores zero; the first wait
+executes four NOP/Addi/Bne/NOP iterations. `Ori` at `0xA4000100` constructs
+`0x0E`, the second RI_MODE `Sw` at `0xA4000104` replaces the fields/provenance,
+and the next wait executes 32 Addi/Bne/Ori iterations with the ORI in every
+BNE delay slot. The MI_INIT_MODE `Sw` at `0xA4000118` rejects as a direct
+target miss. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, calibration, RDRAM initialization, or NMI execution.
 

@@ -12,8 +12,8 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 ## Mission and owner
 
 `fn64-core::Machine` is the current production owner of each represented
-machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_SELECT,
-RI_CONFIG, and RI_CURRENT_LOAD event state, reset/power state, optional
+machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_MODE,
+RI_SELECT, RI_CONFIG, and RI_CURRENT_LOAD event state, reset/power state, optional
 structurally accepted immutable
 PIF firmware input, optional explicit PIF IPL2 copy profile, explicit narrow
 cold-handoff selector inputs, and narrow
@@ -57,12 +57,13 @@ span and record the exact source cartridge offset; concrete but unclassified
 backing rejects. No serialization format is a product contract yet.
 
 Aligned `Sw` uses a separate Machine plan/application path for SP IMEM or the
-three exact RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets.
+four exact RI_MODE, RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets.
 The plan resolves old base, alignment, direct target, old source value, exact
 SP-IMEM span or destination-specific RI state, and CPU-store provenance before
 application. Undefined RI_CONFIG high bits, unavailable RI_CONFIG for an
 RI_CURRENT_LOAD event, and RI_SELECT words other than `0x14` reject during
-planning. Application has no
+planning. RI_MODE planning accepts its defined low-nibble fields and rejects
+nonzero bits above bit 3. Application has no
 fallible operation: it mutates one selected owner, commits control flow once,
 and advances Count once. Rejection restores the captured snapshot; AdES
 delegates to existing sealed COP0 entry.
@@ -73,22 +74,25 @@ source, and low transfer word before mutation. Application performs the
 destination-specific COP0 write before the existing committed cadence. It is
 not a numeric CP0 map or a general register-write framework.
 
-One private `Ri` owner stores optional RI_SELECT, RI_CONFIG, and
+One private `Ri` owner stores optional RI_MODE, RI_SELECT, RI_CONFIG, and
 RI_CURRENT_LOAD event state separately from bootstrap selectors. Construction
 and general reset leave all unavailable.
 The complete supported cold-x105 plan creates RI_SELECT zero with
-`ColdX105Entry` provenance and leaves both later facts unavailable; repeated
+`ColdX105Entry` provenance and leaves the other three facts unavailable; repeated
 complete staging restores that cold value/source and clears stale RI_CONFIG,
-RI_CURRENT_LOAD, and CPU-store provenance. The aligned-`Lw`
+RI_CURRENT_LOAD, RI_MODE, and CPU-store provenance. The aligned-`Lw`
 plan reads only RI_SELECT at
-physical `0x0470000C`. The aligned-`Sw` plan writes only RI_CONFIG at physical
-`0x04700004`, RI_CURRENT_LOAD at `0x04700008`, or RI_SELECT at `0x0470000C`.
+physical `0x0470000C`. The aligned-`Sw` plan writes only RI_MODE at physical
+`0x04700000`, RI_CONFIG at `0x04700004`, RI_CURRENT_LOAD at `0x04700008`, or
+RI_SELECT at `0x0470000C`.
 RI_CURRENT_LOAD requires and
 snapshots stored RI_CONFIG fields while recording the transfer word and
 CPU-store lineage. RI_SELECT accepts only exact `0x14`, replaces value/source
-with CPU-store provenance, and leaves both siblings unchanged; no RI route
-mutates memory. No path derives RI state from reset kind. RI_CONFIG/
-RI_CURRENT_LOAD reads, general RI_SELECT programming, RI_MODE, current-control
+with CPU-store provenance, and leaves both siblings unchanged. RI_MODE stores
+operating-mode bits 1:0 and the two stop-active bits with CPU-store provenance;
+bits above bit 3 reject before mutation. No RI route mutates memory. No path
+derives RI state from reset kind. RI_CONFIG/RI_CURRENT_LOAD/RI_MODE reads,
+general RI_SELECT programming, current-control
 output/processing/timing, NMI, generic MMIO, and a bus remain absent.
 
 The supported coupled handoff follows the same ownership rule. Machine first
@@ -100,7 +104,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the ninety-nine-case step probe, the bounded BOOT-2
+construction/reset probe, the 116-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -109,10 +113,12 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,038-step generated composition through the stored RI_SELECT
+handoff and a 32,155-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
-`Ori`, and exact RI_SELECT write. It stops at the RI_MODE store target miss and does not prove an
+`Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
+and a 32-iteration CPU wait whose BNE delay slot constructs `0x10F`. It stops
+at the MI_INIT_MODE store target miss and does not prove an
 authentic firmware-executed handoff, RI
 calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
 game compatibility, renderer, audio, performance, or host integration.

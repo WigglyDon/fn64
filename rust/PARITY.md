@@ -39,7 +39,7 @@ history.
 | `Rdram` | 4 MiB zero-filled storage and checked raw fixed-width reads | no general bus, device routing, or CPU instruction semantics |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, checked known big-endian word reads, and an atomic profiled-copy constructor | no public mutable access, profile policy, SP register/status/DMA, or RSP execution |
-| `Ri` | optional RI_SELECT cold-entry or exact-`0x14` CPU-store value/provenance, optional RI_CONFIG input/enable fields, and optional RI_CURRENT_LOAD event snapshot with CPU-store provenance | no RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, RI_MODE, current-control output, calibration/timing, NMI lifecycle, register bank, MMIO framework, or bus |
+| `Ri` | optional RI_MODE defined fields/provenance, optional RI_SELECT cold-entry or exact-`0x14` CPU-store value/provenance, optional RI_CONFIG input/enable fields, and optional RI_CURRENT_LOAD event snapshot with CPU-store provenance | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, RI physical effects/timing, current-control output, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Machine` | Cartridge, optional accepted PifFirmware and PifIpl2Profile, explicit handoff selectors, Cpu, Rdram, SpDmem, SpImem, Ri, bootstrap provenance/GPR-knownness/COP0/control-flow state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
 | `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs; exact CLI spellings for explicit firmware, profile, family, reset, medium, and PIF-version inputs | no machine truth, selector meaning, general runtime loop, graphics, or compatibility authority |
 
@@ -209,11 +209,13 @@ RI registers remain direct target misses. This does not introduce mirroring,
 general MMIO policy, a bus, or a generalized memory map.
 
 The aligned `Sw` data route accepts direct KSEG0/KSEG1 aliases of SP IMEM,
-RI_CONFIG at physical `0x04700004`, RI_CURRENT_LOAD at `0x04700008`, and
-RI_SELECT at `0x0470000C`. RI_CONFIG stores only defined input bits 5:0, enable
+RI_MODE at physical `0x04700000`, RI_CONFIG at `0x04700004`, RI_CURRENT_LOAD at
+`0x04700008`, and RI_SELECT at `0x0470000C`. RI_MODE stores operating-mode bits
+1:0 and stop-active bits 2/3; RI_CONFIG stores only defined input bits 5:0, enable
 bit 6, and CPU-store lineage; RI_CURRENT_LOAD snapshots stored configuration;
 RI_SELECT accepts only exact x105 word `0x14` and replaces its source with
-CPU-store lineage. Destination-specific unsupported inputs reject before
+CPU-store lineage. RI_MODE bits above bit 3 and other destination-specific
+unsupported inputs reject before
 mutation. RDRAM, SP DMEM, every other device/MMIO address, non-direct, and
 target-miss addresses reject without routing. It adds no generic store
 abstraction or broader address map.
@@ -330,7 +332,7 @@ including delay-slot EPC/BD and zero faulting-instruction Count.
 Planning captures the old base, applies the sign-extended immediate with the
 same wrapping represented-address rule as `Lw`, checks word alignment before
 source-value consumption, and accepts only direct KSEG0/KSEG1 aliases of SP
-IMEM or exactly RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT. All supported paths capture old `rt`
+IMEM or exactly RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT. All supported paths capture old `rt`
 and its low 32
 bits. SP IMEM stores four big-endian bytes and replaces only those bytes'
 provenance with the instruction PC, source GPR, and source lineage. RI_CONFIG
@@ -340,7 +342,9 @@ memory. RI_CURRENT_LOAD requires stored RI_CONFIG and creates an event that
 snapshots its input/enable fields with transfer-word/CPU-store evidence; it
 creates no hardware output. RI_SELECT accepts only low word `0x14`, replaces
 the prior value/source with exact CPU-store provenance, and does not consult
-RI_CONFIG or RI_CURRENT_LOAD as authorization. All paths then commit
+RI_CONFIG or RI_CURRENT_LOAD as authorization. RI_MODE stores its three
+defined field facts, uses no prior RI state as authorization, and creates no
+physical RI effect or timer. All paths then commit
 `pc` / `next_pc` and Count
 once. `rs == rt` uses the old shared value and r0 transfers a known zero word.
 
@@ -348,9 +352,9 @@ Unaligned `Sw` enters AdES code 5 through the existing COP0 owner with exact
 BadVAddr and sequential or delay-slot EPC/BD lineage. It performs no store or
 normal cadence and advances Count zero times. Unknown base/source, non-direct
 address, target miss, undefined RI_CONFIG bits, unavailable RI_CONFIG for an
-RI_CURRENT_LOAD event, unsupported RI_SELECT words, RDRAM, SP DMEM, blocked
-exception entry, and bounds failure preserve all represented state. RI_MODE
-and other device stores, other store identities, a generic store path, bus,
+RI_CURRENT_LOAD event, unsupported RI_SELECT words, undefined RI_MODE high
+bits, RDRAM, SP DMEM, blocked exception entry, and bounds failure preserve all
+represented state. MI and other device stores, other store identities, a generic store path, bus,
 and generalized map remain absent.
 
 ### Machine-owned non-likely `BLTZ`
@@ -390,15 +394,15 @@ or GPR write. Interrupt delivery, unrelated RI behavior, other MTC0
 destinations, MFC0,
 DMTC0, privilege completeness, and a generic CP0 register bank remain absent.
 
-### Minimal RI_SELECT, RI_CONFIG, and RI_CURRENT_LOAD state
+### Minimal RI_MODE, RI_SELECT, RI_CONFIG, and RI_CURRENT_LOAD state
 
-One private per-Machine `Ri` owner stores optional RI_SELECT, RI_CONFIG, and
-RI_CURRENT_LOAD event state. The complete NTSC cold-cartridge x105 bootstrap
+One private per-Machine `Ri` owner stores optional RI_MODE, RI_SELECT,
+RI_CONFIG, and RI_CURRENT_LOAD event state. The complete NTSC cold-cartridge x105 bootstrap
 plan creates value zero with
 `ColdX105Entry` provenance atomically with the coupled handoff. Construction,
 general reset, ordinary bootstrap, incomplete selectors, and unsupported
 profiles leave the state unavailable; repeated complete staging recreates the
-same cold RI_SELECT fact and clears stale RI_CONFIG/event/CPU-store state, and
+same cold RI_SELECT fact and clears stale RI_MODE/RI_CONFIG/event/CPU-store state, and
 independent Machines remain independent. Exact RI_SELECT `Sw` replaces that
 zero with `0x14` and `CpuStoreWord` provenance; all other low words are an
 explicit unsupported boundary, not a claimed hardware trap. The stored RI_SELECT word is
@@ -408,16 +412,20 @@ The aligned-`Lw` planner recognizes exactly physical `0x0470000C` through the
 existing direct KSEG0/KSEG1 aliases. It reads the stored word without side
 effects, applies existing word sign extension, destination lineage, and
 committed cadence, and rejects atomically if the state is unavailable.
-The aligned-`Sw` planner recognizes exactly RI_CONFIG physical `0x04700004`,
-RI_CURRENT_LOAD physical `0x04700008`, and RI_SELECT physical `0x0470000C`
+The aligned-`Sw` planner recognizes exactly RI_MODE physical `0x04700000`,
+RI_CONFIG physical `0x04700004`, RI_CURRENT_LOAD physical `0x04700008`, and
+RI_SELECT physical `0x0470000C`
 through the same aliases. RI_CONFIG
 stores only current-control input bits 5:0, enable bit 6, and exact CPU-store
 provenance; undefined high bits reject before mutation. RI_CURRENT_LOAD
 requires stored RI_CONFIG and records an update event containing its field
 snapshot plus transfer-word/CPU lineage. RI_SELECT `Sw` accepts only word
 `0x14` and preserves both sibling facts; the existing `Lw` reads that updated
-stored word and source without side effects. RI_CONFIG/RI_CURRENT_LOAD have no
-read route. RI_MODE, RI_REFRESH, RI_LATENCY, general RI_SELECT fields/values,
+stored word and source without side effects. RI_MODE stores operating-mode
+bits 1:0, stop-transmit-active bit 2, stop-receive-active bit 3, and exact
+CPU-store provenance. Bits above bit 3 reject before mutation. The later store
+replaces the earlier fields and source. RI_MODE/RI_CONFIG/RI_CURRENT_LOAD have no
+read route. RI_REFRESH, RI_LATENCY, general RI_SELECT fields/values,
 and all other RI actions remain unsupported. No current-control output/process, hardware timing, NMI behavior,
 generic register bank, MMIO framework, bus, or generalized map is represented.
 
@@ -462,16 +470,22 @@ event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
 Generated tests separately prove the NTSC cold x105 coupled creation point and
-32,038 public-step commits. The accepted thirty-three-step prefix is followed
+32,155 public-step commits. The accepted thirty-three-step prefix is followed
 by the exact RI_CONFIG `Sw`, a generated wait-counter setup, and exactly 8,000
 loop iterations comprising 32,000 commits. The final synthetic state is
 PC/next-PC `0xA40000DC / 0xA40000E0`, Count `32019`, and s1 zero; RI_CONFIG
 still holds input zero and enable true. Commit 32,036 stores r0 to
 RI_CURRENT_LOAD and snapshots that configuration; commit 32,037 constructs
 r9=`0x14`; commit 32,038 stores that word to RI_SELECT and replaces its source
-with CPU-store provenance. The next `Sw r0,0(r8)` to RI_MODE at CPU
-`0xA4700000` (physical `0x04700000`) rejects as a direct target miss without
-mutation. These tests
+with CPU-store provenance. Commit 32,039 stores RI_MODE zero. The generated
+four-iteration NOP/Addi/Bne/NOP wait has three taken branches, one untaken
+branch, and four delay slots. Commit 32,057 constructs `0x0E`; commit 32,058
+replaces RI_MODE with operating mode 2 and both stop-active flags. The
+generated 32-iteration Addi/Bne/Ori wait has 31 taken branches, one untaken
+branch, and 32 executions of the ORI delay slot, leaving r9=`0x10F`. Final
+PC/next-PC are `0xA4000118 / 0xA400011C`, Count is `32139`, and s1 is zero.
+The next `Sw r9,0(r12)` to MI_INIT_MODE at CPU `0xA4300000` (physical
+`0x04300000`) rejects as a direct target miss without mutation. These tests
 prove CPU composition only, not an authentic
 IPL2-to-IPL3 run, elapsed RI time, current calibration, RDRAM initialization,
 or NMI execution.
@@ -488,10 +502,10 @@ execute. Current explicit absences include:
 - branch-likely annul, every REGIMM identity except non-linking/non-likely
   BLTZ, COP0 branches, and execution of a branch or jump inside a delay slot;
 - CPU load/store instructions other than aligned `Lw` and aligned `Sw` to SP
-  IMEM or exact RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT, plus unaligned merge operations;
+  IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT, plus unaligned merge operations;
   `Lw` has no
   device/MMIO route except the exact stored RI_SELECT word and no unclassified
-  SP-DMEM source route, while `Sw` has no RDRAM, SP-DMEM, RI_MODE, or other
+  SP-DMEM source route, while `Sw` has no RDRAM, SP-DMEM, MI, or other
   device target;
 - multiply, divide, trap, every COP0 instruction except the bounded MTC0 trio,
   ERET, and LL/SC execution;
@@ -518,7 +532,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its ninety-nine cases cover:
+calls only public `Machine::step` for execution. Its 116 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -546,8 +560,11 @@ calls only public `Machine::step` for execution. Its ninety-nine cases cover:
   lifecycle, and atomic-rejection behavior;
 - exact RI_SELECT CPU write/value/provenance/read-after-write/aliases/AdES/slot,
   lifecycle, and atomic unsupported-value behavior;
-- 32,038-step generated x105 composition through the exact 8,000-iteration CPU
-  loop and RI events to the RI_MODE direct-target miss;
+- RI_MODE defined fields/provenance/replacement/aliases/reserved-bit rejection,
+  AdES, slot cadence, reset/bootstrap lifecycle, and independent Machines;
+- 32,155-step generated x105 composition through the exact 8,000-iteration CPU
+  loop, both RI_MODE writes, both bounded CPU waits, and the MI_INIT_MODE
+  direct-target miss;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;
