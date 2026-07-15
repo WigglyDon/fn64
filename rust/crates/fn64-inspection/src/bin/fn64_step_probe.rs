@@ -15,7 +15,9 @@ use fn64_core::{
     MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
     MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
     PifIpl2Profile, RdramAccessError, SpDmemOffset, MI_INIT_MODE_X105_WRITE_WORD,
-    PIF_BOOT_ROM_SIZE_BYTES, RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
+    PIF_BOOT_ROM_SIZE_BYTES, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
+    RDRAM_DELAY_X105_LOGICAL_CONFIGURATION, RI_MODE_DEFINED_FIELDS_MASK,
+    RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -146,6 +148,14 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: mi-init-mode-independent-machines ok\
 \ncase: generated-x105-mi-init-committed ok\
 \ncase: generated-x105-rdram-delay-frontier ok\
+\ncase: mi-init-transfer-armed ok\
+\ncase: rdram-delay-store-committed ok\
+\ncase: rdram-delay-logical-fields ok\
+\ncase: rdram-delay-source-provenance ok\
+\ncase: rdram-delay-transfer-consumed ok\
+\ncase: rdram-delay-post-transfer-mi-unavailable ok\
+\ncase: generated-x105-rdram-delay-committed ok\
+\ncase: generated-x105-ref-row-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -3220,6 +3230,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x11c, immediate_word(0x0f, 0, 9, 0x1808)),
         (0x120, immediate_word(0x0d, 9, 9, 0x2838)),
         (0x124, immediate_word(0x2b, 10, 9, 0x0008)),
+        (0x128, immediate_word(0x2b, 10, 0, 0x0014)),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -3989,6 +4000,20 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             case: CASE,
             check: "generated MI initialization state available",
         })?;
+    let mi_transfer = machine
+        .mi_init_transfer_state()
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated MI initialization transfer available",
+        })?;
+    require(
+        CASE,
+        mi_transfer.source_init_length() == 15
+            && mi_transfer.repeated_byte_count() == 16
+            && mi_transfer.command_word() == MI_INIT_MODE_X105_WRITE_WORD
+            && mi_transfer.source() == mi_state.source(),
+        "generated MI initialization transfer is exact",
+    )?;
     total_committed_steps += 1;
     require(
         CASE,
@@ -4047,13 +4072,80 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             }),
         "exact RDRAM_DELAY frontier identity",
     )?;
-    let before = (
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted {
+                effective_address: 0xffff_ffff_a3f8_0008,
+                target: MachineStoreWordTarget::RdramBroadcastDelay,
+                source_gpr: 9,
+                stored_word: RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
+                state,
+                cadence_plan,
+            } if state.ack_window_delay() == 5
+                && state.read_delay() == 7
+                && state.ack_delay() == 3
+                && state.write_delay() == 1
+                && state.logical_configuration() == RDRAM_DELAY_X105_LOGICAL_CONFIGURATION
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0124)
+                && state.source().source_gpr() == 9
+                && state.source().source_lineage() == delay_lineage
+                && state.source().effective_address() == 0xffff_ffff_a3f8_0008
+                && state.source().cpu_address() == CpuAddress::new(0xa3f8_0008)
+                && state.source().physical_address() == 0x03f8_0008
+                && state.source().cpu_transfer_word() == RDRAM_DELAY_X105_CPU_TRANSFER_WORD
+                && state.source().consumed_mi_transfer() == mi_transfer
+                && cadence_plan.advances_count()
+        ),
+        "RDRAM_DELAY generated commit, fields, and complete lineage",
+    )?;
+    total_committed_steps += 1;
+    let delay_state = machine
+        .rdram_broadcast_delay_state()
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated RDRAM delay state available",
+        })?;
+    require(
+        CASE,
+        total_committed_steps == 32_159
+            && machine.cpu().pc() == 0xa400_0128
+            && machine.cpu().next_pc() == 0xa400_012c
+            && machine.cpu().cop0_count() == 32_143
+            && machine.mi_init_mode_state().is_none()
+            && machine.mi_init_transfer_state().is_none()
+            && machine.ri_select_state() == Some(select)
+            && machine.ri_config_state() == Some(config)
+            && machine.ri_current_load_state() == Some(current_load)
+            && machine.ri_mode_state() == Some(second_mode),
+        "RDRAM_DELAY commit consumes transfer and makes MI readback unavailable",
+    )?;
+
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.identity() == CpuInstructionIdentity::Sw
+                    && instruction.fields().rs() == 10
+                    && instruction.fields().rt() == 0
+                    && instruction.fields().immediate_u16() == 0x14
+            }),
+        "exact global RDRAM_REF_ROW frontier identity",
+    )?;
+    let before_cpu = (
         machine.cpu().pc(),
         machine.cpu().next_pc(),
         machine.cpu().cop0_count(),
+        machine.cpu().gpr(0),
         machine.cpu().gpr(9),
         machine.cpu().gpr(10),
+    );
+    let before_devices = (
         machine.mi_init_mode_state(),
+        machine.mi_init_transfer_state(),
+        machine.rdram_broadcast_delay_state(),
         machine.ri_select_state(),
         machine.ri_config_state(),
         machine.ri_current_load_state(),
@@ -4062,36 +4154,38 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
     match machine.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             CASE,
-            rejection.effective_address() == Some(0xffff_ffff_a3f8_0008)
-                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f8_0008))
+            rejection.effective_address() == Some(0xffff_ffff_a3f8_0014)
+                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f8_0014))
                 && rejection.target().is_none()
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RDRAM_DELAY remains an exact unsupported target",
+            "RDRAM_REF_ROW remains an exact unsupported target",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "RDRAM_DELAY write remains unsupported"),
+        Ok(_) => return assertion(CASE, "RDRAM_REF_ROW write remains unsupported"),
     }
     require(
         CASE,
-        before
+        before_cpu
             == (
                 machine.cpu().pc(),
                 machine.cpu().next_pc(),
                 machine.cpu().cop0_count(),
+                machine.cpu().gpr(0),
                 machine.cpu().gpr(9),
                 machine.cpu().gpr(10),
-                machine.mi_init_mode_state(),
-                machine.ri_select_state(),
-                machine.ri_config_state(),
-                machine.ri_current_load_state(),
-                machine.ri_mode_state(),
             )
-            && machine.mi_init_mode_state() == Some(mi_state)
-            && machine.ri_select_state() == Some(select)
-            && machine.ri_config_state() == Some(config)
-            && machine.ri_current_load_state() == Some(current_load)
-            && machine.ri_mode_state() == Some(second_mode),
-        "RDRAM_DELAY rejection preserves the complete represented frontier",
+            && before_devices
+                == (
+                    machine.mi_init_mode_state(),
+                    machine.mi_init_transfer_state(),
+                    machine.rdram_broadcast_delay_state(),
+                    machine.ri_select_state(),
+                    machine.ri_config_state(),
+                    machine.ri_current_load_state(),
+                    machine.ri_mode_state(),
+                )
+            && machine.rdram_broadcast_delay_state() == Some(delay_state),
+        "RDRAM_REF_ROW rejection preserves the complete represented frontier",
     )
 }
 
