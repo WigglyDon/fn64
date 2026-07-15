@@ -9,14 +9,16 @@ use fn64_core::{
     MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
     MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineRdramBroadcastRefreshRowAperture,
     MachineRiModeSource, MachineRiSelectSource, MachineSpDmemLoadWordProvenance,
     MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
     MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
     MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
     MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
     PifIpl2Profile, RdramAccessError, SpDmemOffset, MI_INIT_MODE_X105_WRITE_WORD,
-    PIF_BOOT_ROM_SIZE_BYTES, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
-    RDRAM_DELAY_X105_LOGICAL_CONFIGURATION, RI_MODE_DEFINED_FIELDS_MASK,
+    PIF_BOOT_ROM_SIZE_BYTES, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
+    RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
+    RDRAM_REF_ROW_X105_WRITE_WORD, RI_MODE_DEFINED_FIELDS_MASK,
     RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
@@ -155,7 +157,14 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: rdram-delay-transfer-consumed ok\
 \ncase: rdram-delay-post-transfer-mi-unavailable ok\
 \ncase: generated-x105-rdram-delay-committed ok\
-\ncase: generated-x105-ref-row-frontier ok\
+\ncase: rdram-ref-row-store-committed ok\
+\ncase: rdram-ref-row-raw-zero ok\
+\ncase: rdram-ref-row-source-provenance ok\
+\ncase: rdram-ref-row-delay-preserved ok\
+\ncase: rdram-ref-row-transfer-absent ok\
+\ncase: generated-x105-rdram-ref-row-committed ok\
+\ncase: generated-x105-device-id-value ok\
+\ncase: generated-x105-device-id-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -3231,6 +3240,8 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x120, immediate_word(0x0d, 9, 9, 0x2838)),
         (0x124, immediate_word(0x2b, 10, 9, 0x0008)),
         (0x128, immediate_word(0x2b, 10, 0, 0x0014)),
+        (0x12c, immediate_word(0x0f, 0, 9, 0x8000)),
+        (0x130, immediate_word(0x2b, 10, 9, 0x0004)),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -4127,12 +4138,114 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         machine
             .inspect_current_cpu_instruction()
             .is_ok_and(|instruction| {
-                instruction.identity() == CpuInstructionIdentity::Sw
+                instruction.fields().raw().bits() == 0xad40_0014
+                    && instruction.identity() == CpuInstructionIdentity::Sw
                     && instruction.fields().rs() == 10
                     && instruction.fields().rt() == 0
                     && instruction.fields().immediate_u16() == 0x14
             }),
         "exact global RDRAM_REF_ROW frontier identity",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted {
+                effective_address: 0xffff_ffff_a3f8_0014,
+                target: MachineStoreWordTarget::RdramBroadcastRefreshRow,
+                source_gpr: 0,
+                stored_word: RDRAM_REF_ROW_X105_WRITE_WORD,
+                state,
+                cadence_plan,
+            } if state.raw_word() == 0
+                && state.aperture() == MachineRdramBroadcastRefreshRowAperture::GlobalBroadcast
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0128)
+                && state.source().source_gpr() == 0
+                && state.source().source_lineage()
+                    == MachineBootstrapGprSource::ArchitecturalZero
+                && state.source().effective_address() == 0xffff_ffff_a3f8_0014
+                && state.source().cpu_address() == CpuAddress::new(0xa3f8_0014)
+                && state.source().physical_address()
+                    == RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS
+                && cadence_plan.advances_count()
+        ),
+        "RDRAM_REF_ROW generated raw-zero commit and provenance",
+    )?;
+    total_committed_steps += 1;
+    let refresh_row_state = machine
+        .rdram_broadcast_refresh_row_state()
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated RDRAM refresh-row state available",
+        })?;
+    require(
+        CASE,
+        total_committed_steps == 32_160
+            && machine.cpu().pc() == 0xa400_012c
+            && machine.cpu().next_pc() == 0xa400_0130
+            && machine.cpu().cop0_count() == 32_144
+            && machine.mi_init_mode_state().is_none()
+            && machine.mi_init_transfer_state().is_none()
+            && machine.rdram_broadcast_delay_state() == Some(delay_state)
+            && machine.ri_select_state() == Some(select)
+            && machine.ri_config_state() == Some(config)
+            && machine.ri_current_load_state() == Some(current_load)
+            && machine.ri_mode_state() == Some(second_mode),
+        "RDRAM_REF_ROW cadence and sibling preservation",
+    )?;
+
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.fields().raw().bits() == 0x3c09_8000
+                    && instruction.identity() == CpuInstructionIdentity::Lui
+                    && instruction.fields().rt() == 9
+                    && instruction.fields().immediate_u16() == 0x8000
+            }),
+        "exact DEVICE_ID value-construction LUI",
+    )?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    total_committed_steps += 1;
+    let device_id_lineage = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(9))
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated DEVICE_ID source lineage available",
+        })?;
+    require(
+        CASE,
+        total_committed_steps == 32_161
+            && machine.cpu().gpr(9) == Some(0xffff_ffff_8000_0000)
+            && matches!(
+                device_id_lineage,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address,
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                } if execution_address == CpuAddress::new(0xa400_012c)
+            )
+            && machine.cpu().pc() == 0xa400_0130
+            && machine.cpu().next_pc() == 0xa400_0134
+            && machine.cpu().cop0_count() == 32_145,
+        "DEVICE_ID word construction and cadence",
+    )?;
+
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.fields().raw().bits() == 0xad49_0004
+                    && instruction.identity() == CpuInstructionIdentity::Sw
+                    && instruction.fields().rs() == 10
+                    && instruction.fields().rt() == 9
+                    && instruction.fields().immediate_u16() == 4
+            }),
+        "exact global RDRAM_DEVICE_ID frontier identity",
     )?;
     let before_cpu = (
         machine.cpu().pc(),
@@ -4146,6 +4259,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         machine.mi_init_mode_state(),
         machine.mi_init_transfer_state(),
         machine.rdram_broadcast_delay_state(),
+        machine.rdram_broadcast_refresh_row_state(),
         machine.ri_select_state(),
         machine.ri_config_state(),
         machine.ri_current_load_state(),
@@ -4154,14 +4268,14 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
     match machine.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             CASE,
-            rejection.effective_address() == Some(0xffff_ffff_a3f8_0014)
-                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f8_0014))
+            rejection.effective_address() == Some(0xffff_ffff_a3f8_0004)
+                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f8_0004))
                 && rejection.target().is_none()
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RDRAM_REF_ROW remains an exact unsupported target",
+            "RDRAM_DEVICE_ID remains an exact unsupported target",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "RDRAM_REF_ROW write remains unsupported"),
+        Ok(_) => return assertion(CASE, "RDRAM_DEVICE_ID write remains unsupported"),
     }
     require(
         CASE,
@@ -4179,13 +4293,15 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
                     machine.mi_init_mode_state(),
                     machine.mi_init_transfer_state(),
                     machine.rdram_broadcast_delay_state(),
+                    machine.rdram_broadcast_refresh_row_state(),
                     machine.ri_select_state(),
                     machine.ri_config_state(),
                     machine.ri_current_load_state(),
                     machine.ri_mode_state(),
                 )
-            && machine.rdram_broadcast_delay_state() == Some(delay_state),
-        "RDRAM_REF_ROW rejection preserves the complete represented frontier",
+            && machine.rdram_broadcast_delay_state() == Some(delay_state)
+            && machine.rdram_broadcast_refresh_row_state() == Some(refresh_row_state),
+        "RDRAM_DEVICE_ID rejection preserves the complete represented frontier",
     )
 }
 
