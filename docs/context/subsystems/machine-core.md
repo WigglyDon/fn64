@@ -114,11 +114,13 @@ fact. The pending transfer is consumed only by the exact x105 RDRAM_DELAY pair;
 post-consumption current MI state becomes unavailable because exact readback is
 not source-clear. This is not a general next-write engine and represents no timing.
 
-The existing `Rdram` remains the sole byte owner and separately stores one
-optional global/broadcast delay configuration fact. The exact store changes no
-RDRAM byte, creates no module inventory or per-module state, and has no CPU read
-route. Reset and complete bootstrap clear both the pending transfer and delay
-fact; failed bootstrap preserves them.
+The existing `Rdram` remains the sole byte owner and separately stores optional
+global/broadcast delay and raw REF_ROW facts. The exact REF_ROW route accepts
+only low word zero at physical `0x03F80014`, records CPU-store provenance, and
+preserves the delay fact. Neither store changes an RDRAM byte, creates module
+inventory or per-module state, or has a CPU read route. Reset and complete
+bootstrap clear the pending transfer and both RDRAM facts; failed bootstrap
+preserves them.
 
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
@@ -129,7 +131,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 137-case step probe, the bounded BOOT-2
+construction/reset probe, the 144-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -138,15 +140,16 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,159-step generated composition through the stored RI_SELECT
+handoff and a 32,161-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
 and a 32-iteration CPU wait whose BNE delay slot constructs `0x10F`. The exact
 MI_INIT_MODE store then creates length 15 / initialization mode true; a
 following `Lui`/`Ori` pair constructs `0x18082838`; global RDRAM_DELAY then
-commits the 5/7/3/1 fact and consumes the transfer. Proof stops at the global
-RDRAM_REF_ROW store target miss. It does not prove an
+commits the 5/7/3/1 fact and consumes the transfer. Global RDRAM_REF_ROW stores
+raw zero, the following `Lui` constructs `0xFFFFFFFF80000000`, and proof stops
+at the global RDRAM_DEVICE_ID store target miss. It does not prove an
 authentic firmware-executed handoff, RI
 calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
 game compatibility, renderer, audio, performance, or host integration.

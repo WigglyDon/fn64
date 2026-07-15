@@ -149,17 +149,19 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   consumer. Other represented successful stores cannot bypass it. Repeated
   bootstrap clears stale MI state/transfer; failed bootstrap preserves both.
 - `LIVE_REPO_FACT`: the existing per-Machine `Rdram` owner remains the sole
-  RDRAM-byte owner and additionally stores one optional global/broadcast delay
-  configuration fact. Exact aligned `Sw` at physical `0x03F80008` requires the
+  RDRAM-byte owner and additionally stores optional global/broadcast delay and
+  raw REF_ROW facts. Exact aligned `Sw` at physical `0x03F80008` requires the
   pending 15/16 MI transfer and low word `0x18082838`, then stores logical
   fields 5/7/3/1 and packed logical configuration `0x28381808` with CPU and
   consumed-MI provenance. It consumes the transfer and makes current
   MI_INIT_MODE readback unavailable because exact post-transfer fields are not
-  source-clear. It changes no RDRAM byte. No MI/RDRAM register read, module
-  state, general replication, timing, readiness, register bank, MMIO, or bus
-  exists.
+  source-clear. Exact aligned `Sw` at physical `0x03F80014` accepts only low
+  word zero with known CPU-store lineage and records the global aperture without
+  interpreting fields. Neither write changes an RDRAM byte. No MI/RDRAM
+  register read, module state, refresh engine, general replication, timing,
+  readiness, register bank, MMIO, or bus exists.
 - `LIVE_REPO_FACT`: generated-only public-step composition now commits
-  32,159 bounded x105-shaped instructions. The accepted 32,038-step prefix
+  32,161 bounded x105-shaped instructions. The accepted 32,038-step prefix
   ends after the 8,000-iteration CPU wait loop. Commit 32,036 stores r0 to
   RI_CURRENT_LOAD, snapshotting RI_CONFIG input zero and enable true; commit
   32,037 executes `Ori r9,r0,0x14`. Final PC/next-PC are
@@ -176,11 +178,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   true with CPU-store provenance. `Lui` and `Ori` then construct
   r9=`0x18082838`. Commit 32,159 stores it through global RDRAM_DELAY at CPU
   `0xA3F80008` / physical `0x03F80008`, creates the 5/7/3/1 broadcast fact,
-  consumes the MI transfer, and leaves current MI readback unavailable. Final
-  PC/next-PC are `0xA4000128 / 0xA400012C` and Count is `32143`. The next
-  aligned `Sw r0,20(r10)` targets global RDRAM_REF_ROW at CPU `0xA3F80014`,
-  physical `0x03F80014`, and rejects as a direct target miss without mutation. Every
-  instruction and byte is independently generated. This CPU-composition proof
+  consumes the MI transfer, and leaves current MI readback unavailable. Commit
+  32,160 stores raw zero through global RDRAM_REF_ROW at CPU `0xA3F80014` /
+  physical `0x03F80014`, preserving the delay fact. Commit 32,161 executes
+  `Lui r9,0x8000`, producing `0xFFFFFFFF80000000` with instruction lineage.
+  Final PC/next-PC are `0xA4000130 / 0xA4000134` and Count is `32145`. The next
+  aligned `Sw r9,4(r10)` targets global RDRAM_DEVICE_ID at CPU `0xA3F80004`,
+  physical `0x03F80004`, low word `0x80000000`, and rejects as a direct target
+  miss without mutation. Every instruction and byte is independently generated.
+  This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
@@ -280,6 +286,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   RDRAM_DELAY consumes it into a Machine-owned configuration fact, and
   generated proof reaches the global RDRAM_REF_ROW `Sw` target miss without
   creating a Worker lane or queue entry.
+- `master-direct-rdram-ref-row-x105-device-id-frontier-v1`: direct Master
+  product operation; exact global RDRAM_REF_ROW records raw zero and CPU-store
+  provenance, the following LUI constructs `0x80000000`, and generated proof
+  reaches the global RDRAM_DEVICE_ID `Sw` target miss without creating a Worker
+  lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -316,16 +327,18 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: the next generated pressure is aligned `Sw r0,20(r10)` to
-  the global RDRAM_REF_ROW aperture at represented CPU address `0xA3F80014`
-  (physical `0x03F80014`), with transfer word zero; it rejects as a direct
-  target miss. General MI next-write replication, other RDRAM-register state,
+- `LIVE_REPO_FACT`: the next generated pressure is aligned `Sw r9,4(r10)` to
+  the global RDRAM_DEVICE_ID aperture at represented CPU address `0xA3F80004`
+  (physical `0x03F80004`), with transfer word `0x80000000`; it rejects as a
+  direct target miss. Device relocation, REF_ROW interpreted fields, refresh
+  behavior, general MI next-write replication, other RDRAM-register state,
   per-module state, timing, and readiness are absent. RI_CONFIG,
   RI_CURRENT_LOAD, and RI_MODE have no read routes or hardware-process model;
   general RI_SELECT programming and every other RI action remain absent. NMI,
   all other REGIMM
   identities, every other COP0 instruction or MTC0 destination,
-  RDRAM/SP-DMEM/device stores beyond the exact RI, MI, and broadcast-delay writes, and broader store
+  RDRAM/SP-DMEM/device stores beyond the exact RI, MI, broadcast-delay, and
+  raw REF_ROW writes, and broader store
   identities remain absent; no generic CP0, branch/store, bus, MMIO, or
   generalized memory-map route is implied.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,

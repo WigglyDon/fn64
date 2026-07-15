@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 137 represented cases, including ordinary
+public `Machine::step` for 144 represented cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -31,9 +31,11 @@ exact RI_SELECT write/provenance/read-after-write/value/alias/AdES/slot/
 lifecycle cases, RI_MODE fields/provenance/aliases/reserved-bit/AdES/slot/
 lifecycle cases, exact MI_INIT_MODE value/state/provenance/aliases/rejections/
 AdES/slot/lifecycle/no-read cases, bounded MI-transfer and RDRAM-delay
-fields/provenance/consumption/post-readback cases, plus 32,159 generated commits
+fields/provenance/consumption/post-readback cases, raw global REF_ROW ownership/
+provenance/alias/AdES/lifecycle cases, plus 32,161 generated commits
 through both bounded CPU waits and RI events, the exact MI write, delay-word
-construction, global RDRAM_DELAY commit, and RDRAM_REF_ROW target miss. The
+construction, global RDRAM_DELAY and raw-zero RDRAM_REF_ROW commits,
+DEVICE_ID-value construction, and RDRAM_DEVICE_ID target miss. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -89,8 +91,10 @@ BNE delay slot. The MI_INIT_MODE `Sw` at `0xA4000118` commits length 15 and
 initialization mode true with CPU-store provenance. Generated `Lui` and `Ori`
 at `0xA400011C` and `0xA4000120` construct `0x18082838`; the RDRAM_DELAY `Sw`
 at `0xA4000124` consumes the pending transfer and commits the logical 5/7/3/1
-broadcast fact. The RDRAM_REF_ROW `Sw` at `0xA4000128` rejects as a direct
-target miss while preserving it. This is
+broadcast fact. The RDRAM_REF_ROW `Sw` at `0xA4000128` stores raw zero with
+architectural-zero provenance while preserving the delay fact. `Lui` at
+`0xA400012C` produces `0xFFFFFFFF80000000`; the RDRAM_DEVICE_ID `Sw` at
+`0xA4000130` rejects as a direct target miss while preserving all state. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, general MI next-write replication, calibration, RDRAM initialization, or NMI
 execution.

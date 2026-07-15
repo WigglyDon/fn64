@@ -498,6 +498,29 @@ product or reference lane requires a new explicit product decision.
   state, timing/readiness, authentic advancement, BOOT-3, and compatibility
   remain absent.
 
+## Era 27 — raw global RDRAM REF_ROW fact and DEVICE_ID frontier (2026-07-15)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned global RDRAM definitions and
+  bounded x105 zero-write order/comment; `LIVE_REPO_FACT`, one raw REF_ROW fact
+  in the existing sole `Rdram` owner; `RUNTIME_FACT`, deterministic public-step
+  proof.
+- Product decisions: `RDRAM_REF_ROW_EXACT_X105_ZERO_WRITE_ONLY`,
+  `RDRAM_REF_ROW_GLOBAL_APERTURE_WRITE_FACT_ONLY`,
+  `RDRAM_REFRESH_ENGINE_EFFECT_UNAVAILABLE`, and
+  `RDRAM_DEVICE_ID_GLOBAL_WRITE_NEXT_FRONTIER_ONLY`.
+- Accepted increment: exact direct physical `0x03F80014` accepts only low word
+  zero with known CPU-store lineage and stores raw word/global-aperture/address
+  provenance. It does not require RDRAM_DELAY as hidden authorization, preserves
+  the accepted delay fact, and changes no RDRAM byte.
+- Generated composition: commit 32,160 performs the REF_ROW store at
+  `0xA4000128`; commit 32,161 executes `Lui r9,0x8000` and produces
+  `0xFFFFFFFF80000000`. PC/next-PC are `0xA4000130`/`0xA4000134`, Count is
+  32,145, and the global RDRAM_DEVICE_ID store at CPU `0xA3F80004` rejects
+  atomically.
+- Boundary: REF_ROW fields, refresh-engine behavior, physical broadcast
+  completion, DEVICE_ID behavior, per-module state, timing/readiness, authentic
+  advancement, BOOT-3, and compatibility remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

@@ -121,13 +121,14 @@ installs wait count 8,000, executes 8,000 four-instruction loop iterations,
 commits RI_CURRENT_LOAD, `Ori r9,r0,0x14`, exact RI_SELECT `Sw`, both RI_MODE
 stores, the four-iteration wait, and the 32-iteration wait with ORI in every
 BNE delay slot. It then commits exact MI_INIT_MODE, constructs `0x18082838`
-through the existing `Lui`/`Ori` identities, commits global RDRAM_DELAY, and
-rejects the following global RDRAM_REF_ROW `Sw` as a direct target miss. This is CPU
+through the existing `Lui`/`Ori` identities, commits global RDRAM_DELAY and raw
+zero global RDRAM_REF_ROW, executes the DEVICE_ID-value `Lui`, and rejects the
+following global RDRAM_DEVICE_ID `Sw` as a direct target miss. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 branch-likely/other REGIMM and broader COP0 execution, every RI action except
 the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
 RI_MODE defined-field writes, the exact MI_INIT_MODE write, and the exact
-global RDRAM_DELAY write, NMI,
+global RDRAM_DELAY write, and exact raw-zero global RDRAM_REF_ROW write, NMI,
 generic MMIO, nested control flow, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.
