@@ -60,15 +60,20 @@ pub use machine::{
     MACHINE_PIF_IPL2_HANDOFF_X105_SEED,
 };
 pub use mi::{
-    MachineMiInitModeSource, MachineMiInitModeState, MI_INIT_MODE_PHYSICAL_ADDRESS,
-    MI_INIT_MODE_X105_INIT_LENGTH, MI_INIT_MODE_X105_WRITE_WORD,
+    MachineMiInitModeSource, MachineMiInitModeState, MachineMiInitTransferState,
+    MI_INIT_MODE_PHYSICAL_ADDRESS, MI_INIT_MODE_X105_INIT_LENGTH,
+    MI_INIT_MODE_X105_REPEATED_BYTE_COUNT, MI_INIT_MODE_X105_WRITE_WORD,
 };
 pub use pif_firmware::{
     MachinePifFirmwareState, PifFirmwareClassification, PifFirmwareValidationError,
     PifIpl2CopyLayout, PifIpl2Profile, PIF_BOOT_ROM_SIZE_BYTES,
     PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
 };
-pub use rdram::{Rdram, RdramAccessError, RDRAM_SIZE_BYTES};
+pub use rdram::{
+    MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState, Rdram, RdramAccessError,
+    RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
+    RDRAM_DELAY_X105_LOGICAL_CONFIGURATION, RDRAM_SIZE_BYTES,
+};
 pub use ri::{
     MachineRiConfigSource, MachineRiConfigState, MachineRiCurrentLoadSource,
     MachineRiCurrentLoadState, MachineRiModeSource, MachineRiModeState, MachineRiSelectSource,

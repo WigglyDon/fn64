@@ -941,6 +941,8 @@ mod tests {
         ri_current_load: Option<crate::ri::MachineRiCurrentLoadState>,
         ri_mode: Option<crate::ri::MachineRiModeState>,
         mi_init_mode: Option<crate::mi::MachineMiInitModeState>,
+        mi_init_transfer: Option<crate::mi::MachineMiInitTransferState>,
+        rdram_broadcast_delay: Option<crate::rdram::MachineRdramBroadcastDelayState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
 
@@ -994,6 +996,8 @@ mod tests {
             ri_current_load: machine.ri_current_load_state(),
             ri_mode: machine.ri_mode_state(),
             mi_init_mode: machine.mi_init_mode_state(),
+            mi_init_transfer: machine.mi_init_transfer_state(),
+            rdram_broadcast_delay: machine.rdram_broadcast_delay_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }
     }

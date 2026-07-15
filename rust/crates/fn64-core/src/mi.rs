@@ -4,6 +4,7 @@ use crate::machine::MachineBootstrapGprSource;
 pub const MI_INIT_MODE_PHYSICAL_ADDRESS: u32 = 0x0430_0000;
 pub const MI_INIT_MODE_X105_WRITE_WORD: u32 = 0x0000_010f;
 pub const MI_INIT_MODE_X105_INIT_LENGTH: u8 = 15;
+pub const MI_INIT_MODE_X105_REPEATED_BYTE_COUNT: u8 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineMiInitModeSource {
@@ -73,9 +74,45 @@ impl MachineMiInitModeState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineMiInitTransferState {
+    source_init_length: u8,
+    repeated_byte_count: u8,
+    command_word: u32,
+    source: MachineMiInitModeSource,
+}
+
+impl MachineMiInitTransferState {
+    const fn from_exact_x105_init_mode(state: MachineMiInitModeState) -> Self {
+        Self {
+            source_init_length: state.init_length(),
+            repeated_byte_count: MI_INIT_MODE_X105_REPEATED_BYTE_COUNT,
+            command_word: MI_INIT_MODE_X105_WRITE_WORD,
+            source: state.source(),
+        }
+    }
+
+    pub const fn source_init_length(self) -> u8 {
+        self.source_init_length
+    }
+
+    pub const fn repeated_byte_count(self) -> u8 {
+        self.repeated_byte_count
+    }
+
+    pub const fn command_word(self) -> u32 {
+        self.command_word
+    }
+
+    pub const fn source(self) -> MachineMiInitModeSource {
+        self.source
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Mi {
     init_mode: Option<MachineMiInitModeState>,
+    init_transfer: Option<MachineMiInitTransferState>,
 }
 
 impl Mi {
@@ -83,8 +120,18 @@ impl Mi {
         self.init_mode
     }
 
+    pub(crate) const fn init_transfer_state(self) -> Option<MachineMiInitTransferState> {
+        self.init_transfer
+    }
+
     pub(crate) fn apply_init_mode_store(&mut self, state: MachineMiInitModeState) {
         self.init_mode = Some(state);
+        self.init_transfer = Some(MachineMiInitTransferState::from_exact_x105_init_mode(state));
+    }
+
+    pub(crate) fn consume_init_transfer(&mut self) {
+        self.init_mode = None;
+        self.init_transfer = None;
     }
 }
 
@@ -125,5 +172,14 @@ mod tests {
         let mut mi = Mi::default();
         mi.apply_init_mode_store(state);
         assert_eq!(mi.init_mode_state(), Some(state));
+        let transfer = mi.init_transfer_state().unwrap();
+        assert_eq!(transfer.source_init_length(), 15);
+        assert_eq!(transfer.repeated_byte_count(), 16);
+        assert_eq!(transfer.command_word(), MI_INIT_MODE_X105_WRITE_WORD);
+        assert_eq!(transfer.source(), state.source());
+
+        mi.consume_init_transfer();
+        assert_eq!(mi.init_mode_state(), None);
+        assert_eq!(mi.init_transfer_state(), None);
     }
 }

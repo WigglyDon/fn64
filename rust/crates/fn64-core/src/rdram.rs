@@ -1,6 +1,155 @@
 use core::fmt;
 
+use crate::cpu::address::CpuAddress;
+use crate::machine::MachineBootstrapGprSource;
+use crate::mi::MachineMiInitTransferState;
+
 pub const RDRAM_SIZE_BYTES: usize = 4 * 1024 * 1024;
+pub const RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS: u32 = 0x03f8_0008;
+pub const RDRAM_DELAY_X105_CPU_TRANSFER_WORD: u32 = 0x1808_2838;
+pub const RDRAM_DELAY_X105_LOGICAL_CONFIGURATION: u32 = 0x2838_1808;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramBroadcastDelaySource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+        cpu_transfer_word: u32,
+        consumed_mi_transfer: MachineMiInitTransferState,
+    },
+}
+
+impl MachineRdramBroadcastDelaySource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        match self {
+            Self::CpuStoreWord {
+                effective_address, ..
+            } => effective_address,
+        }
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { cpu_address, .. } => cpu_address,
+        }
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        match self {
+            Self::CpuStoreWord {
+                physical_address, ..
+            } => physical_address,
+        }
+    }
+
+    pub const fn cpu_transfer_word(self) -> u32 {
+        match self {
+            Self::CpuStoreWord {
+                cpu_transfer_word, ..
+            } => cpu_transfer_word,
+        }
+    }
+
+    pub const fn consumed_mi_transfer(self) -> MachineMiInitTransferState {
+        match self {
+            Self::CpuStoreWord {
+                consumed_mi_transfer,
+                ..
+            } => consumed_mi_transfer,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRdramBroadcastDelayState {
+    ack_window_delay: u8,
+    read_delay: u8,
+    ack_delay: u8,
+    write_delay: u8,
+    logical_configuration: u32,
+    source: MachineRdramBroadcastDelaySource,
+}
+
+impl MachineRdramBroadcastDelayState {
+    pub(crate) const fn from_exact_x105_cpu_store(
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+        cpu_transfer_word: u32,
+        consumed_mi_transfer: MachineMiInitTransferState,
+    ) -> Self {
+        debug_assert!(physical_address == RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS);
+        debug_assert!(cpu_transfer_word == RDRAM_DELAY_X105_CPU_TRANSFER_WORD);
+        debug_assert!(consumed_mi_transfer.source_init_length() == 15);
+        debug_assert!(consumed_mi_transfer.repeated_byte_count() == 16);
+        Self {
+            ack_window_delay: 5,
+            read_delay: 7,
+            ack_delay: 3,
+            write_delay: 1,
+            logical_configuration: RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
+            source: MachineRdramBroadcastDelaySource::CpuStoreWord {
+                instruction_pc,
+                source_gpr,
+                source_lineage,
+                effective_address,
+                cpu_address,
+                physical_address,
+                cpu_transfer_word,
+                consumed_mi_transfer,
+            },
+        }
+    }
+
+    pub const fn ack_window_delay(self) -> u8 {
+        self.ack_window_delay
+    }
+
+    pub const fn read_delay(self) -> u8 {
+        self.read_delay
+    }
+
+    pub const fn ack_delay(self) -> u8 {
+        self.ack_delay
+    }
+
+    pub const fn write_delay(self) -> u8 {
+        self.write_delay
+    }
+
+    pub const fn logical_configuration(self) -> u32 {
+        self.logical_configuration
+    }
+
+    pub const fn source(self) -> MachineRdramBroadcastDelaySource {
+        self.source
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RdramAccessError {
@@ -32,11 +181,20 @@ impl std::error::Error for RdramAccessError {}
 
 pub struct Rdram {
     bytes: Vec<u8>,
+    broadcast_delay: Option<MachineRdramBroadcastDelayState>,
 }
 
 impl Rdram {
     pub fn size_bytes(&self) -> usize {
         self.bytes.len()
+    }
+
+    pub(crate) const fn broadcast_delay_state(&self) -> Option<MachineRdramBroadcastDelayState> {
+        self.broadcast_delay
+    }
+
+    pub(crate) fn apply_broadcast_delay_store(&mut self, state: MachineRdramBroadcastDelayState) {
+        self.broadcast_delay = Some(state);
     }
 
     pub fn read_u8(&self, offset: usize) -> Result<u8, RdramAccessError> {
@@ -137,6 +295,7 @@ impl Default for Rdram {
     fn default() -> Self {
         Self {
             bytes: vec![0; RDRAM_SIZE_BYTES],
+            broadcast_delay: None,
         }
     }
 }
@@ -151,6 +310,7 @@ mod tests {
 
         assert_eq!(rdram.size_bytes(), RDRAM_SIZE_BYTES);
         assert_eq!(rdram.size_bytes(), 4 * 1024 * 1024);
+        assert_eq!(rdram.broadcast_delay_state(), None);
     }
 
     #[test]
