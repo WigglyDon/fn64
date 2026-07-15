@@ -7,4 +7,3 @@ exact MI_INIT_MODE readback fields after consumption. Success therefore clears
 the represented current MI_INIT_MODE state instead of retaining stale
 length-15/mode-true truth or inventing length zero/mode false. The consumed MI
 lineage remains embedded in the RDRAM-delay provenance.
-

@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 129 represented cases, including ordinary
+public `Machine::step` for 137 represented cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -30,9 +30,10 @@ RI_CURRENT_LOAD dependency/provenance/alias/AdES/slot/lifecycle cases, and
 exact RI_SELECT write/provenance/read-after-write/value/alias/AdES/slot/
 lifecycle cases, RI_MODE fields/provenance/aliases/reserved-bit/AdES/slot/
 lifecycle cases, exact MI_INIT_MODE value/state/provenance/aliases/rejections/
-AdES/slot/lifecycle/no-read cases, plus 32,158 generated commits through both
-bounded CPU waits and RI events, the exact MI write, delay-word construction,
-and the global RDRAM_DELAY direct-target miss. The
+AdES/slot/lifecycle/no-read cases, bounded MI-transfer and RDRAM-delay
+fields/provenance/consumption/post-readback cases, plus 32,159 generated commits
+through both bounded CPU waits and RI events, the exact MI write, delay-word
+construction, global RDRAM_DELAY commit, and RDRAM_REF_ROW target miss. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -87,10 +88,11 @@ and the next wait executes 32 Addi/Bne/Ori iterations with the ORI in every
 BNE delay slot. The MI_INIT_MODE `Sw` at `0xA4000118` commits length 15 and
 initialization mode true with CPU-store provenance. Generated `Lui` and `Ori`
 at `0xA400011C` and `0xA4000120` construct `0x18082838`; the RDRAM_DELAY `Sw`
-at `0xA4000124` rejects as a direct target miss without changing the retained
-MI or RI facts. This is
+at `0xA4000124` consumes the pending transfer and commits the logical 5/7/3/1
+broadcast fact. The RDRAM_REF_ROW `Sw` at `0xA4000128` rejects as a direct
+target miss while preserving it. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
-time, MI next-write replication, calibration, RDRAM initialization, or NMI
+time, general MI next-write replication, calibration, RDRAM initialization, or NMI
 execution.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input

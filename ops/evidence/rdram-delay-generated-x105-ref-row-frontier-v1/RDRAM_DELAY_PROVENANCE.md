@@ -10,4 +10,3 @@ The represented source records:
 - consumed MI transfer lineage from the MI store at `0xA4000118`.
 
 No host, title, cartridge identity, or private-input identity is recorded.
-

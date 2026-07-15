@@ -36,11 +36,11 @@ history.
 | `PifFirmware` | private immutable owned bytes for one structurally accepted raw-Boot-ROM-shaped input and the source bytes for explicit profiled copy materialization | no path, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
 | `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
-| `Rdram` | 4 MiB zero-filled storage and checked raw fixed-width reads | no general bus, device routing, or CPU instruction semantics |
+| `Rdram` | 4 MiB zero-filled storage, checked raw fixed-width reads, and one optional global/broadcast delay configuration fact with CPU/consumed-MI provenance | no byte mutation from the delay command, CPU register read, module inventory/per-module state, general bus, timing, or readiness |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, checked known big-endian word reads, and an atomic profiled-copy constructor | no public mutable access, profile policy, SP register/status/DMA, or RSP execution |
 | `Ri` | optional RI_MODE defined fields/provenance, optional RI_SELECT cold-entry or exact-`0x14` CPU-store value/provenance, optional RI_CONFIG input/enable fields, and optional RI_CURRENT_LOAD event snapshot with CPU-store provenance | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, RI physical effects/timing, current-control output, NMI lifecycle, register bank, MMIO framework, or bus |
-| `Mi` | optional exact-x105 initialization state containing length 15, initialization mode true, and CPU-store provenance | no MI read, other MI fields/registers, command bank, next-write replication, RDRAM-register behavior, timing, MMIO framework, or bus |
+| `Mi` | optional exact-x105 initialization state plus one bounded pending 15/16 transfer with CPU-store provenance | no MI read, other MI fields/registers, command bank, general next-write replication, timing, MMIO framework, or bus |
 | `Machine` | Cartridge, optional accepted PifFirmware and PifIpl2Profile, explicit handoff selectors, Cpu, Rdram, SpDmem, SpImem, Ri, Mi, bootstrap provenance/GPR-knownness/COP0/control-flow state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
 | `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs; exact CLI spellings for explicit firmware, profile, family, reset, medium, and PIF-version inputs | no machine truth, selector meaning, general runtime loop, graphics, or compatibility authority |
 
@@ -211,16 +211,18 @@ general MMIO policy, a bus, or a generalized memory map.
 
 The aligned `Sw` data route accepts direct KSEG0/KSEG1 aliases of SP IMEM,
 RI_MODE at physical `0x04700000`, RI_CONFIG at `0x04700004`, RI_CURRENT_LOAD at
-`0x04700008`, RI_SELECT at `0x0470000C`, and exact MI_INIT_MODE at
-`0x04300000`. RI_MODE stores operating-mode bits
+`0x04700008`, RI_SELECT at `0x0470000C`, exact MI_INIT_MODE at `0x04300000`,
+and exact global RDRAM_DELAY at `0x03F80008`. RI_MODE stores operating-mode bits
 1:0 and stop-active bits 2/3; RI_CONFIG stores only defined input bits 5:0, enable
 bit 6, and CPU-store lineage; RI_CURRENT_LOAD snapshots stored configuration;
 RI_SELECT accepts only exact x105 word `0x14` and replaces its source with
 CPU-store lineage. RI_MODE bits above bit 3 and other destination-specific
 unsupported inputs reject before mutation. MI_INIT_MODE accepts only low word
-`0x0000010F` and stores initialization length 15 plus initialization mode true
-with CPU-store lineage. Other MI words reject before
-mutation. RDRAM, SP DMEM, every other device/MMIO address, non-direct, and
+`0x0000010F`, stores initialization length 15 plus initialization mode true,
+and arms one 16-byte transfer with CPU-store lineage. Global RDRAM_DELAY accepts
+only `0x18082838` with that transfer and stores logical fields 5/7/3/1 plus
+packed configuration `0x28381808` without changing RDRAM bytes. Other MI/RDRAM
+words reject before mutation. SP DMEM, every other device/MMIO address, non-direct, and
 target-miss addresses reject without routing. It adds no generic store
 abstraction or broader address map.
 
@@ -336,7 +338,7 @@ including delay-slot EPC/BD and zero faulting-instruction Count.
 Planning captures the old base, applies the sign-extended immediate with the
 same wrapping represented-address rule as `Lw`, checks word alignment before
 source-value consumption, and accepts only direct KSEG0/KSEG1 aliases of SP
-IMEM or exactly RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE. All supported paths capture old `rt`
+IMEM or exactly RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY. All supported paths capture old `rt`
 and its low 32
 bits. SP IMEM stores four big-endian bytes and replaces only those bytes'
 provenance with the instruction PC, source GPR, and source lineage. RI_CONFIG
@@ -349,8 +351,11 @@ the prior value/source with exact CPU-store provenance, and does not consult
 RI_CONFIG or RI_CURRENT_LOAD as authorization. RI_MODE stores its three
 defined field facts, uses no prior RI state as authorization, and creates no
 physical RI effect or timer. MI_INIT_MODE accepts only `0x0000010F`, stores
-length 15 and initialization mode true with exact CPU-store provenance, and
-does not authorize the following RDRAM write. All paths then commit
+length 15 and initialization mode true, and arms one bounded pending transfer
+with exact CPU-store provenance. Other represented commits cannot bypass it.
+Global RDRAM_DELAY requires that transfer and low word `0x18082838`, stores the
+logical broadcast fact with consumed lineage, consumes the transfer, and makes
+current MI readback unavailable. All paths then commit
 `pc` / `next_pc` and Count
 once. `rs == rt` uses the old shared value and r0 transfers a known zero word.
 
@@ -359,8 +364,8 @@ BadVAddr and sequential or delay-slot EPC/BD lineage. It performs no store or
 normal cadence and advances Count zero times. Unknown base/source, non-direct
 address, target miss, undefined RI_CONFIG bits, unavailable RI_CONFIG for an
 RI_CURRENT_LOAD event, unsupported RI_SELECT words, undefined RI_MODE high
-bits, RDRAM, SP DMEM, blocked exception entry, and bounds failure preserve all
-represented state. Other MI/device stores, other store identities, a generic store path, bus,
+bits, wrong/missing delay transfer, SP DMEM, blocked exception entry, and bounds failure preserve all
+represented state. Other MI/RDRAM/device stores, other store identities, a generic store path, bus,
 and generalized map remain absent.
 
 ### Machine-owned non-likely `BLTZ`
@@ -438,15 +443,22 @@ generic register bank, MMIO framework, bus, or generalized map is represented.
 ### Minimal MI initialization-mode state
 
 One private per-Machine `Mi` owner stores one optional initialization-mode
-state. Construction, general reset, and complete cold-x105 bootstrap leave it
+state and one bounded pending transfer. Construction, general reset, and complete cold-x105 bootstrap leave both
 unavailable. Exact direct aliases of physical `0x04300000` accept only x105
 word `0x0000010F`, store initialization length 15 and initialization mode true,
 and retain instruction PC, source GPR, and old source lineage. The write-command
-bit is not stored as a readback bit. Repeated bootstrap clears stale state;
-failed bootstrap and every rejection preserve it; Machines remain independent.
+bit is not stored as a readback bit. The write arms length 15 / 16 repeated
+bytes for exactly one source-proven RDRAM_DELAY consumer. Repeated bootstrap
+clears stale state/transfer; failed bootstrap and every rejection preserve
+them; Machines remain independent.
 
-No MI read route, EBUS state, RDRAM-register mode, DP-interrupt action, other MI
-register, next-write replication, RDRAM-delay state, timing, generic bank,
+The existing `Rdram` byte owner separately stores one optional global delay
+fact. Physical `0x03F80008` accepts only `0x18082838` with the exact transfer,
+then stores fields 5/7/3/1 and logical packed value `0x28381808` with CPU and
+consumed-MI provenance. It changes no bytes, consumes the transfer, and makes
+current MI state unavailable because post-transfer readback is not source-clear.
+No MI/RDRAM read route, EBUS state, RDRAM-register mode, DP-interrupt action,
+other register, general replication, per-module state, timing, generic bank,
 MMIO, or bus is represented.
 
 ### Other represented outcomes
@@ -490,7 +502,7 @@ event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
 Generated tests separately prove the NTSC cold x105 coupled creation point and
-32,158 public-step commits. The accepted thirty-three-step prefix is followed
+32,159 public-step commits. The accepted thirty-three-step prefix is followed
 by the exact RI_CONFIG `Sw`, a generated wait-counter setup, and exactly 8,000
 loop iterations comprising 32,000 commits. The final synthetic state is
 PC/next-PC `0xA40000DC / 0xA40000E0`, Count `32019`, and s1 zero; RI_CONFIG
@@ -507,9 +519,11 @@ PC/next-PC are `0xA4000118 / 0xA400011C`, Count is `32139`, and s1 is zero.
 Commit 32,156 stores exact word `0x10F` to MI_INIT_MODE at CPU `0xA4300000`
 (physical `0x04300000`), creating length 15 and initialization mode true with
 CPU-store provenance. The following `Lui`/`Ori` constructs r9=`0x18082838`.
-At 32,158 commits PC/next-PC are `0xA4000124 / 0xA4000128` and Count is
-`32142`; `Sw r9,8(r10)` to global RDRAM_DELAY CPU `0xA3F80008` (physical
-`0x03F80008`) rejects as a direct target miss without mutation. These tests
+Commit 32,159 stores it to global RDRAM_DELAY CPU `0xA3F80008` (physical
+`0x03F80008`), creating the 5/7/3/1 logical fact, consuming the MI transfer,
+and making current MI readback unavailable. PC/next-PC are
+`0xA4000128 / 0xA400012C` and Count is `32143`; `Sw r0,20(r10)` to global
+RDRAM_REF_ROW CPU `0xA3F80014` rejects as a direct target miss. These tests
 prove CPU composition only, not an authentic
 IPL2-to-IPL3 run, elapsed RI time, current calibration, RDRAM initialization,
 or NMI execution.
@@ -526,10 +540,10 @@ execute. Current explicit absences include:
 - branch-likely annul, every REGIMM identity except non-linking/non-likely
   BLTZ, COP0 branches, and execution of a branch or jump inside a delay slot;
 - CPU load/store instructions other than aligned `Lw` and aligned `Sw` to SP
-  IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE, plus unaligned merge operations;
+  IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY, plus unaligned merge operations;
   `Lw` has no
   device/MMIO route except the exact stored RI_SELECT word and no unclassified
-  SP-DMEM source route, while `Sw` has no RDRAM, SP-DMEM, other MI register,
+  SP-DMEM source route, while `Sw` has no SP-DMEM, other RDRAM/MI register,
   or other device target;
 - multiply, divide, trap, every COP0 instruction except the bounded MTC0 trio,
   ERET, and LL/SC execution;
@@ -556,7 +570,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 129 cases cover:
+calls only public `Machine::step` for execution. Its 137 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -588,9 +602,11 @@ calls only public `Machine::step` for execution. Its 129 cases cover:
   AdES, slot cadence, reset/bootstrap lifecycle, and independent Machines;
 - exact MI_INIT_MODE value/state/provenance/aliases/rejections, AdES, slot
   cadence, reset/bootstrap lifecycle, no-read boundary, and independent Machines;
-- 32,158-step generated x105 composition through the exact 8,000-iteration CPU
+- bounded pending-transfer ownership plus exact RDRAM-delay fields, CPU/MI
+  provenance, consumption, and post-transfer unavailable readback;
+- 32,159-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
-  write, delay-word construction, and RDRAM_DELAY direct-target miss;
+  write, delay-word construction, RDRAM_DELAY commit, and RDRAM_REF_ROW miss;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

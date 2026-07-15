@@ -6,4 +6,3 @@ bus transactions, module inventory, per-module registers, RDRAM bytes written
 by this command, timing, clocks, electrical completion, readiness, discovery,
 capacity, manufacturer, and successful RAM operation. No wait or CPU cadence is
 promoted into hardware-time evidence.
-

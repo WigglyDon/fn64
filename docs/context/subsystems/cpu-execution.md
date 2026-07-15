@@ -58,7 +58,7 @@ is unknown, so that instance rejects without mutation.
 
 Aligned `Sw` is a separate Machine-owned action. It reads the old base,
 resolves alignment before source consumption, accepts direct SP IMEM or exact
-RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE only, then captures old source low word and exact
+RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY only, then captures old source low word and exact
 lineage. RI_CONFIG planning rejects undefined high bits and selects only its
 input/enable fields. RI_CURRENT_LOAD planning requires stored RI_CONFIG and
 snapshots those fields into one event. Success writes no GPR and advances
@@ -67,8 +67,10 @@ and does not consult the two earlier RI facts as authorization; no RI route
 changes memory. RI_MODE stores its defined low-nibble fields, rejects nonzero
 bits above bit 3, and does not consult prior RI facts as authorization.
 MI_INIT_MODE accepts only `0x0000010F`, stores length 15 plus initialization
-mode true with source provenance, and does not authorize the following RDRAM
-write.
+mode true with source provenance, and arms one exact 16-byte pending transfer.
+That transfer blocks other represented commits and is consumed only by global
+RDRAM_DELAY low word `0x18082838`. Success stores logical fields 5/7/3/1 with
+complete CPU/MI lineage and leaves post-transfer current MI state unavailable.
 Sequential or delay-slot
 AdES delegates to COP0
 with zero faulting-instruction Count; unknown sources and unsupported targets
@@ -119,12 +121,13 @@ installs wait count 8,000, executes 8,000 four-instruction loop iterations,
 commits RI_CURRENT_LOAD, `Ori r9,r0,0x14`, exact RI_SELECT `Sw`, both RI_MODE
 stores, the four-iteration wait, and the 32-iteration wait with ORI in every
 BNE delay slot. It then commits exact MI_INIT_MODE, constructs `0x18082838`
-through the existing `Lui`/`Ori` identities, and rejects the global
-RDRAM_DELAY `Sw` as a direct target miss. This is CPU
+through the existing `Lui`/`Ori` identities, commits global RDRAM_DELAY, and
+rejects the following global RDRAM_REF_ROW `Sw` as a direct target miss. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 branch-likely/other REGIMM and broader COP0 execution, every RI action except
 the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
-RI_MODE defined-field writes, and the exact MI_INIT_MODE write, NMI,
+RI_MODE defined-field writes, the exact MI_INIT_MODE write, and the exact
+global RDRAM_DELAY write, NMI,
 generic MMIO, nested control flow, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

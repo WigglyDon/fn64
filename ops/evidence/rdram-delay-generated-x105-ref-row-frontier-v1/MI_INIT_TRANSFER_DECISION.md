@@ -7,4 +7,3 @@ the bounded source identifies the next written value as a 16-byte transfer.
 fn64 therefore arms exactly one transfer for the exact generated RDRAM_DELAY
 consumer. It is not a generic burst, transaction, queue, bus, or timing model.
 No other represented successful store may bypass the pending effect.
-

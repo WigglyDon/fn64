@@ -6,4 +6,3 @@ r10 is `0xFFFFFFFFA3F80000`; r0 is architectural zero. The effective address is
 and transfer word zero. It rejects as `DirectTargetMiss`, preserving the
 consumed-transfer absence and complete RDRAM-delay fact. REF_ROW is not
 implemented.
-

@@ -477,6 +477,27 @@ product or reference lane requires a new explicit product decision.
   access, RDRAM initialization/readiness, hardware timing, authentic
   advancement, BOOT-3, and game compatibility remain absent.
 
+## Era 26 — bounded MI transfer and global RDRAM delay fact (2026-07-15)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned RDRAM/global definitions and
+  bounded x105 next-write relationship; `LIVE_REPO_FACT`, one pending transfer
+  in the existing `Mi` owner and one delay fact in the existing `Rdram` owner;
+  `RUNTIME_FACT`, deterministic public-step proof.
+- Product decisions: `EXACT_X105_MI_INIT_TO_RDRAM_DELAY_PAIR_ONLY`,
+  `RDRAM_DELAY_BROADCAST_CONFIGURATION_FACT_ONLY`, and
+  `POST_TRANSFER_MI_READBACK_UNAVAILABLE_UNLESS_PRIMARY_SOURCE_PROVES_EXACT_STATE`.
+- Accepted increment: the exact MI command arms length 15 / 16 repeated bytes.
+  Only global physical `0x03F80008`, exact low word `0x18082838`, and known
+  lineage consume it. The resulting broadcast fact stores logical fields
+  5/7/3/1 and packed value `0x28381808` with complete CPU and MI provenance;
+  post-transfer current MI state becomes unavailable.
+- Generated composition: commit 32,159 performs the exact delay store at
+  `0xA4000124`. PC/next-PC become `0xA4000128`/`0xA400012C`, Count is 32,143,
+  and the global RDRAM_REF_ROW store at CPU `0xA3F80014` rejects atomically.
+- Boundary: general MI replication, arbitrary RDRAM registers, per-module
+  state, timing/readiness, authentic advancement, BOOT-3, and compatibility
+  remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

@@ -10,4 +10,3 @@ offset `0x14`, global aperture offset `0x00080000`, and MI set-init `0x0100`.
 The bounded source orders `MI_SET_INIT | 15`, rotated RDRAM_DELAY, then global
 RDRAM_REF_ROW, and describes global writes as broadcast. No private input was
 used.
-

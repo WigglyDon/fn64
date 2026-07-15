@@ -10,4 +10,3 @@ The existing private per-Machine `Mi` owner holds one optional transfer with:
 The exact MI store creates register state and transfer atomically. The exact
 RDRAM_DELAY store consumes the transfer once. Construction, reset, and complete
 bootstrap leave it unavailable; failed bootstrap preserves it.
-

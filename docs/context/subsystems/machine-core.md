@@ -59,7 +59,7 @@ backing rejects. No serialization format is a product contract yet.
 
 Aligned `Sw` uses a separate Machine plan/application path for SP IMEM, the
 four exact RI_MODE, RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets, or exact
-MI_INIT_MODE.
+MI_INIT_MODE and global RDRAM_DELAY.
 The plan resolves old base, alignment, direct target, old source value, exact
 SP-IMEM span or destination-specific RI state, and CPU-store provenance before
 application. Undefined RI_CONFIG high bits, unavailable RI_CONFIG for an
@@ -67,6 +67,12 @@ RI_CURRENT_LOAD event, and RI_SELECT words other than `0x14` reject during
 planning. RI_MODE planning accepts its defined low-nibble fields and rejects
 nonzero bits above bit 3. MI_INIT_MODE planning accepts only `0x0000010F` and
 constructs length 15, initialization mode true, and CPU-store provenance.
+That exact MI plan also arms one private 16-byte pending transfer. While it is
+pending, other represented successful stores reject; target misses stay closed
+and preserve it. Global RDRAM_DELAY planning accepts only physical `0x03F80008`,
+low word `0x18082838`, known lineage, and the exact 15/16 transfer. Its plan
+stores logical fields 5/7/3/1 and packed configuration `0x28381808` with CPU
+and consumed-MI provenance.
 Application has no
 fallible operation: it mutates one selected owner, commits control flow once,
 and advances Count once. Rejection restores the captured snapshot; AdES
@@ -99,12 +105,20 @@ derives RI state from reset kind. RI_CONFIG/RI_CURRENT_LOAD/RI_MODE reads,
 general RI_SELECT programming, current-control
 output/processing/timing, NMI, generic MMIO, and a bus remain absent.
 
-One private `Mi` owner separately stores optional MI initialization state.
+One private `Mi` owner separately stores optional MI initialization state and
+one bounded pending transfer.
 Construction, reset, and complete cold-x105 bootstrap leave it unavailable;
 repeated bootstrap clears stale state and failed bootstrap preserves it. The
 exact physical `0x04300000` store has no CPU read route and creates no other MI
-fact. It does not replicate the next bus write, create RDRAM-register state, or
-represent timing.
+fact. The pending transfer is consumed only by the exact x105 RDRAM_DELAY pair;
+post-consumption current MI state becomes unavailable because exact readback is
+not source-clear. This is not a general next-write engine and represents no timing.
+
+The existing `Rdram` remains the sole byte owner and separately stores one
+optional global/broadcast delay configuration fact. The exact store changes no
+RDRAM byte, creates no module inventory or per-module state, and has no CPU read
+route. Reset and complete bootstrap clear both the pending transfer and delay
+fact; failed bootstrap preserves them.
 
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
@@ -115,7 +129,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 129-case step probe, the bounded BOOT-2
+construction/reset probe, the 137-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -124,14 +138,15 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,158-step generated composition through the stored RI_SELECT
+handoff and a 32,159-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
 and a 32-iteration CPU wait whose BNE delay slot constructs `0x10F`. The exact
 MI_INIT_MODE store then creates length 15 / initialization mode true; a
-following `Lui`/`Ori` pair constructs `0x18082838`, and proof stops at the
-global RDRAM_DELAY store target miss. It does not prove an
+following `Lui`/`Ori` pair constructs `0x18082838`; global RDRAM_DELAY then
+commits the 5/7/3/1 fact and consumes the transfer. Proof stops at the global
+RDRAM_REF_ROW store target miss. It does not prove an
 authentic firmware-executed handoff, RI
 calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
 game compatibility, renderer, audio, performance, or host integration.

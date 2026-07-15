@@ -8,4 +8,3 @@
 
 Existing direct-address normalization and word alignment apply. The classifier
 adds one exact target, not an RDRAM range, register array, MMIO map, or bus.
-

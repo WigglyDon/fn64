@@ -11,4 +11,3 @@ The exact logical configuration is:
 - Packed logical configuration: `0x28381808`
 
 The CPU transfer word `0x18082838` is rotated provenance, not logical readback.
-

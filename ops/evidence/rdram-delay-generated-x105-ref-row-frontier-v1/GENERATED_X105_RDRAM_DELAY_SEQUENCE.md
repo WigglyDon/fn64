@@ -12,4 +12,3 @@ Independently encoded generated words:
 
 After the delay commit: PC `0xA4000128`, next_pc `0xA400012C`, Count 32143,
 committed steps 32159. The next attempted step rejects without mutation.
-
