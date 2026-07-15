@@ -8,10 +8,39 @@ pub const RI_CONFIG_DEFINED_FIELDS_MASK: u32 =
     RI_CONFIG_CURRENT_CONTROL_INPUT_MASK | RI_CONFIG_CURRENT_CONTROL_ENABLE_MASK;
 pub const RI_CURRENT_LOAD_PHYSICAL_ADDRESS: u32 = 0x0470_0008;
 pub const RI_SELECT_PHYSICAL_ADDRESS: u32 = 0x0470_000c;
+pub const RI_SELECT_X105_ENABLE_TX_RX_WORD: u32 = 0x0000_0014;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRiSelectSource {
     ColdX105Entry,
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    },
+}
+
+impl MachineRiSelectSource {
+    pub const fn instruction_pc(self) -> Option<CpuAddress> {
+        match self {
+            Self::ColdX105Entry => None,
+            Self::CpuStoreWord { instruction_pc, .. } => Some(instruction_pc),
+        }
+    }
+
+    pub const fn source_gpr(self) -> Option<u8> {
+        match self {
+            Self::ColdX105Entry => None,
+            Self::CpuStoreWord { source_gpr, .. } => Some(source_gpr),
+        }
+    }
+
+    pub const fn source_lineage(self) -> Option<MachineBootstrapGprSource> {
+        match self {
+            Self::ColdX105Entry => None,
+            Self::CpuStoreWord { source_lineage, .. } => Some(source_lineage),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +54,23 @@ impl MachineRiSelectState {
         Self {
             value: 0,
             source: MachineRiSelectSource::ColdX105Entry,
+        }
+    }
+
+    pub(crate) const fn from_cpu_store_word(
+        word: u32,
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    ) -> Self {
+        debug_assert!(word == RI_SELECT_X105_ENABLE_TX_RX_WORD);
+        Self {
+            value: word,
+            source: MachineRiSelectSource::CpuStoreWord {
+                instruction_pc,
+                source_gpr,
+                source_lineage,
+            },
         }
     }
 
@@ -214,6 +260,10 @@ impl Ri {
     pub(crate) fn apply_current_load_store(&mut self, state: MachineRiCurrentLoadState) {
         self.current_load = Some(state);
     }
+
+    pub(crate) fn apply_select_store(&mut self, state: MachineRiSelectState) {
+        self.select = Some(state);
+    }
 }
 
 #[cfg(test)]
@@ -235,6 +285,45 @@ mod tests {
         );
         assert_eq!(Ri::cold_x105_entry().config_state(), None);
         assert_eq!(Ri::cold_x105_entry().current_load_state(), None);
+    }
+
+    #[test]
+    fn ri_select_exact_x105_cpu_store_replaces_value_and_source() {
+        assert_eq!(RI_SELECT_X105_ENABLE_TX_RX_WORD, 0x14);
+        let lineage = MachineBootstrapGprSource::KnownInstructionResult {
+            execution_address: CpuAddress::new(0xa400_00e0),
+            identity: crate::cpu::CpuInstructionIdentity::Ori,
+            source_gpr_a: Some(0),
+            source_gpr_b: None,
+        };
+        let state = MachineRiSelectState::from_cpu_store_word(
+            RI_SELECT_X105_ENABLE_TX_RX_WORD,
+            CpuAddress::new(0xa400_00e4),
+            9,
+            lineage,
+        );
+
+        assert_eq!(state.value(), 0x14);
+        assert_eq!(
+            state.source(),
+            MachineRiSelectSource::CpuStoreWord {
+                instruction_pc: CpuAddress::new(0xa400_00e4),
+                source_gpr: 9,
+                source_lineage: lineage,
+            }
+        );
+        assert_eq!(
+            state.source().instruction_pc(),
+            Some(CpuAddress::new(0xa400_00e4))
+        );
+        assert_eq!(state.source().source_gpr(), Some(9));
+        assert_eq!(state.source().source_lineage(), Some(lineage));
+
+        let mut ri = Ri::cold_x105_entry();
+        ri.apply_select_store(state);
+        assert_eq!(ri.select_state(), Some(state));
+        assert_eq!(ri.config_state(), None);
+        assert_eq!(ri.current_load_state(), None);
     }
 
     #[test]

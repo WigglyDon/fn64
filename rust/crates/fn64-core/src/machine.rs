@@ -22,7 +22,7 @@ use crate::rdram::{Rdram, RdramAccessError};
 use crate::ri::{
     MachineRiConfigState, MachineRiCurrentLoadState, MachineRiSelectSource, MachineRiSelectState,
     Ri, RI_CONFIG_DEFINED_FIELDS_MASK, RI_CONFIG_PHYSICAL_ADDRESS,
-    RI_CURRENT_LOAD_PHYSICAL_ADDRESS, RI_SELECT_PHYSICAL_ADDRESS,
+    RI_CURRENT_LOAD_PHYSICAL_ADDRESS, RI_SELECT_PHYSICAL_ADDRESS, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
 use crate::sp_imem::{SpImem, SpImemOffset, SpImemStoreWordPlan, SP_IMEM_SIZE_BYTES};
@@ -247,13 +247,14 @@ pub enum MachineStoreWordTarget {
     SpImem { offset: u32 },
     RiConfig,
     RiCurrentLoad,
+    RiSelect,
 }
 
 impl MachineStoreWordTarget {
     pub const fn sp_imem_offset(self) -> Option<u32> {
         match self {
             Self::SpImem { offset } => Some(offset),
-            Self::RiConfig | Self::RiCurrentLoad => None,
+            Self::RiConfig | Self::RiCurrentLoad | Self::RiSelect => None,
         }
     }
 }
@@ -316,6 +317,9 @@ pub enum MachineStoreWordRejectionReason {
         unsupported_bits: u32,
     },
     RiCurrentLoadConfigUnavailable,
+    RiSelectValueUnsupported {
+        transfer_word: u32,
+    },
     SpImemWriteRejected,
 }
 
@@ -1857,6 +1861,9 @@ pub(crate) enum MachineStoreWordMutationPlan {
     RiCurrentLoad {
         state: MachineRiCurrentLoadState,
     },
+    RiSelect {
+        state: MachineRiSelectState,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2528,6 +2535,14 @@ pub enum MachineRepresentedStepOutcome {
         state: MachineRiCurrentLoadState,
         cadence_plan: MachineStepCadencePlan,
     },
+    RiSelectStoreCommitted {
+        effective_address: u64,
+        target: MachineStoreWordTarget,
+        source_gpr: u8,
+        stored_word: u32,
+        state: MachineRiSelectState,
+        cadence_plan: MachineStepCadencePlan,
+    },
     Mtc0Committed {
         destination: MachineMtc0Destination,
         source_gpr: u8,
@@ -2635,6 +2650,14 @@ impl MachineRepresentedStepOutcome {
                         cadence_plan,
                     }
                 }
+                MachineStoreWordMutationPlan::RiSelect { state } => Self::RiSelectStoreCommitted {
+                    effective_address: plan.effective_address,
+                    target: plan.target,
+                    source_gpr: plan.fields.rt(),
+                    stored_word: plan.stored_word,
+                    state,
+                    cadence_plan,
+                },
             },
             MachineClassifiedStepActionApplication::StoreWord(
                 MachineStoreWordStepApplication::DataAddressError { plan, cadence_plan },
@@ -2698,7 +2721,8 @@ impl MachineRepresentedStepOutcome {
             Self::LoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lw),
             Self::StoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
-            | Self::RiCurrentLoadStoreCommitted { .. } => Some(CpuInstructionIdentity::Sw),
+            | Self::RiCurrentLoadStoreCommitted { .. }
+            | Self::RiSelectStoreCommitted { .. } => Some(CpuInstructionIdentity::Sw),
             Self::Mtc0Committed { .. } => Some(CpuInstructionIdentity::Cop0Mtc0),
             Self::NoEffectCommitted { instruction, .. } => Some(instruction.identity()),
             Self::Stopped { instruction, .. } => Some(instruction.identity()),
@@ -2714,6 +2738,7 @@ impl MachineRepresentedStepOutcome {
             | Self::StoreWordCommitted { cadence_plan, .. }
             | Self::RiConfigStoreCommitted { cadence_plan, .. }
             | Self::RiCurrentLoadStoreCommitted { cadence_plan, .. }
+            | Self::RiSelectStoreCommitted { cadence_plan, .. }
             | Self::Mtc0Committed { cadence_plan, .. }
             | Self::DataAddressError { cadence_plan, .. }
             | Self::NoEffectCommitted { cadence_plan, .. }
@@ -2732,6 +2757,7 @@ impl MachineRepresentedStepOutcome {
             | Self::StoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
+            | Self::RiSelectStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
@@ -2749,6 +2775,7 @@ impl MachineRepresentedStepOutcome {
             | Self::StoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
+            | Self::RiSelectStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
@@ -2766,6 +2793,7 @@ impl MachineRepresentedStepOutcome {
             | Self::StoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
+            | Self::RiSelectStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
@@ -2783,6 +2811,7 @@ impl MachineRepresentedStepOutcome {
             | Self::StoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
+            | Self::RiSelectStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
@@ -3814,6 +3843,27 @@ impl Machine {
                     ),
                 }
             }
+            MachineStoreWordTarget::RiSelect => {
+                if stored_word != RI_SELECT_X105_ENABLE_TX_RX_WORD {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::RiSelectValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                MachineStoreWordMutationPlan::RiSelect {
+                    state: MachineRiSelectState::from_cpu_store_word(
+                        stored_word,
+                        execution_address,
+                        fields.rt(),
+                        source_lineage,
+                    ),
+                }
+            }
         };
 
         Ok(MachineStoreWordStepAction::Commit(
@@ -3843,6 +3893,9 @@ impl Machine {
                     }
                     MachineStoreWordMutationPlan::RiCurrentLoad { state } => {
                         self.ri.apply_current_load_store(state)
+                    }
+                    MachineStoreWordMutationPlan::RiSelect { state } => {
+                        self.ri.apply_select_store(state)
                     }
                 }
                 self.cpu
@@ -4930,6 +4983,12 @@ fn classify_store_word_target(
     if physical_address == RI_CURRENT_LOAD_PHYSICAL_ADDRESS {
         return Ok(MachineStoreWordTargetSelection::Supported(
             MachineStoreWordTarget::RiCurrentLoad,
+        ));
+    }
+
+    if physical_address == RI_SELECT_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::RiSelect,
         ));
     }
 
@@ -16291,7 +16350,6 @@ mod tests {
         for address in [
             0xa46f_fffc,
             0xa470_0000,
-            0xa470_000c,
             0xa470_0010,
             0xa470_0014,
             0xa470_0020,
@@ -16307,6 +16365,12 @@ mod tests {
             classify_store_word_target(CpuAddress::new(0xa470_0008)),
             Ok(MachineStoreWordTargetSelection::Supported(
                 MachineStoreWordTarget::RiCurrentLoad,
+            ))
+        );
+        assert_eq!(
+            classify_store_word_target(CpuAddress::new(0xa470_000c)),
+            Ok(MachineStoreWordTargetSelection::Supported(
+                MachineStoreWordTarget::RiSelect,
             ))
         );
     }
@@ -16628,7 +16692,6 @@ mod tests {
         for address in [
             0xa46f_fffc,
             0xa470_0000,
-            0xa470_000c,
             0xa470_0010,
             0xa470_0014,
             0xa470_0020,
@@ -16640,6 +16703,12 @@ mod tests {
                 })
             );
         }
+        assert_eq!(
+            classify_store_word_target(CpuAddress::new(0xa470_000c)),
+            Ok(MachineStoreWordTargetSelection::Supported(
+                MachineStoreWordTarget::RiSelect,
+            ))
+        );
     }
 
     #[test]
@@ -16778,6 +16847,293 @@ mod tests {
             first.step().unwrap();
         }
         assert!(first.ri_current_load_state().is_some());
+        first.reset();
+        assert_eq!(first.ri_select_state(), None);
+        assert_eq!(first.ri_config_state(), None);
+        assert_eq!(first.ri_current_load_state(), None);
+    }
+
+    #[test]
+    fn ri_select_store_commits_exact_x105_word_without_hidden_ri_dependency() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x0014)),
+            (0x48, sw_word(8, 9, 0x000c)),
+        ];
+        let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x51);
+        machine.step().unwrap();
+        machine.step().unwrap();
+        let source_lineage = machine
+            .cartridge_bootstrap_state()
+            .unwrap()
+            .gpr_source(9)
+            .unwrap();
+        let cold_state = machine.ri_select_state();
+        assert_eq!(cold_state, Some(MachineRiSelectState::cold_x105_entry()));
+        assert_eq!(machine.ri_config_state(), None);
+        assert_eq!(machine.ri_current_load_state(), None);
+        let memory_before = lw_snapshot(&machine);
+
+        let outcome = machine.step().unwrap();
+        let state = machine.ri_select_state().unwrap();
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::RiSelectStoreCommitted {
+                effective_address: 0xffff_ffff_a470_000c,
+                target: MachineStoreWordTarget::RiSelect,
+                source_gpr: 9,
+                stored_word: RI_SELECT_X105_ENABLE_TX_RX_WORD,
+                state: observed_state,
+                cadence_plan,
+            } if observed_state == state && cadence_plan.advances_count()
+        ));
+        assert_eq!(state.value(), RI_SELECT_X105_ENABLE_TX_RX_WORD);
+        assert_eq!(
+            state.source(),
+            MachineRiSelectSource::CpuStoreWord {
+                instruction_pc: CpuAddress::new(0xa400_0048),
+                source_gpr: 9,
+                source_lineage,
+            }
+        );
+        assert_eq!(machine.ri_config_state(), None);
+        assert_eq!(machine.ri_current_load_state(), None);
+        assert_eq!(machine.cpu().gpr(9), Some(0x14));
+        assert_eq!(machine.cpu().pc(), 0xa400_004c);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0050);
+        assert_eq!(machine.cpu().cop0_count(), 3);
+        let memory_after = lw_snapshot(&machine);
+        assert_eq!(memory_after.rdram, memory_before.rdram);
+        assert_eq!(memory_after.sp_dmem, memory_before.sp_dmem);
+        assert_eq!(memory_after.sp_imem, memory_before.sp_imem);
+    }
+
+    #[test]
+    fn ri_select_store_accepts_both_direct_aliases_and_low_word_only() {
+        for base in [0x8470, 0xa470] {
+            let words = [
+                (0x40, immediate_word(0x0f, 0, 8, base)),
+                (0x44, sw_word(8, 22, 0x000c)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x52);
+            machine.step().unwrap();
+            machine.cpu.set_gpr(22, 0xffff_ffff_0000_0014).unwrap();
+
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::RiSelectStoreCommitted {
+                    target: MachineStoreWordTarget::RiSelect,
+                    source_gpr: 22,
+                    stored_word: RI_SELECT_X105_ENABLE_TX_RX_WORD,
+                    state,
+                    ..
+                }) if state.value() == RI_SELECT_X105_ENABLE_TX_RX_WORD
+                    && state.source().source_lineage() == Some(MachineBootstrapGprSource::X105Seed)
+            ));
+            assert_eq!(machine.cpu().gpr(22), Some(0xffff_ffff_0000_0014));
+        }
+    }
+
+    #[test]
+    fn ri_select_unsupported_values_and_unknown_source_reject_atomically() {
+        for transfer_word in [
+            0x0000_0000,
+            0x0000_0004,
+            0x0000_0010,
+            0x0000_0015,
+            0x8000_0014,
+        ] {
+            let words = [
+                (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+                (0x44, sw_word(8, 22, 0x000c)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x53);
+            machine.step().unwrap();
+            machine.cpu.set_gpr(22, u64::from(transfer_word)).unwrap();
+            let before = lw_snapshot(&machine);
+
+            let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
+            assert_eq!(rejection.target(), Some(MachineStoreWordTarget::RiSelect));
+            assert_eq!(
+                rejection.reason(),
+                MachineStoreWordRejectionReason::RiSelectValueUnsupported { transfer_word }
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, sw_word(8, 7, 0x000c)),
+        ];
+        let (mut unknown, _) = staged_generated_cold_x105_machine(&words, 0x54);
+        unknown.step().unwrap();
+        let before = lw_snapshot(&unknown);
+        let rejection = unknown.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(rejection.target(), Some(MachineStoreWordTarget::RiSelect));
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                register_index: 7,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&unknown), before);
+    }
+
+    #[test]
+    fn ri_select_read_after_write_uses_stored_value_and_cpu_store_source() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x0014)),
+            (0x48, sw_word(8, 9, 0x000c)),
+            (0x4c, lw_word(8, 10, 0x000c)),
+        ];
+        let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x55);
+        machine.step().unwrap();
+        machine.step().unwrap();
+        machine.step().unwrap();
+        let stored_state = machine.ri_select_state().unwrap();
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                effective_address: 0xffff_ffff_a470_000c,
+                target: MachineLoadWordTarget::RiSelect { source },
+                destination_gpr: 10,
+                loaded_word: RI_SELECT_X105_ENABLE_TX_RX_WORD,
+                result_value: 0x14,
+                cadence_plan,
+            }) if source == stored_state.source() && cadence_plan.advances_count()
+        ));
+        assert_eq!(machine.cpu().gpr(10), Some(0x14));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(10),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_004c),
+                identity: CpuInstructionIdentity::Lw,
+                source_gpr_a: Some(8),
+                source_gpr_b: None,
+            })
+        );
+        assert_eq!(machine.ri_select_state(), Some(stored_state));
+        assert_eq!(machine.cpu().pc(), 0xa400_0050);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0054);
+        assert_eq!(machine.cpu().cop0_count(), 4);
+    }
+
+    #[test]
+    fn ri_select_delay_slot_and_unaligned_ades_use_existing_cadence() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x0014)),
+            (0x48, control_flow_branch_word(0x04, 0, 0, 1)),
+            (0x4c, sw_word(8, 9, 0x000c)),
+            (0x50, special_shift_word(0, 0, 0, 0, 0)),
+        ];
+        let (mut slot, _) = staged_generated_cold_x105_machine(&words, 0x56);
+        slot.step().unwrap();
+        slot.step().unwrap();
+        assert_control_flow_commit(slot.step().unwrap(), CpuInstructionIdentity::Beq);
+        assert_scheduled_delay_slot(&slot, 0xa400_0048, 0xa400_004c, 0xa400_0050);
+        assert!(matches!(
+            slot.step(),
+            Ok(MachineRepresentedStepOutcome::RiSelectStoreCommitted {
+                stored_word: RI_SELECT_X105_ENABLE_TX_RX_WORD,
+                cadence_plan,
+                ..
+            }) if cadence_plan.advances_count()
+        ));
+        assert_eq!(slot.cpu().pc(), 0xa400_0050);
+        assert_eq!(slot.cpu().next_pc(), 0xa400_0054);
+        assert_eq!(slot.cpu().cop0_count(), 4);
+        assert_eq!(slot.cpu_delay_slot_context(), None);
+
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x0014)),
+            (0x48, sw_word(8, 9, 0x000d)),
+        ];
+        let (mut unaligned, _) = staged_generated_cold_x105_machine(&words, 0x57);
+        unaligned.step().unwrap();
+        unaligned.step().unwrap();
+        let select_before = unaligned.ri_select_state();
+        let outcome = unaligned.step().unwrap();
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Sw,
+                effective_address: 0xffff_ffff_a470_000d,
+                address_error,
+                cadence_plan,
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && address_error.bad_vaddr() == CpuAddress::new(0xa470_000d)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(unaligned.ri_select_state(), select_before);
+        assert_eq!(unaligned.cpu().cop0_count(), 2);
+        assert_eq!(unaligned.cpu().cop0_epc(), 0xa400_0048);
+        assert!(!unaligned.cpu().cop0_exception_branch_delay());
+    }
+
+    #[test]
+    fn ri_select_reset_rebootstrap_failure_and_machine_independence_own_lifecycle() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x0040)),
+            (0x48, sw_word(8, 9, 0x0004)),
+            (0x4c, sw_word(8, 0, 0x0008)),
+            (0x50, immediate_word(0x0d, 0, 9, 0x0014)),
+            (0x54, sw_word(8, 9, 0x000c)),
+        ];
+        let (mut first, _) = staged_generated_cold_x105_machine(&words, 0x58);
+        let (second, _) = staged_generated_cold_x105_machine(&words, 0x58);
+        for _ in 0..5 {
+            first.step().unwrap();
+        }
+        let config_before = first.ri_config_state();
+        let current_load_before = first.ri_current_load_state();
+        first.step().unwrap();
+        let written = first.ri_select_state().unwrap();
+        assert_eq!(written.value(), 0x14);
+        assert!(matches!(
+            written.source(),
+            MachineRiSelectSource::CpuStoreWord { .. }
+        ));
+        assert_eq!(first.ri_config_state(), config_before);
+        assert_eq!(first.ri_current_load_state(), current_load_before);
+        assert_eq!(
+            second.ri_select_state(),
+            Some(MachineRiSelectState::cold_x105_entry())
+        );
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
+        let before_failed_bootstrap = lw_snapshot(&first);
+        assert!(matches!(
+            first.stage_cartridge_bootstrap(),
+            Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
+                    profile: PifIpl2Profile::PalPinned,
+                }
+            )
+        ));
+        assert_eq!(lw_snapshot(&first), before_failed_bootstrap);
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+        first.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(
+            first.ri_select_state(),
+            Some(MachineRiSelectState::cold_x105_entry())
+        );
+        assert_eq!(first.ri_config_state(), None);
+        assert_eq!(first.ri_current_load_state(), None);
+
+        for _ in 0..6 {
+            first.step().unwrap();
+        }
+        assert!(matches!(
+            first.ri_select_state().unwrap().source(),
+            MachineRiSelectSource::CpuStoreWord { .. }
+        ));
         first.reset();
         assert_eq!(first.ri_select_state(), None);
         assert_eq!(first.ri_config_state(), None);
@@ -17719,6 +18075,7 @@ mod tests {
             (0xdc, sw_word(8, 0, 0x0008)),
             (0xe0, immediate_word(0x0d, 0, 9, 0x0014)),
             (0xe4, sw_word(8, 9, 0x000c)),
+            (0xe8, sw_word(8, 0, 0x0000)),
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -18190,22 +18547,62 @@ mod tests {
         assert_eq!(inspection.fields().rs(), 8);
         assert_eq!(inspection.fields().rt(), 9);
         assert_eq!(inspection.fields().immediate_u16(), 0x000c);
-        let before_ri_select_frontier = lw_snapshot(&machine);
-        let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
-        assert_eq!(rejection.effective_address(), Some(0xffff_ffff_a470_000c));
-        assert_eq!(rejection.cpu_address(), Some(CpuAddress::new(0xa470_000c)));
-        assert_eq!(rejection.target(), None);
-        assert_eq!(
-            rejection.reason(),
-            MachineStoreWordRejectionReason::DirectTargetMiss
-        );
-        assert_eq!(lw_snapshot(&machine), before_ri_select_frontier);
+        let expected_select_lineage = machine
+            .cartridge_bootstrap_state()
+            .unwrap()
+            .gpr_source(9)
+            .unwrap();
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::RiSelectStoreCommitted {
+                effective_address: 0xffff_ffff_a470_000c,
+                target: MachineStoreWordTarget::RiSelect,
+                source_gpr: 9,
+                stored_word: RI_SELECT_X105_ENABLE_TX_RX_WORD,
+                state,
+                cadence_plan,
+            }) if state.value() == RI_SELECT_X105_ENABLE_TX_RX_WORD
+                && state.source()
+                    == MachineRiSelectSource::CpuStoreWord {
+                        instruction_pc: CpuAddress::new(0xa400_00e4),
+                        source_gpr: 9,
+                        source_lineage: expected_select_lineage,
+                    }
+                && cadence_plan.advances_count()
+        ));
+        let select_after_store = machine.ri_select_state().unwrap();
         assert_eq!(machine.ri_config_state(), Some(config_after_store));
         assert_eq!(
             machine.ri_current_load_state(),
             Some(current_load_after_store)
         );
-        assert_eq!(machine.ri_select_state(), ri_before);
+        assert_eq!(machine.cpu().pc(), 0xa400_00e8);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_00ec);
+        assert_eq!(machine.cpu().cop0_count(), 32_022);
+        total_committed_steps += 1;
+        assert_eq!(total_committed_steps, 32_038);
+
+        let inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(inspection.identity(), CpuInstructionIdentity::Sw);
+        assert_eq!(inspection.fields().rs(), 8);
+        assert_eq!(inspection.fields().rt(), 0);
+        assert_eq!(inspection.fields().immediate_u16(), 0x0000);
+        let before_ri_mode_frontier = lw_snapshot(&machine);
+        let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(rejection.effective_address(), Some(0xffff_ffff_a470_0000));
+        assert_eq!(rejection.cpu_address(), Some(CpuAddress::new(0xa470_0000)));
+        assert_eq!(rejection.target(), None);
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::DirectTargetMiss
+        );
+        assert_eq!(lw_snapshot(&machine), before_ri_mode_frontier);
+        assert_eq!(machine.ri_select_state(), Some(select_after_store));
+        assert_eq!(machine.ri_config_state(), Some(config_after_store));
+        assert_eq!(
+            machine.ri_current_load_state(),
+            Some(current_load_after_store)
+        );
     }
 
     #[test]
