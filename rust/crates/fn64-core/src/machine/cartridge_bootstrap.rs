@@ -704,6 +704,7 @@ impl Machine {
         self.sp_dmem = replacement_sp_dmem;
         self.sp_imem = replacement_sp_imem;
         self.ri = replacement_ri;
+        self.mi = crate::mi::Mi::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.powered_on = true;
         self.cartridge_bootstrap = Some(state);
@@ -939,6 +940,7 @@ mod tests {
         ri_config: Option<crate::ri::MachineRiConfigState>,
         ri_current_load: Option<crate::ri::MachineRiCurrentLoadState>,
         ri_mode: Option<crate::ri::MachineRiModeState>,
+        mi_init_mode: Option<crate::mi::MachineMiInitModeState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
 
@@ -991,6 +993,7 @@ mod tests {
             ri_config: machine.ri_config_state(),
             ri_current_load: machine.ri_current_load_state(),
             ri_mode: machine.ri_mode_state(),
+            mi_init_mode: machine.mi_init_mode_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }
     }

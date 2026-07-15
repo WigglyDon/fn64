@@ -3,6 +3,7 @@
 pub mod cartridge;
 pub mod cpu;
 pub mod machine;
+mod mi;
 mod pif_firmware;
 pub mod rdram;
 mod ri;
@@ -57,6 +58,10 @@ pub use machine::{
     MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_SP_VALUE,
     MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_T3_VALUE,
     MACHINE_PIF_IPL2_HANDOFF_X105_SEED,
+};
+pub use mi::{
+    MachineMiInitModeSource, MachineMiInitModeState, MI_INIT_MODE_PHYSICAL_ADDRESS,
+    MI_INIT_MODE_X105_INIT_LENGTH, MI_INIT_MODE_X105_WRITE_WORD,
 };
 pub use pif_firmware::{
     MachinePifFirmwareState, PifFirmwareClassification, PifFirmwareValidationError,
