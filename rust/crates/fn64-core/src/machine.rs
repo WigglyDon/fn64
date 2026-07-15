@@ -24,7 +24,7 @@ use crate::pif_firmware::{
     MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError, PifIpl2Profile,
 };
 use crate::rdram::{
-    MachineRdramBroadcastDelayState, Rdram, RdramAccessError,
+    MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState, Rdram, RdramAccessError,
     RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
 };
 use crate::ri::{
@@ -4077,14 +4077,16 @@ impl Machine {
                 );
                 MachineStoreWordMutationPlan::RdramBroadcastDelay {
                     state: MachineRdramBroadcastDelayState::from_exact_x105_cpu_store(
-                        execution_address,
-                        fields.rt(),
-                        source_lineage,
-                        effective_address,
-                        cpu_address,
-                        RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS,
-                        stored_word,
-                        init_transfer,
+                        MachineRdramBroadcastDelaySource::CpuStoreWord {
+                            instruction_pc: execution_address,
+                            source_gpr: fields.rt(),
+                            source_lineage,
+                            effective_address,
+                            cpu_address,
+                            physical_address: RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS,
+                            cpu_transfer_word: stored_word,
+                            consumed_mi_transfer: init_transfer,
+                        },
                     ),
                 }
             }

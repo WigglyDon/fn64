@@ -94,35 +94,19 @@ pub struct MachineRdramBroadcastDelayState {
 
 impl MachineRdramBroadcastDelayState {
     pub(crate) const fn from_exact_x105_cpu_store(
-        instruction_pc: CpuAddress,
-        source_gpr: u8,
-        source_lineage: MachineBootstrapGprSource,
-        effective_address: u64,
-        cpu_address: CpuAddress,
-        physical_address: u32,
-        cpu_transfer_word: u32,
-        consumed_mi_transfer: MachineMiInitTransferState,
+        source: MachineRdramBroadcastDelaySource,
     ) -> Self {
-        debug_assert!(physical_address == RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS);
-        debug_assert!(cpu_transfer_word == RDRAM_DELAY_X105_CPU_TRANSFER_WORD);
-        debug_assert!(consumed_mi_transfer.source_init_length() == 15);
-        debug_assert!(consumed_mi_transfer.repeated_byte_count() == 16);
+        debug_assert!(source.physical_address() == RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS);
+        debug_assert!(source.cpu_transfer_word() == RDRAM_DELAY_X105_CPU_TRANSFER_WORD);
+        debug_assert!(source.consumed_mi_transfer().source_init_length() == 15);
+        debug_assert!(source.consumed_mi_transfer().repeated_byte_count() == 16);
         Self {
             ack_window_delay: 5,
             read_delay: 7,
             ack_delay: 3,
             write_delay: 1,
             logical_configuration: RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
-            source: MachineRdramBroadcastDelaySource::CpuStoreWord {
-                instruction_pc,
-                source_gpr,
-                source_lineage,
-                effective_address,
-                cpu_address,
-                physical_address,
-                cpu_transfer_word,
-                consumed_mi_transfer,
-            },
+            source,
         }
     }
 
