@@ -1,0 +1,4 @@
+sequence_id	instruction_pc	instruction_word	identity	base_gpr	source_gpr	immediate	base_value	source_value	effective_address	cpu_address	physical_address	target	pre_product_result	post_product_result	status	limitations
+x105-delay	0xA4000124	0xAD490008	Sw	r10	r9	0x0008	0xFFFFFFFFA3F80000	0x0000000018082838	0xFFFFFFFFA3F80008	0xA3F80008	0x03F80008	global RDRAM_DELAY	DirectTargetMiss	RdramBroadcastDelayStoreCommitted	CONFIRMED	synthetic public Machine::step only
+x105-ref-row	0xA4000128	0xAD400014	Sw	r10	r0	0x0014	0xFFFFFFFFA3F80000	0x0000000000000000	0xFFFFFFFFA3F80014	0xA3F80014	0x03F80014	global RDRAM_REF_ROW	DirectTargetMiss	DirectTargetMiss	NEXT_FRONTIER	not implemented
+
