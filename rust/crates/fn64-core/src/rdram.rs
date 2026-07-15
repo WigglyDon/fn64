@@ -6,8 +6,10 @@ use crate::mi::MachineMiInitTransferState;
 
 pub const RDRAM_SIZE_BYTES: usize = 4 * 1024 * 1024;
 pub const RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS: u32 = 0x03f8_0008;
+pub const RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS: u32 = 0x03f8_0014;
 pub const RDRAM_DELAY_X105_CPU_TRANSFER_WORD: u32 = 0x1808_2838;
 pub const RDRAM_DELAY_X105_LOGICAL_CONFIGURATION: u32 = 0x2838_1808;
+pub const RDRAM_REF_ROW_X105_WRITE_WORD: u32 = 0x0000_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRdramBroadcastDelaySource {
@@ -136,6 +138,99 @@ impl MachineRdramBroadcastDelayState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramBroadcastRefreshRowAperture {
+    GlobalBroadcast,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramBroadcastRefreshRowSource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+    },
+}
+
+impl MachineRdramBroadcastRefreshRowSource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        match self {
+            Self::CpuStoreWord {
+                effective_address, ..
+            } => effective_address,
+        }
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { cpu_address, .. } => cpu_address,
+        }
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        match self {
+            Self::CpuStoreWord {
+                physical_address, ..
+            } => physical_address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRdramBroadcastRefreshRowState {
+    raw_word: u32,
+    aperture: MachineRdramBroadcastRefreshRowAperture,
+    source: MachineRdramBroadcastRefreshRowSource,
+}
+
+impl MachineRdramBroadcastRefreshRowState {
+    pub(crate) const fn from_exact_x105_zero_cpu_store(
+        source: MachineRdramBroadcastRefreshRowSource,
+    ) -> Self {
+        debug_assert!(
+            source.physical_address() == RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS
+        );
+        Self {
+            raw_word: RDRAM_REF_ROW_X105_WRITE_WORD,
+            aperture: MachineRdramBroadcastRefreshRowAperture::GlobalBroadcast,
+            source,
+        }
+    }
+
+    pub const fn raw_word(self) -> u32 {
+        self.raw_word
+    }
+
+    pub const fn aperture(self) -> MachineRdramBroadcastRefreshRowAperture {
+        self.aperture
+    }
+
+    pub const fn source(self) -> MachineRdramBroadcastRefreshRowSource {
+        self.source
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RdramAccessError {
     offset: usize,
     width: usize,
@@ -166,6 +261,7 @@ impl std::error::Error for RdramAccessError {}
 pub struct Rdram {
     bytes: Vec<u8>,
     broadcast_delay: Option<MachineRdramBroadcastDelayState>,
+    broadcast_refresh_row: Option<MachineRdramBroadcastRefreshRowState>,
 }
 
 impl Rdram {
@@ -179,6 +275,19 @@ impl Rdram {
 
     pub(crate) fn apply_broadcast_delay_store(&mut self, state: MachineRdramBroadcastDelayState) {
         self.broadcast_delay = Some(state);
+    }
+
+    pub(crate) const fn broadcast_refresh_row_state(
+        &self,
+    ) -> Option<MachineRdramBroadcastRefreshRowState> {
+        self.broadcast_refresh_row
+    }
+
+    pub(crate) fn apply_broadcast_refresh_row_store(
+        &mut self,
+        state: MachineRdramBroadcastRefreshRowState,
+    ) {
+        self.broadcast_refresh_row = Some(state);
     }
 
     pub fn read_u8(&self, offset: usize) -> Result<u8, RdramAccessError> {
@@ -280,6 +389,7 @@ impl Default for Rdram {
         Self {
             bytes: vec![0; RDRAM_SIZE_BYTES],
             broadcast_delay: None,
+            broadcast_refresh_row: None,
         }
     }
 }
@@ -295,6 +405,7 @@ mod tests {
         assert_eq!(rdram.size_bytes(), RDRAM_SIZE_BYTES);
         assert_eq!(rdram.size_bytes(), 4 * 1024 * 1024);
         assert_eq!(rdram.broadcast_delay_state(), None);
+        assert_eq!(rdram.broadcast_refresh_row_state(), None);
     }
 
     #[test]

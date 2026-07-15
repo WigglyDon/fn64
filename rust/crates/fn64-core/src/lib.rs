@@ -70,9 +70,12 @@ pub use pif_firmware::{
     PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
 };
 pub use rdram::{
-    MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState, Rdram, RdramAccessError,
-    RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
-    RDRAM_DELAY_X105_LOGICAL_CONFIGURATION, RDRAM_SIZE_BYTES,
+    MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState,
+    MachineRdramBroadcastRefreshRowAperture, MachineRdramBroadcastRefreshRowSource,
+    MachineRdramBroadcastRefreshRowState, Rdram, RdramAccessError,
+    RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
+    RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
+    RDRAM_REF_ROW_X105_WRITE_WORD, RDRAM_SIZE_BYTES,
 };
 pub use ri::{
     MachineRiConfigSource, MachineRiConfigState, MachineRiCurrentLoadSource,
