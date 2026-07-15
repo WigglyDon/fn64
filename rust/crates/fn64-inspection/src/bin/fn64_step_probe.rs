@@ -8,18 +8,17 @@ use fn64_core::{
     MachineCpuInstructionFetchError, MachineLoadWordRejectionReason, MachineLoadWordTarget,
     MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineRdramBroadcastRefreshRowAperture,
-    MachineRiModeSource, MachineRiSelectSource, MachineSpDmemLoadWordProvenance,
-    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
-    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
-    MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
-    MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
-    PifIpl2Profile, RdramAccessError, SpDmemOffset, MI_INIT_MODE_X105_WRITE_WORD,
-    PIF_BOOT_ROM_SIZE_BYTES, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
-    RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
-    RDRAM_REF_ROW_X105_WRITE_WORD, RI_MODE_DEFINED_FIELDS_MASK,
-    RI_SELECT_X105_ENABLE_TX_RX_WORD,
+    MachinePifVersionBit, MachineRdramBroadcastRefreshRowAperture, MachineRepresentedStepError,
+    MachineRepresentedStepOutcome, MachineRiModeSource, MachineRiSelectSource,
+    MachineSpDmemLoadWordProvenance, MachineStepCadenceSource, MachineStepControlFlowAction,
+    MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory,
+    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
+    MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
+    PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
+    MI_INIT_MODE_X105_WRITE_WORD, PIF_BOOT_ROM_SIZE_BYTES,
+    RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
+    RDRAM_DELAY_X105_LOGICAL_CONFIGURATION, RDRAM_REF_ROW_X105_WRITE_WORD,
+    RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -4172,12 +4171,13 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         "RDRAM_REF_ROW generated raw-zero commit and provenance",
     )?;
     total_committed_steps += 1;
-    let refresh_row_state = machine
-        .rdram_broadcast_refresh_row_state()
-        .ok_or(StepProbeError::Assertion {
-            case: CASE,
-            check: "generated RDRAM refresh-row state available",
-        })?;
+    let refresh_row_state =
+        machine
+            .rdram_broadcast_refresh_row_state()
+            .ok_or(StepProbeError::Assertion {
+                case: CASE,
+                check: "generated RDRAM refresh-row state available",
+            })?;
     require(
         CASE,
         total_committed_steps == 32_160

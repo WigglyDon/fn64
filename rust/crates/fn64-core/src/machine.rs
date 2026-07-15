@@ -24,10 +24,11 @@ use crate::pif_firmware::{
     MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError, PifIpl2Profile,
 };
 use crate::rdram::{
-    MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState, Rdram, RdramAccessError,
-    MachineRdramBroadcastRefreshRowSource, MachineRdramBroadcastRefreshRowState,
-    RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
-    RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_REF_ROW_X105_WRITE_WORD,
+    MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState,
+    MachineRdramBroadcastRefreshRowSource, MachineRdramBroadcastRefreshRowState, Rdram,
+    RdramAccessError, RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS,
+    RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
+    RDRAM_REF_ROW_X105_WRITE_WORD,
 };
 use crate::ri::{
     MachineRiConfigState, MachineRiCurrentLoadState, MachineRiModeState, MachineRiSelectSource,
@@ -18673,7 +18674,10 @@ mod tests {
         repeat.step().unwrap();
         let before = lw_snapshot(&repeat);
         assert!(repeat.step().is_err());
-        assert_eq!(repeat.rdram_broadcast_refresh_row_state(), Some(first_state));
+        assert_eq!(
+            repeat.rdram_broadcast_refresh_row_state(),
+            Some(first_state)
+        );
         assert_eq!(lw_snapshot(&repeat), before);
 
         let mut no_read = staged_lw_bootstrap_machine(
@@ -18805,7 +18809,10 @@ mod tests {
         assert_eq!(after_first_ref.sp_imem, before_first_ref.sp_imem);
         assert_eq!(after_first_ref.ri_select, before_first_ref.ri_select);
         assert_eq!(after_first_ref.ri_config, before_first_ref.ri_config);
-        assert_eq!(after_first_ref.ri_current_load, before_first_ref.ri_current_load);
+        assert_eq!(
+            after_first_ref.ri_current_load,
+            before_first_ref.ri_current_load
+        );
         assert_eq!(after_first_ref.ri_mode, before_first_ref.ri_mode);
 
         first.step().unwrap();
@@ -18820,9 +18827,11 @@ mod tests {
         let before_failed_bootstrap = lw_snapshot(&first);
         assert!(matches!(
             first.stage_cartridge_bootstrap(),
-            Err(MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
-                profile: PifIpl2Profile::PalPinned,
-            })
+            Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
+                    profile: PifIpl2Profile::PalPinned,
+                }
+            )
         ));
         assert_eq!(lw_snapshot(&first), before_failed_bootstrap);
         assert_eq!(first.rdram_broadcast_refresh_row_state(), Some(second_ref));
@@ -20726,7 +20735,10 @@ mod tests {
             machine.rdram_broadcast_refresh_row_state(),
             Some(refresh_row_after_store)
         );
-        assert_eq!(machine.rdram_broadcast_delay_state(), Some(delay_after_store));
+        assert_eq!(
+            machine.rdram_broadcast_delay_state(),
+            Some(delay_after_store)
+        );
     }
 
     #[test]

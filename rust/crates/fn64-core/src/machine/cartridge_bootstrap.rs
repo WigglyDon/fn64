@@ -943,8 +943,7 @@ mod tests {
         mi_init_mode: Option<crate::mi::MachineMiInitModeState>,
         mi_init_transfer: Option<crate::mi::MachineMiInitTransferState>,
         rdram_broadcast_delay: Option<crate::rdram::MachineRdramBroadcastDelayState>,
-        rdram_broadcast_refresh_row:
-            Option<crate::rdram::MachineRdramBroadcastRefreshRowState>,
+        rdram_broadcast_refresh_row: Option<crate::rdram::MachineRdramBroadcastRefreshRowState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
 

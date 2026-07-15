@@ -207,9 +207,7 @@ impl MachineRdramBroadcastRefreshRowState {
     pub(crate) const fn from_exact_x105_zero_cpu_store(
         source: MachineRdramBroadcastRefreshRowSource,
     ) -> Self {
-        debug_assert!(
-            source.physical_address() == RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS
-        );
+        debug_assert!(source.physical_address() == RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS);
         Self {
             raw_word: RDRAM_REF_ROW_X105_WRITE_WORD,
             aperture: MachineRdramBroadcastRefreshRowAperture::GlobalBroadcast,
