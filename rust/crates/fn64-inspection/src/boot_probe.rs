@@ -598,6 +598,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
+                    | MachineRepresentedStepOutcome::RiModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::Mtc0Committed { .. }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
                     MachineRepresentedStepOutcome::DataAddressError { .. } => {
@@ -739,6 +740,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
+            | MachineRepresentedStepOutcome::RiModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::Mtc0Committed { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
     )
@@ -764,6 +766,7 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
             "ri-current-load-store-committed"
         }
         MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. } => "ri-select-store-committed",
+        MachineRepresentedStepOutcome::RiModeStoreCommitted { .. } => "ri-mode-store-committed",
         MachineRepresentedStepOutcome::Mtc0Committed { .. } => "mtc0-committed",
         MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
         MachineRepresentedStepOutcome::ArithmeticOverflowException { .. } => {

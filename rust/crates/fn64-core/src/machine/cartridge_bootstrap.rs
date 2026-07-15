@@ -938,6 +938,7 @@ mod tests {
         ri_select: Option<crate::ri::MachineRiSelectState>,
         ri_config: Option<crate::ri::MachineRiConfigState>,
         ri_current_load: Option<crate::ri::MachineRiCurrentLoadState>,
+        ri_mode: Option<crate::ri::MachineRiModeState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
 
@@ -989,6 +990,7 @@ mod tests {
             ri_select: machine.ri_select_state(),
             ri_config: machine.ri_config_state(),
             ri_current_load: machine.ri_current_load_state(),
+            ri_mode: machine.ri_mode_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }
     }

@@ -1,6 +1,13 @@
 use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
 
+pub const RI_MODE_PHYSICAL_ADDRESS: u32 = 0x0470_0000;
+pub const RI_MODE_OPERATING_MODE_MASK: u32 = 0x0000_0003;
+pub const RI_MODE_STOP_TRANSMIT_ACTIVE_MASK: u32 = 0x0000_0004;
+pub const RI_MODE_STOP_RECEIVE_ACTIVE_MASK: u32 = 0x0000_0008;
+pub const RI_MODE_DEFINED_FIELDS_MASK: u32 = RI_MODE_OPERATING_MODE_MASK
+    | RI_MODE_STOP_TRANSMIT_ACTIVE_MASK
+    | RI_MODE_STOP_RECEIVE_ACTIVE_MASK;
 pub const RI_CONFIG_PHYSICAL_ADDRESS: u32 = 0x0470_0004;
 pub const RI_CONFIG_CURRENT_CONTROL_INPUT_MASK: u32 = 0x0000_003f;
 pub const RI_CONFIG_CURRENT_CONTROL_ENABLE_MASK: u32 = 0x0000_0040;
@@ -225,11 +232,86 @@ impl MachineRiCurrentLoadState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRiModeSource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    },
+}
+
+impl MachineRiModeSource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRiModeState {
+    operating_mode_bits: u8,
+    stop_transmit_active: bool,
+    stop_receive_active: bool,
+    source: MachineRiModeSource,
+}
+
+impl MachineRiModeState {
+    pub(crate) const fn from_cpu_store_word(
+        word: u32,
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    ) -> Self {
+        debug_assert!(word & !RI_MODE_DEFINED_FIELDS_MASK == 0);
+        Self {
+            operating_mode_bits: (word & RI_MODE_OPERATING_MODE_MASK) as u8,
+            stop_transmit_active: word & RI_MODE_STOP_TRANSMIT_ACTIVE_MASK != 0,
+            stop_receive_active: word & RI_MODE_STOP_RECEIVE_ACTIVE_MASK != 0,
+            source: MachineRiModeSource::CpuStoreWord {
+                instruction_pc,
+                source_gpr,
+                source_lineage,
+            },
+        }
+    }
+
+    pub const fn operating_mode_bits(self) -> u8 {
+        self.operating_mode_bits
+    }
+
+    pub const fn stop_transmit_active(self) -> bool {
+        self.stop_transmit_active
+    }
+
+    pub const fn stop_receive_active(self) -> bool {
+        self.stop_receive_active
+    }
+
+    pub const fn source(self) -> MachineRiModeSource {
+        self.source
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Ri {
     select: Option<MachineRiSelectState>,
     config: Option<MachineRiConfigState>,
     current_load: Option<MachineRiCurrentLoadState>,
+    mode: Option<MachineRiModeState>,
 }
 
 impl Ri {
@@ -238,6 +320,7 @@ impl Ri {
             select: Some(MachineRiSelectState::cold_x105_entry()),
             config: None,
             current_load: None,
+            mode: None,
         }
     }
 
@@ -253,6 +336,10 @@ impl Ri {
         self.current_load
     }
 
+    pub(crate) const fn mode_state(self) -> Option<MachineRiModeState> {
+        self.mode
+    }
+
     pub(crate) fn apply_config_store(&mut self, state: MachineRiConfigState) {
         self.config = Some(state);
     }
@@ -263,6 +350,10 @@ impl Ri {
 
     pub(crate) fn apply_select_store(&mut self, state: MachineRiSelectState) {
         self.select = Some(state);
+    }
+
+    pub(crate) fn apply_mode_store(&mut self, state: MachineRiModeState) {
+        self.mode = Some(state);
     }
 }
 
@@ -276,6 +367,7 @@ mod tests {
         assert_eq!(Ri::default().select_state(), None);
         assert_eq!(Ri::default().config_state(), None);
         assert_eq!(Ri::default().current_load_state(), None);
+        assert_eq!(Ri::default().mode_state(), None);
         assert_eq!(
             Ri::cold_x105_entry().select_state(),
             Some(MachineRiSelectState {
@@ -285,6 +377,7 @@ mod tests {
         );
         assert_eq!(Ri::cold_x105_entry().config_state(), None);
         assert_eq!(Ri::cold_x105_entry().current_load_state(), None);
+        assert_eq!(Ri::cold_x105_entry().mode_state(), None);
     }
 
     #[test]
@@ -324,6 +417,7 @@ mod tests {
         assert_eq!(ri.select_state(), Some(state));
         assert_eq!(ri.config_state(), None);
         assert_eq!(ri.current_load_state(), None);
+        assert_eq!(ri.mode_state(), None);
     }
 
     #[test]
@@ -387,5 +481,37 @@ mod tests {
         );
         assert_eq!(state.source().source_gpr(), 22);
         assert_eq!(state.source().source_lineage(), lineage);
+    }
+
+    #[test]
+    fn ri_mode_represents_all_defined_fields_and_cpu_store_lineage() {
+        assert_eq!(RI_MODE_PHYSICAL_ADDRESS, 0x0470_0000);
+        assert_eq!(RI_MODE_DEFINED_FIELDS_MASK, 0x0f);
+        let source_lineage = MachineBootstrapGprSource::ArchitecturalZero;
+
+        for (word, operating_mode_bits, stop_transmit, stop_receive) in [
+            (0x00, 0, false, false),
+            (0x02, 2, false, false),
+            (0x04, 0, true, false),
+            (0x08, 0, false, true),
+            (0x0e, 2, true, true),
+            (0x0f, 3, true, true),
+        ] {
+            let state = MachineRiModeState::from_cpu_store_word(
+                word,
+                CpuAddress::new(0xa400_00e8),
+                0,
+                source_lineage,
+            );
+            assert_eq!(state.operating_mode_bits(), operating_mode_bits);
+            assert_eq!(state.stop_transmit_active(), stop_transmit);
+            assert_eq!(state.stop_receive_active(), stop_receive);
+            assert_eq!(
+                state.source().instruction_pc(),
+                CpuAddress::new(0xa400_00e8)
+            );
+            assert_eq!(state.source().source_gpr(), 0);
+            assert_eq!(state.source().source_lineage(), source_lineage);
+        }
     }
 }
