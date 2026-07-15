@@ -14,8 +14,8 @@ use fn64_core::{
     MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
     MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
     MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
-    PifIpl2Profile, RdramAccessError, SpDmemOffset, PIF_BOOT_ROM_SIZE_BYTES,
-    RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
+    PifIpl2Profile, RdramAccessError, SpDmemOffset, MI_INIT_MODE_X105_WRITE_WORD,
+    PIF_BOOT_ROM_SIZE_BYTES, RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -133,6 +133,19 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: ri-mode-second-loop-delay-slot-ori ok\
 \ncase: generated-x105-ri-mode-sequence ok\
 \ncase: generated-x105-mi-init-frontier ok\
+\ncase: mi-init-mode-store-committed ok\
+\ncase: mi-init-mode-exact-x105-value ok\
+\ncase: mi-init-mode-source-provenance ok\
+\ncase: mi-init-mode-direct-alias ok\
+\ncase: mi-init-mode-unsupported-value-rejection ok\
+\ncase: mi-init-mode-neighbor-target-miss ok\
+\ncase: mi-init-mode-unaligned-ades ok\
+\ncase: mi-init-mode-delay-slot-committed ok\
+\ncase: mi-init-mode-reset-clears ok\
+\ncase: mi-init-mode-bootstrap-clears-stale-state ok\
+\ncase: mi-init-mode-independent-machines ok\
+\ncase: generated-x105-mi-init-committed ok\
+\ncase: generated-x105-rdram-delay-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -246,6 +259,7 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_ri_current_load_routes_and_lifecycle()?;
     probe_ri_select_write_routes_and_lifecycle()?;
     probe_ri_mode_routes_and_lifecycle()?;
+    probe_mi_init_mode_routes_and_lifecycle()?;
     probe_generated_x105_post_mtc0_trio_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
@@ -2919,6 +2933,229 @@ fn probe_ri_mode_routes_and_lifecycle() -> Result<(), StepProbeError> {
     )
 }
 
+fn probe_mi_init_mode_routes_and_lifecycle() -> Result<(), StepProbeError> {
+    const CASE: &str = "mi-init-mode-routes-and-lifecycle";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x010f)),
+        (0x48, immediate_word(0x2b, 12, 9, 0)),
+    ];
+
+    let mut written_machine = None;
+    for base in [0x8430, 0xa430] {
+        let alias_words = [
+            (0x40, immediate_word(0x0f, 0, 12, base)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x010f)),
+            (0x48, immediate_word(0x2b, 12, 9, 0)),
+        ];
+        let (mut machine, _) = generated_cold_x105_machine(CASE, &alias_words)?;
+        require(
+            CASE,
+            machine.mi_init_mode_state().is_none(),
+            "new MI state unavailable",
+        )?;
+        require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+        require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+        require(
+            CASE,
+            matches!(
+                step(&mut machine, CASE)?,
+                MachineRepresentedStepOutcome::MiInitModeStoreCommitted {
+                    effective_address,
+                    target: MachineStoreWordTarget::MiInitMode,
+                    source_gpr: 9,
+                    stored_word: MI_INIT_MODE_X105_WRITE_WORD,
+                    state,
+                    cadence_plan,
+                } if effective_address as u32 == u32::from(base) << 16
+                    && state.init_length() == 15
+                    && state.init_mode()
+                    && state.source().instruction_pc() == CpuAddress::new(0xa400_0048)
+                    && state.source().source_gpr() == 9
+                    && state.source().source_lineage().is_known()
+                    && cadence_plan.advances_count()
+            ),
+            "exact MI_INIT_MODE alias write and provenance",
+        )?;
+        require(
+            CASE,
+            machine.cpu().pc() == 0xa400_004c
+                && machine.cpu().next_pc() == 0xa400_0050
+                && machine.cpu().cop0_count() == 3
+                && machine
+                    .mi_init_mode_state()
+                    .is_some_and(|state| state.init_length() == 15 && state.init_mode()),
+            "MI_INIT_MODE commit cadence and stored state",
+        )?;
+        if base == 0xa430 {
+            written_machine = Some(machine);
+        }
+    }
+
+    let unsupported_words = [
+        (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x010e)),
+        (0x48, immediate_word(0x2b, 12, 9, 0)),
+    ];
+    let (mut unsupported, _) = generated_cold_x105_machine(CASE, &unsupported_words)?;
+    step(&mut unsupported, CASE)?;
+    step(&mut unsupported, CASE)?;
+    let before = (
+        unsupported.cpu().pc(),
+        unsupported.cpu().next_pc(),
+        unsupported.cpu().cop0_count(),
+        unsupported.mi_init_mode_state(),
+        unsupported.ri_select_state(),
+    );
+    match unsupported.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            CASE,
+            rejection.target() == Some(MachineStoreWordTarget::MiInitMode)
+                && rejection.reason()
+                    == MachineStoreWordRejectionReason::MiInitModeValueUnsupported {
+                        transfer_word: 0x010e,
+                    },
+            "unsupported MI_INIT_MODE word rejection",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "unsupported MI_INIT_MODE word rejects"),
+    }
+    require(
+        CASE,
+        before
+            == (
+                unsupported.cpu().pc(),
+                unsupported.cpu().next_pc(),
+                unsupported.cpu().cop0_count(),
+                unsupported.mi_init_mode_state(),
+                unsupported.ri_select_state(),
+            ),
+        "unsupported MI_INIT_MODE word preserves state",
+    )?;
+
+    let neighbor_words = [
+        (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x010f)),
+        (0x48, immediate_word(0x2b, 12, 9, 4)),
+    ];
+    let (mut neighbor, _) = generated_cold_x105_machine(CASE, &neighbor_words)?;
+    step(&mut neighbor, CASE)?;
+    step(&mut neighbor, CASE)?;
+    match neighbor.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            CASE,
+            rejection.cpu_address() == Some(CpuAddress::new(0xa430_0004))
+                && rejection.target().is_none()
+                && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss
+                && neighbor.mi_init_mode_state().is_none(),
+            "nearby MI target stays closed",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "nearby MI target rejects"),
+    }
+
+    let unaligned_words = [
+        (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+        (0x44, immediate_word(0x2b, 12, 0, 1)),
+    ];
+    let (mut unaligned, _) = generated_cold_x105_machine(CASE, &unaligned_words)?;
+    step(&mut unaligned, CASE)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut unaligned, CASE)?,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Sw,
+                effective_address: 0xffff_ffff_a430_0001,
+                address_error,
+                cadence_plan,
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && address_error.bad_vaddr() == CpuAddress::new(0xa430_0001)
+                && !cadence_plan.advances_count()
+        ) && unaligned.mi_init_mode_state().is_none()
+            && unaligned.cpu().cop0_count() == 1,
+        "unaligned MI_INIT_MODE store enters AdES atomically",
+    )?;
+
+    let delay_words = [
+        (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x010f)),
+        (0x48, branch_word(0x04, 0, 0, 1)),
+        (0x4c, immediate_word(0x2b, 12, 9, 0)),
+        (0x50, 0),
+    ];
+    let (mut delay, _) = generated_cold_x105_machine(CASE, &delay_words)?;
+    step(&mut delay, CASE)?;
+    step(&mut delay, CASE)?;
+    require_committed_identity(CASE, step(&mut delay, CASE)?, CpuInstructionIdentity::Beq)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut delay, CASE)?,
+            MachineRepresentedStepOutcome::MiInitModeStoreCommitted { cadence_plan, .. }
+                if cadence_plan.advances_count()
+        ) && delay.cpu().pc() == 0xa400_0050
+            && delay.cpu().next_pc() == 0xa400_0054
+            && delay.cpu().cop0_count() == 4
+            && delay.cpu_delay_slot_context().is_none(),
+        "MI_INIT_MODE delay-slot write uses ordinary cadence",
+    )?;
+
+    let mut first = written_machine.ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "KSEG1 MI state retained for lifecycle proof",
+    })?;
+    let (second, _) = generated_cold_x105_machine(CASE, &words)?;
+    let written = first.mi_init_mode_state();
+    first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
+    let failed_before = (
+        first.cpu().pc(),
+        first.cpu().next_pc(),
+        first.cpu().cop0_count(),
+        first.mi_init_mode_state(),
+        first.ri_select_state(),
+    );
+    require(
+        CASE,
+        matches!(
+            first.stage_cartridge_bootstrap(),
+            Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
+                    profile: PifIpl2Profile::PalPinned,
+                }
+            )
+        ) && failed_before
+            == (
+                first.cpu().pc(),
+                first.cpu().next_pc(),
+                first.cpu().cop0_count(),
+                first.mi_init_mode_state(),
+                first.ri_select_state(),
+            )
+            && first.mi_init_mode_state() == written
+            && second.mi_init_mode_state().is_none(),
+        "failed bootstrap and independent Machine preserve ownership",
+    )?;
+    first.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+    first
+        .stage_cartridge_bootstrap()
+        .map_err(|source| StepProbeError::Bootstrap { case: CASE, source })?;
+    require(
+        CASE,
+        first.mi_init_mode_state().is_none(),
+        "repeated cold bootstrap clears stale MI state and provenance",
+    )?;
+    for _ in 0..3 {
+        step(&mut first, CASE)?;
+    }
+    first.reset();
+    require(
+        CASE,
+        first.mi_init_mode_state().is_none() && second.mi_init_mode_state().is_none(),
+        "general reset clears only the owning Machine MI state",
+    )
+}
+
 fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> {
     const CASE: &str = "generated-x105-post-mtc0-trio-frontier";
     let compare_word = cop0_move_word(4, 0, 11);
@@ -2980,6 +3217,9 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x110, branch_word(0x05, 17, 0, -2)),
         (0x114, immediate_word(0x0d, 0, 9, 0x010f)),
         (0x118, immediate_word(0x2b, 12, 9, 0x0000)),
+        (0x11c, immediate_word(0x0f, 0, 9, 0x1808)),
+        (0x120, immediate_word(0x0d, 9, 9, 0x2838)),
+        (0x124, immediate_word(0x2b, 10, 9, 0x0008)),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -3710,13 +3950,110 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             }),
         "exact MI_INIT_MODE frontier identity",
     )?;
+    let mi_lineage = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(9))
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated MI_INIT_MODE source lineage available",
+        })?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::MiInitModeStoreCommitted {
+                effective_address: 0xffff_ffff_a430_0000,
+                target: MachineStoreWordTarget::MiInitMode,
+                source_gpr: 9,
+                stored_word: MI_INIT_MODE_X105_WRITE_WORD,
+                state,
+                cadence_plan,
+            } if state.init_length() == 15
+                && state.init_mode()
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0118)
+                && state.source().source_gpr() == 9
+                && state.source().source_lineage() == mi_lineage
+                && cadence_plan.advances_count()
+        ) && machine.ri_select_state() == Some(select)
+            && machine.ri_config_state() == Some(config)
+            && machine.ri_current_load_state() == Some(current_load)
+            && machine.ri_mode_state() == Some(second_mode)
+            && machine.cpu().pc() == 0xa400_011c
+            && machine.cpu().next_pc() == 0xa400_0120
+            && machine.cpu().cop0_count() == 32_140,
+        "MI_INIT_MODE exact generated commit and sibling preservation",
+    )?;
+    let mi_state = machine
+        .mi_init_mode_state()
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated MI initialization state available",
+        })?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_156,
+        "generated MI_INIT_MODE committed-step count",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_157
+            && machine.cpu().gpr(9) == Some(0x1808_0000)
+            && machine.cpu().pc() == 0xa400_0120
+            && machine.cpu().next_pc() == 0xa400_0124
+            && machine.cpu().cop0_count() == 32_141,
+        "generated RDRAM_DELAY upper-word construction",
+    )?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    total_committed_steps += 1;
+    let delay_lineage = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(9))
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated RDRAM_DELAY source lineage available",
+        })?;
+    require(
+        CASE,
+        total_committed_steps == 32_158
+            && machine.cpu().gpr(9) == Some(0x1808_2838)
+            && machine.cpu().pc() == 0xa400_0124
+            && machine.cpu().next_pc() == 0xa400_0128
+            && machine.cpu().cop0_count() == 32_142
+            && matches!(
+                delay_lineage,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address,
+                    identity: CpuInstructionIdentity::Ori,
+                    source_gpr_a: Some(9),
+                    source_gpr_b: None,
+                } if execution_address == CpuAddress::new(0xa400_0120)
+            ),
+        "generated RDRAM_DELAY exact word and lineage",
+    )?;
+
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.identity() == CpuInstructionIdentity::Sw
+                    && instruction.fields().rs() == 10
+                    && instruction.fields().rt() == 9
+                    && instruction.fields().immediate_u16() == 8
+            }),
+        "exact RDRAM_DELAY frontier identity",
+    )?;
     let before = (
         machine.cpu().pc(),
         machine.cpu().next_pc(),
         machine.cpu().cop0_count(),
         machine.cpu().gpr(9),
-        machine.cpu().gpr(12),
-        machine.cpu().gpr(17),
+        machine.cpu().gpr(10),
+        machine.mi_init_mode_state(),
         machine.ri_select_state(),
         machine.ri_config_state(),
         machine.ri_current_load_state(),
@@ -3725,14 +4062,14 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
     match machine.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             CASE,
-            rejection.effective_address() == Some(0xffff_ffff_a430_0000)
-                && rejection.cpu_address() == Some(CpuAddress::new(0xa430_0000))
+            rejection.effective_address() == Some(0xffff_ffff_a3f8_0008)
+                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f8_0008))
                 && rejection.target().is_none()
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "MI_INIT_MODE remains an exact unsupported target",
+            "RDRAM_DELAY remains an exact unsupported target",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "MI_INIT_MODE write remains unsupported"),
+        Ok(_) => return assertion(CASE, "RDRAM_DELAY write remains unsupported"),
     }
     require(
         CASE,
@@ -3742,18 +4079,19 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
                 machine.cpu().next_pc(),
                 machine.cpu().cop0_count(),
                 machine.cpu().gpr(9),
-                machine.cpu().gpr(12),
-                machine.cpu().gpr(17),
+                machine.cpu().gpr(10),
+                machine.mi_init_mode_state(),
                 machine.ri_select_state(),
                 machine.ri_config_state(),
                 machine.ri_current_load_state(),
                 machine.ri_mode_state(),
             )
+            && machine.mi_init_mode_state() == Some(mi_state)
             && machine.ri_select_state() == Some(select)
             && machine.ri_config_state() == Some(config)
             && machine.ri_current_load_state() == Some(current_load)
             && machine.ri_mode_state() == Some(second_mode),
-        "MI_INIT_MODE rejection preserves the complete represented frontier",
+        "RDRAM_DELAY rejection preserves the complete represented frontier",
     )
 }
 
