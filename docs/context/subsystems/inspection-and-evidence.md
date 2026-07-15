@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for eighty-seven represented cases, including ordinary
+public `Machine::step` for ninety-nine represented cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -27,8 +27,9 @@ bounded MTC0 mask/cadence/timer/rejection cases, exact RI_SELECT lifecycle/read/
 alias/AdEL/rejection cases, cold BNE/NOP and high-SP-IMEM stack-save cases,
 RI_CONFIG lifecycle/fields/provenance/alias/reserved-bit/AdES/slot cases,
 RI_CURRENT_LOAD dependency/provenance/alias/AdES/slot/lifecycle cases, and
-32,037 generated commits through the exact CPU loop, RI event, and `Ori` to the
-RI_SELECT direct-target miss. The
+exact RI_SELECT write/provenance/read-after-write/value/alias/AdES/slot/
+lifecycle cases, plus 32,038 generated commits through the exact CPU loop and
+RI events to the RI_MODE direct-target miss. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -74,9 +75,10 @@ Public-step proof commits aligned SP-IMEM `Sw` at `0xA4000050`, BLTZ at
 RI_SELECT read at `0xA400008C`, cold BNE/NOP slot, and five high-SP-IMEM stack
 stores. The exact RI_CONFIG `Sw` at `0xA40000C4` commits, then generated
 wait-counter setup and 8,000 four-instruction loop iterations commit.
-RI_CURRENT_LOAD at `0xA40000DC` snapshots stored RI_CONFIG, and the following
-`Ori` produces `0x14`; the RI_SELECT `Sw` at `0xA40000E4` rejects as a direct
-target miss. This is
+RI_CURRENT_LOAD at `0xA40000DC` snapshots stored RI_CONFIG, the following
+`Ori` produces `0x14`, and RI_SELECT `Sw` at `0xA40000E4` commits that exact
+word/provenance. The RI_MODE `Sw` at `0xA40000E8` rejects as a direct target
+miss. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, calibration, RDRAM initialization, or NMI execution.
 

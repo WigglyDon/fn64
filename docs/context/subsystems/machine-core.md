@@ -57,11 +57,12 @@ span and record the exact source cartridge offset; concrete but unclassified
 backing rejects. No serialization format is a product contract yet.
 
 Aligned `Sw` uses a separate Machine plan/application path for SP IMEM or the
-two exact RI_CONFIG and RI_CURRENT_LOAD targets.
+three exact RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets.
 The plan resolves old base, alignment, direct target, old source value, exact
 SP-IMEM span or destination-specific RI state, and CPU-store provenance before
-application. Undefined RI_CONFIG high bits and unavailable RI_CONFIG for an
-RI_CURRENT_LOAD event reject during planning. Application has no
+application. Undefined RI_CONFIG high bits, unavailable RI_CONFIG for an
+RI_CURRENT_LOAD event, and RI_SELECT words other than `0x14` reject during
+planning. Application has no
 fallible operation: it mutates one selected owner, commits control flow once,
 and advances Count once. Rejection restores the captured snapshot; AdES
 delegates to existing sealed COP0 entry.
@@ -77,15 +78,18 @@ RI_CURRENT_LOAD event state separately from bootstrap selectors. Construction
 and general reset leave all unavailable.
 The complete supported cold-x105 plan creates RI_SELECT zero with
 `ColdX105Entry` provenance and leaves both later facts unavailable; repeated
-complete staging clears stale RI_CONFIG and RI_CURRENT_LOAD. The aligned-`Lw`
+complete staging restores that cold value/source and clears stale RI_CONFIG,
+RI_CURRENT_LOAD, and CPU-store provenance. The aligned-`Lw`
 plan reads only RI_SELECT at
 physical `0x0470000C`. The aligned-`Sw` plan writes only RI_CONFIG at physical
-`0x04700004` or RI_CURRENT_LOAD at `0x04700008`. The latter requires and
+`0x04700004`, RI_CURRENT_LOAD at `0x04700008`, or RI_SELECT at `0x0470000C`.
+RI_CURRENT_LOAD requires and
 snapshots stored RI_CONFIG fields while recording the transfer word and
-CPU-store lineage; neither route mutates memory. No path derives RI state from
-reset kind. RI_CONFIG/RI_CURRENT_LOAD reads, RI_SELECT writes,
-current-control output/processing/timing, NMI, generic MMIO, and a bus remain
-absent.
+CPU-store lineage. RI_SELECT accepts only exact `0x14`, replaces value/source
+with CPU-store provenance, and leaves both siblings unchanged; no RI route
+mutates memory. No path derives RI state from reset kind. RI_CONFIG/
+RI_CURRENT_LOAD reads, general RI_SELECT programming, RI_MODE, current-control
+output/processing/timing, NMI, generic MMIO, and a bus remain absent.
 
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
@@ -96,7 +100,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the eighty-seven-case step probe, the bounded BOOT-2
+construction/reset probe, the ninety-nine-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -105,10 +109,10 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,037-step generated composition through the stored RI_SELECT
+handoff and a 32,038-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
-8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, and following
-`Ori`. It stops at the RI_SELECT store target miss and does not prove an
+8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
+`Ori`, and exact RI_SELECT write. It stops at the RI_MODE store target miss and does not prove an
 authentic firmware-executed handoff, RI
 calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
 game compatibility, renderer, audio, performance, or host integration.

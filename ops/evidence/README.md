@@ -39,6 +39,7 @@ Current durable integration records:
 - [Cold-entry RI_SELECT read and generated x105 RI_CONFIG frontier](ri-select-generated-x105-ri-config-frontier-v1/README.md)
 - [RI_CONFIG write and generated x105 RI_CURRENT_LOAD frontier](ri-config-generated-x105-current-load-frontier-v1/README.md)
 - [RI_CURRENT_LOAD event and generated x105 RI_SELECT frontier](ri-current-load-generated-x105-ri-select-frontier-v1/README.md)
+- [Exact RI_SELECT write and generated x105 RI_MODE frontier](ri-select-write-generated-x105-ri-mode-frontier-v1/README.md)
 
 The lineage contract is:
 

@@ -410,6 +410,28 @@ product or reference lane requires a new explicit product decision.
   RI_SELECT write, RI_MODE, authentic execution, BOOT-3, or compatibility is
   represented. BOOT-2 remains highest.
 
+## Era 23 — exact RI_SELECT write and generated RI_MODE frontier (2026-07-14)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned R/W RI_SELECT address and
+  bounded x105 value/order; `LIVE_REPO_FACT`, direct Master evidence, product,
+  and inspection commits; `RUNTIME_FACT`, generated focused tests and public
+  step proof.
+- Write decision: `RI_SELECT_EXACT_X105_VALUE_ONLY`. The public header's
+  duplicated receive/transmit bit range is ambiguous, while the bounded source
+  directly establishes word `0x14` and its enable-TX/RX-select purpose. Other
+  words reject as fn64's unsupported boundary, not a hardware-trap claim.
+- Accepted product increment: exact direct KSEG0/KSEG1 aligned `Sw` aliases of
+  physical `0x0470000C` replace RI_SELECT value/source with `0x14` and exact
+  CPU-store lineage. The existing `Lw` reads the updated state. Reset and
+  repeated cold bootstrap clear stale CPU provenance; RI_CONFIG,
+  RI_CURRENT_LOAD, and memory remain unchanged.
+- Generated composition: commit 32,038 stores `0x14` to RI_SELECT. Final
+  PC/next-PC are `0xA40000E8 / 0xA40000EC`, Count is `32022`, and the next
+  `Sw r0` to RI_MODE at physical `0x04700000` rejects atomically.
+- Proof boundary: no general RI_SELECT fields, RI_MODE, hardware timing,
+  RDRAM initialization, authentic execution, BOOT-3, or compatibility is
+  represented. BOOT-2 remains highest.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

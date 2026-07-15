@@ -61,8 +61,8 @@ provenance; every other byte remains `Unknown`. An aligned big-endian word is
 readable only when all four bytes have represented provenance. Test-only
 staging remains distinct from this production creation event.
 
-Aligned CPU `Sw` now mutates direct SP-IMEM words, exact RI_CONFIG state, or an
-exact RI_CURRENT_LOAD event.
+Aligned CPU `Sw` now mutates direct SP-IMEM words, exact RI_CONFIG state, an
+exact RI_CURRENT_LOAD event, or exact bounded RI_SELECT state.
 A known SP-IMEM source creates four known big-endian bytes even when prior
 bytes were Unknown. Each selected byte receives CPU-store provenance carrying
 instruction PC, source GPR, and source lineage; neighboring value/provenance is
@@ -71,11 +71,14 @@ current-control input bits 5:0, enable bit 6, and the same bounded CPU-store
 lineage; it changes no memory and rejects undefined high bits. RI_CURRENT_LOAD
 at physical `0x04700008` requires the stored configuration, snapshots its
 fields, and records transfer-word/CPU lineage as an update event without a
-hardware output. Reset clears runtime SP bytes to Unknown and all RI facts to
+hardware output. RI_SELECT at physical `0x0470000C` accepts only exact x105
+word `0x14`, replaces its value/source with CPU-store lineage, and preserves
+both sibling facts. Reset clears runtime SP bytes to Unknown and all RI facts to
 unavailable. Complete
 bootstrap restaging replaces copied SP bytes, recreates RI_SELECT zero, and
-clears stale RI_CONFIG and RI_CURRENT_LOAD. RDRAM, SP-DMEM, RI_SELECT writes,
-and other store targets remain unsupported.
+clears stale RI_CONFIG, RI_CURRENT_LOAD, and CPU-written select state. RDRAM,
+SP-DMEM, RI_MODE, general RI_SELECT programming, and other store targets remain
+unsupported.
 
 Lineage is `lawful bytes → normalized layout → named address domain → preflight → storage mutation/read → narrow observable result`. Failed writes must leave no
 ghost state. Synthetic instruction words and small generated fixtures are valid
@@ -83,7 +86,8 @@ proof; user-local ROMs are outside routine inspection and evidence packaging.
 
 Current integration includes represented cartridge facts, narrow bootstrap
 staging, one cartridge-derived instruction commit, SP IMEM storage, optional
-cold-entry RI_SELECT, CPU-written RI_CONFIG, and RI_CURRENT_LOAD event facts,
+cold-entry or exact CPU-written RI_SELECT, CPU-written RI_CONFIG, and
+RI_CURRENT_LOAD event facts,
 narrow KSEG0/KSEG1 CPU-data routes to the
 represented SP memories, and aligned `Lw` over direct RDRAM, known SP IMEM,
 cartridge-staged SP DMEM, or exact physical RI_SELECT `0x0470000C`.
@@ -93,11 +97,11 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,037-step composition through the stored
+handoff and advances a generated 32,038-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
-store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, and following `Ori`.
-The next `Sw` at RI_SELECT rejects as a direct target miss; no other RI
-write/read, calibration/timing process,
+store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
+exact RI_SELECT write. The next `Sw` at RI_MODE rejects as a direct target
+miss; no general RI_SELECT programming or other RI write/read, calibration/timing process,
 NMI, or generic MMIO route exists. It does not establish authentic SP IMEM contents,
 firmware-executed handoff,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
