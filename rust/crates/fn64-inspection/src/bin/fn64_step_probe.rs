@@ -9,13 +9,13 @@ use fn64_core::{
     MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
     MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineRiSelectSource, MachineSpDmemLoadWordProvenance, MachineStepCadenceSource,
-    MachineStepControlFlowAction, MachineStepCountAction,
+    MachineRiModeSource, MachineRiSelectSource, MachineSpDmemLoadWordProvenance,
+    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
     MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
     MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
     MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
     PifIpl2Profile, RdramAccessError, SpDmemOffset, PIF_BOOT_ROM_SIZE_BYTES,
-    RI_SELECT_X105_ENABLE_TX_RX_WORD,
+    RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -116,6 +116,23 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: ri-select-bootstrap-clears-cpu-source ok\
 \ncase: generated-x105-ri-select-committed ok\
 \ncase: generated-x105-ri-mode-frontier ok\
+\ncase: ri-mode-zero-store-committed ok\
+\ncase: ri-mode-defined-fields ok\
+\ncase: ri-mode-standby-stop-store ok\
+\ncase: ri-mode-source-provenance ok\
+\ncase: ri-mode-second-write-replaces-source ok\
+\ncase: ri-mode-direct-alias ok\
+\ncase: ri-mode-reserved-bits-rejection ok\
+\ncase: ri-mode-unaligned-ades ok\
+\ncase: ri-mode-delay-slot-committed ok\
+\ncase: ri-mode-reset-clears ok\
+\ncase: ri-mode-bootstrap-clears-stale-state ok\
+\ncase: ri-mode-independent-machines ok\
+\ncase: ri-mode-four-iteration-wait ok\
+\ncase: ri-mode-thirty-two-iteration-wait ok\
+\ncase: ri-mode-second-loop-delay-slot-ori ok\
+\ncase: generated-x105-ri-mode-sequence ok\
+\ncase: generated-x105-mi-init-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -228,6 +245,7 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_ri_config_routes_and_lifecycle()?;
     probe_ri_current_load_routes_and_lifecycle()?;
     probe_ri_select_write_routes_and_lifecycle()?;
+    probe_ri_mode_routes_and_lifecycle()?;
     probe_generated_x105_post_mtc0_trio_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
@@ -1790,7 +1808,7 @@ fn probe_ri_config_routes_and_lifecycle() -> Result<(), StepProbeError> {
     const MISS_CASE: &str = "ri-config-neighbor-target-miss";
     let words = [
         (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
-        (0x44, immediate_word(0x2b, 8, 0, 0x0000)),
+        (0x44, immediate_word(0x2b, 8, 0, 0x0010)),
     ];
     let (mut miss, _) = generated_cold_x105_machine(MISS_CASE, &words)?;
     step(&mut miss, MISS_CASE)?;
@@ -1804,9 +1822,9 @@ fn probe_ri_config_routes_and_lifecycle() -> Result<(), StepProbeError> {
     match miss.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             MISS_CASE,
-            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0000))
+            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0010))
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RI_MODE remains a direct target miss",
+            "RI_REFRESH remains a direct target miss",
         )?,
         Err(source) => {
             return Err(StepProbeError::Step {
@@ -2092,7 +2110,7 @@ fn probe_ri_current_load_routes_and_lifecycle() -> Result<(), StepProbeError> {
         (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
         (0x44, immediate_word(0x0d, 0, 9, 0x0040)),
         (0x48, immediate_word(0x2b, 8, 9, 0x0004)),
-        (0x4c, immediate_word(0x2b, 8, 9, 0x0000)),
+        (0x4c, immediate_word(0x2b, 8, 9, 0x0010)),
     ];
     let (mut miss, _) = generated_cold_x105_machine(MISS_CASE, &words)?;
     step(&mut miss, MISS_CASE)?;
@@ -2109,9 +2127,9 @@ fn probe_ri_current_load_routes_and_lifecycle() -> Result<(), StepProbeError> {
     match miss.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             MISS_CASE,
-            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0000))
+            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0010))
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RI_MODE remains unsupported",
+            "RI_REFRESH remains unsupported",
         )?,
         Err(source) => {
             return Err(StepProbeError::Step {
@@ -2408,7 +2426,7 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
     const MISS_CASE: &str = "ri-select-neighbor-target-miss";
     let words = [
         (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
-        (0x44, immediate_word(0x2b, 8, 0, 0x0000)),
+        (0x44, immediate_word(0x2b, 8, 0, 0x0010)),
     ];
     let (mut miss, _) = generated_cold_x105_machine(MISS_CASE, &words)?;
     step(&mut miss, MISS_CASE)?;
@@ -2421,9 +2439,9 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
     match miss.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             MISS_CASE,
-            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0000))
+            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0010))
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RI_MODE remains a direct target miss",
+            "RI_REFRESH remains a direct target miss",
         )?,
         Err(source) => {
             return Err(StepProbeError::Step {
@@ -2431,7 +2449,7 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
                 source,
             })
         }
-        Ok(_) => return assertion(MISS_CASE, "RI_MODE write rejected"),
+        Ok(_) => return assertion(MISS_CASE, "RI_REFRESH write rejected"),
     }
     require(
         MISS_CASE,
@@ -2442,7 +2460,7 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
                 miss.cpu().cop0_count(),
                 miss.ri_select_state(),
             ),
-        "RI_MODE rejection rollback",
+        "RI_REFRESH rejection rollback",
     )?;
 
     const ADES_CASE: &str = "ri-select-unaligned-ades";
@@ -2560,6 +2578,347 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
     )
 }
 
+fn probe_ri_mode_routes_and_lifecycle() -> Result<(), StepProbeError> {
+    const CASE: &str = "ri-mode-zero-store-committed";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0x44, immediate_word(0x2b, 8, 0, 0x0000)),
+        (0x48, immediate_word(0x0d, 0, 9, 0x000e)),
+        (0x4c, immediate_word(0x2b, 8, 9, 0x0000)),
+    ];
+    let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    let select_before = machine.ri_select_state();
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RiModeStoreCommitted {
+                effective_address: 0xffff_ffff_a470_0000,
+                target: MachineStoreWordTarget::RiMode,
+                source_gpr: 0,
+                stored_word: 0,
+                state,
+                cadence_plan,
+            } if state.operating_mode_bits() == 0
+                && !state.stop_transmit_active()
+                && !state.stop_receive_active()
+                && state.source()
+                    == MachineRiModeSource::CpuStoreWord {
+                        instruction_pc: CpuAddress::new(0xa400_0044),
+                        source_gpr: 0,
+                        source_lineage: MachineBootstrapGprSource::ArchitecturalZero,
+                    }
+                && cadence_plan.advances_count()
+        ),
+        "zero fields and architectural-zero provenance",
+    )?;
+    let first_state = machine.ri_mode_state().ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "first RI_MODE state available",
+    })?;
+    require(
+        CASE,
+        machine.ri_select_state() == select_before
+            && machine.ri_config_state().is_none()
+            && machine.ri_current_load_state().is_none()
+            && machine.cpu().pc() == 0xa400_0048
+            && machine.cpu().next_pc() == 0xa400_004c
+            && machine.cpu().cop0_count() == 2,
+        "zero write mutates only RI_MODE with one cadence",
+    )?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    let second_lineage = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(9))
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "second RI_MODE source lineage available",
+        })?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RiModeStoreCommitted {
+                target: MachineStoreWordTarget::RiMode,
+                source_gpr: 9,
+                stored_word: 0x0e,
+                state,
+                cadence_plan,
+                ..
+            } if state.operating_mode_bits() == 2
+                && state.stop_transmit_active()
+                && state.stop_receive_active()
+                && state.source()
+                    == MachineRiModeSource::CpuStoreWord {
+                        instruction_pc: CpuAddress::new(0xa400_004c),
+                        source_gpr: 9,
+                        source_lineage: second_lineage,
+                    }
+                && cadence_plan.advances_count()
+        ),
+        "standby fields and replacement CPU-store provenance",
+    )?;
+    let second_state = machine.ri_mode_state().ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "second RI_MODE state available",
+    })?;
+    require(
+        CASE,
+        first_state.source() != second_state.source()
+            && machine.ri_select_state() == select_before
+            && machine.ri_config_state().is_none()
+            && machine.ri_current_load_state().is_none()
+            && machine.cpu().gpr(9) == Some(0x0e)
+            && machine.cpu().cop0_count() == 4,
+        "second write replaces only RI_MODE state and source",
+    )?;
+
+    const FIELDS_CASE: &str = "ri-mode-defined-fields";
+    for word in [0_u16, 2, 4, 8, 0x0e, 0x0f] {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+            (0x44, immediate_word(0x0d, 0, 9, word)),
+            (0x48, immediate_word(0x2b, 8, 9, 0x0000)),
+        ];
+        let (mut fields, _) = generated_cold_x105_machine(FIELDS_CASE, &words)?;
+        step(&mut fields, FIELDS_CASE)?;
+        step(&mut fields, FIELDS_CASE)?;
+        require(
+            FIELDS_CASE,
+            matches!(
+                step(&mut fields, FIELDS_CASE)?,
+                MachineRepresentedStepOutcome::RiModeStoreCommitted {
+                    stored_word,
+                    state,
+                    ..
+                } if stored_word == u32::from(word)
+                    && state.operating_mode_bits() == (word & 0x3) as u8
+                    && state.stop_transmit_active() == (word & 0x4 != 0)
+                    && state.stop_receive_active() == (word & 0x8 != 0)
+            ),
+            "all source-defined low fields are stored without extra semantics",
+        )?;
+    }
+
+    const ALIAS_CASE: &str = "ri-mode-direct-alias";
+    for base in [0x8470_u16, 0xa470_u16] {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, base)),
+            (0x44, immediate_word(0x2b, 8, 0, 0x0000)),
+        ];
+        let (mut alias, _) = generated_cold_x105_machine(ALIAS_CASE, &words)?;
+        step(&mut alias, ALIAS_CASE)?;
+        require(
+            ALIAS_CASE,
+            matches!(
+                step(&mut alias, ALIAS_CASE)?,
+                MachineRepresentedStepOutcome::RiModeStoreCommitted {
+                    target: MachineStoreWordTarget::RiMode,
+                    stored_word: 0,
+                    ..
+                }
+            ),
+            "both direct aliases classify the exact RI_MODE target",
+        )?;
+    }
+
+    const RESERVED_CASE: &str = "ri-mode-reserved-bits-rejection";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x0010)),
+        (0x48, immediate_word(0x2b, 8, 9, 0x0000)),
+    ];
+    let (mut reserved, _) = generated_cold_x105_machine(RESERVED_CASE, &words)?;
+    step(&mut reserved, RESERVED_CASE)?;
+    step(&mut reserved, RESERVED_CASE)?;
+    let before = (
+        reserved.cpu().pc(),
+        reserved.cpu().next_pc(),
+        reserved.cpu().cop0_count(),
+        reserved.cpu().gpr(9),
+        reserved.ri_select_state(),
+        reserved.ri_config_state(),
+        reserved.ri_current_load_state(),
+        reserved.ri_mode_state(),
+    );
+    match reserved.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            RESERVED_CASE,
+            rejection.target() == Some(MachineStoreWordTarget::RiMode)
+                && rejection.reason()
+                    == MachineStoreWordRejectionReason::RiModeReservedBitsUnsupported {
+                        unsupported_bits: 0x10 & !RI_MODE_DEFINED_FIELDS_MASK,
+                    },
+            "undefined high bits reject before mutation",
+        )?,
+        Err(source) => {
+            return Err(StepProbeError::Step {
+                case: RESERVED_CASE,
+                source,
+            })
+        }
+        Ok(_) => return assertion(RESERVED_CASE, "reserved RI_MODE bits rejected"),
+    }
+    require(
+        RESERVED_CASE,
+        before
+            == (
+                reserved.cpu().pc(),
+                reserved.cpu().next_pc(),
+                reserved.cpu().cop0_count(),
+                reserved.cpu().gpr(9),
+                reserved.ri_select_state(),
+                reserved.ri_config_state(),
+                reserved.ri_current_load_state(),
+                reserved.ri_mode_state(),
+            ),
+        "reserved-bit rejection is atomic",
+    )?;
+
+    const ADES_CASE: &str = "ri-mode-unaligned-ades";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0x44, immediate_word(0x2b, 8, 0, 0x0001)),
+    ];
+    let (mut ades, _) = generated_cold_x105_machine(ADES_CASE, &words)?;
+    step(&mut ades, ADES_CASE)?;
+    require(
+        ADES_CASE,
+        matches!(
+            step(&mut ades, ADES_CASE)?,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Sw,
+                effective_address: 0xffff_ffff_a470_0001,
+                address_error,
+                cadence_plan,
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && address_error.bad_vaddr() == CpuAddress::new(0xa470_0001)
+                && !cadence_plan.advances_count()
+        ) && ades.ri_mode_state().is_none()
+            && ades.cpu().cop0_count() == 1,
+        "unaligned RI_MODE uses existing AdES without normal cadence",
+    )?;
+
+    const SLOT_CASE: &str = "ri-mode-delay-slot-committed";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x000e)),
+        (0x48, branch_word(0x04, 0, 0, 1)),
+        (0x4c, immediate_word(0x2b, 8, 9, 0x0000)),
+        (0x50, special_shift_word(0, 0, 0, 0, 0)),
+    ];
+    let (mut slot, _) = generated_cold_x105_machine(SLOT_CASE, &words)?;
+    step(&mut slot, SLOT_CASE)?;
+    step(&mut slot, SLOT_CASE)?;
+    require_committed_identity(
+        SLOT_CASE,
+        step(&mut slot, SLOT_CASE)?,
+        CpuInstructionIdentity::Beq,
+    )?;
+    require(
+        SLOT_CASE,
+        matches!(
+            step(&mut slot, SLOT_CASE)?,
+            MachineRepresentedStepOutcome::RiModeStoreCommitted {
+                stored_word: 0x0e,
+                cadence_plan,
+                ..
+            } if cadence_plan.advances_count()
+        ) && slot.cpu().pc() == 0xa400_0050
+            && slot.cpu().next_pc() == 0xa400_0054
+            && slot.cpu().cop0_count() == 4
+            && slot.cpu_delay_slot_context().is_none(),
+        "delay-slot RI_MODE write commits through existing cadence",
+    )?;
+
+    const LIFECYCLE_CASE: &str = "ri-mode-bootstrap-clears-stale-state";
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x000e)),
+        (0x48, immediate_word(0x2b, 8, 9, 0x0000)),
+    ];
+    let (mut first, _) = generated_cold_x105_machine(LIFECYCLE_CASE, &words)?;
+    let (second, _) = generated_cold_x105_machine(LIFECYCLE_CASE, &words)?;
+    for _ in 0..3 {
+        step(&mut first, LIFECYCLE_CASE)?;
+    }
+    let written = first.ri_mode_state().ok_or(StepProbeError::Assertion {
+        case: LIFECYCLE_CASE,
+        check: "CPU-written RI_MODE available",
+    })?;
+    require(
+        LIFECYCLE_CASE,
+        second.ri_mode_state().is_none(),
+        "RI_MODE state and provenance are per Machine",
+    )?;
+    first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
+    let before_failed_bootstrap = (
+        first.cpu().pc(),
+        first.cpu().next_pc(),
+        first.cpu().cop0_count(),
+        first.ri_select_state(),
+        first.ri_config_state(),
+        first.ri_current_load_state(),
+        first.ri_mode_state(),
+    );
+    require(
+        LIFECYCLE_CASE,
+        matches!(
+            first.stage_cartridge_bootstrap(),
+            Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
+                    profile: PifIpl2Profile::PalPinned,
+                }
+            )
+        ) && first.ri_mode_state() == Some(written),
+        "failed bootstrap preserves CPU-written RI_MODE",
+    )?;
+    require(
+        LIFECYCLE_CASE,
+        before_failed_bootstrap
+            == (
+                first.cpu().pc(),
+                first.cpu().next_pc(),
+                first.cpu().cop0_count(),
+                first.ri_select_state(),
+                first.ri_config_state(),
+                first.ri_current_load_state(),
+                first.ri_mode_state(),
+            ),
+        "failed bootstrap exposes no partial RI lifecycle",
+    )?;
+    first.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+    first
+        .stage_cartridge_bootstrap()
+        .map_err(|source| StepProbeError::Bootstrap {
+            case: LIFECYCLE_CASE,
+            source,
+        })?;
+    require(
+        LIFECYCLE_CASE,
+        first.ri_select_state().is_some_and(|state| {
+            state.value() == 0 && state.source() == MachineRiSelectSource::ColdX105Entry
+        }) && first.ri_config_state().is_none()
+            && first.ri_current_load_state().is_none()
+            && first.ri_mode_state().is_none(),
+        "successful rebootstrap clears stale RI_MODE and provenance",
+    )?;
+    for _ in 0..3 {
+        step(&mut first, LIFECYCLE_CASE)?;
+    }
+    first.reset();
+    require(
+        LIFECYCLE_CASE,
+        first.ri_select_state().is_none()
+            && first.ri_config_state().is_none()
+            && first.ri_current_load_state().is_none()
+            && first.ri_mode_state().is_none()
+            && second.ri_mode_state().is_none(),
+        "general reset clears RI_MODE for one Machine only",
+    )
+}
+
 fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> {
     const CASE: &str = "generated-x105-post-mtc0-trio-frontier";
     let compare_word = cop0_move_word(4, 0, 11);
@@ -2609,6 +2968,18 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0xe0, immediate_word(0x0d, 0, 9, 0x0014)),
         (0xe4, immediate_word(0x2b, 8, 9, 0x000c)),
         (0xe8, immediate_word(0x2b, 8, 0, 0x0000)),
+        (0xec, immediate_word(0x09, 0, 17, 4)),
+        (0xf0, special_shift_word(0, 0, 0, 0, 0)),
+        (0xf4, immediate_word(0x08, 17, 17, 0xffff)),
+        (0xf8, branch_word(0x05, 17, 0, -3)),
+        (0xfc, special_shift_word(0, 0, 0, 0, 0)),
+        (0x100, immediate_word(0x0d, 0, 9, 0x000e)),
+        (0x104, immediate_word(0x2b, 8, 9, 0x0000)),
+        (0x108, immediate_word(0x09, 0, 17, 32)),
+        (0x10c, immediate_word(0x08, 17, 17, 0xffff)),
+        (0x110, branch_word(0x05, 17, 0, -2)),
+        (0x114, immediate_word(0x0d, 0, 9, 0x010f)),
+        (0x118, immediate_word(0x2b, 12, 9, 0x0000)),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -3065,25 +3436,303 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         "RI_SELECT commit cadence and sibling preservation at 32,038 commits",
     )?;
 
+    let mut total_committed_steps = 32_038_u32;
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.identity() == CpuInstructionIdentity::Sw
+                    && instruction.fields().rs() == 8
+                    && instruction.fields().rt() == 0
+                    && instruction.fields().immediate_u16() == 0
+            })
+            && machine.ri_mode_state().is_none(),
+        "exact first RI_MODE frontier identity",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RiModeStoreCommitted {
+                effective_address: 0xffff_ffff_a470_0000,
+                target: MachineStoreWordTarget::RiMode,
+                source_gpr: 0,
+                stored_word: 0,
+                state,
+                cadence_plan,
+            } if state.operating_mode_bits() == 0
+                && !state.stop_transmit_active()
+                && !state.stop_receive_active()
+                && state.source()
+                    == MachineRiModeSource::CpuStoreWord {
+                        instruction_pc: CpuAddress::new(0xa400_00e8),
+                        source_gpr: 0,
+                        source_lineage: MachineBootstrapGprSource::ArchitecturalZero,
+                    }
+                && cadence_plan.advances_count()
+        ),
+        "generated first RI_MODE write",
+    )?;
+    let first_mode = machine.ri_mode_state().ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "generated first RI_MODE state available",
+    })?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_039
+            && machine.cpu().pc() == 0xa400_00ec
+            && machine.cpu().next_pc() == 0xa400_00f0
+            && machine.cpu().cop0_count() == 32_023
+            && machine.ri_select_state() == Some(select)
+            && machine.ri_config_state() == Some(config)
+            && machine.ri_current_load_state() == Some(current_load),
+        "first RI_MODE cadence and sibling preservation",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_040
+            && machine.cpu().gpr(17) == Some(4)
+            && machine.cpu().pc() == 0xa400_00f0
+            && machine.cpu().next_pc() == 0xa400_00f4
+            && machine.cpu().cop0_count() == 32_024,
+        "first wait counter setup",
+    )?;
+
+    let mut first_loop_commits = 0_u32;
+    let mut first_taken = 0_u32;
+    let mut first_untaken = 0_u32;
+    let mut first_slots = 0_u32;
+    for iteration in 0..4_u32 {
+        require_committed_identity(
+            CASE,
+            step(&mut machine, CASE)?,
+            CpuInstructionIdentity::SpecialSll,
+        )?;
+        first_loop_commits += 1;
+        require_committed_identity(
+            CASE,
+            step(&mut machine, CASE)?,
+            CpuInstructionIdentity::Addi,
+        )?;
+        first_loop_commits += 1;
+        require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Bne)?;
+        first_loop_commits += 1;
+        let selected_next_pc = if iteration == 3 {
+            first_untaken += 1;
+            0xa400_0100
+        } else {
+            first_taken += 1;
+            0xa400_00f0
+        };
+        require(
+            CASE,
+            machine.cpu().pc() == 0xa400_00fc
+                && machine.cpu().next_pc() == selected_next_pc
+                && machine.cpu_delay_slot_context().is_some(),
+            "first wait branch selects one ordinary delay slot",
+        )?;
+        require_committed_identity(
+            CASE,
+            step(&mut machine, CASE)?,
+            CpuInstructionIdentity::SpecialSll,
+        )?;
+        first_loop_commits += 1;
+        first_slots += 1;
+        require(
+            CASE,
+            machine.ri_mode_state() == Some(first_mode),
+            "first RI_MODE state remains stable through CPU wait",
+        )?;
+    }
+    total_committed_steps += first_loop_commits;
+    require(
+        CASE,
+        first_loop_commits == 16
+            && first_taken == 3
+            && first_untaken == 1
+            && first_slots == 4
+            && total_committed_steps == 32_056
+            && machine.cpu().gpr(17) == Some(0)
+            && machine.cpu().pc() == 0xa400_0100
+            && machine.cpu().next_pc() == 0xa400_0104
+            && machine.cpu().cop0_count() == 32_040
+            && machine.cpu_delay_slot_context().is_none(),
+        "exact four-iteration CPU composition",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_057
+            && machine.cpu().gpr(9) == Some(0x0e)
+            && machine.cpu().pc() == 0xa400_0104
+            && machine.cpu().next_pc() == 0xa400_0108
+            && machine.cpu().cop0_count() == 32_041,
+        "second RI_MODE word construction",
+    )?;
+    let second_mode_lineage = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(9))
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated second RI_MODE lineage available",
+        })?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RiModeStoreCommitted {
+                effective_address: 0xffff_ffff_a470_0000,
+                target: MachineStoreWordTarget::RiMode,
+                source_gpr: 9,
+                stored_word: 0x0e,
+                state,
+                cadence_plan,
+            } if state.operating_mode_bits() == 2
+                && state.stop_transmit_active()
+                && state.stop_receive_active()
+                && state.source()
+                    == MachineRiModeSource::CpuStoreWord {
+                        instruction_pc: CpuAddress::new(0xa400_0104),
+                        source_gpr: 9,
+                        source_lineage: second_mode_lineage,
+                    }
+                && cadence_plan.advances_count()
+        ),
+        "generated second RI_MODE write",
+    )?;
+    let second_mode = machine.ri_mode_state().ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "generated second RI_MODE state available",
+    })?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_058
+            && first_mode.source() != second_mode.source()
+            && machine.cpu().pc() == 0xa400_0108
+            && machine.cpu().next_pc() == 0xa400_010c
+            && machine.cpu().cop0_count() == 32_042
+            && machine.ri_select_state() == Some(select)
+            && machine.ri_config_state() == Some(config)
+            && machine.ri_current_load_state() == Some(current_load),
+        "second RI_MODE replacement and sibling preservation",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_059
+            && machine.cpu().gpr(17) == Some(32)
+            && machine.cpu().pc() == 0xa400_010c
+            && machine.cpu().next_pc() == 0xa400_0110
+            && machine.cpu().cop0_count() == 32_043,
+        "second wait counter setup",
+    )?;
+
+    let mut second_loop_commits = 0_u32;
+    let mut second_taken = 0_u32;
+    let mut second_untaken = 0_u32;
+    let mut second_slots = 0_u32;
+    for iteration in 0..32_u32 {
+        require_committed_identity(
+            CASE,
+            step(&mut machine, CASE)?,
+            CpuInstructionIdentity::Addi,
+        )?;
+        second_loop_commits += 1;
+        require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Bne)?;
+        second_loop_commits += 1;
+        let selected_next_pc = if iteration == 31 {
+            second_untaken += 1;
+            0xa400_0118
+        } else {
+            second_taken += 1;
+            0xa400_010c
+        };
+        require(
+            CASE,
+            machine.cpu().pc() == 0xa400_0114
+                && machine.cpu().next_pc() == selected_next_pc
+                && machine.cpu_delay_slot_context().is_some(),
+            "second wait schedules ORI as its ordinary delay slot",
+        )?;
+        require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+        second_loop_commits += 1;
+        second_slots += 1;
+        require(
+            CASE,
+            machine.cpu().gpr(9) == Some(0x10f) && machine.ri_mode_state() == Some(second_mode),
+            "delay-slot ORI and second RI_MODE state remain exact",
+        )?;
+    }
+    total_committed_steps += second_loop_commits;
+    require(
+        CASE,
+        second_loop_commits == 96
+            && second_taken == 31
+            && second_untaken == 1
+            && second_slots == 32
+            && total_committed_steps == 32_155
+            && machine.cpu().gpr(17) == Some(0)
+            && machine.cpu().gpr(9) == Some(0x10f)
+            && machine.cpu().pc() == 0xa400_0118
+            && machine.cpu().next_pc() == 0xa400_011c
+            && machine.cpu().cop0_count() == 32_139
+            && machine.cpu_delay_slot_context().is_none(),
+        "exact thirty-two-iteration CPU composition and delay slots",
+    )?;
+
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.identity() == CpuInstructionIdentity::Sw
+                    && instruction.fields().rs() == 12
+                    && instruction.fields().rt() == 9
+                    && instruction.fields().immediate_u16() == 0
+            }),
+        "exact MI_INIT_MODE frontier identity",
+    )?;
     let before = (
         machine.cpu().pc(),
         machine.cpu().next_pc(),
         machine.cpu().cop0_count(),
         machine.cpu().gpr(9),
+        machine.cpu().gpr(12),
+        machine.cpu().gpr(17),
         machine.ri_select_state(),
         machine.ri_config_state(),
         machine.ri_current_load_state(),
+        machine.ri_mode_state(),
     );
     match machine.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             CASE,
-            rejection.effective_address() == Some(0xffff_ffff_a470_0000)
-                && rejection.cpu_address() == Some(CpuAddress::new(0xa470_0000))
+            rejection.effective_address() == Some(0xffff_ffff_a430_0000)
+                && rejection.cpu_address() == Some(CpuAddress::new(0xa430_0000))
+                && rejection.target().is_none()
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RI_MODE write frontier",
+            "MI_INIT_MODE remains an exact unsupported target",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "RI_MODE write remains unsupported"),
+        Ok(_) => return assertion(CASE, "MI_INIT_MODE write remains unsupported"),
     }
     require(
         CASE,
@@ -3093,14 +3742,18 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
                 machine.cpu().next_pc(),
                 machine.cpu().cop0_count(),
                 machine.cpu().gpr(9),
+                machine.cpu().gpr(12),
+                machine.cpu().gpr(17),
                 machine.ri_select_state(),
                 machine.ri_config_state(),
                 machine.ri_current_load_state(),
+                machine.ri_mode_state(),
             )
             && machine.ri_select_state() == Some(select)
             && machine.ri_config_state() == Some(config)
-            && machine.ri_current_load_state() == Some(current_load),
-        "RI_MODE rejection rollback at 32,038 commits",
+            && machine.ri_current_load_state() == Some(current_load)
+            && machine.ri_mode_state() == Some(second_mode),
+        "MI_INIT_MODE rejection preserves the complete represented frontier",
     )
 }
 
