@@ -18581,7 +18581,7 @@ mod tests {
         );
         assert_eq!(lw_snapshot(&no_read), before);
 
-        for address in [0x83f0_0008, 0xa3f0_0008, 0xa3f8_0004, 0xa3f8_000c] {
+        for address in [0x83f0_0008, 0xa3f0_0008, 0xa3f8_0000, 0xa3f8_000c] {
             assert_eq!(
                 classify_store_word_target(CpuAddress::new(address)),
                 Err(MachineStoreWordTargetError::DirectTargetMiss {
@@ -19237,7 +19237,10 @@ mod tests {
         let first_request = first.rdram_broadcast_device_id_request_state().unwrap();
         assert_eq!(first_request.requested_physical_base(), 0x0200_0000);
         assert_eq!(first.rdram_broadcast_delay_state(), Some(delay_state));
-        assert_eq!(first.rdram_broadcast_refresh_row_state(), Some(refresh_row_state));
+        assert_eq!(
+            first.rdram_broadcast_refresh_row_state(),
+            Some(refresh_row_state)
+        );
         assert_eq!(first.mi_init_mode_state(), None);
         assert_eq!(first.mi_init_transfer_state(), None);
         let after_first = lw_snapshot(&first);
@@ -19253,18 +19256,26 @@ mod tests {
         first.step().unwrap();
         let second_request = first.rdram_broadcast_device_id_request_state().unwrap();
         assert_ne!(second_request.source(), first_request.source());
-        assert_eq!(second_request.source().instruction_pc(), CpuAddress::new(0xa400_006c));
+        assert_eq!(
+            second_request.source().instruction_pc(),
+            CpuAddress::new(0xa400_006c)
+        );
         assert_eq!(first.rdram_broadcast_delay_state(), Some(delay_state));
-        assert_eq!(first.rdram_broadcast_refresh_row_state(), Some(refresh_row_state));
+        assert_eq!(
+            first.rdram_broadcast_refresh_row_state(),
+            Some(refresh_row_state)
+        );
         assert_eq!(second.rdram_broadcast_device_id_request_state(), None);
 
         first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
         let before_failed_bootstrap = lw_snapshot(&first);
         assert!(matches!(
             first.stage_cartridge_bootstrap(),
-            Err(MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
-                profile: PifIpl2Profile::PalPinned,
-            })
+            Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
+                    profile: PifIpl2Profile::PalPinned,
+                }
+            )
         ));
         assert_eq!(lw_snapshot(&first), before_failed_bootstrap);
         assert_eq!(
@@ -20157,7 +20168,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_advances_through_mtc0_trio_to_ri_frontier() {
+    fn generated_x105_composition_advances_through_mtc0_trio_to_mi_version_frontier() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
@@ -20244,6 +20255,21 @@ mod tests {
             (0x128, sw_word(10, 0, 0x0014)),
             (0x12c, immediate_word(0x0f, 0, 9, 0x8000)),
             (0x130, sw_word(10, 9, 0x0004)),
+            (0x134, special_shift_word(0, 0, 13, 0, 0x21)),
+            (0x138, special_shift_word(0, 0, 14, 0, 0x21)),
+            (0x13c, immediate_word(0x0f, 0, 15, 0xa3f0)),
+            (0x140, special_shift_word(0, 0, 24, 0, 0x21)),
+            (0x144, immediate_word(0x0f, 0, 25, 0xa3f0)),
+            (0x148, immediate_word(0x0f, 0, 22, 0xa000)),
+            (0x14c, special_shift_word(0, 0, 23, 0, 0x21)),
+            (0x150, immediate_word(0x0f, 0, 6, 0xa3f0)),
+            (0x154, immediate_word(0x0f, 0, 7, 0xa000)),
+            (0x158, special_shift_word(0, 0, 18, 0, 0x21)),
+            (0x15c, immediate_word(0x0f, 0, 20, 0xa000)),
+            (0x160, immediate_word(0x09, 29, 29, 0xffb8)),
+            (0x164, special_shift_word(29, 0, 30, 0, 0x21)),
+            (0x168, immediate_word(0x0f, 0, 1, 0xa430)),
+            (0x16c, lw_word(1, 16, 0x0004)),
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -21153,21 +21179,38 @@ mod tests {
         assert_eq!(inspection.fields().rs(), 10);
         assert_eq!(inspection.fields().rt(), 9);
         assert_eq!(inspection.fields().immediate_u16(), 0x0004);
-        let before_device_id_frontier = lw_snapshot(&machine);
-        let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
-        assert_eq!(rejection.effective_address(), Some(0xffff_ffff_a3f8_0004));
-        assert_eq!(rejection.cpu_address(), Some(CpuAddress::new(0xa3f8_0004)));
-        assert_eq!(rejection.target(), None);
-        assert_eq!(
-            rejection.reason(),
-            MachineStoreWordRejectionReason::DirectTargetMiss
-        );
-        assert_eq!(lw_snapshot(&machine), before_device_id_frontier);
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted {
+                effective_address: 0xffff_ffff_a3f8_0004,
+                target: MachineStoreWordTarget::RdramBroadcastDeviceId,
+                source_gpr: 9,
+                stored_word: RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD,
+                state,
+                cadence_plan,
+            }) if state.raw_cpu_word() == RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD
+                && state.requested_physical_base()
+                    == crate::rdram::RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE
+                && state.aperture()
+                    == crate::rdram::MachineRdramBroadcastDeviceIdAperture::GlobalBroadcast
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0130)
+                && state.source().source_gpr() == 9
+                && state.source().source_lineage() == device_id_lineage
+                && state.source().effective_address() == 0xffff_ffff_a3f8_0004
+                && state.source().cpu_address() == CpuAddress::new(0xa3f8_0004)
+                && state.source().physical_address()
+                    == RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS
+                && cadence_plan.advances_count()
+        ));
+        total_committed_steps += 1;
+        let device_id_request = machine.rdram_broadcast_device_id_request_state().unwrap();
+        assert_eq!(total_committed_steps, 32_162);
+        assert_eq!(machine.cpu().pc(), 0xa400_0134);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0138);
+        assert_eq!(machine.cpu().cop0_count(), 32_146);
         assert_eq!(machine.cpu().gpr(9), Some(0xffff_ffff_8000_0000));
-        assert_eq!(
-            machine.cartridge_bootstrap_state().unwrap().gpr_source(9),
-            Some(device_id_lineage)
-        );
+        assert_eq!(machine.mi_init_mode_state(), None);
+        assert_eq!(machine.mi_init_transfer_state(), None);
         assert_eq!(
             machine.rdram_broadcast_refresh_row_state(),
             Some(refresh_row_after_store)
@@ -21175,6 +21218,110 @@ mod tests {
         assert_eq!(
             machine.rdram_broadcast_delay_state(),
             Some(delay_after_store)
+        );
+
+        let setup = [
+            (
+                0xa400_0134,
+                0x0000_6821,
+                CpuInstructionIdentity::SpecialAddu,
+            ),
+            (
+                0xa400_0138,
+                0x0000_7021,
+                CpuInstructionIdentity::SpecialAddu,
+            ),
+            (0xa400_013c, 0x3c0f_a3f0, CpuInstructionIdentity::Lui),
+            (
+                0xa400_0140,
+                0x0000_c021,
+                CpuInstructionIdentity::SpecialAddu,
+            ),
+            (0xa400_0144, 0x3c19_a3f0, CpuInstructionIdentity::Lui),
+            (0xa400_0148, 0x3c16_a000, CpuInstructionIdentity::Lui),
+            (
+                0xa400_014c,
+                0x0000_b821,
+                CpuInstructionIdentity::SpecialAddu,
+            ),
+            (0xa400_0150, 0x3c06_a3f0, CpuInstructionIdentity::Lui),
+            (0xa400_0154, 0x3c07_a000, CpuInstructionIdentity::Lui),
+            (
+                0xa400_0158,
+                0x0000_9021,
+                CpuInstructionIdentity::SpecialAddu,
+            ),
+            (0xa400_015c, 0x3c14_a000, CpuInstructionIdentity::Lui),
+            (0xa400_0160, 0x27bd_ffb8, CpuInstructionIdentity::Addiu),
+            (
+                0xa400_0164,
+                0x03a0_f021,
+                CpuInstructionIdentity::SpecialAddu,
+            ),
+            (0xa400_0168, 0x3c01_a430, CpuInstructionIdentity::Lui),
+        ];
+        for (pc, raw_word, identity) in setup {
+            let inspection = machine.inspect_current_cpu_instruction().unwrap();
+            assert_eq!(inspection.cpu_address(), CpuAddress::new(pc));
+            assert_eq!(inspection.fields().raw().bits(), raw_word);
+            assert_eq!(inspection.identity(), identity);
+            assert_eq!(machine.step().unwrap().identity(), Some(identity));
+            total_committed_steps += 1;
+        }
+
+        let address_lineage = machine
+            .cartridge_bootstrap_state()
+            .unwrap()
+            .gpr_source(1)
+            .unwrap();
+        assert_eq!(total_committed_steps, 32_176);
+        assert_eq!(machine.cpu().pc(), 0xa400_016c);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0170);
+        assert_eq!(machine.cpu().cop0_count(), 32_160);
+        assert_eq!(machine.cpu().gpr(13), Some(0));
+        assert_eq!(machine.cpu().gpr(14), Some(0));
+        assert_eq!(machine.cpu().gpr(15), Some(0xffff_ffff_a3f0_0000));
+        assert_eq!(machine.cpu().gpr(24), Some(0));
+        assert_eq!(machine.cpu().gpr(25), Some(0xffff_ffff_a3f0_0000));
+        assert_eq!(machine.cpu().gpr(22), Some(0xffff_ffff_a000_0000));
+        assert_eq!(machine.cpu().gpr(23), Some(0));
+        assert_eq!(machine.cpu().gpr(6), Some(0xffff_ffff_a3f0_0000));
+        assert_eq!(machine.cpu().gpr(7), Some(0xffff_ffff_a000_0000));
+        assert_eq!(machine.cpu().gpr(18), Some(0));
+        assert_eq!(machine.cpu().gpr(20), Some(0xffff_ffff_a000_0000));
+        assert_eq!(machine.cpu().gpr(29), Some(0xffff_ffff_a400_1f90));
+        assert_eq!(machine.cpu().gpr(30), Some(0xffff_ffff_a400_1f90));
+        assert_eq!(machine.cpu().gpr(1), Some(0xffff_ffff_a430_0000));
+        assert!(matches!(
+            address_lineage,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address,
+                identity: CpuInstructionIdentity::Lui,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            } if execution_address == CpuAddress::new(0xa400_0168)
+        ));
+
+        let inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(inspection.cpu_address(), CpuAddress::new(0xa400_016c));
+        assert_eq!(inspection.fields().raw().bits(), 0x8c30_0004);
+        assert_eq!(inspection.identity(), CpuInstructionIdentity::Lw);
+        assert_eq!(inspection.fields().rs(), 1);
+        assert_eq!(inspection.fields().rt(), 16);
+        assert_eq!(inspection.fields().immediate_u16(), 4);
+        let before_mi_version_frontier = lw_snapshot(&machine);
+        let rejection = machine.step().unwrap_err().load_word_rejection().unwrap();
+        assert_eq!(rejection.effective_address(), 0xffff_ffff_a430_0004);
+        assert_eq!(rejection.cpu_address(), CpuAddress::new(0xa430_0004));
+        assert_eq!(rejection.target(), None);
+        assert_eq!(
+            rejection.reason(),
+            MachineLoadWordRejectionReason::DirectTargetMiss
+        );
+        assert_eq!(lw_snapshot(&machine), before_mi_version_frontier);
+        assert_eq!(
+            machine.rdram_broadcast_device_id_request_state(),
+            Some(device_id_request)
         );
     }
 

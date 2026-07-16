@@ -20,8 +20,7 @@ use fn64_core::{
     RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
     RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
     RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD, RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE,
-    RDRAM_REF_ROW_X105_WRITE_WORD,
-    RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
+    RDRAM_REF_ROW_X105_WRITE_WORD, RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
 const DIRECT_CPU_PC: u32 = 0x8000_0000;
@@ -4312,12 +4311,13 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         "RDRAM_DEVICE_ID generated request commit and provenance",
     )?;
     total_committed_steps += 1;
-    let device_id_request = machine
-        .rdram_broadcast_device_id_request_state()
-        .ok_or(StepProbeError::Assertion {
-            case: CASE,
-            check: "generated RDRAM device-ID request available",
-        })?;
+    let device_id_request =
+        machine
+            .rdram_broadcast_device_id_request_state()
+            .ok_or(StepProbeError::Assertion {
+                case: CASE,
+                check: "generated RDRAM device-ID request available",
+            })?;
     require(
         CASE,
         total_committed_steps == 32_162
@@ -4351,19 +4351,43 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
     )?;
 
     let setup = [
-        (0xa400_0134, 0x0000_6821, CpuInstructionIdentity::SpecialAddu),
-        (0xa400_0138, 0x0000_7021, CpuInstructionIdentity::SpecialAddu),
+        (
+            0xa400_0134,
+            0x0000_6821,
+            CpuInstructionIdentity::SpecialAddu,
+        ),
+        (
+            0xa400_0138,
+            0x0000_7021,
+            CpuInstructionIdentity::SpecialAddu,
+        ),
         (0xa400_013c, 0x3c0f_a3f0, CpuInstructionIdentity::Lui),
-        (0xa400_0140, 0x0000_c021, CpuInstructionIdentity::SpecialAddu),
+        (
+            0xa400_0140,
+            0x0000_c021,
+            CpuInstructionIdentity::SpecialAddu,
+        ),
         (0xa400_0144, 0x3c19_a3f0, CpuInstructionIdentity::Lui),
         (0xa400_0148, 0x3c16_a000, CpuInstructionIdentity::Lui),
-        (0xa400_014c, 0x0000_b821, CpuInstructionIdentity::SpecialAddu),
+        (
+            0xa400_014c,
+            0x0000_b821,
+            CpuInstructionIdentity::SpecialAddu,
+        ),
         (0xa400_0150, 0x3c06_a3f0, CpuInstructionIdentity::Lui),
         (0xa400_0154, 0x3c07_a000, CpuInstructionIdentity::Lui),
-        (0xa400_0158, 0x0000_9021, CpuInstructionIdentity::SpecialAddu),
+        (
+            0xa400_0158,
+            0x0000_9021,
+            CpuInstructionIdentity::SpecialAddu,
+        ),
         (0xa400_015c, 0x3c14_a000, CpuInstructionIdentity::Lui),
         (0xa400_0160, 0x27bd_ffb8, CpuInstructionIdentity::Addiu),
-        (0xa400_0164, 0x03a0_f021, CpuInstructionIdentity::SpecialAddu),
+        (
+            0xa400_0164,
+            0x03a0_f021,
+            CpuInstructionIdentity::SpecialAddu,
+        ),
         (0xa400_0168, 0x3c01_a430, CpuInstructionIdentity::Lui),
     ];
     for (pc, raw_word, identity) in setup {

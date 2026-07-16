@@ -601,7 +601,9 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::RiModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::MiInitModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. }
-                    | MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted { .. }
+                    | MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted {
+                        ..
+                    }
                     | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted {
                         ..
                     }
