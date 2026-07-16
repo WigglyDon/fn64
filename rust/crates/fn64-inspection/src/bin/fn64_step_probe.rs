@@ -8,7 +8,8 @@ use fn64_core::{
     MachineCpuInstructionFetchError, MachineLoadWordRejectionReason, MachineLoadWordTarget,
     MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRdramBroadcastRefreshRowAperture, MachineRepresentedStepError,
+    MachinePifVersionBit, MachineRdramBroadcastDeviceIdAperture,
+    MachineRdramBroadcastRefreshRowAperture, MachineRepresentedStepError,
     MachineRepresentedStepOutcome, MachineRiModeSource, MachineRiSelectSource,
     MachineSpDmemLoadWordProvenance, MachineStepCadenceSource, MachineStepControlFlowAction,
     MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory,
@@ -16,8 +17,10 @@ use fn64_core::{
     MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
     PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
     MI_INIT_MODE_X105_WRITE_WORD, PIF_BOOT_ROM_SIZE_BYTES,
-    RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
-    RDRAM_DELAY_X105_LOGICAL_CONFIGURATION, RDRAM_REF_ROW_X105_WRITE_WORD,
+    RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
+    RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
+    RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD, RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE,
+    RDRAM_REF_ROW_X105_WRITE_WORD,
     RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
@@ -163,7 +166,13 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: rdram-ref-row-transfer-absent ok\
 \ncase: generated-x105-rdram-ref-row-committed ok\
 \ncase: generated-x105-device-id-value ok\
-\ncase: generated-x105-device-id-frontier ok\
+\ncase: rdram-device-id-store-committed ok\
+\ncase: rdram-device-id-requested-base ok\
+\ncase: rdram-device-id-source-provenance ok\
+\ncase: rdram-device-id-prior-state-preserved ok\
+\ncase: generated-x105-rdram-device-id-committed ok\
+\ncase: generated-x105-mi-version-setup ok\
+\ncase: generated-x105-mi-version-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -3241,6 +3250,21 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x128, immediate_word(0x2b, 10, 0, 0x0014)),
         (0x12c, immediate_word(0x0f, 0, 9, 0x8000)),
         (0x130, immediate_word(0x2b, 10, 9, 0x0004)),
+        (0x134, special_word(0, 0, 13, 0x21)),
+        (0x138, special_word(0, 0, 14, 0x21)),
+        (0x13c, immediate_word(0x0f, 0, 15, 0xa3f0)),
+        (0x140, special_word(0, 0, 24, 0x21)),
+        (0x144, immediate_word(0x0f, 0, 25, 0xa3f0)),
+        (0x148, immediate_word(0x0f, 0, 22, 0xa000)),
+        (0x14c, special_word(0, 0, 23, 0x21)),
+        (0x150, immediate_word(0x0f, 0, 6, 0xa3f0)),
+        (0x154, immediate_word(0x0f, 0, 7, 0xa000)),
+        (0x158, special_word(0, 0, 18, 0x21)),
+        (0x15c, immediate_word(0x0f, 0, 20, 0xa000)),
+        (0x160, immediate_word(0x09, 29, 29, 0xffb8)),
+        (0x164, special_word(29, 0, 30, 0x21)),
+        (0x168, immediate_word(0x0f, 0, 1, 0xa430)),
+        (0x16c, immediate_word(0x23, 1, 16, 0x0004)),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -4247,61 +4271,239 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             }),
         "exact global RDRAM_DEVICE_ID frontier identity",
     )?;
-    let before_cpu = (
-        machine.cpu().pc(),
-        machine.cpu().next_pc(),
-        machine.cpu().cop0_count(),
-        machine.cpu().gpr(0),
-        machine.cpu().gpr(9),
-        machine.cpu().gpr(10),
-    );
-    let before_devices = (
+    let rdram_samples_before = [
+        machine
+            .rdram()
+            .read_u32_be(0)
+            .map_err(|source| StepProbeError::Rdram { case: CASE, source })?,
+        machine
+            .rdram()
+            .read_u32_be(0x100)
+            .map_err(|source| StepProbeError::Rdram { case: CASE, source })?,
+        machine
+            .rdram()
+            .read_u32_be(0x3f_fffc)
+            .map_err(|source| StepProbeError::Rdram { case: CASE, source })?,
+    ];
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted {
+                effective_address: 0xffff_ffff_a3f8_0004,
+                target: MachineStoreWordTarget::RdramBroadcastDeviceId,
+                source_gpr: 9,
+                stored_word: RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD,
+                state,
+                cadence_plan,
+            } if state.raw_cpu_word() == RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD
+                && state.requested_physical_base()
+                    == RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE
+                && state.aperture() == MachineRdramBroadcastDeviceIdAperture::GlobalBroadcast
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0130)
+                && state.source().source_gpr() == 9
+                && state.source().source_lineage() == device_id_lineage
+                && state.source().effective_address() == 0xffff_ffff_a3f8_0004
+                && state.source().cpu_address() == CpuAddress::new(0xa3f8_0004)
+                && state.source().physical_address()
+                    == RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS
+                && cadence_plan.advances_count()
+        ),
+        "RDRAM_DEVICE_ID generated request commit and provenance",
+    )?;
+    total_committed_steps += 1;
+    let device_id_request = machine
+        .rdram_broadcast_device_id_request_state()
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated RDRAM device-ID request available",
+        })?;
+    require(
+        CASE,
+        total_committed_steps == 32_162
+            && machine.cpu().pc() == 0xa400_0134
+            && machine.cpu().next_pc() == 0xa400_0138
+            && machine.cpu().cop0_count() == 32_146
+            && machine.cpu().gpr(9) == Some(0xffff_ffff_8000_0000)
+            && machine.mi_init_mode_state().is_none()
+            && machine.mi_init_transfer_state().is_none()
+            && machine.rdram_broadcast_delay_state() == Some(delay_state)
+            && machine.rdram_broadcast_refresh_row_state() == Some(refresh_row_state)
+            && machine.ri_select_state() == Some(select)
+            && machine.ri_config_state() == Some(config)
+            && machine.ri_current_load_state() == Some(current_load)
+            && machine.ri_mode_state() == Some(second_mode)
+            && [
+                machine
+                    .rdram()
+                    .read_u32_be(0)
+                    .map_err(|source| StepProbeError::Rdram { case: CASE, source })?,
+                machine
+                    .rdram()
+                    .read_u32_be(0x100)
+                    .map_err(|source| StepProbeError::Rdram { case: CASE, source })?,
+                machine
+                    .rdram()
+                    .read_u32_be(0x3f_fffc)
+                    .map_err(|source| StepProbeError::Rdram { case: CASE, source })?,
+            ] == rdram_samples_before,
+        "RDRAM_DEVICE_ID cadence, prior-state preservation, and unchanged bytes",
+    )?;
+
+    let setup = [
+        (0xa400_0134, 0x0000_6821, CpuInstructionIdentity::SpecialAddu),
+        (0xa400_0138, 0x0000_7021, CpuInstructionIdentity::SpecialAddu),
+        (0xa400_013c, 0x3c0f_a3f0, CpuInstructionIdentity::Lui),
+        (0xa400_0140, 0x0000_c021, CpuInstructionIdentity::SpecialAddu),
+        (0xa400_0144, 0x3c19_a3f0, CpuInstructionIdentity::Lui),
+        (0xa400_0148, 0x3c16_a000, CpuInstructionIdentity::Lui),
+        (0xa400_014c, 0x0000_b821, CpuInstructionIdentity::SpecialAddu),
+        (0xa400_0150, 0x3c06_a3f0, CpuInstructionIdentity::Lui),
+        (0xa400_0154, 0x3c07_a000, CpuInstructionIdentity::Lui),
+        (0xa400_0158, 0x0000_9021, CpuInstructionIdentity::SpecialAddu),
+        (0xa400_015c, 0x3c14_a000, CpuInstructionIdentity::Lui),
+        (0xa400_0160, 0x27bd_ffb8, CpuInstructionIdentity::Addiu),
+        (0xa400_0164, 0x03a0_f021, CpuInstructionIdentity::SpecialAddu),
+        (0xa400_0168, 0x3c01_a430, CpuInstructionIdentity::Lui),
+    ];
+    for (pc, raw_word, identity) in setup {
+        require(
+            CASE,
+            machine
+                .inspect_current_cpu_instruction()
+                .is_ok_and(|instruction| {
+                    instruction.cpu_address() == CpuAddress::new(pc)
+                        && instruction.fields().raw().bits() == raw_word
+                        && instruction.identity() == identity
+                }),
+            "generated post-DEVICE_ID setup identity and word",
+        )?;
+        require_committed_identity(CASE, step(&mut machine, CASE)?, identity)?;
+        total_committed_steps += 1;
+    }
+    let address_lineage = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(1))
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "generated MI_VERSION address lineage available",
+        })?;
+    require(
+        CASE,
+        total_committed_steps == 32_176
+            && machine.cpu().pc() == 0xa400_016c
+            && machine.cpu().next_pc() == 0xa400_0170
+            && machine.cpu().cop0_count() == 32_160
+            && machine.cpu().gpr(13) == Some(0)
+            && machine.cpu().gpr(14) == Some(0)
+            && machine.cpu().gpr(15) == Some(0xffff_ffff_a3f0_0000)
+            && machine.cpu().gpr(24) == Some(0)
+            && machine.cpu().gpr(25) == Some(0xffff_ffff_a3f0_0000)
+            && machine.cpu().gpr(22) == Some(0xffff_ffff_a000_0000)
+            && machine.cpu().gpr(23) == Some(0)
+            && machine.cpu().gpr(6) == Some(0xffff_ffff_a3f0_0000)
+            && machine.cpu().gpr(7) == Some(0xffff_ffff_a000_0000)
+            && machine.cpu().gpr(18) == Some(0)
+            && machine.cpu().gpr(20) == Some(0xffff_ffff_a000_0000)
+            && machine.cpu().gpr(29) == Some(0xffff_ffff_a400_1f90)
+            && machine.cpu().gpr(30) == Some(0xffff_ffff_a400_1f90)
+            && machine.cpu().gpr(1) == Some(0xffff_ffff_a430_0000)
+            && matches!(
+                address_lineage,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address,
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                } if execution_address == CpuAddress::new(0xa400_0168)
+            ),
+        "generated CPU-local setup values, cadence, and MI_VERSION address lineage",
+    )?;
+
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.cpu_address() == CpuAddress::new(0xa400_016c)
+                    && instruction.fields().raw().bits() == 0x8c30_0004
+                    && instruction.identity() == CpuInstructionIdentity::Lw
+                    && instruction.fields().rs() == 1
+                    && instruction.fields().rt() == 16
+                    && instruction.fields().immediate_u16() == 4
+            }),
+        "exact MI_VERSION load frontier identity and generated word",
+    )?;
+    let gprs_before: [Option<u64>; 32] = core::array::from_fn(|index| machine.cpu().gpr(index));
+    let bootstrap_before = machine.cartridge_bootstrap_state();
+    let destination_before = machine.cpu().gpr(16);
+    let devices_before = (
         machine.mi_init_mode_state(),
         machine.mi_init_transfer_state(),
         machine.rdram_broadcast_delay_state(),
         machine.rdram_broadcast_refresh_row_state(),
+        machine.rdram_broadcast_device_id_request_state(),
         machine.ri_select_state(),
         machine.ri_config_state(),
         machine.ri_current_load_state(),
         machine.ri_mode_state(),
     );
+    let cpu_before = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        machine.cpu().cop0_compare(),
+        machine.cpu().cop0_status(),
+        machine.cpu().cop0_epc(),
+        machine.cpu().cop0_bad_vaddr(),
+        machine.cpu().hi(),
+        machine.cpu().lo(),
+        machine.cpu_delay_slot_context(),
+    );
     match machine.step() {
-        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+        Err(MachineRepresentedStepError::LoadWordRejected(rejection)) => require(
             CASE,
-            rejection.effective_address() == Some(0xffff_ffff_a3f8_0004)
-                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f8_0004))
+            rejection.effective_address() == 0xffff_ffff_a430_0004
+                && rejection.cpu_address() == CpuAddress::new(0xa430_0004)
                 && rejection.target().is_none()
-                && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RDRAM_DEVICE_ID remains an exact unsupported target",
+                && rejection.reason() == MachineLoadWordRejectionReason::DirectTargetMiss,
+            "MI_VERSION remains an exact aligned-Lw direct-target miss",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "RDRAM_DEVICE_ID write remains unsupported"),
+        Ok(_) => return assertion(CASE, "MI_VERSION load remains unsupported"),
     }
     require(
         CASE,
-        before_cpu
+        cpu_before
             == (
                 machine.cpu().pc(),
                 machine.cpu().next_pc(),
                 machine.cpu().cop0_count(),
-                machine.cpu().gpr(0),
-                machine.cpu().gpr(9),
-                machine.cpu().gpr(10),
+                machine.cpu().cop0_compare(),
+                machine.cpu().cop0_status(),
+                machine.cpu().cop0_epc(),
+                machine.cpu().cop0_bad_vaddr(),
+                machine.cpu().hi(),
+                machine.cpu().lo(),
+                machine.cpu_delay_slot_context(),
             )
-            && before_devices
+            && gprs_before == core::array::from_fn(|index| machine.cpu().gpr(index))
+            && destination_before == machine.cpu().gpr(16)
+            && bootstrap_before == machine.cartridge_bootstrap_state()
+            && devices_before
                 == (
                     machine.mi_init_mode_state(),
                     machine.mi_init_transfer_state(),
                     machine.rdram_broadcast_delay_state(),
                     machine.rdram_broadcast_refresh_row_state(),
+                    machine.rdram_broadcast_device_id_request_state(),
                     machine.ri_select_state(),
                     machine.ri_config_state(),
                     machine.ri_current_load_state(),
                     machine.ri_mode_state(),
                 )
-            && machine.rdram_broadcast_delay_state() == Some(delay_state)
-            && machine.rdram_broadcast_refresh_row_state() == Some(refresh_row_state),
-        "RDRAM_DEVICE_ID rejection preserves the complete represented frontier",
+            && machine.rdram_broadcast_device_id_request_state() == Some(device_id_request),
+        "MI_VERSION rejection preserves CPU lineage and all represented device truth",
     )
 }
 

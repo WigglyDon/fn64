@@ -601,6 +601,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::RiModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::MiInitModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. }
+                    | MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted {
                         ..
                     }
@@ -748,6 +749,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::RiModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::MiInitModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. }
+            | MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. }
             | MachineRepresentedStepOutcome::Mtc0Committed { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
@@ -780,6 +782,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         }
         MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. } => {
             "rdram-broadcast-delay-store-committed"
+        }
+        MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted { .. } => {
+            "rdram-broadcast-device-id-store-committed"
         }
         MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. } => {
             "rdram-broadcast-refresh-row-store-committed"
