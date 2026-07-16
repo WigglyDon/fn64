@@ -161,7 +161,7 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   register read, module state, refresh engine, general replication, timing,
   readiness, register bank, MMIO, or bus exists.
 - `LIVE_REPO_FACT`: generated-only public-step composition now commits
-  32,161 bounded x105-shaped instructions. The accepted 32,038-step prefix
+  32,176 bounded x105-shaped instructions. The accepted 32,038-step prefix
   ends after the 8,000-iteration CPU wait loop. Commit 32,036 stores r0 to
   RI_CURRENT_LOAD, snapshotting RI_CONFIG input zero and enable true; commit
   32,037 executes `Ori r9,r0,0x14`. Final PC/next-PC are
@@ -182,10 +182,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   32,160 stores raw zero through global RDRAM_REF_ROW at CPU `0xA3F80014` /
   physical `0x03F80014`, preserving the delay fact. Commit 32,161 executes
   `Lui r9,0x8000`, producing `0xFFFFFFFF80000000` with instruction lineage.
-  Final PC/next-PC are `0xA4000130 / 0xA4000134` and Count is `32145`. The next
-  aligned `Sw r9,4(r10)` targets global RDRAM_DEVICE_ID at CPU `0xA3F80004`,
-  physical `0x03F80004`, low word `0x80000000`, and rejects as a direct target
-  miss without mutation. Every instruction and byte is independently generated.
+  Commit 32,162 stores its low word through global RDRAM_DEVICE_ID at CPU
+  `0xA3F80004` / physical `0x03F80004`, recording requested physical base
+  `0x02000000` with exact CPU provenance while preserving RDRAM bytes, routing,
+  delay state, and REF_ROW state. Fourteen generated CPU-local setup commits
+  leave PC/next-PC `0xA400016C / 0xA4000170`, Count `32160`, and total commits
+  `32176`. The aligned `Lw r16,4(r1)` then targets MI_VERSION at CPU
+  `0xA4300004` / physical `0x04300004` and rejects as a direct target miss
+  without mutation. Every instruction and byte is independently generated.
   This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -291,6 +295,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   provenance, the following LUI constructs `0x80000000`, and generated proof
   reaches the global RDRAM_DEVICE_ID `Sw` target miss without creating a Worker
   lane or queue entry.
+- `master-direct-rdram-device-id-x105-mi-version-frontier-v1`: direct Master
+  product operation; exact global RDRAM_DEVICE_ID records word `0x80000000`,
+  requested base `0x02000000`, and CPU-store provenance without relocation;
+  generated CPU-local setup reaches the MI_VERSION `Lw` target miss without a
+  Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -327,11 +336,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: the next generated pressure is aligned `Sw r9,4(r10)` to
-  the global RDRAM_DEVICE_ID aperture at represented CPU address `0xA3F80004`
-  (physical `0x03F80004`), with transfer word `0x80000000`; it rejects as a
-  direct target miss. Device relocation, REF_ROW interpreted fields, refresh
-  behavior, general MI next-write replication, other RDRAM-register state,
+- `LIVE_REPO_FACT`: the next generated pressure is aligned `Lw r16,4(r1)` from
+  MI_VERSION at CPU address `0xA4300004` (physical `0x04300004`); it rejects as
+  a direct target miss. No RCP revision value is represented and the dependent
+  branch is not executed. DEVICE_ID physical relocation, REF_ROW interpreted
+  fields, refresh behavior, general MI next-write replication, other RDRAM-register state,
   per-module state, timing, and readiness are absent. RI_CONFIG,
   RI_CURRENT_LOAD, and RI_MODE have no read routes or hardware-process model;
   general RI_SELECT programming and every other RI action remain absent. NMI,

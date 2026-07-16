@@ -131,7 +131,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 144-case step probe, the bounded BOOT-2
+construction/reset probe, the 150-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -140,7 +140,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,161-step generated composition through the stored RI_SELECT
+handoff and a 32,176-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -148,8 +148,10 @@ and a 32-iteration CPU wait whose BNE delay slot constructs `0x10F`. The exact
 MI_INIT_MODE store then creates length 15 / initialization mode true; a
 following `Lui`/`Ori` pair constructs `0x18082838`; global RDRAM_DELAY then
 commits the 5/7/3/1 fact and consumes the transfer. Global RDRAM_REF_ROW stores
-raw zero, the following `Lui` constructs `0xFFFFFFFF80000000`, and proof stops
-at the global RDRAM_DEVICE_ID store target miss. It does not prove an
+raw zero, the following `Lui` constructs `0xFFFFFFFF80000000`, and global
+RDRAM_DEVICE_ID records requested base `0x02000000` without moving bytes or
+routing. Fourteen CPU-local setup commits then stop at the MI_VERSION load
+target miss. It does not prove an
 authentic firmware-executed handoff, RI
 calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
 game compatibility, renderer, audio, performance, or host integration.

@@ -114,13 +114,14 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,161-step composition through the stored
+handoff and advances a generated 32,176-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
 exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
 MI_INIT_MODE write, delay-word construction, exact global RDRAM_DELAY commit,
-raw-zero global RDRAM_REF_ROW commit, and DEVICE_ID-value `Lui`. The next `Sw`
-at global RDRAM_DEVICE_ID rejects as a direct target miss;
+raw-zero global RDRAM_REF_ROW commit, DEVICE_ID-value `Lui`, exact global
+RDRAM_DEVICE_ID requested-base commit, and fourteen CPU-local setup steps. The
+next `Lw` at MI_VERSION rejects as a direct target miss;
 no general RI_SELECT programming, other RI write/read, other MI register/read,
 general MI replication, other RDRAM-register behavior, per-module state,
 calibration/timing process, NMI, or

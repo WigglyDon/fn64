@@ -32,10 +32,12 @@ lifecycle cases, RI_MODE fields/provenance/aliases/reserved-bit/AdES/slot/
 lifecycle cases, exact MI_INIT_MODE value/state/provenance/aliases/rejections/
 AdES/slot/lifecycle/no-read cases, bounded MI-transfer and RDRAM-delay
 fields/provenance/consumption/post-readback cases, raw global REF_ROW ownership/
-provenance/alias/AdES/lifecycle cases, plus 32,161 generated commits
+provenance/alias/AdES/lifecycle cases, exact DEVICE_ID request/value/provenance/
+alias/AdES/lifecycle/unchanged-routing cases, plus 32,176 generated commits
 through both bounded CPU waits and RI events, the exact MI write, delay-word
 construction, global RDRAM_DELAY and raw-zero RDRAM_REF_ROW commits,
-DEVICE_ID-value construction, and RDRAM_DEVICE_ID target miss. The
+DEVICE_ID-value/request commit, fourteen CPU-local setup commits, and
+MI_VERSION target miss. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -94,7 +96,10 @@ at `0xA4000124` consumes the pending transfer and commits the logical 5/7/3/1
 broadcast fact. The RDRAM_REF_ROW `Sw` at `0xA4000128` stores raw zero with
 architectural-zero provenance while preserving the delay fact. `Lui` at
 `0xA400012C` produces `0xFFFFFFFF80000000`; the RDRAM_DEVICE_ID `Sw` at
-`0xA4000130` rejects as a direct target miss while preserving all state. This is
+`0xA4000130` stores requested base `0x02000000` while preserving bytes/routes.
+Fourteen generated CPU-local instructions through `0xA4000168` establish the
+setup and MI address lineage; `Lw r16,4(r1)` at `0xA400016C` rejects as an
+MI_VERSION direct target miss while preserving all state. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, general MI next-write replication, calibration, RDRAM initialization, or NMI
 execution.

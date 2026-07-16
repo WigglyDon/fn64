@@ -213,7 +213,7 @@ The aligned `Sw` data route accepts direct KSEG0/KSEG1 aliases of SP IMEM,
 RI_MODE at physical `0x04700000`, RI_CONFIG at `0x04700004`, RI_CURRENT_LOAD at
 `0x04700008`, RI_SELECT at `0x0470000C`, exact MI_INIT_MODE at `0x04300000`,
 exact global RDRAM_DELAY at `0x03F80008`, and exact global RDRAM_REF_ROW at
-`0x03F80014`. RI_MODE stores operating-mode bits
+`0x03F80014`, and exact global RDRAM_DEVICE_ID at `0x03F80004`. RI_MODE stores operating-mode bits
 1:0 and stop-active bits 2/3; RI_CONFIG stores only defined input bits 5:0, enable
 bit 6, and CPU-store lineage; RI_CURRENT_LOAD snapshots stored configuration;
 RI_SELECT accepts only exact x105 word `0x14` and replaces its source with
@@ -225,7 +225,9 @@ only `0x18082838` with that transfer and stores logical fields 5/7/3/1 plus
 packed configuration `0x28381808` without changing RDRAM bytes. Other MI/RDRAM
 words reject before mutation. Global RDRAM_REF_ROW accepts only low word zero,
 stores the raw word/global-aperture/CPU provenance fact, and preserves the delay
-configuration without changing RDRAM bytes. SP DMEM, every other device/MMIO address, non-direct, and
+configuration without changing RDRAM bytes. Global RDRAM_DEVICE_ID accepts
+only `0x80000000` and records requested base `0x02000000`, global aperture,
+and CPU-store provenance without relocating bytes or changing routing. SP DMEM, every other device/MMIO address, non-direct, and
 target-miss addresses reject without routing. It adds no generic store
 abstraction or broader address map.
 
@@ -342,7 +344,7 @@ Planning captures the old base, applies the sign-extended immediate with the
 same wrapping represented-address rule as `Lw`, checks word alignment before
 source-value consumption, and accepts only direct KSEG0/KSEG1 aliases of SP
 IMEM or exactly RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
-RDRAM_DELAY/global RDRAM_REF_ROW. All supported paths capture old `rt`
+RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID. All supported paths capture old `rt`
 and its low 32
 bits. SP IMEM stores four big-endian bytes and replaces only those bytes'
 provenance with the instruction PC, source GPR, and source lineage. RI_CONFIG
@@ -362,7 +364,10 @@ logical broadcast fact with consumed lineage, consumes the transfer, and makes
 current MI readback unavailable. Global RDRAM_REF_ROW accepts only low word
 zero once no MI transfer is pending and stores a raw global-aperture fact with
 CPU-store lineage; it neither requires nor mutates the prior delay fact and
-interprets no refresh field. All paths then commit
+interprets no refresh field. Global RDRAM_DEVICE_ID accepts only low word
+`0x80000000` once no MI transfer is pending and stores requested physical base
+`0x02000000` plus global-aperture/CPU provenance; it requires neither prior
+RDRAM fact and changes no byte or address route. All paths then commit
 `pc` / `next_pc` and Count
 once. `rs == rt` uses the old shared value and r0 transfers a known zero word.
 
@@ -509,7 +514,7 @@ event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
 Generated tests separately prove the NTSC cold x105 coupled creation point and
-32,161 public-step commits. The accepted thirty-three-step prefix is followed
+32,176 public-step commits. The accepted thirty-three-step prefix is followed
 by the exact RI_CONFIG `Sw`, a generated wait-counter setup, and exactly 8,000
 loop iterations comprising 32,000 commits. The final synthetic state is
 PC/next-PC `0xA40000DC / 0xA40000E0`, Count `32019`, and s1 zero; RI_CONFIG
@@ -532,9 +537,12 @@ and making current MI readback unavailable. Commit 32,160 stores raw zero to
 global RDRAM_REF_ROW CPU `0xA3F80014` (physical `0x03F80014`) with architectural-
 zero provenance while preserving the delay fact. Commit 32,161 executes
 `Lui r9,0x8000`, producing `0xFFFFFFFF80000000` with generated-instruction
-lineage. PC/next-PC are `0xA4000130 / 0xA4000134` and Count is `32145`;
-`Sw r9,4(r10)` to global RDRAM_DEVICE_ID CPU `0xA3F80004` (physical
-`0x03F80004`) rejects as a direct target miss. These tests
+lineage. Commit 32,162 stores the low word to global RDRAM_DEVICE_ID CPU
+`0xA3F80004` (physical `0x03F80004`) and records requested base `0x02000000`
+without moving bytes or routes. Fourteen CPU-local setup commits leave
+PC/next-PC `0xA400016C / 0xA4000170`, Count `32160`, and 32,176 total commits;
+`Lw r16,4(r1)` from MI_VERSION CPU `0xA4300004` (physical `0x04300004`)
+rejects as a direct target miss. These tests
 prove CPU composition only, not an authentic
 IPL2-to-IPL3 run, elapsed RI time, current calibration, RDRAM initialization,
 or NMI execution.
@@ -552,7 +560,7 @@ execute. Current explicit absences include:
   BLTZ, COP0 branches, and execution of a branch or jump inside a delay slot;
 - CPU load/store instructions other than aligned `Lw` and aligned `Sw` to SP
   IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
-  RDRAM_DELAY/global RDRAM_REF_ROW, plus unaligned merge operations;
+  RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID, plus unaligned merge operations;
   `Lw` has no
   device/MMIO route except the exact stored RI_SELECT word and no unclassified
   SP-DMEM source route, while `Sw` has no SP-DMEM, other RDRAM/MI register,
@@ -582,7 +590,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 144 cases cover:
+calls only public `Machine::step` for execution. Its 150 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -618,10 +626,14 @@ calls only public `Machine::step` for execution. Its 144 cases cover:
   provenance, consumption, and post-transfer unavailable readback;
 - exact raw-zero global RDRAM_REF_ROW ownership, CPU provenance, aliases,
   lifecycle, AdES, delay-slot cadence, narrow routing, and atomic rejection;
-- 32,161-step generated x105 composition through the exact 8,000-iteration CPU
+- exact global RDRAM_DEVICE_ID request ownership, raw word/requested-base CPU
+  provenance, aliases, lifecycle, AdES, delay-slot cadence, narrow routing,
+  unchanged bytes/routes, and atomic rejection;
+- 32,176-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
   write, delay-word construction, RDRAM_DELAY and RDRAM_REF_ROW commits,
-  DEVICE_ID-value LUI, and RDRAM_DEVICE_ID miss;
+  DEVICE_ID-value LUI/store, fourteen CPU-local setup commits, and MI_VERSION
+  aligned-Lw miss;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

@@ -23,10 +23,11 @@ represented fault entry.
 An unaligned `Sw` enters the same sealed data-address-error owner with write
 kind, AdES code 5, and exact BadVAddr. Alignment is resolved before store-source
 consumption. No SP-IMEM byte or provenance changes, no RI_MODE, RI_CONFIG,
-RI_CURRENT_LOAD, RI_SELECT, pending MI-transfer, RDRAM-delay, or RDRAM REF_ROW
+RI_CURRENT_LOAD, RI_SELECT, pending MI-transfer, RDRAM-delay, RDRAM REF_ROW, or
+RDRAM DEVICE_ID request
 state changes,
 no normal cadence commits, and Count advances zero times. The exact RI, MI,
-and global RDRAM_DELAY/REF_ROW write routes add no device-specific exception.
+and global RDRAM_DELAY/REF_ROW/DEVICE_ID write routes add no device-specific exception.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 

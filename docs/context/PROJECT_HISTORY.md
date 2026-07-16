@@ -521,6 +521,26 @@ product or reference lane requires a new explicit product decision.
   completion, DEVICE_ID behavior, per-module state, timing/readiness, authentic
   advancement, BOOT-3, and compatibility remain absent.
 
+## Era 28 — global RDRAM DEVICE_ID request and MI_VERSION frontier (2026-07-16)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned global RDRAM/MI definitions
+  and bounded x105 construction/comment; `LIVE_REPO_FACT`, one typed request in
+  the existing sole `Rdram` owner; `RUNTIME_FACT`, deterministic public-step proof.
+- Product decisions: `RDRAM_DEVICE_ID_EXACT_X105_BROADCAST_WORD_ONLY`,
+  `RDRAM_DEVICE_ID_REQUESTED_BASE_ADDRESS_FACT_ONLY`,
+  `RDRAM_DEVICE_RELOCATION_EFFECT_UNAVAILABLE`, and
+  `MI_VERSION_READ_NEXT_FRONTIER_ONLY`.
+- Accepted increment: exact direct physical `0x03F80004` accepts only low word
+  `0x80000000` with known CPU-store lineage and records requested base
+  `0x02000000`. It preserves delay/REF_ROW facts, RDRAM bytes, and routing.
+- Generated composition: commit 32,162 performs DEVICE_ID at `0xA4000130`;
+  fourteen CPU-local setup commits reach `Lw r16,4(r1)` at `0xA400016C`.
+  PC/next-PC are `0xA400016C`/`0xA4000170`, Count is 32,160, total commits are
+  32,176, and MI_VERSION CPU `0xA4300004` rejects atomically.
+- Boundary: physical relocation/remapping, module discovery/per-module state,
+  MI_VERSION values, RCP revision, authentic advancement, BOOT-3, and
+  compatibility remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

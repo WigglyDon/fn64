@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 144-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 150-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -53,8 +53,10 @@ initialization mode true with CPU-store provenance, then generated `Lui`/`Ori`
 construct `0x18082838`. The exact global RDRAM_DELAY `Sw` consumes the pending
 transfer and stores logical fields 5/7/3/1. The exact global RDRAM_REF_ROW `Sw`
 then stores raw zero with CPU provenance, the following `Lui` produces the
-DEVICE_ID transfer word, and execution stops atomically when the global
-RDRAM_DEVICE_ID `Sw` target classification misses. This proves no RI
+DEVICE_ID transfer word, and the exact global RDRAM_DEVICE_ID `Sw` stores a
+bounded requested-base fact. Fourteen existing CPU-local commits construct the
+setup state; execution stops atomically when MI_VERSION `Lw` target
+classification misses. This proves no RI
 timing, calibration, general MI bus effect, per-module state, or RDRAM process.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
@@ -66,7 +68,7 @@ introduced.
 The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct SP IMEM or exact
 RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY/
-global RDRAM_REF_ROW,
+global RDRAM_REF_ROW/global RDRAM_DEVICE_ID,
 and only then captures source value/lineage and
 constructs a closed destination plan. RI_CONFIG planning rejects undefined
 high bits; RI_CURRENT_LOAD planning requires stored RI_CONFIG and snapshots its
