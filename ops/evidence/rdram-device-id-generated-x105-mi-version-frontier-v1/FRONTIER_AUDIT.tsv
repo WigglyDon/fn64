@@ -1,0 +1,17 @@
+sequence_id	instruction_pc	instruction_word	identity	base_gpr	value_gpr	immediate	old_base_value	old_value	cpu_address	physical_address	target	result	status	limitations
+device-id	0xA4000130	0xAD490004	Sw	r10	r9	0x0004	0xFFFFFFFFA3F80000	0xFFFFFFFF80000000	0xA3F80004	0x03F80004	RDRAM_DEVICE_ID	RdramBroadcastDeviceIdStoreCommitted	represented	exact low word; no relocation
+setup-01	0xA4000134	0x00006821	Addu	r0	r13	-	0	0	-	-	CPU-local	committed	represented	move-equivalent
+setup-02	0xA4000138	0x00007021	Addu	r0	r14	-	0	0	-	-	CPU-local	committed	represented	move-equivalent
+setup-03	0xA400013C	0x3C0FA3F0	Lui	-	r15	0xA3F0	-	0xFFFFFFFFA3F00000	-	-	CPU-local	committed	represented	generated encoding
+setup-04	0xA4000140	0x0000C021	Addu	r0	r24	-	0	0	-	-	CPU-local	committed	represented	move-equivalent
+setup-05	0xA4000144	0x3C19A3F0	Lui	-	r25	0xA3F0	-	0xFFFFFFFFA3F00000	-	-	CPU-local	committed	represented	generated encoding
+setup-06	0xA4000148	0x3C16A000	Lui	-	r22	0xA000	-	0xFFFFFFFFA0000000	-	-	CPU-local	committed	represented	generated encoding
+setup-07	0xA400014C	0x0000B821	Addu	r0	r23	-	0	0	-	-	CPU-local	committed	represented	move-equivalent
+setup-08	0xA4000150	0x3C06A3F0	Lui	-	r6	0xA3F0	-	0xFFFFFFFFA3F00000	-	-	CPU-local	committed	represented	generated encoding
+setup-09	0xA4000154	0x3C07A000	Lui	-	r7	0xA000	-	0xFFFFFFFFA0000000	-	-	CPU-local	committed	represented	generated encoding
+setup-10	0xA4000158	0x00009021	Addu	r0	r18	-	0	0	-	-	CPU-local	committed	represented	move-equivalent
+setup-11	0xA400015C	0x3C14A000	Lui	-	r20	0xA000	-	0xFFFFFFFFA0000000	-	-	CPU-local	committed	represented	generated encoding
+setup-12	0xA4000160	0x27BDFFB8	Addiu	r29	r29	-0x48	0xFFFFFFFFA4001FD8	0xFFFFFFFFA4001F90	-	-	CPU-local	committed	represented	read-before-write
+setup-13	0xA4000164	0x03A0F021	Addu	r29	r30	-	0xFFFFFFFFA4001F90	0xFFFFFFFFA4001F90	-	-	CPU-local	committed	represented	move-equivalent
+mi-address	0xA4000168	0x3C01A430	Lui	-	r1	0xA430	-	0xFFFFFFFFA4300000	-	-	CPU-local	committed	represented	address setup
+mi-version	0xA400016C	0x8C300004	Lw	r1	r16	0x0004	0xFFFFFFFFA4300000	unavailable	0xA4300004	0x04300004	MI_VERSION	DirectTargetMiss	frontier	no read or revision value
