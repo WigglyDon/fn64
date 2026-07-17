@@ -5,6 +5,41 @@ pub const MI_INIT_MODE_PHYSICAL_ADDRESS: u32 = 0x0430_0000;
 pub const MI_INIT_MODE_X105_WRITE_WORD: u32 = 0x0000_010f;
 pub const MI_INIT_MODE_X105_INIT_LENGTH: u8 = 15;
 pub const MI_INIT_MODE_X105_REPEATED_BYTE_COUNT: u8 = 16;
+pub const MI_VERSION_PHYSICAL_ADDRESS: u32 = 0x0430_0004;
+pub const MI_VERSION_STANDARD_RETAIL_NUS_WORD: u32 = 0x0202_0102;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineMiVersionState {
+    word: u32,
+}
+
+impl MachineMiVersionState {
+    const fn standard_retail_nus() -> Self {
+        Self {
+            word: MI_VERSION_STANDARD_RETAIL_NUS_WORD,
+        }
+    }
+
+    pub const fn word(self) -> u32 {
+        self.word
+    }
+
+    pub const fn io_version(self) -> u8 {
+        self.word as u8
+    }
+
+    pub const fn rac_version(self) -> u8 {
+        (self.word >> 8) as u8
+    }
+
+    pub const fn rdp_version(self) -> u8 {
+        (self.word >> 16) as u8
+    }
+
+    pub const fn rsp_version(self) -> u8 {
+        (self.word >> 24) as u8
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineMiInitModeSource {
@@ -109,13 +144,28 @@ impl MachineMiInitTransferState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Mi {
+    version: MachineMiVersionState,
     init_mode: Option<MachineMiInitModeState>,
     init_transfer: Option<MachineMiInitTransferState>,
 }
 
+impl Default for Mi {
+    fn default() -> Self {
+        Self {
+            version: MachineMiVersionState::standard_retail_nus(),
+            init_mode: None,
+            init_transfer: None,
+        }
+    }
+}
+
 impl Mi {
+    pub(crate) const fn version_state(self) -> MachineMiVersionState {
+        self.version
+    }
+
     pub(crate) const fn init_mode_state(self) -> Option<MachineMiInitModeState> {
         self.init_mode
     }
@@ -181,5 +231,18 @@ mod tests {
         mi.consume_init_transfer();
         assert_eq!(mi.init_mode_state(), None);
         assert_eq!(mi.init_transfer_state(), None);
+    }
+
+    #[test]
+    fn mi_version_is_one_fixed_raw_word_with_derived_fields() {
+        assert_eq!(MI_VERSION_PHYSICAL_ADDRESS, 0x0430_0004);
+        assert_eq!(MI_VERSION_STANDARD_RETAIL_NUS_WORD, 0x0202_0102);
+
+        let state = Mi::default().version_state();
+        assert_eq!(state.word(), 0x0202_0102);
+        assert_eq!(state.io_version(), 0x02);
+        assert_eq!(state.rac_version(), 0x01);
+        assert_eq!(state.rdp_version(), 0x02);
+        assert_eq!(state.rsp_version(), 0x02);
     }
 }

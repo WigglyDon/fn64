@@ -61,8 +61,9 @@ pub use machine::{
 };
 pub use mi::{
     MachineMiInitModeSource, MachineMiInitModeState, MachineMiInitTransferState,
-    MI_INIT_MODE_PHYSICAL_ADDRESS, MI_INIT_MODE_X105_INIT_LENGTH,
+    MachineMiVersionState, MI_INIT_MODE_PHYSICAL_ADDRESS, MI_INIT_MODE_X105_INIT_LENGTH,
     MI_INIT_MODE_X105_REPEATED_BYTE_COUNT, MI_INIT_MODE_X105_WRITE_WORD,
+    MI_VERSION_PHYSICAL_ADDRESS, MI_VERSION_STANDARD_RETAIL_NUS_WORD,
 };
 pub use pif_firmware::{
     MachinePifFirmwareState, PifFirmwareClassification, PifFirmwareValidationError,
