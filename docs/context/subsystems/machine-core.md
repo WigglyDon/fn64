@@ -13,7 +13,8 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_MODE,
-RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, and MI initialization-mode state,
+RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, immutable MI_VERSION identity,
+and MI initialization-mode state,
 reset/power state, optional
 structurally accepted immutable
 PIF firmware input, optional explicit PIF IPL2 copy profile, explicit narrow
@@ -105,14 +106,18 @@ derives RI state from reset kind. RI_CONFIG/RI_CURRENT_LOAD/RI_MODE reads,
 general RI_SELECT programming, current-control
 output/processing/timing, NMI, generic MMIO, and a bus remain absent.
 
-One private `Mi` owner separately stores optional MI initialization state and
-one bounded pending transfer.
-Construction, reset, and complete cold-x105 bootstrap leave it unavailable;
-repeated bootstrap clears stale state and failed bootstrap preserves it. The
+One private `Mi` owner separately stores immutable MI_VERSION word
+`0x02020102`, optional MI initialization state, and one bounded pending
+transfer. IO/RAC/RDP/RSP bytes derive from the one raw word. Construction,
+reset, and complete cold-x105 bootstrap preserve identity while leaving mutable
+state unavailable; repeated bootstrap clears stale mutable state and failed
+bootstrap preserves all state. The
 exact physical `0x04300000` store has no CPU read route and creates no other MI
 fact. The pending transfer is consumed only by the exact x105 RDRAM_DELAY pair;
 post-consumption current MI state becomes unavailable because exact readback is
-not source-clear. This is not a general next-write engine and represents no timing.
+not source-clear. Exact aligned `Lw` at physical `0x04300004` reads only the
+immutable version with ordinary CPU lineage. This is not a general next-write
+engine or MI register bank and represents no timing.
 
 The existing `Rdram` remains the sole byte owner and separately stores optional
 global/broadcast delay and raw REF_ROW facts. The exact REF_ROW route accepts
@@ -131,7 +136,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 150-case step probe, the bounded BOOT-2
+construction/reset probe, the 153-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -140,7 +145,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,176-step generated composition through the stored RI_SELECT
+handoff and a 32,183-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -150,8 +155,11 @@ following `Lui`/`Ori` pair constructs `0x18082838`; global RDRAM_DELAY then
 commits the 5/7/3/1 fact and consumes the transfer. Global RDRAM_REF_ROW stores
 raw zero, the following `Lui` constructs `0xFFFFFFFF80000000`, and global
 RDRAM_DEVICE_ID records requested base `0x02000000` without moving bytes or
-routing. Fourteen CPU-local setup commits then stop at the MI_VERSION load
-target miss. It does not prove an
+routing. Fourteen CPU-local setup commits then reach the MI_VERSION load;
+`0x02020102` makes the guest comparison take RCP 2.0, the Nop delay slot
+executes once, and setup selects spacing `0x400` plus first-responder base
+`0xFFFFFFFFA3F08000`. The next non-global RDRAM_DEVICE_ID store rejects at
+physical `0x03F08004`. It does not prove an
 authentic firmware-executed handoff, RI
 calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
 game compatibility, renderer, audio, performance, or host integration.

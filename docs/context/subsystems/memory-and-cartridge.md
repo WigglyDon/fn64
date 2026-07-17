@@ -80,7 +80,8 @@ clears runtime SP bytes to Unknown and all RI facts to
 unavailable. Complete
 bootstrap restaging replaces copied SP bytes, recreates RI_SELECT zero, and
 clears stale RI_CONFIG, RI_CURRENT_LOAD, RI_MODE, CPU-written select state, and
-MI initialization state. MI_INIT_MODE at physical `0x04300000` accepts only
+MI initialization state while preserving immutable MI_VERSION
+`0x02020102`. MI_INIT_MODE at physical `0x04300000` accepts only
 low word `0x0000010F`, stores length 15 and initialization mode true with
 CPU-store provenance, and changes no memory or RI fact. Construction, reset,
 and complete cold bootstrap leave that MI fact unavailable; repeated complete
@@ -94,6 +95,8 @@ low word zero and stores a raw REF_ROW global-aperture fact with CPU provenance
 while preserving the delay configuration. It interprets no refresh field and
 changes no RDRAM byte. SP-DMEM, other MI/RDRAM registers, device reads,
 general RI_SELECT programming, and other store targets remain unsupported.
+Exact aligned `Lw` at physical `0x04300004` reads the immutable version;
+the other MI read surface remains closed.
 
 Lineage is `lawful bytes → normalized layout → named address domain → preflight → storage mutation/read → narrow observable result`. Failed writes must leave no
 ghost state. Synthetic instruction words and small generated fixtures are valid
@@ -103,25 +106,29 @@ Current integration includes represented cartridge facts, narrow bootstrap
 staging, one cartridge-derived instruction commit, SP IMEM storage, optional
 cold-entry or exact CPU-written RI_SELECT, CPU-written RI_CONFIG,
 RI_CURRENT_LOAD event, CPU-written RI_MODE field facts, one exact CPU-written
-MI initialization-mode fact/pending transfer, one global broadcast-delay fact,
+immutable MI_VERSION identity, MI initialization-mode fact/pending transfer,
+one global broadcast-delay fact,
 and one raw-zero global REF_ROW fact,
 narrow KSEG0/KSEG1 CPU-data routes to the
 represented SP memories, and aligned `Lw` over direct RDRAM, known SP IMEM,
-cartridge-staged SP DMEM, or exact physical RI_SELECT `0x0470000C`.
+cartridge-staged SP DMEM, exact physical RI_SELECT `0x0470000C`, or exact
+MI_VERSION `0x04300004`.
 Source-qualified
 evidence identifies retained IPL2 firmware as
 the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,176-step composition through the stored
+handoff and advances a generated 32,183-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
 exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
 MI_INIT_MODE write, delay-word construction, exact global RDRAM_DELAY commit,
 raw-zero global RDRAM_REF_ROW commit, DEVICE_ID-value `Lui`, exact global
-RDRAM_DEVICE_ID requested-base commit, and fourteen CPU-local setup steps. The
-next `Lw` at MI_VERSION rejects as a direct target miss;
+RDRAM_DEVICE_ID requested-base commit, fourteen CPU-local setup steps, the
+MI_VERSION read, guest-selected RCP 2.0 branch and delay slot, and spacing/base
+setup. The next first-responder RDRAM_DEVICE_ID store rejects as a direct
+target miss;
 no general RI_SELECT programming, other RI write/read, other MI register/read,
 general MI replication, other RDRAM-register behavior, per-module state,
 calibration/timing process, NMI, or

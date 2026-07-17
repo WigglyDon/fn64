@@ -541,6 +541,28 @@ product or reference lane requires a new explicit product decision.
   MI_VERSION values, RCP revision, authentic advancement, BOOT-3, and
   compatibility remain absent.
 
+## Era 29 — fixed MI_VERSION identity and RCP 2.0 frontier (2026-07-17)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned MI layout/x105 sources and
+  public direct-hardware observation; `LIVE_REPO_FACT`, one immutable word in
+  the existing per-Machine `Mi`; `RUNTIME_FACT`, deterministic public-step
+  proof.
+- Product decisions: `MI_VERSION_FIXED_STANDARD_RETAIL_NUS_IDENTITY`,
+  `MI_VERSION_IMMUTABLE_PER_MACHINE`, `MI_VERSION_EXACT_DIRECT_LW_ONLY`,
+  and `RCP_2_0_PATH_SELECTED_BY_GUEST_CPU_COMPARISON`.
+- Accepted increment: exact direct physical `0x04300004` returns raw word
+  `0x02020102`; IO/RAC/RDP/RSP bytes derive as `02/01/02/02`. Reset and
+  bootstrap preserve identity. Other MI reads, writes to MI_VERSION, alternate
+  identities, and configuration remain absent.
+- Generated composition: commit 32,177 performs the read at `0xA400016C`;
+  the guest constructs `0x01010101`, takes Bne, executes its Nop slot once,
+  selects spacing `0x400`, and builds base `0xFFFFFFFFA3F08000`. At 32,183
+  commits, PC/next-PC are `0xA4000198`/`0xA400019C`, Count is 32,167, and
+  first-responder RDRAM_DEVICE_ID physical `0x03F08004` rejects atomically.
+- Boundary: responder presence, per-module state, module discovery, alternate
+  RCP identity, RDRAM initialization, authentic advancement, BOOT-3, and
+  compatibility remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

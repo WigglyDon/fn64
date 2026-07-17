@@ -140,14 +140,21 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   claim follows. RI_CONFIG, RI_CURRENT_LOAD, and RI_MODE have no read route.
   General RI_SELECT programming, other RI actions,
   NMI, a register bank, MMIO framework, and bus remain absent.
-- `LIVE_REPO_FACT`: one private per-Machine `Mi` owner stores optional current
-  MI initialization-mode state and one bounded pending transfer. Construction,
-  reset, and complete cold-x105 bootstrap leave both unavailable. Exact aligned
+- `LIVE_REPO_FACT`: one private per-Machine `Mi` owner stores immutable
+  standard-retail MI_VERSION identity `0x02020102`, optional current MI
+  initialization-mode state, and one bounded pending transfer. The raw version
+  word is the single stored truth; IO/RAC/RDP/RSP fields derive as
+  `02/01/02/02`. Construction, reset, and complete cold-x105 bootstrap
+  preserve the identity while leaving both mutable facts unavailable. Exact aligned
   `Sw` at physical `0x04300000` accepts only low word `0x0000010F`, stores
   initialization length 15 and initialization mode true with CPU-store
   provenance, and arms one 16-byte transfer for the exact generated RDRAM_DELAY
   consumer. Other represented successful stores cannot bypass it. Repeated
-  bootstrap clears stale MI state/transfer; failed bootstrap preserves both.
+  bootstrap clears stale MI state/transfer and preserves identity; failed
+  bootstrap preserves all three. Exact aligned `Lw` at physical
+  `0x04300004` reads the identity through either direct alias with ordinary
+  CPU provenance and cadence. Other MI reads and MI_VERSION writes remain
+  unavailable.
 - `LIVE_REPO_FACT`: the existing per-Machine `Rdram` owner remains the sole
   RDRAM-byte owner and additionally stores optional global/broadcast delay and
   raw REF_ROW facts. Exact aligned `Sw` at physical `0x03F80008` requires the
@@ -157,11 +164,11 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   MI_INIT_MODE readback unavailable because exact post-transfer fields are not
   source-clear. Exact aligned `Sw` at physical `0x03F80014` accepts only low
   word zero with known CPU-store lineage and records the global aperture without
-  interpreting fields. Neither write changes an RDRAM byte. No MI/RDRAM
-  register read, module state, refresh engine, general replication, timing,
+  interpreting fields. Neither write changes an RDRAM byte. No other MI or any
+  RDRAM-register read, module state, refresh engine, general replication, timing,
   readiness, register bank, MMIO, or bus exists.
 - `LIVE_REPO_FACT`: generated-only public-step composition now commits
-  32,176 bounded x105-shaped instructions. The accepted 32,038-step prefix
+  32,183 bounded x105-shaped instructions. The accepted 32,038-step prefix
   ends after the 8,000-iteration CPU wait loop. Commit 32,036 stores r0 to
   RI_CURRENT_LOAD, snapshotting RI_CONFIG input zero and enable true; commit
   32,037 executes `Ori r9,r0,0x14`. Final PC/next-PC are
@@ -187,9 +194,17 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `0x02000000` with exact CPU provenance while preserving RDRAM bytes, routing,
   delay state, and REF_ROW state. Fourteen generated CPU-local setup commits
   leave PC/next-PC `0xA400016C / 0xA4000170`, Count `32160`, and total commits
-  `32176`. The aligned `Lw r16,4(r1)` then targets MI_VERSION at CPU
-  `0xA4300004` / physical `0x04300004` and rejects as a direct target miss
-  without mutation. Every instruction and byte is independently generated.
+  `32176`. Commit 32,177 reads MI_VERSION word `0x02020102` at CPU
+  `0xA4300004` / physical `0x04300004` into r16 with ordinary load
+  provenance. Generated `Lui`/`Ori` build `0x01010101`; the guest BNE is
+  taken and its Nop delay slot executes once. RCP 2.0 setup selects spacing
+  `0x400` and first-responder base `0xFFFFFFFFA3F08000`. PC/next-PC become
+  `0xA4000198 / 0xA400019C`, Count is `32167`, and total commits are
+  `32183`. `Sw r14,4(r17)` then targets first-responder non-global
+  RDRAM_DEVICE_ID CPU `0xA3F08004` / physical `0x03F08004` with low word
+  zero and rejects as a direct target miss without mutation. r14 retains
+  generated `Addu` lineage from `0xA4000138`. Every instruction and byte is
+  independently generated.
   This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -300,6 +315,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   requested base `0x02000000`, and CPU-store provenance without relocation;
   generated CPU-local setup reaches the MI_VERSION `Lw` target miss without a
   Worker lane or queue entry.
+- `master-direct-mi-version-fixed-identity-x105-first-responder-frontier-v1`:
+  direct Master product operation; immutable per-Machine MI_VERSION
+  `0x02020102` and one exact aligned read let the guest comparison select the
+  RCP 2.0 branch, and generated proof reaches the first-responder non-global
+  RDRAM_DEVICE_ID `Sw` target miss without a Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -336,10 +356,13 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: the next generated pressure is aligned `Lw r16,4(r1)` from
-  MI_VERSION at CPU address `0xA4300004` (physical `0x04300004`); it rejects as
-  a direct target miss. No RCP revision value is represented and the dependent
-  branch is not executed. DEVICE_ID physical relocation, REF_ROW interpreted
+- `LIVE_REPO_FACT`: the next generated pressure is `Sw r14,4(r17)` at
+  `0xA4000198`, targeting first-responder non-global RDRAM_DEVICE_ID CPU
+  `0xA3F08004` (physical `0x03F08004`) with low word zero. It rejects as a
+  direct target miss. No responder presence, module identity, discovery, or
+  per-module state is represented. Alternate MI_VERSION identities and a
+  configuration surface remain absent. DEVICE_ID physical relocation,
+  REF_ROW interpreted
   fields, refresh behavior, general MI next-write replication, other RDRAM-register state,
   per-module state, timing, and readiness are absent. RI_CONFIG,
   RI_CURRENT_LOAD, and RI_MODE have no read routes or hardware-process model;

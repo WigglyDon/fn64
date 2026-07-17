@@ -20,6 +20,8 @@ existing load address-error owner with its exact BadVAddr and no destination
 write, including when the address would otherwise select SP DMEM. Alignment is
 decided before target/source access. Count and normal cadence do not advance on
 represented fault entry.
+An unaligned MI_VERSION `Lw` uses the same sealed AdEL route in ordinary and
+delay-slot contexts; it does not mutate immutable identity or destination.
 An unaligned `Sw` enters the same sealed data-address-error owner with write
 kind, AdES code 5, and exact BadVAddr. Alignment is resolved before store-source
 consumption. No SP-IMEM byte or provenance changes, no RI_MODE, RI_CONFIG,

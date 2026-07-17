@@ -54,7 +54,9 @@ write, sign-extends the loaded word, preserves GPR zero, records successful
 destination lineage, and commits cadence once. Its targets now include
 cartridge-bootstrap-staged SP DMEM with exact source-offset provenance; other
 concrete SP-DMEM backing is not treated as known. Its authentic SP IMEM source
-is unknown, so that instance rejects without mutation.
+is unknown, so that instance rejects without mutation. One exact MI_VERSION
+target reads immutable word `0x02020102` from the Mi owner; the destination
+gets ordinary Lw provenance while device state stays unchanged.
 
 Aligned `Sw` is a separate Machine-owned action. It reads the old base,
 resolves alignment before source consumption, accepts direct SP IMEM or exact
@@ -96,11 +98,13 @@ state from reset kind or generalizes CPU device access. RI_CONFIG/
 RI_CURRENT_LOAD/RI_MODE reads, general RI_SELECT programming, calibration,
 and timing remain absent.
 
-One private Machine-owned MI initialization fact is unavailable at
-construction, reset, and cold bootstrap. Exact aligned `Sw` to physical
+One private Machine-owned MI_VERSION identity is always available and remains
+`0x02020102` through reset and bootstrap. Exact aligned `Lw` at physical
+`0x04300004` returns it with ordinary cadence. A separate MI initialization
+fact is unavailable at construction, reset, and cold bootstrap. Exact aligned `Sw` to physical
 `0x04300000` creates length 15 / initialization mode true only for word
 `0x0000010F`; other words, nearby MI addresses, and unknown sources reject
-atomically. There is no MI `Lw`, other MI register, physical next-write
+atomically. There is no other MI `Lw`, other MI register, physical next-write
 replication, RDRAM-register state, or timing owner.
 
 Coupled staging also owns Status=`0x34000000`,
@@ -124,8 +128,11 @@ BNE delay slot. It then commits exact MI_INIT_MODE, constructs `0x18082838`
 through the existing `Lui`/`Ori` identities, commits global RDRAM_DELAY and raw
 zero global RDRAM_REF_ROW, executes the DEVICE_ID-value `Lui`, and commits the
 exact global RDRAM_DEVICE_ID request without relocating bytes. Fourteen
-CPU-local setup instructions then reach MI_VERSION, whose aligned `Lw` rejects
-as a direct target miss. This is CPU
+CPU-local setup instructions then reach MI_VERSION. Its exact `Lw` returns
+`0x02020102`; generated comparison against `0x01010101` takes the RCP 2.0
+branch, executes its Nop slot once, selects spacing `0x400`, and builds
+first-responder base `0xFFFFFFFFA3F08000`. The first-responder
+RDRAM_DEVICE_ID store then rejects. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 branch-likely/other REGIMM and broader COP0 execution, every RI action except

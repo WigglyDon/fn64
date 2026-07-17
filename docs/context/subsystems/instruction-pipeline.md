@@ -23,12 +23,13 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 150-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 153-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
-known SP IMEM, cartridge-bootstrap-staged SP DMEM, and exactly the stored RI_SELECT word
-at physical `0x0470000C`. The SP-DMEM target records exact cartridge
+known SP IMEM, cartridge-bootstrap-staged SP DMEM, exactly the stored RI_SELECT
+word at physical `0x0470000C`, and immutable MI_VERSION at
+`0x04300004`. The SP-DMEM target records exact cartridge
 provenance; RI_SELECT records its cold-entry source; unclassified backing,
 unknown SP IMEM, unavailable RI_SELECT, and neighboring RI addresses reject
 before mutation. The authentic first frontier remains that
@@ -55,8 +56,10 @@ transfer and stores logical fields 5/7/3/1. The exact global RDRAM_REF_ROW `Sw`
 then stores raw zero with CPU provenance, the following `Lui` produces the
 DEVICE_ID transfer word, and the exact global RDRAM_DEVICE_ID `Sw` stores a
 bounded requested-base fact. Fourteen existing CPU-local commits construct the
-setup state; execution stops atomically when MI_VERSION `Lw` target
-classification misses. This proves no RI
+setup state; exact MI_VERSION `Lw` returns `0x02020102`, and the generated
+comparison selects RCP 2.0 through ordinary Bne/delay-slot semantics. Spacing
+`0x400` and first-responder base `0xFFFFFFFFA3F08000` are CPU results; the
+following non-global RDRAM_DEVICE_ID target misses atomically. This proves no RI
 timing, calibration, general MI bus effect, per-module state, or RDRAM process.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
