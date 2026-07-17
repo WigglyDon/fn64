@@ -944,6 +944,7 @@ fn format_load_word_rejection_frontier(
         Some(MachineLoadWordTarget::RiSelect { source }) => {
             format!("ri-select source={source:?}")
         }
+        Some(MachineLoadWordTarget::MiVersion) => "mi-version".to_owned(),
         None => "unclassified".to_owned(),
     };
     let reason = match rejection.reason() {
