@@ -10,4 +10,3 @@ The design contains no:
 - generic provenance lattice;
 - call stack, shadow link stack, or pipeline framework;
 - hidden multi-step execution.
-

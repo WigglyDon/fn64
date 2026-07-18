@@ -8,4 +8,3 @@ pc	word	identity	result	count_after	commits_after	bounded_fact
 0xA4000984	0x27BDFFE0	Addiu sp,sp,-0x20	expected committed	32203	32219	FindCC entry
 0xA4000998	0x298C0040	Slti r26,r12,64	expected committed	32208	32224	r26=1
 0xA400099C	0x53400018	Beql r26,r0,0xA4000A00	expected unsupported	32208	32224	first unsupported CPU identity
-

@@ -8,4 +8,3 @@ handling.
 
 Unknown old `rs` still rejects atomically. JR source requirements are
 unchanged.
-

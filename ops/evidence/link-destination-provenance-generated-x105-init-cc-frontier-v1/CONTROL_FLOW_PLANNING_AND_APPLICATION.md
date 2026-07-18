@@ -10,4 +10,3 @@ The defect is the later shared rejection that treats every nonzero link
 destination as an input. The narrow correction removes that destination-only
 gate and adds the missing JAL/JALR destination lineage description used on
 successful application.
-

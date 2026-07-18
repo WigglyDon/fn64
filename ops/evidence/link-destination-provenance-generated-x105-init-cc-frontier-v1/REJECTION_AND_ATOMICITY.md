@@ -11,4 +11,3 @@ Preserved rejection boundaries:
 No rejection may partially write a link. Unsupported `Beql` at
 `0xA400099C` restores the staged sequential PC and preserves complete
 Machine state with no Count advance.
-

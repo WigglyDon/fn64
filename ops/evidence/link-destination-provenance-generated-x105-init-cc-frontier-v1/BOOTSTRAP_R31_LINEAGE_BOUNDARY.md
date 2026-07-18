@@ -8,4 +8,3 @@ Complete cold-x105 bootstrap truth is unchanged:
 That state remains true until the JAL commits. The correction does not clear,
 relabel, or pre-convert it. The committing JAL replaces it with
 `0xFFFFFFFFA40001A8` and exact JAL instruction-result provenance.
-

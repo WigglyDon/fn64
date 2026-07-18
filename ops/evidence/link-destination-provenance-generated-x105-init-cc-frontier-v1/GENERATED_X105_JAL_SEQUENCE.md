@@ -16,4 +16,3 @@ Expected committed state:
 - active delay owner: `0xA40001A0`.
 
 The delay-slot word is `0x00000000` and executes exactly once.
-

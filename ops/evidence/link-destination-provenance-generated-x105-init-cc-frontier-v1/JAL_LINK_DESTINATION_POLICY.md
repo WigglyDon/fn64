@@ -6,4 +6,3 @@ destination states do not change its link or target.
 
 The generated delay slot observes the newly written link. The target does not
 execute during the JAL step.
-

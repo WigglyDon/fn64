@@ -11,4 +11,3 @@ Planned focused coverage proves:
 - atomic Beql frontier.
 
 All inputs are public synthetic instructions and generated PIF-shaped bytes.
-

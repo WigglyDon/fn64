@@ -12,4 +12,3 @@ After the outer JAL and slot, public Machine execution reaches:
 
 At the frontier r12/t4 is zero, r26/k0 is one from the generated Slti, r0 is
 architectural zero, and the branch target is `0xA4000A00`.
-

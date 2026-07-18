@@ -25,4 +25,3 @@ region where it matches committed anchors: `0xA400087C/0x27BDFF60`,
 `0xA40008F0/0x0D000261`, and
 `0xA400099C/0x53400018`. Its drifted earlier main-body schedule is rejected
 as generated-byte authority.
-

@@ -12,4 +12,3 @@ The exact generated JAL at `0xA40001A0` can therefore replace retained PIF
 IPL2 r31 truth with PC+8 and named instruction-result provenance. Generated
 execution then reaches `Beql r26,r0,0xA4000A00` at `0xA400099C`, which is
 the first unsupported pressure. RDRAM_MODE is not reached and remains closed.
-

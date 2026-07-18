@@ -13,4 +13,3 @@ Pinned source predicts the later first manual test:
 
 These remain source-level predictions only. Machine execution stops earlier
 at Beql and does not reach TestCCValue, WriteCC, or RDRAM_MODE.
-

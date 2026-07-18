@@ -10,4 +10,3 @@ Generated expected cadence:
 
 A control-flow instruction encountered in an active delay slot remains
 unsupported before any link write and advances Count zero.
-

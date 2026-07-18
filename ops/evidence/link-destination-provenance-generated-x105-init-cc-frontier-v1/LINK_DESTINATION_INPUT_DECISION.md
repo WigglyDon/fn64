@@ -8,4 +8,3 @@ not participate in either result.
 
 The pre-step snapshot may retain old r31 for rollback and proof. Snapshot
 capture is not an execution prerequisite.
-

@@ -13,4 +13,3 @@ The exact earlier CPU frontier is:
 - result: `MachineRepresentedStepError::UnrepresentedInstruction`.
 
 Therefore RDRAM_MODE is `NOT YET REACHED DUE TO EARLIER CPU FRONTIER`.
-

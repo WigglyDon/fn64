@@ -9,4 +9,3 @@ The correction changes no genuine source rule:
 - stores still require address and transfer-source lineage.
 
 Only prior link-destination state ceases to be treated as an operand.
-

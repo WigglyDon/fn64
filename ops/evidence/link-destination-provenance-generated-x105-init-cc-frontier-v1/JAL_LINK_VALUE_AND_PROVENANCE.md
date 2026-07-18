@@ -13,4 +13,3 @@ For the generated JAL:
 - source GPR B: none.
 
 The replacement is caused only by the committing instruction.
-
