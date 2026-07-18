@@ -16322,6 +16322,10 @@ mod tests {
         machine
     }
 
+    fn boxed_staged_lw_bootstrap_machine(first: u32, second: u32) -> Box<Machine> {
+        Box::new(staged_lw_bootstrap_machine(first, second))
+    }
+
     fn staged_generated_cold_x105_machine_with_firmware(
         words: &[(usize, u32)],
         firmware: Vec<u8>,
@@ -16358,6 +16362,14 @@ mod tests {
             words,
             generated_pif_firmware(pif_seed, PIF_BOOT_ROM_SIZE_BYTES),
         )
+    }
+
+    fn boxed_staged_generated_cold_x105_machine(
+        words: &[(usize, u32)],
+        pif_seed: u8,
+    ) -> (Box<Machine>, u32) {
+        let (machine, generated_sp_imem_word) = staged_generated_cold_x105_machine(words, pif_seed);
+        (Box::new(machine), generated_sp_imem_word)
     }
 
     fn staged_generated_cold_x105_frontier_machine() -> (Machine, u32, u32) {
@@ -19672,7 +19684,7 @@ mod tests {
                 (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
                 (0x48, sw_word(17, 22, 0x0004)),
             ];
-            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x88);
+            let (mut machine, _) = boxed_staged_generated_cold_x105_machine(&words, 0x88);
             machine.step().unwrap();
             machine.step().unwrap();
             machine.cpu.set_gpr(22, u64::from(transfer_word)).unwrap();
@@ -19696,7 +19708,7 @@ mod tests {
             (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
             (0x48, sw_word(17, 7, 0x0004)),
         ];
-        let (mut unknown, _) = staged_generated_cold_x105_machine(&unknown_words, 0x89);
+        let (mut unknown, _) = boxed_staged_generated_cold_x105_machine(&unknown_words, 0x89);
         unknown.step().unwrap();
         unknown.step().unwrap();
         let before = lw_snapshot(&unknown);
@@ -19715,7 +19727,7 @@ mod tests {
             (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
             (0x48, sw_word(17, 17, 0x0004)),
         ];
-        let (mut shared, _) = staged_generated_cold_x105_machine(&alias_words, 0x8a);
+        let (mut shared, _) = boxed_staged_generated_cold_x105_machine(&alias_words, 0x8a);
         shared.step().unwrap();
         shared.step().unwrap();
         let before = lw_snapshot(&shared);
@@ -19753,7 +19765,7 @@ mod tests {
             (0x50, immediate_word(0x0d, 17, 17, 0x8000)),
             (0x54, sw_word(17, 0, 0x0004)),
         ];
-        let (mut pending, _) = staged_generated_cold_x105_machine(&pending_words, 0x8b);
+        let (mut pending, _) = boxed_staged_generated_cold_x105_machine(&pending_words, 0x8b);
         for _ in 0..5 {
             pending.step().unwrap();
         }
@@ -19776,7 +19788,7 @@ mod tests {
             (0x4c, immediate_word(0x0d, 0, 22, 1)),
             (0x50, sw_word(17, 22, 0x0004)),
         ];
-        let (mut repeat, _) = staged_generated_cold_x105_machine(&repeat_words, 0x8c);
+        let (mut repeat, _) = boxed_staged_generated_cold_x105_machine(&repeat_words, 0x8c);
         for _ in 0..3 {
             repeat.step().unwrap();
         }
@@ -19792,7 +19804,7 @@ mod tests {
         );
         assert_eq!(lw_snapshot(&repeat), before);
 
-        let mut no_read = staged_lw_bootstrap_machine(
+        let mut no_read = boxed_staged_lw_bootstrap_machine(
             immediate_word(0x0f, 0, 17, 0xa3f1),
             lw_word(17, 9, 0x8004),
         );
@@ -20051,13 +20063,6 @@ mod tests {
                 },
             ),
             (
-                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 7, 0xf010),
-                MachineStoreWordRejectionReason::ValueSourceUnavailable {
-                    register_index: 7,
-                    source: MachineBootstrapGprSource::UnknownPifProduced,
-                },
-            ),
-            (
                 sw_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 7, 0),
                 MachineStoreWordRejectionReason::UnsupportedTarget {
                     target: MachineStoreWordUnsupportedTarget::SpDmem {
@@ -20083,6 +20088,29 @@ mod tests {
             assert_eq!(rejection.reason(), expected_reason);
             assert_eq!(lw_snapshot(&machine), before);
         }
+
+        let (mut unknown_device, _) = staged_generated_cold_x105_machine(
+            &[
+                (0x40, immediate_word(0x0f, 0, 1, 0xa430)),
+                (0x44, sw_word(1, 7, 0)),
+            ],
+            0x62,
+        );
+        unknown_device.step().unwrap();
+        let before = lw_snapshot(&unknown_device);
+        let rejection = unknown_device
+            .step()
+            .unwrap_err()
+            .store_word_rejection()
+            .unwrap();
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                register_index: 7,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&unknown_device), before);
 
         let (mut rdram, _) = staged_generated_cold_x105_machine(
             &[
@@ -20793,7 +20821,8 @@ mod tests {
     }
 
     #[test]
-    fn opaque_sp_imem_permission_keeps_unknown_devices_sp_dmem_and_addresses_closed() {
+    fn opaque_sp_imem_source_knownness_permission_keeps_unknown_devices_sp_dmem_and_addresses_closed(
+    ) {
         for (base_upper, immediate, expected_target) in [
             (0xa430, 0, MachineStoreWordTarget::MiInitMode),
             (0xa470, 0, MachineStoreWordTarget::RiMode),
@@ -21313,7 +21342,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_commits_opaque_and_concrete_saves_to_find_cc_boundary() {
+    fn generated_x105_init_cc_composition_commits_opaque_and_concrete_saves_to_find_cc_boundary() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
