@@ -50,7 +50,7 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: sp-imem-sw-ades ok\
 \ncase: sp-imem-sw-delay-slot-ades ok\
 \ncase: sp-imem-sw-unknown-base-rejection ok\
-\ncase: sp-imem-sw-unknown-source-rejection ok\
+\ncase: sp-imem-sw-opaque-source-committed ok\
 \ncase: sp-imem-sw-unsupported-target-rejection ok\
 \ncase: bltz-taken ok\
 \ncase: bltz-untaken ok\
@@ -179,7 +179,9 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: generated-x105-rcp2-branch ok\
 \ncase: generated-x105-first-responder-committed ok\
 \ncase: generated-x105-current-control-mode-address ok\
-\ncase: generated-x105-init-cc-unknown-store-frontier ok\
+\ncase: generated-x105-opaque-sp-imem-saves-committed ok\
+\ncase: generated-x105-concrete-sp-imem-saves-committed ok\
+\ncase: generated-x105-find-cc-boundary ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -885,7 +887,50 @@ fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
 
     let unknown_source_words = [(0x40, immediate_word(0x2b, 29, 7, 0xf010))];
     let (mut unknown_source, _) = generated_cold_x105_machine(CASE, &unknown_source_words)?;
-    match unknown_source.step() {
+    require(
+        CASE,
+        matches!(
+            step(&mut unknown_source, CASE)?,
+            MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted {
+                effective_address: 0xffff_ffff_a400_1000,
+                target: MachineStoreWordTarget::SpImem { offset: 0 },
+                source_gpr: 7,
+                state,
+                cadence_plan,
+            } if state.aligned_offset() == 0
+                && state.instruction_pc() == CpuAddress::new(0xa400_0040)
+                && state.source_gpr() == 7
+                && state.source_lineage() == MachineBootstrapGprSource::UnknownPifProduced
+                && state.effective_address() == 0xffff_ffff_a400_1000
+                && state.cpu_address() == CpuAddress::new(0xa400_1000)
+                && state.physical_address() == 0x0400_1000
+                && cadence_plan.advances_count()
+        ),
+        "unknown source commits only as opaque SP-IMEM truth",
+    )?;
+    require(
+        CASE,
+        unknown_source
+            .sp_imem_opaque_word_state(0)
+            .is_some_and(|state| {
+                state.source_gpr() == 7
+                    && state.source_lineage() == MachineBootstrapGprSource::UnknownPifProduced
+            })
+            && unknown_source.cpu().cop0_count() == 1,
+        "opaque source state and Count cadence",
+    )?;
+
+    let unknown_device_words = [
+        (0x40, immediate_word(0x0f, 0, 1, 0xa430)),
+        (0x44, immediate_word(0x2b, 1, 7, 0x0000)),
+    ];
+    let (mut unknown_device, _) = generated_cold_x105_machine(CASE, &unknown_device_words)?;
+    require_committed_identity(
+        CASE,
+        step(&mut unknown_device, CASE)?,
+        CpuInstructionIdentity::Lui,
+    )?;
+    match unknown_device.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             CASE,
             matches!(
@@ -895,15 +940,15 @@ fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
                     ..
                 }
             ),
-            "unknown source rejection",
+            "unknown device command source rejection",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "unknown source Sw rejection"),
+        Ok(_) => return assertion(CASE, "unknown device command Sw rejection"),
     }
     require(
         CASE,
-        unknown_source.cpu().cop0_count() == 0,
-        "unknown source Count unchanged",
+        unknown_device.cpu().cop0_count() == 1,
+        "unknown device command Count unchanged after address construction",
     )?;
 
     let unsupported_words = [
@@ -3292,6 +3337,31 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x888, 0x0000_8825),
         (0x88c, 0x0000_8025),
         (0x890, 0xafa2_0000),
+        (0x894, 0xafa3_0004),
+        (0x898, 0xafa4_0008),
+        (0x89c, 0xafa5_000c),
+        (0x8a0, 0xafa6_0010),
+        (0x8a4, 0xafa7_0014),
+        (0x8a8, 0xafa8_0018),
+        (0x8ac, 0xafa9_001c),
+        (0x8b0, 0xafaa_0020),
+        (0x8b4, 0xafab_0024),
+        (0x8b8, 0xafac_0028),
+        (0x8bc, 0xafad_002c),
+        (0x8c0, 0xafae_0030),
+        (0x8c4, 0xafaf_0034),
+        (0x8c8, 0xafb8_0038),
+        (0x8cc, 0xafb9_003c),
+        (0x8d0, 0xafb2_0048),
+        (0x8d4, 0xafb3_004c),
+        (0x8d8, 0xafb4_0050),
+        (0x8dc, 0xafb5_0054),
+        (0x8e0, 0xafb6_0058),
+        (0x8e4, 0xafb7_005c),
+        (0x8e8, 0xafbe_0060),
+        (0x8ec, 0xafbf_0064),
+        (0x8f0, 0x0d00_0261),
+        (0x8f4, 0x0000_0000),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -5032,9 +5102,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         "exact InitCCValue unknown-source store frontier",
     )?;
 
-    let gprs_before: [Option<u64>; 32] = core::array::from_fn(|index| machine.cpu().gpr(index));
-    let bootstrap_before = machine.cartridge_bootstrap_state();
-    let devices_before_frontier = (
+    let devices_before_saves = (
         machine.mi_version_state(),
         machine.mi_init_mode_state(),
         machine.mi_init_transfer_state(),
@@ -5047,58 +5115,162 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         machine.ri_current_load_state(),
         machine.ri_mode_state(),
     );
-    let cpu_before = (
-        machine.cpu().pc(),
-        machine.cpu().next_pc(),
-        machine.cpu().cop0_count(),
-        machine.cpu().cop0_compare(),
-        machine.cpu().cop0_status(),
-        machine.cpu().cop0_epc(),
-        machine.cpu().cop0_bad_vaddr(),
-        machine.cpu().hi(),
-        machine.cpu().lo(),
-        machine.cpu_delay_slot_context(),
-    );
-    match machine.step() {
-        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+    for (index, (pc, raw_word, source_gpr, offset)) in [
+        (0xa400_0890, 0xafa2_0000, 2, 0x0ef0),
+        (0xa400_0894, 0xafa3_0004, 3, 0x0ef4),
+        (0xa400_0898, 0xafa4_0008, 4, 0x0ef8),
+        (0xa400_089c, 0xafa5_000c, 5, 0x0efc),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        require(
             CASE,
-            rejection.identity() == CpuInstructionIdentity::Sw
-                && rejection.effective_address() == Some(0xffff_ffff_a400_1ef0)
-                && rejection.cpu_address() == Some(CpuAddress::new(0xa400_1ef0))
-                && rejection.target() == Some(MachineStoreWordTarget::SpImem { offset: 0x0ef0 })
-                && rejection.reason()
-                    == MachineStoreWordRejectionReason::ValueSourceUnavailable {
-                        register_index: 2,
-                        source: MachineBootstrapGprSource::UnknownPifProduced,
-                    },
-            "InitCCValue store rejects unknown PIF-produced r2 before mutation",
-        )?,
-        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => {
-            return assertion(
-                CASE,
-                "InitCCValue unknown-source store remains the frontier",
-            )
-        }
+            machine
+                .inspect_current_cpu_instruction()
+                .is_ok_and(|instruction| {
+                    instruction.cpu_address() == CpuAddress::new(pc)
+                        && instruction.fields().raw().bits() == raw_word
+                        && instruction.identity() == CpuInstructionIdentity::Sw
+                        && instruction.fields().rs() == 29
+                        && instruction.fields().rt() == source_gpr
+                })
+                && machine.cpu().gpr(usize::from(source_gpr)) == Some(0)
+                && machine
+                    .cartridge_bootstrap_state()
+                    .and_then(|state| state.gpr_source(usize::from(source_gpr)))
+                    == Some(MachineBootstrapGprSource::UnknownPifProduced),
+            "exact generated opaque-save instruction and unavailable source",
+        )?;
+        let expected_effective = 0xffff_ffff_a400_1000 + u64::from(offset);
+        let outcome = step(&mut machine, CASE)?;
+        require(
+            CASE,
+            matches!(
+                outcome,
+                MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted {
+                    effective_address,
+                    target: MachineStoreWordTarget::SpImem { offset: observed_offset },
+                    source_gpr: observed_gpr,
+                    state,
+                    cadence_plan,
+                } if effective_address == expected_effective
+                    && observed_offset == offset
+                    && observed_gpr == source_gpr
+                    && state.aligned_offset() == offset
+                    && state.instruction_pc() == CpuAddress::new(pc)
+                    && state.source_gpr() == source_gpr
+                    && state.source_lineage()
+                        == MachineBootstrapGprSource::UnknownPifProduced
+                    && state.effective_address() == expected_effective
+                    && state.cpu_address() == CpuAddress::new(expected_effective as u32)
+                    && state.physical_address() == 0x0400_1000 + offset
+                    && machine.sp_imem_opaque_word_state(offset) == Some(state)
+                    && cadence_plan.advances_count()
+            ),
+            "generated unavailable save commits as one cause-known opaque word",
+        )?;
+        total_committed_steps += 1;
+        require(
+            CASE,
+            machine.cpu().pc() == pc + 4
+                && machine.cpu().next_pc() == pc + 8
+                && machine.cpu().cop0_count() == 32_177 + index as u32
+                && total_committed_steps == 32_193 + index as u32,
+            "opaque-save cadence",
+        )?;
     }
+
+    let opaque_states = [0x0ef0, 0x0ef4, 0x0ef8, 0x0efc]
+        .map(|offset| machine.sp_imem_opaque_word_state(offset).unwrap());
+    for (index, (pc, raw_word, source_gpr, offset, expected_value)) in [
+        (0xa400_08a0, 0xafa6_0010, 6, 0x0f00, 0xffff_ffff_a3f0_0000),
+        (0xa400_08a4, 0xafa7_0014, 7, 0x0f04, 0xffff_ffff_a000_0000),
+        (0xa400_08a8, 0xafa8_0018, 8, 0x0f08, 0xffff_ffff_a470_0000),
+        (0xa400_08ac, 0xafa9_001c, 9, 0x0f0c, 0xffff_ffff_8000_0000),
+        (0xa400_08b0, 0xafaa_0020, 10, 0x0f10, 0xffff_ffff_a3f8_0000),
+        (0xa400_08b4, 0xafab_0024, 11, 0x0f14, 0xffff_ffff_a3f0_0000),
+        (0xa400_08b8, 0xafac_0028, 12, 0x0f18, 0xffff_ffff_a430_0000),
+        (0xa400_08bc, 0xafad_002c, 13, 0x0f1c, 0),
+        (0xa400_08c0, 0xafae_0030, 14, 0x0f20, 0),
+        (0xa400_08c4, 0xafaf_0034, 15, 0x0f24, 0xffff_ffff_a3f0_0000),
+        (0xa400_08c8, 0xafb8_0038, 24, 0x0f28, 0),
+        (0xa400_08cc, 0xafb9_003c, 25, 0x0f2c, 0xffff_ffff_a3f0_0000),
+        (0xa400_08d0, 0xafb2_0048, 18, 0x0f38, 0),
+        (0xa400_08d4, 0xafb3_004c, 19, 0x0f3c, 0),
+        (0xa400_08d8, 0xafb4_0050, 20, 0x0f40, 0xffff_ffff_a000_0000),
+        (0xa400_08dc, 0xafb5_0054, 21, 0x0f44, 0xffff_ffff_a3f0_000c),
+        (0xa400_08e0, 0xafb6_0058, 22, 0x0f48, 0xffff_ffff_a000_0000),
+        (0xa400_08e4, 0xafb7_005c, 23, 0x0f4c, 0),
+        (0xa400_08e8, 0xafbe_0060, 30, 0x0f50, 0xffff_ffff_a400_1f90),
+        (0xa400_08ec, 0xafbf_0064, 31, 0x0f54, 0xffff_ffff_a400_01a8),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        require(
+            CASE,
+            machine
+                .inspect_current_cpu_instruction()
+                .is_ok_and(|instruction| {
+                    instruction.cpu_address() == CpuAddress::new(pc)
+                        && instruction.fields().raw().bits() == raw_word
+                        && instruction.identity() == CpuInstructionIdentity::Sw
+                        && instruction.fields().rs() == 29
+                        && instruction.fields().rt() == source_gpr
+                })
+                && machine.cpu().gpr(usize::from(source_gpr)) == Some(expected_value)
+                && machine
+                    .cartridge_bootstrap_state()
+                    .and_then(|state| state.gpr_source(usize::from(source_gpr)))
+                    .is_some_and(MachineBootstrapGprSource::is_known),
+            "exact generated concrete-save instruction, value, and known lineage",
+        )?;
+        require(
+            CASE,
+            matches!(
+                step(&mut machine, CASE)?,
+                MachineRepresentedStepOutcome::StoreWordCommitted {
+                    effective_address,
+                    target: MachineStoreWordTarget::SpImem { offset: observed_offset },
+                    source_gpr: observed_gpr,
+                    stored_word,
+                    cadence_plan,
+                    ..
+                } if effective_address == 0xffff_ffff_a400_1000 + u64::from(offset)
+                    && observed_offset == offset
+                    && observed_gpr == source_gpr
+                    && stored_word == expected_value as u32
+                    && cadence_plan.advances_count()
+            ),
+            "generated known save commits exact low word to SP IMEM",
+        )?;
+        total_committed_steps += 1;
+        require(
+            CASE,
+            machine.cpu().pc() == pc + 4
+                && machine.cpu().next_pc() == pc + 8
+                && machine.cpu().cop0_count() == 32_181 + index as u32
+                && total_committed_steps == 32_197 + index as u32
+                && [0x0ef0, 0x0ef4, 0x0ef8, 0x0efc]
+                    .into_iter()
+                    .enumerate()
+                    .all(|(opaque_index, opaque_offset)| {
+                        machine.sp_imem_opaque_word_state(opaque_offset)
+                            == Some(opaque_states[opaque_index])
+                    }),
+            "concrete-save cadence and preservation of opaque words",
+        )?;
+    }
+
     require(
         CASE,
-        cpu_before
-            == (
-                machine.cpu().pc(),
-                machine.cpu().next_pc(),
-                machine.cpu().cop0_count(),
-                machine.cpu().cop0_compare(),
-                machine.cpu().cop0_status(),
-                machine.cpu().cop0_epc(),
-                machine.cpu().cop0_bad_vaddr(),
-                machine.cpu().hi(),
-                machine.cpu().lo(),
-                machine.cpu_delay_slot_context(),
-            )
-            && gprs_before == core::array::from_fn(|index| machine.cpu().gpr(index))
-            && bootstrap_before == machine.cartridge_bootstrap_state()
-            && devices_before_frontier
+        machine.cpu().pc() == 0xa400_08f0
+            && machine.cpu().next_pc() == 0xa400_08f4
+            && machine.cpu().cop0_count() == 32_200
+            && total_committed_steps == 32_216
+            && machine.cpu().gpr(31) == Some(0xffff_ffff_a400_01a8)
+            && devices_before_saves
                 == (
                     machine.mi_version_state(),
                     machine.mi_init_mode_state(),
@@ -5115,7 +5287,23 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             && machine.rdram_broadcast_device_id_request_state() == Some(device_id_request)
             && machine.rdram_first_responder_device_id_request_state()
                 == Some(first_responder_request),
-        "unknown-source store rejection preserves CPU lineage and all represented device truth",
+        "24-save cadence and all represented device truth preserved",
+    )?;
+    let boundary = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    require(
+        CASE,
+        boundary.cpu_address() == CpuAddress::new(0xa400_08f0)
+            && boundary.fields().raw().bits() == 0x0d00_0261
+            && boundary.identity() == CpuInstructionIdentity::Jal
+            && ((0xa400_08f4 & 0xf000_0000) | (boundary.fields().jump_target() << 2))
+                == 0xa400_0984
+            && words.last() == Some(&(0x8f4, 0x0000_0000)),
+        "unexecuted FindCC JAL, target, and delay-slot Nop boundary",
     )
 }
 

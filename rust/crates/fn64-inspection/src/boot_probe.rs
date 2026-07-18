@@ -595,6 +595,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
                     | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
@@ -748,6 +749,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
             | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
+            | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
@@ -777,6 +779,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. } => "cpu-local-committed",
         MachineRepresentedStepOutcome::LoadWordCommitted { .. } => "load-word-committed",
         MachineRepresentedStepOutcome::StoreWordCommitted { .. } => "store-word-committed",
+        MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. } => {
+            "opaque-sp-imem-store-word-committed"
+        }
         MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. } => "ri-config-store-committed",
         MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. } => {
             "ri-current-load-store-committed"
@@ -967,6 +972,10 @@ fn format_load_word_rejection_frontier(
         MachineLoadWordRejectionReason::SpImemUnknown {
             first_unknown_offset,
         } => format!("sp-imem-unknown first_unknown_offset=0x{first_unknown_offset:08X}"),
+        MachineLoadWordRejectionReason::SpImemWordOpaque {
+            aligned_offset,
+            source,
+        } => format!("sp-imem-word-opaque aligned_offset=0x{aligned_offset:08X} source={source:?}"),
         MachineLoadWordRejectionReason::SpImemReadRejected => "sp-imem-read-rejected".to_owned(),
         MachineLoadWordRejectionReason::RiSelectUnavailable => "ri-select-unavailable".to_owned(),
     };
