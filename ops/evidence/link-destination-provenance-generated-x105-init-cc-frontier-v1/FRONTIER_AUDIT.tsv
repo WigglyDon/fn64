@@ -1,0 +1,11 @@
+pc	word	identity	result	count_after	commits_after	bounded_fact
+0xA40001A0	0x0D00021F	Jal 0xA400087C	pre-change rejected	32169	32185	BootstrapLinkLineageUnavailable r31
+0xA40001A0	0x0D00021F	Jal 0xA400087C	expected committed	32170	32186	r31=0xFFFFFFFFA40001A8
+0xA40001A4	0x00000000	Nop	expected committed	32171	32187	JAL delay slot
+0xA400087C	0x27BDFF60	Addiu sp,sp,-0xA0	expected committed	32172	32188	InitCCValue entry
+0xA40008F0	0x0D000261	Jal 0xA4000984	expected committed	32201	32217	FindCC call
+0xA40008F4	0x00000000	Nop	expected committed	32202	32218	FindCC JAL delay slot
+0xA4000984	0x27BDFFE0	Addiu sp,sp,-0x20	expected committed	32203	32219	FindCC entry
+0xA4000998	0x298C0040	Slti r26,r12,64	expected committed	32208	32224	r26=1
+0xA400099C	0x53400018	Beql r26,r0,0xA4000A00	expected unsupported	32208	32224	first unsupported CPU identity
+
