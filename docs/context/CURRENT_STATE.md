@@ -223,12 +223,17 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `0xA400088C` subtract `0xA0` from sp, save spacing `0x00000400` and
   first-responder base `0xA3F08000` to SP-IMEM offsets `0xF30/0xF34`, and
   zero r17/r16. At 32,192 commits, PC/next-PC are
-  `0xA4000890 / 0xA4000894`, Count is `32176`, and the first unsupported
-  pressure is `Sw r2,0(sp)` (word `0xAFA20000`). Its effective/CPU/physical
-  addresses are `0xFFFFFFFFA4001EF0 / 0xA4001EF0 / 0x04001EF0`; r2 contains
-  zero but retains `UnknownPifProduced` lineage, so the supported Sw rejects
-  atomically with `ValueSourceUnavailable`. Every instruction and byte is
-  independently generated.
+  `0xA4000890 / 0xA4000894` and Count is `32176`. Four generated stores of
+  inherited r2-r5 then commit cause-known, value-unavailable aligned SP-IMEM
+  words at offsets `0xEF0`, `0xEF4`, `0xEF8`, and `0xEFC`; their private zero
+  backing sentinels are not transferred truth. Twenty following known-source
+  stores commit normally through `0xA40008EC` without changing those opaque
+  words. At 32,216 commits, PC/next-PC are
+  `0xA40008F0 / 0xA40008F4`, Count is `32200`, and the next composition
+  boundary is unexecuted word `0x0D000261`, `Jal 0xA4000984` (FindCC), with
+  prospective link `0xFFFFFFFFA40008F8` and unexecuted Nop slot at
+  `0xA40008F4`. Every instruction and represented state is independently
+  generated.
   This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -394,12 +399,15 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   state, or IPL2 execution.
 - `LIVE_REPO_FACT`: the generated JAL at `0xA40001A0` now commits link
   `0xFFFFFFFFA40001A8`, executes its Nop slot once, and enters InitCCValue.
-  The next pressure is `Sw r2,0(sp)` at `0xA4000890` (word `0xAFA20000`),
-  targeting SP IMEM physical `0x04001EF0`; it rejects atomically because r2's
-  retained `UnknownPifProduced` lineage is not a known store source. The exact
+  Aligned stores of explicitly unavailable r2-r5 now commit only to the
+  existing SP-IMEM owner as four opaque aligned words. Opaque state records
+  cause and destination but no value bits; known full-word overwrite replaces
+  it, aligned Lw rejects explicitly, and no instruction fetch can decode its
+  sentinel. Twenty following concrete saves commit normally. The exact
   first-responder assignment request and initial RDRAM_MODE address
-  `0xFFFFFFFFA3F0000C` remain preserved. RDRAM_MODE and current-control
-  calibration are not yet reached. No responder presence,
+  `0xFFFFFFFFA3F0000C` remain preserved. The unexecuted FindCC JAL at
+  `0xA40008F0` is the next composition boundary; RDRAM_MODE and current-control
+  calibration are not reached. No responder presence,
   assignment completion, module identity, discovery, or per-module state is
   represented. Alternate MI_VERSION identities and a
   configuration surface remain absent. DEVICE_ID physical relocation,

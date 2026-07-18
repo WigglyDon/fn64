@@ -21,8 +21,9 @@ PIF firmware input, optional explicit PIF IPL2 copy profile, explicit narrow
 cold-handoff selector inputs, and narrow
 machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
-ledger that earned BOOT-2. SP IMEM has separate backing bytes and per-byte
-knownness; concrete reset zero is not an architecturally known value.
+ledger that earned BOOT-2. `SpImem` owns backing bytes, per-byte knowledge and
+provenance, and coherent opaque aligned-word records. Concrete reset zero and
+private opaque sentinel zero are not architecturally known values.
 Long-term ownership stays with the smallest
 host-independent core that actual hardware work earns.
 
@@ -81,6 +82,13 @@ Global REF_ROW accepts only low word zero, and global DEVICE_ID accepts only
 transfer, then constructs a bounded initial-device-ID assignment request. It
 is classified by exact address, not a register range; RCP 1.0 physical
 `0x03F04004` remains unsupported.
+
+An unavailable store source may form an opaque plan only after the exact
+destination is classified as an aligned existing SP-IMEM word. The plan stores
+cause and addresses but no value bits. Application canonicalizes private bytes
+and installs one coherent `SpImem` record; known aligned overwrite removes it.
+Aligned Lw rejects opaque words, and every device/SP-DMEM unknown write remains
+closed.
 Application has no
 fallible operation: it mutates one selected owner, commits control flow once,
 and advances Count once. Rejection restores the captured snapshot; AdES
@@ -147,7 +155,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 155-case step probe, the bounded BOOT-2
+construction/reset probe, the 157-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -156,7 +164,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,192-step generated composition through the stored RI_SELECT
+handoff and a 32,216-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -173,8 +181,10 @@ executes once, and setup selects spacing `0x400` plus first-responder base
 then records a bounded zero assignment request. The following `Addiu` produces
 initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. The generated JAL at
 `0xA40001A0` replaces retained r31 with PC+8, its Nop slot executes once, and
-five InitCCValue prologue instructions commit. `Sw r2,0(sp)` at `0xA4000890`
-then rejects before mutation because r2 retains unknown PIF-produced lineage.
+five InitCCValue entry instructions commit. Four inherited-unknown r2-r5 saves
+then create opaque aligned SP-IMEM words; twenty known-source saves follow
+without disturbing them. PC/next-PC reach `0xA40008F0 / 0xA40008F4`, Count
+`32200`, at 32,216 commits. The FindCC JAL is not executed.
 It does not prove an authentic firmware-executed handoff, responder
 presence/completion, RI calibration or elapsed hardware time, RDRAM_MODE or
 RDRAM initialization, BOOT-3, full ISA, game compatibility, renderer, audio,

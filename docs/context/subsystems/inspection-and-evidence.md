@@ -35,14 +35,15 @@ fields/provenance/consumption/post-readback cases, raw global REF_ROW ownership/
 provenance/alias/AdES/lifecycle cases, exact DEVICE_ID request/value/provenance/
 alias/AdES/lifecycle/unchanged-routing cases, immutable MI_VERSION word/fields/
 lifecycle/read/provenance/alias/AdEL/closed-surface cases, exact first-responder
-request/value/provenance/alias/AdES/lifecycle/narrow-route cases, plus 32,192 generated commits
+request/value/provenance/alias/AdES/lifecycle/narrow-route cases, opaque
+SP-IMEM cause/sentinel/coherence/overwrite/Lw/AdES/lifecycle cases, plus 32,216 generated commits
 through both bounded CPU waits and RI events, the exact MI write, delay-word
 construction, global RDRAM_DELAY and raw-zero RDRAM_REF_ROW commits,
 DEVICE_ID-value/request commit, fourteen CPU-local setup commits, exact
 MI_VERSION read, guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup,
 first-responder non-global RDRAM_DEVICE_ID commit, RDRAM_MODE-address `Addiu`,
-generated JAL/Nop cadence, and five InitCCValue prologue commits before the
-exact unknown-store-source rejection. The
+generated JAL/Nop cadence, five InitCCValue entry commits, four opaque r2-r5
+saves, and twenty concrete saves before the unexecuted FindCC JAL. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -112,9 +113,10 @@ zero as a bounded assignment request at physical `0x03F08004`. `Addiu` at
 `0xA400019C` produces initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`.
 `Jal 0xA400087C` at `0xA40001A0` replaces retained link
 `0xFFFFFFFFA4001550` with `0xFFFFFFFFA40001A8` and exact JAL lineage; the Nop
-slot commits once. InitCCValue commits through `0xA400088C`, then
-`Sw r2,0(sp)` at `0xA4000890` rejects because r2 retains
-`UnknownPifProduced` lineage. This is
+slot commits once. InitCCValue commits through `0xA400088C`; r2-r5 then save as
+four cause-known, value-unavailable SP-IMEM words and twenty known-source saves
+commit through `0xA40008EC`. The proof stops before the FindCC JAL at
+`0xA40008F0`. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, general MI next-write replication, calibration, RDRAM initialization, or NMI
 execution.

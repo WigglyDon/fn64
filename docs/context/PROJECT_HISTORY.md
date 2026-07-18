@@ -614,6 +614,30 @@ product or reference lane requires a new explicit product decision.
   presence, module discovery, authentic advancement, BOOT-3, and compatibility
   remain absent.
 
+## Era 32 — opaque SP-IMEM words and FindCC boundary (2026-07-18)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, public IPL2 checksum/handoff and
+  x105 InitCCValue save relationships; `LIVE_REPO_FACT`, existing `SpImem`
+  byte knowledge/provenance ownership; `RUNTIME_FACT`, generated public-step
+  proof.
+- Product decisions: `OPAQUE_ALIGNED_SP_IMEM_WORD_ONLY`,
+  `OPAQUE_WORD_CAUSE_KNOWN_VALUE_BITS_UNAVAILABLE`,
+  `KNOWN_ALIGNED_WORD_OVERWRITE_REPLACES_OPAQUE_STATE`, and
+  `NO_UNKNOWN_DEVICE_COMMAND_COMMIT`.
+- Accepted increment: an unavailable CPU store source may commit only after
+  exact aligned SP-IMEM classification. Existing `SpImem` owns one coherent
+  causal record; four deterministic private zero backing bytes are not machine
+  truth. Known full-word overwrite replaces opaque state. Aligned Lw rejects
+  explicitly, instruction fetch cannot decode the backing, and unknown
+  SP-DMEM/device/arithmetic/control-flow/address consumers remain closed.
+- Generated composition: r2-r5 save as opaque words at
+  `0xEF0/0xEF4/0xEF8/0xEFC`; twenty known-source saves commit through
+  `0xA40008EC`. PC/next-PC reach `0xA40008F0`/`0xA40008F4`, Count 32,200, at
+  32,216 commits.
+- Boundary: `Jal 0xA4000984` (FindCC), word `0x0D000261`, prospective link
+  `0xFFFFFFFFA40008F8`, and its Nop delay slot are not executed. RDRAM_MODE,
+  calibration, authentic advancement, BOOT-3, and compatibility remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

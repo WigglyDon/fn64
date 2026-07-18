@@ -31,6 +31,11 @@ or first-responder DEVICE_ID assignment-request state changes,
 no normal cadence commits, and Count advances zero times. The exact RI, MI,
 and global RDRAM_DELAY/REF_ROW/DEVICE_ID or exact RCP 2.0 first-responder
 DEVICE_ID write routes add no device-specific exception.
+Opaque-candidate SP-IMEM stores retain this same AdES-before-source policy in
+ordinary and delay-slot contexts; no opaque marker or private sentinel is
+installed on fault. An unaligned Lw within an opaque word retains AdEL
+precedence, while an aligned opaque Lw rejects without exception, destination
+mutation, or Count cadence.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 Prior JAL link-destination state is no longer misclassified as an input, but a

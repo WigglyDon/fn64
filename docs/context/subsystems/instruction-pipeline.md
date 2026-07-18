@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 155-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 157-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -63,8 +63,9 @@ following exact zero store commits one bounded first-responder assignment
 request; `Addiu` then constructs initial RDRAM_MODE address
 `0xFFFFFFFFA3F0000C`. The next JAL at `0xA40001A0` replaces retained r31 with
 PC+8 and exact JAL lineage, its Nop slot executes once, and five InitCCValue
-prologue instructions commit. `Sw r2,0(sp)` then rejects atomically because
-r2's retained PIF-produced lineage is unknown. This proves no RI timing,
+entry instructions commit. Four inherited-unknown saves commit as opaque
+SP-IMEM words and twenty known-source saves follow. Execution stops before the
+FindCC JAL at `0xA40008F0`. This proves no RI timing,
 calibration, general MI bus
 effect, responder/module state, assignment completion, or RDRAM process.
 
@@ -94,6 +95,15 @@ with consumed lineage. First-responder planning matches only physical
 a request fact rather than module state. Application neither reclassifies nor
 discovers a new failure.
 
+After alignment, direct normalization, and exact destination classification,
+an explicitly unavailable store source may form an opaque plan only for an
+already-supported aligned SP-IMEM word. The plan carries cause and address but
+no value bits; application canonicalizes private backing and installs one
+coherent owner state. Unknown effective addresses, SP-DMEM stores, device
+commands, and unsupported targets retain their rejection paths. Aligned Lw
+from opaque SP IMEM rejects before destination mutation; no unknown GPR result
+is created.
+
 Ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and
 `JALR` identities now select one bounded Machine-owned action before sequential
 staging. BLTZ alone reuses the existing full-GPR signed comparator; no generic
@@ -108,5 +118,5 @@ Known unknowns include future public-step integration categories, branch-likely
 and other REGIMM/control-flow families, broader COP0 instruction execution,
 general RI_SELECT programming/other RI actions/other MI registers or reads/NMI
 and generic MMIO, MI next-write replication, RDRAM_MODE/other control-register
-access, later InitCCValue calls, nested control-flow
+access, the unexecuted FindCC call and later InitCCValue calls, nested control-flow
 behavior, broad fetch mapping, and instruction timing.

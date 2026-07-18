@@ -38,7 +38,7 @@ history.
 | `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
 | `Rdram` | 4 MiB zero-filled storage, checked raw fixed-width reads, optional global/broadcast delay, raw REF_ROW, and DEVICE_ID relocation-request facts, plus one exact RCP 2.0 first-responder DEVICE_ID assignment-request fact with CPU provenance | no byte/routing mutation from any command, CPU register read, responder presence, assignment completion, REF_ROW/DEVICE_ID field interpretation, refresh engine, module inventory/per-module state, general bus, timing, or readiness |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
-| `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, checked known big-endian word reads, and an atomic profiled-copy constructor | no public mutable access, profile policy, SP register/status/DMA, or RSP execution |
+| `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads, concrete/opaque CPU-store provenance, and atomic profiled-copy replacement | no public mutable access, opaque value exposure, unknown GPR load result, SP instruction-fetch route, profile policy, SP register/status/DMA, or RSP execution |
 | `Ri` | optional RI_MODE defined fields/provenance, optional RI_SELECT cold-entry or exact-`0x14` CPU-store value/provenance, optional RI_CONFIG input/enable fields, and optional RI_CURRENT_LOAD event snapshot with CPU-store provenance | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, RI physical effects/timing, current-control output, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Mi` | immutable standard-retail MI_VERSION word `0x02020102` with derived fields, optional exact-x105 initialization state, and one bounded pending 15/16 transfer with CPU-store provenance | no alternate identity/configuration, other MI read or write, other MI fields/registers, command bank, general next-write replication, timing, MMIO framework, or bus |
 | `Machine` | Cartridge, optional accepted PifFirmware and PifIpl2Profile, explicit handoff selectors, Cpu, Rdram, SpDmem, SpImem, Ri, Mi, bootstrap provenance/GPR-knownness/COP0/control-flow state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
@@ -166,7 +166,10 @@ copies the complete explicitly selected range when both inputs exist. Each
 copied byte is known with `UserSuppliedPifFirmware` provenance naming profile
 and source offset; every byte outside the range remains `Unknown`. A word read
 requires four known bytes, assembles them in N64 big-endian order, and reports
-the first unknown byte otherwise. Only test builds can directly stage
+the first unknown byte otherwise. `SpImem` also owns coherent aligned opaque
+word records for committed CPU stores whose cause and destination are exact
+but whose transferred bits are unavailable. Four private zero sentinel bytes
+are not machine truth. Only test builds can directly stage
 generated known words. Production and inspection have no mutable SP IMEM
 surface.
 
@@ -352,6 +355,9 @@ unknown SP IMEM byte, unclassified SP DMEM, target miss, unsupported address
 form, blocked exception entry, and lower read failure leave all represented
 state unchanged. An unaligned SP-DMEM-shaped load uses the same AdEL owner,
 including delay-slot EPC/BD and zero faulting-instruction Count.
+An aligned Lw from an opaque SP-IMEM word rejects as `SpImemWordOpaque` before
+destination mutation or Count cadence, including destination r0. It returns no
+sentinel and creates no unknown GPR. Unaligned access retains AdEL precedence.
 
 ### Machine-owned aligned `Sw`
 
@@ -361,10 +367,15 @@ same wrapping represented-address rule as `Lw`, checks word alignment before
 source-value consumption, and accepts only direct KSEG0/KSEG1 aliases of SP
 IMEM or exactly RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
 RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0
-first-responder RDRAM_DEVICE_ID. All supported paths capture old `rt`
-and its low 32
-bits. SP IMEM stores four big-endian bytes and replaces only those bytes'
-provenance with the instruction PC, source GPR, and source lineage. RI_CONFIG
+first-responder RDRAM_DEVICE_ID. All supported paths capture old `rt` backing
+and source classification. A known SP-IMEM source stores four big-endian bytes
+and replaces only those bytes' provenance with the instruction PC, source GPR,
+and source lineage. An explicitly unavailable source may commit only after the
+destination is classified as an aligned SP-IMEM word: it canonicalizes four
+private bytes to zero and records aligned offset, instruction PC, source GPR
+and lineage, and exact effective/CPU/physical addresses without any value bit.
+A second opaque store replaces the word record; a known aligned overwrite
+removes it and restores concrete readable truth. RI_CONFIG
 accepts only words with zero undefined high bits, stores current-control input
 bits 5:0 and enable bit 6 with the same CPU-store lineage, and changes no
 memory. RI_CURRENT_LOAD requires stored RI_CONFIG and creates an event that
@@ -390,8 +401,9 @@ once. `rs == rt` uses the old shared value and r0 transfers a known zero word.
 
 Unaligned `Sw` enters AdES code 5 through the existing COP0 owner with exact
 BadVAddr and sequential or delay-slot EPC/BD lineage. It performs no store or
-normal cadence and advances Count zero times. Unknown base/source, non-direct
-address, target miss, undefined RI_CONFIG bits, unavailable RI_CONFIG for an
+normal cadence and advances Count zero times. Unknown base, unavailable source
+to any non-SP-IMEM target, non-direct address, target miss, undefined RI_CONFIG
+bits, unavailable RI_CONFIG for an
 RI_CURRENT_LOAD event, unsupported RI_SELECT words, undefined RI_MODE high
 bits, wrong/missing delay transfer, nonzero REF_ROW word, SP DMEM, blocked exception entry, and bounds failure preserve all
 represented state. Other MI/RDRAM/device stores, other store identities, a generic store path, bus,
@@ -578,10 +590,14 @@ assignment request with r14's generated `Addu` lineage. Commit 32,185 executes
 `0xA40001A0 / 0xA40001A4`, Count is `32169`. The generated
 `Jal 0xA400087C` replaces retained bootstrap r31 with
 `0xFFFFFFFFA40001A8`, records JAL lineage, and schedules its Nop slot. The
-slot commits once and enters InitCCValue. Five supported prologue commits
-leave PC/next-PC `0xA4000890 / 0xA4000894`, Count `32176`, and 32,192 total
-commits. `Sw r2,0(sp)` then rejects atomically because r2 retains
-`UnknownPifProduced` lineage; its SP-IMEM physical target is `0x04001EF0`.
+slot commits once and enters InitCCValue. Five supported entry commits leave
+PC/next-PC `0xA4000890 / 0xA4000894`, Count `32176`, and 32,192 total commits.
+Four r2-r5 stores commit opaque SP-IMEM words at offsets
+`0xEF0/0xEF4/0xEF8/0xEFC`; twenty known-source saves then commit through
+`0xA40008EC`. PC/next-PC become `0xA40008F0 / 0xA40008F4`, Count is `32200`,
+and total commits are 32,216. The FindCC JAL word `0x0D000261`, target
+`0xA4000984`, prospective link `0xFFFFFFFFA40008F8`, and its Nop slot remain
+unexecuted.
 These tests
 prove CPU composition only, not an authentic
 IPL2-to-IPL3 run, elapsed RI time, current calibration, RDRAM initialization,
@@ -631,7 +647,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 155 cases cover:
+calls only public `Machine::step` for execution. Its 157 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -644,8 +660,10 @@ calls only public `Machine::step` for execution. Its 155 cases cover:
 - cartridge-staged SP-DMEM `Lw` success with exact provenance;
 - unclassified SP-DMEM rejection;
 - delay-slot SP-DMEM-shaped AdEL;
-- SP-IMEM `Sw` commit, big-endian bytes/provenance, `Lw` round trip, r0 and
-  `rs == rt`, AdES, delay-slot AdES, and fail-closed operand/target rejection;
+- SP-IMEM concrete and opaque `Sw` commit, big-endian bytes/provenance, opaque
+  cause/coherence/sentinel/overwrite/equality/lifecycle, concrete `Lw` round
+  trip, explicit opaque-Lw rejection, r0 and `rs == rt`, AdEL/AdES, delay-slot
+  cadence, and fail-closed operand/device-target rejection;
 - BLTZ taken/untaken/full-width signed discrimination, positive/negative
   targets, ordinary slot commit, slot exception, nested-control-flow rejection,
   and unknown-source rejection;
@@ -676,14 +694,14 @@ calls only public `Machine::step` for execution. Its 155 cases cover:
 - exact RCP 2.0 first-responder DEVICE_ID zero-request ownership, provenance,
   aliases, lifecycle, AdES/delay-slot cadence, narrow aperture routing, and
   atomic rejection;
-- 32,192-step generated x105 composition through the exact 8,000-iteration CPU
+- 32,216-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
   write, delay-word construction, RDRAM_DELAY and RDRAM_REF_ROW commits,
   DEVICE_ID-value LUI/store, fourteen CPU-local setup commits, MI_VERSION read,
   guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup, first-responder
   RDRAM_DEVICE_ID commit, initial RDRAM_MODE-address `Addiu`, generated JAL and
-  Nop slot, and five InitCCValue prologue commits before exact atomic rejection
-  of an SP-IMEM store whose r2 source lineage remains unknown;
+  Nop slot, five InitCCValue entry commits, four opaque r2-r5 saves, and twenty
+  concrete saves before the unexecuted FindCC JAL;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

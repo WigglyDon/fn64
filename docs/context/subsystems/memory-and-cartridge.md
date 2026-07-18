@@ -115,19 +115,27 @@ cold-entry or exact CPU-written RI_SELECT, CPU-written RI_CONFIG,
 RI_CURRENT_LOAD event, CPU-written RI_MODE field facts, one exact CPU-written
 immutable MI_VERSION identity, MI initialization-mode fact/pending transfer,
 one global broadcast-delay fact, one raw-zero global REF_ROW fact, one global
-DEVICE_ID relocation-request fact, and one RCP 2.0 first-responder DEVICE_ID
-assignment-request fact,
+DEVICE_ID relocation-request fact, one RCP 2.0 first-responder DEVICE_ID
+assignment-request fact, and cause-known value-unavailable aligned SP-IMEM
+word truth,
 narrow KSEG0/KSEG1 CPU-data routes to the
 represented SP memories, and aligned `Lw` over direct RDRAM, known SP IMEM,
 cartridge-staged SP DMEM, exact physical RI_SELECT `0x0470000C`, or exact
 MI_VERSION `0x04300004`.
+Opaque SP-IMEM words retain exact store PC, source GPR/lineage, and addresses
+but expose no word or byte value. Their canonical private zero backing is not
+machine truth. A known aligned word overwrite replaces opaque state; aligned
+Lw rejects before destination mutation, and instruction fetch has no SP-IMEM
+route that could decode backing bytes. Unknown SP-DMEM and device command
+stores remain closed.
+
 Source-qualified
 evidence identifies retained IPL2 firmware as
 the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,192-step composition through the stored
+handoff and advances a generated 32,216-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
 exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
@@ -137,10 +145,11 @@ RDRAM_DEVICE_ID requested-base commit, fourteen CPU-local setup steps, the
 MI_VERSION read, guest-selected RCP 2.0 branch and delay slot, spacing/base
 setup, exact first-responder zero request, and the following RDRAM_MODE-address
 `Addiu`. The generated JAL at `0xA40001A0` replaces retained r31 with PC+8,
-its Nop slot executes once, and five InitCCValue prologue instructions commit.
-The next `Sw r2,0(sp)` rejects before SP-IMEM mutation because r2 retains
-unknown PIF-produced lineage. Later current-control code and RDRAM_MODE are not
-reached;
+its Nop slot executes once, and five InitCCValue entry instructions commit.
+Four inherited-unknown r2-r5 saves then create opaque aligned SP-IMEM words;
+twenty known-source saves follow without disturbing them. Execution stops
+before the FindCC JAL at `0xA40008F0`; later current-control code and
+RDRAM_MODE are not reached;
 no general RI_SELECT programming, other RI write/read, other MI register/read,
 general MI replication, other RDRAM-register behavior, per-module state,
 calibration/timing process, NMI, or
