@@ -42,9 +42,12 @@ use crate::ri::{
     RI_SELECT_PHYSICAL_ADDRESS, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
-use crate::sp_imem::{SpImem, SpImemOffset, SpImemStoreWordPlan, SP_IMEM_SIZE_BYTES};
 #[cfg(test)]
-use crate::sp_imem::{SpImemByteProvenance, SpImemReadError};
+use crate::sp_imem::SpImemByteProvenance;
+use crate::sp_imem::{
+    SpImem, SpImemOffset, SpImemOpaqueStoreWordPlan, SpImemReadError, SpImemStoreWordPlan,
+    SP_IMEM_SIZE_BYTES,
+};
 
 mod cartridge_bootstrap;
 mod rdram_reservation;
@@ -201,9 +204,17 @@ pub enum MachineLoadWordRejectionReason {
     NonDirectUnsupported,
     DirectTargetMiss,
     DirectRdramReadRejected,
-    SpDmemUnknown { first_unknown_offset: u32 },
+    SpDmemUnknown {
+        first_unknown_offset: u32,
+    },
     SpDmemReadRejected,
-    SpImemUnknown { first_unknown_offset: u32 },
+    SpImemUnknown {
+        first_unknown_offset: u32,
+    },
+    SpImemWordOpaque {
+        aligned_offset: u32,
+        source: MachineBootstrapGprSource,
+    },
     SpImemReadRejected,
     RiSelectUnavailable,
 }
@@ -316,6 +327,67 @@ pub struct MachineSpImemStoreWordProvenance {
     instruction_pc: CpuAddress,
     source_gpr: u8,
     source_lineage: MachineBootstrapGprSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSpImemOpaqueWordState {
+    aligned_offset: u32,
+    instruction_pc: CpuAddress,
+    source_gpr: u8,
+    source_lineage: MachineBootstrapGprSource,
+    effective_address: u64,
+    cpu_address: CpuAddress,
+    physical_address: u32,
+}
+
+impl MachineSpImemOpaqueWordState {
+    pub(crate) const fn from_cpu_store(
+        aligned_offset: u32,
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+    ) -> Self {
+        Self {
+            aligned_offset,
+            instruction_pc,
+            source_gpr,
+            source_lineage,
+            effective_address,
+            cpu_address,
+            physical_address,
+        }
+    }
+
+    pub const fn aligned_offset(self) -> u32 {
+        self.aligned_offset
+    }
+
+    pub const fn instruction_pc(self) -> CpuAddress {
+        self.instruction_pc
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        self.source_gpr
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        self.source_lineage
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        self.effective_address
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        self.cpu_address
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        self.physical_address
+    }
 }
 
 impl MachineSpImemStoreWordProvenance {
@@ -1912,8 +1984,15 @@ pub(crate) struct MachineStoreWordCommitPlan {
     fields: CpuInstructionFields,
     effective_address: u64,
     target: MachineStoreWordTarget,
-    stored_word: u32,
+    stored_word: Option<u32>,
     mutation: MachineStoreWordMutationPlan,
+}
+
+impl MachineStoreWordCommitPlan {
+    fn known_stored_word(self) -> u32 {
+        self.stored_word
+            .expect("non-opaque store mutation retains one known transfer word")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1922,6 +2001,10 @@ pub(crate) enum MachineStoreWordMutationPlan {
         stored_bytes: [u8; 4],
         provenance: MachineSpImemStoreWordProvenance,
         plan: SpImemStoreWordPlan,
+    },
+    SpImemOpaque {
+        state: MachineSpImemOpaqueWordState,
+        plan: SpImemOpaqueStoreWordPlan,
     },
     RiConfig {
         state: MachineRiConfigState,
@@ -2602,6 +2685,13 @@ pub enum MachineRepresentedStepOutcome {
         provenance: MachineSpImemStoreWordProvenance,
         cadence_plan: MachineStepCadencePlan,
     },
+    OpaqueSpImemStoreWordCommitted {
+        effective_address: u64,
+        target: MachineStoreWordTarget,
+        source_gpr: u8,
+        state: MachineSpImemOpaqueWordState,
+        cadence_plan: MachineStepCadencePlan,
+    },
     RiConfigStoreCommitted {
         effective_address: u64,
         target: MachineStoreWordTarget,
@@ -2758,16 +2848,26 @@ impl MachineRepresentedStepOutcome {
                     effective_address: plan.effective_address,
                     target: plan.target,
                     source_gpr: plan.fields.rt(),
-                    stored_word: plan.stored_word,
+                    stored_word: plan.known_stored_word(),
                     stored_bytes,
                     provenance,
                     cadence_plan,
                 },
+                MachineStoreWordMutationPlan::SpImemOpaque { state, .. } => {
+                    debug_assert!(plan.stored_word.is_none());
+                    Self::OpaqueSpImemStoreWordCommitted {
+                        effective_address: plan.effective_address,
+                        target: plan.target,
+                        source_gpr: plan.fields.rt(),
+                        state,
+                        cadence_plan,
+                    }
+                }
                 MachineStoreWordMutationPlan::RiConfig { state } => Self::RiConfigStoreCommitted {
                     effective_address: plan.effective_address,
                     target: plan.target,
                     source_gpr: plan.fields.rt(),
-                    stored_word: plan.stored_word,
+                    stored_word: plan.known_stored_word(),
                     state,
                     cadence_plan,
                 },
@@ -2776,7 +2876,7 @@ impl MachineRepresentedStepOutcome {
                         effective_address: plan.effective_address,
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
-                        stored_word: plan.stored_word,
+                        stored_word: plan.known_stored_word(),
                         state,
                         cadence_plan,
                     }
@@ -2785,7 +2885,7 @@ impl MachineRepresentedStepOutcome {
                     effective_address: plan.effective_address,
                     target: plan.target,
                     source_gpr: plan.fields.rt(),
-                    stored_word: plan.stored_word,
+                    stored_word: plan.known_stored_word(),
                     state,
                     cadence_plan,
                 },
@@ -2793,7 +2893,7 @@ impl MachineRepresentedStepOutcome {
                     effective_address: plan.effective_address,
                     target: plan.target,
                     source_gpr: plan.fields.rt(),
-                    stored_word: plan.stored_word,
+                    stored_word: plan.known_stored_word(),
                     state,
                     cadence_plan,
                 },
@@ -2802,7 +2902,7 @@ impl MachineRepresentedStepOutcome {
                         effective_address: plan.effective_address,
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
-                        stored_word: plan.stored_word,
+                        stored_word: plan.known_stored_word(),
                         state,
                         cadence_plan,
                     }
@@ -2812,7 +2912,7 @@ impl MachineRepresentedStepOutcome {
                         effective_address: plan.effective_address,
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
-                        stored_word: plan.stored_word,
+                        stored_word: plan.known_stored_word(),
                         state,
                         cadence_plan,
                     }
@@ -2822,7 +2922,7 @@ impl MachineRepresentedStepOutcome {
                         effective_address: plan.effective_address,
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
-                        stored_word: plan.stored_word,
+                        stored_word: plan.known_stored_word(),
                         state,
                         cadence_plan,
                     }
@@ -2832,7 +2932,7 @@ impl MachineRepresentedStepOutcome {
                         effective_address: plan.effective_address,
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
-                        stored_word: plan.stored_word,
+                        stored_word: plan.known_stored_word(),
                         state,
                         cadence_plan,
                     }
@@ -2842,7 +2942,7 @@ impl MachineRepresentedStepOutcome {
                         effective_address: plan.effective_address,
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
-                        stored_word: plan.stored_word,
+                        stored_word: plan.known_stored_word(),
                         state,
                         cadence_plan,
                     }
@@ -2909,6 +3009,7 @@ impl MachineRepresentedStepOutcome {
             | Self::ArithmeticOverflowException { identity } => Some(identity),
             Self::LoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lw),
             Self::StoreWordCommitted { .. }
+            | Self::OpaqueSpImemStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -2933,6 +3034,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { cadence_plan, .. }
             | Self::LoadWordCommitted { cadence_plan, .. }
             | Self::StoreWordCommitted { cadence_plan, .. }
+            | Self::OpaqueSpImemStoreWordCommitted { cadence_plan, .. }
             | Self::RiConfigStoreCommitted { cadence_plan, .. }
             | Self::RiCurrentLoadStoreCommitted { cadence_plan, .. }
             | Self::RiSelectStoreCommitted { cadence_plan, .. }
@@ -2958,6 +3060,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::OpaqueSpImemStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -2982,6 +3085,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::OpaqueSpImemStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -3006,6 +3110,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::OpaqueSpImemStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -3030,6 +3135,7 @@ impl MachineRepresentedStepOutcome {
             Self::CpuLocalCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
+            | Self::OpaqueSpImemStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -3417,6 +3523,16 @@ impl Machine {
         &self,
     ) -> Option<MachineRdramFirstResponderDeviceIdRequestState> {
         self.rdram.first_responder_device_id_request_state()
+    }
+
+    pub fn sp_imem_opaque_word_state(
+        &self,
+        aligned_offset: u32,
+    ) -> Option<MachineSpImemOpaqueWordState> {
+        self.sp_imem
+            .opaque_word_state(SpImemOffset::new(aligned_offset))
+            .ok()
+            .flatten()
     }
 
     /// Validates and transfers one owned raw PIF Boot ROM into this Machine.
@@ -3851,11 +3967,21 @@ impl Machine {
                     .sp_imem
                     .read_known_u32_be(SpImemOffset::new(offset))
                     .map_err(|error| {
-                        let reason = match error.unknown_offset() {
-                            Some(unknown_offset) => MachineLoadWordRejectionReason::SpImemUnknown {
-                                first_unknown_offset: unknown_offset.value(),
+                        let reason = match error {
+                            SpImemReadError::OpaqueWord { state, .. } => {
+                                MachineLoadWordRejectionReason::SpImemWordOpaque {
+                                    aligned_offset: state.aligned_offset(),
+                                    source: state.source_lineage(),
+                                }
+                            }
+                            _ => match error.unknown_offset() {
+                                Some(unknown_offset) => {
+                                    MachineLoadWordRejectionReason::SpImemUnknown {
+                                        first_unknown_offset: unknown_offset.value(),
+                                    }
+                                }
+                                None => MachineLoadWordRejectionReason::SpImemReadRejected,
                             },
-                            None => MachineLoadWordRejectionReason::SpImemReadRejected,
                         };
                         MachineLoadWordRejection::new(
                             fields,
@@ -4013,6 +4139,56 @@ impl Machine {
             self.store_word_gpr_source(fields.rt())
         };
         if !source_lineage.is_known() {
+            if let MachineStoreWordTarget::SpImem { offset } = target {
+                let _source_backing_value = self
+                    .cpu
+                    .gpr(usize::from(fields.rt()))
+                    .expect("decoded CPU register index is five bits");
+                if self.mi.init_transfer_state().is_some() {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::MiInitTransferUseUnsupported {
+                            attempted_target: target,
+                        },
+                    ));
+                }
+                let state = MachineSpImemOpaqueWordState::from_cpu_store(
+                    offset,
+                    execution_address,
+                    fields.rt(),
+                    source_lineage,
+                    effective_address,
+                    cpu_address,
+                    SP_IMEM_PHYSICAL_BASE + offset,
+                );
+                let opaque_plan = self
+                    .sp_imem
+                    .plan_cpu_store_opaque_word(SpImemOffset::new(offset), state)
+                    .map_err(|_| {
+                        MachineStoreWordRejection::new(
+                            fields,
+                            Some(effective_address),
+                            Some(cpu_address),
+                            Some(target),
+                            MachineStoreWordRejectionReason::SpImemWriteRejected,
+                        )
+                    })?;
+                return Ok(MachineStoreWordStepAction::Commit(
+                    MachineStoreWordCommitPlan {
+                        fields,
+                        effective_address,
+                        target,
+                        stored_word: None,
+                        mutation: MachineStoreWordMutationPlan::SpImemOpaque {
+                            state,
+                            plan: opaque_plan,
+                        },
+                    },
+                ));
+            }
             return Err(MachineStoreWordRejection::new(
                 fields,
                 Some(effective_address),
@@ -4302,7 +4478,7 @@ impl Machine {
                 fields,
                 effective_address,
                 target,
-                stored_word,
+                stored_word: Some(stored_word),
                 mutation,
             },
         ))
@@ -4319,6 +4495,9 @@ impl Machine {
                     MachineStoreWordMutationPlan::SpImem {
                         plan: sp_imem_plan, ..
                     } => self.sp_imem.apply_cpu_store_word(sp_imem_plan),
+                    MachineStoreWordMutationPlan::SpImemOpaque {
+                        plan: sp_imem_plan, ..
+                    } => self.sp_imem.apply_cpu_store_opaque_word(sp_imem_plan),
                     MachineStoreWordMutationPlan::RiConfig { state } => {
                         self.ri.apply_config_store(state)
                     }
@@ -16272,6 +16451,7 @@ mod tests {
         rdram: Vec<u8>,
         sp_dmem: Vec<u8>,
         sp_imem: Vec<crate::sp_imem::SpImemByteObservation>,
+        sp_imem_opaque_words: Vec<MachineSpImemOpaqueWordState>,
         ri_select: Option<MachineRiSelectState>,
         ri_config: Option<MachineRiConfigState>,
         ri_current_load: Option<MachineRiCurrentLoadState>,
@@ -16330,6 +16510,10 @@ mod tests {
                         .observe_byte(SpImemOffset::new(offset as u32))
                         .unwrap()
                 })
+                .collect(),
+            sp_imem_opaque_words: (0..machine.sp_imem.size_bytes() as u32)
+                .step_by(4)
+                .filter_map(|offset| machine.sp_imem_opaque_word_state(offset))
                 .collect(),
             ri_select: machine.ri_select_state(),
             ri_config: machine.ri_config_state(),
@@ -20395,6 +20579,437 @@ mod tests {
     }
 
     #[test]
+    fn opaque_sp_imem_store_owns_exact_cause_for_both_aliases_without_value_truth() {
+        let (mut kseg1, _) = staged_generated_cold_x105_machine(
+            &[(
+                0x40,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+            )],
+            0x81,
+        );
+        kseg1.cpu.set_gpr(2, 0xfeed_beef_dead_beef).unwrap();
+        let before = lw_snapshot(&kseg1);
+
+        let outcome = kseg1.step().unwrap();
+        let state = kseg1.sp_imem_opaque_word_state(0).unwrap();
+
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted {
+                effective_address: 0xffff_ffff_a400_1000,
+                target: MachineStoreWordTarget::SpImem { offset: 0 },
+                source_gpr: 2,
+                state: observed,
+                cadence_plan,
+            } if observed == state && cadence_plan.advances_count()
+        ));
+        assert_eq!(state.aligned_offset(), 0);
+        assert_eq!(state.instruction_pc(), CpuAddress::new(0xa400_0040));
+        assert_eq!(state.source_gpr(), 2);
+        assert_eq!(
+            state.source_lineage(),
+            MachineBootstrapGprSource::UnknownPifProduced
+        );
+        assert_eq!(state.effective_address(), 0xffff_ffff_a400_1000);
+        assert_eq!(state.cpu_address(), CpuAddress::new(0xa400_1000));
+        assert_eq!(state.physical_address(), 0x0400_1000);
+        assert_eq!(kseg1.cpu().gpr(2), Some(0xfeed_beef_dead_beef));
+        assert_eq!(kseg1.cpu().pc(), 0xa400_0044);
+        assert_eq!(kseg1.cpu().next_pc(), 0xa400_0048);
+        assert_eq!(kseg1.cpu().cop0_count(), 1);
+        for offset in 0..4 {
+            let byte = kseg1
+                .sp_imem
+                .observe_byte(SpImemOffset::new(offset))
+                .unwrap();
+            assert_eq!(byte.value(), 0);
+            assert!(!byte.is_known());
+            assert_eq!(
+                byte.provenance(),
+                SpImemByteProvenance::OpaqueCpuStoreWord {
+                    aligned_offset: SpImemOffset::new(0),
+                }
+            );
+        }
+        assert!(matches!(
+            kseg1.sp_imem.read_known_u32_be(SpImemOffset::new(0)),
+            Err(SpImemReadError::OpaqueWord { state: observed, .. }) if observed == state
+        ));
+        let after = lw_snapshot(&kseg1);
+        assert_eq!(after.rdram, before.rdram);
+        assert_eq!(after.sp_dmem, before.sp_dmem);
+        assert_eq!(after.mi_init_mode, before.mi_init_mode);
+        assert_eq!(after.mi_init_transfer, before.mi_init_transfer);
+        assert_eq!(after.ri_mode, before.ri_mode);
+        assert_eq!(after.rdram_broadcast_delay, before.rdram_broadcast_delay);
+
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 1, 0x8400)),
+            (0x44, immediate_word(0x0d, 1, 1, 0x1000)),
+            (0x48, sw_word(1, 3, 0)),
+        ];
+        let (mut kseg0, _) = staged_generated_cold_x105_machine(&words, 0x82);
+        for _ in 0..3 {
+            kseg0.step().unwrap();
+        }
+        let kseg0_state = kseg0.sp_imem_opaque_word_state(0).unwrap();
+        assert_eq!(kseg0_state.source_gpr(), 3);
+        assert_eq!(
+            kseg0_state.source_lineage(),
+            MachineBootstrapGprSource::UnknownPifProduced
+        );
+        assert_eq!(kseg0_state.effective_address(), 0xffff_ffff_8400_1000);
+        assert_eq!(kseg0_state.cpu_address(), CpuAddress::new(0x8400_1000));
+        assert_eq!(kseg0_state.physical_address(), 0x0400_1000);
+        assert!(kseg0.sp_imem_opaque_word_state(1).is_none());
+        assert!(kseg0.sp_imem_opaque_word_state(0x1000).is_none());
+    }
+
+    #[test]
+    fn opaque_sp_imem_known_overwrite_restores_readable_big_endian_truth() {
+        let words = [
+            (
+                0x40,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+            ),
+            (
+                0x44,
+                sw_word(
+                    MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX,
+                    MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX,
+                    0xf010,
+                ),
+            ),
+            (
+                0x48,
+                lw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 8, 0xf010),
+            ),
+        ];
+        let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x83);
+        machine.step().unwrap();
+        assert!(machine.sp_imem_opaque_word_state(0).is_some());
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::StoreWordCommitted {
+                stored_word: 0xa400_1550,
+                stored_bytes: [0xa4, 0x00, 0x15, 0x50],
+                ..
+            })
+        ));
+        assert_eq!(machine.sp_imem_opaque_word_state(0), None);
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0))
+                .unwrap()
+                .value(),
+            0xa400_1550
+        );
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                destination_gpr: 8,
+                loaded_word: 0xa400_1550,
+                result_value: 0xffff_ffff_a400_1550,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn opaque_sp_imem_lw_rejects_r0_and_gpr_destinations_before_mutation() {
+        for destination_gpr in [0, 8] {
+            let words = [
+                (
+                    0x40,
+                    sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+                ),
+                (
+                    0x44,
+                    lw_word(
+                        MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX,
+                        destination_gpr,
+                        0xf010,
+                    ),
+                ),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x84);
+            machine.step().unwrap();
+            let before = lw_snapshot(&machine);
+            let rejection = machine.step().unwrap_err().load_word_rejection().unwrap();
+            assert_eq!(
+                rejection.reason(),
+                MachineLoadWordRejectionReason::SpImemWordOpaque {
+                    aligned_offset: 0,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
+                }
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+
+        let words = [
+            (
+                0x40,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+            ),
+            (
+                0x44,
+                lw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 8, 0xf011),
+            ),
+        ];
+        let (mut unaligned, _) = staged_generated_cold_x105_machine(&words, 0x85);
+        unaligned.step().unwrap();
+        let state = unaligned.sp_imem_opaque_word_state(0).unwrap();
+        let outcome = unaligned.step().unwrap();
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Lw,
+                address_error,
+                cadence_plan,
+                ..
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorLoad
+                && address_error.bad_vaddr() == CpuAddress::new(0xa400_1001)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(unaligned.sp_imem_opaque_word_state(0), Some(state));
+
+        let (mut fetch, _) = staged_generated_cold_x105_machine(
+            &[(
+                0x40,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+            )],
+            0x86,
+        );
+        fetch.step().unwrap();
+        fetch.stage_cpu_pc(0xa400_1000);
+        assert_eq!(
+            fetch.inspect_current_cpu_instruction(),
+            Err(MachineCpuInstructionFetchError::DirectTargetMiss {
+                cpu_address: CpuAddress::new(0xa400_1000),
+            })
+        );
+    }
+
+    #[test]
+    fn opaque_sp_imem_permission_keeps_unknown_devices_sp_dmem_and_addresses_closed() {
+        for (base_upper, immediate, expected_target) in [
+            (0xa430, 0, MachineStoreWordTarget::MiInitMode),
+            (0xa470, 0, MachineStoreWordTarget::RiMode),
+            (0xa3f8, 4, MachineStoreWordTarget::RdramBroadcastDeviceId),
+        ] {
+            let words = [
+                (0x40, immediate_word(0x0f, 0, 12, base_upper)),
+                (0x44, sw_word(12, 2, immediate)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x87);
+            machine.step().unwrap();
+            let before = lw_snapshot(&machine);
+            let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
+            assert_eq!(rejection.target(), Some(expected_target));
+            assert_eq!(
+                rejection.reason(),
+                MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                    register_index: 2,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
+                }
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+
+        let closed_cases = [
+            (
+                vec![(0x40, sw_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 2, 0))],
+                MachineStoreWordRejectionReason::UnsupportedTarget {
+                    target: MachineStoreWordUnsupportedTarget::SpDmem {
+                        offset: SpDmemOffset::new(0x40),
+                    },
+                },
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 12, 0x8000)),
+                    (0x44, sw_word(12, 2, 0)),
+                ],
+                MachineStoreWordRejectionReason::UnsupportedTarget {
+                    target: MachineStoreWordUnsupportedTarget::DirectRdram {
+                        offset: RdramOffset::new(0),
+                    },
+                },
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 12, 0xa404)),
+                    (0x44, sw_word(12, 2, 0)),
+                ],
+                MachineStoreWordRejectionReason::DirectTargetMiss,
+            ),
+        ];
+        for (words, expected) in closed_cases {
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x88);
+            if words.len() == 2 {
+                machine.step().unwrap();
+            }
+            let before = lw_snapshot(&machine);
+            assert_eq!(
+                machine
+                    .step()
+                    .unwrap_err()
+                    .store_word_rejection()
+                    .unwrap()
+                    .reason(),
+                expected
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+
+        let (mut unknown_base, _) =
+            staged_generated_cold_x105_machine(&[(0x40, sw_word(2, 0, 0))], 0x89);
+        let before = lw_snapshot(&unknown_base);
+        assert_eq!(
+            unknown_base
+                .step()
+                .unwrap_err()
+                .store_word_rejection()
+                .unwrap()
+                .reason(),
+            MachineStoreWordRejectionReason::BaseSourceUnavailable {
+                register_index: 2,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&unknown_base), before);
+    }
+
+    #[test]
+    fn opaque_sp_imem_store_preserves_pending_transfer_preflight_and_delay_cadence() {
+        let pending_words = [
+            (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x010f)),
+            (0x48, sw_word(12, 9, 0)),
+            (
+                0x4c,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+            ),
+        ];
+        let (mut pending, _) = staged_generated_cold_x105_machine(&pending_words, 0x8a);
+        for _ in 0..3 {
+            pending.step().unwrap();
+        }
+        let pending_transfer = pending.mi_init_transfer_state().unwrap();
+        let before = lw_snapshot(&pending);
+        let rejection = pending.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::MiInitTransferUseUnsupported {
+                attempted_target: MachineStoreWordTarget::SpImem { offset: 0 },
+            }
+        );
+        assert_eq!(pending.mi_init_transfer_state(), Some(pending_transfer));
+        assert_eq!(lw_snapshot(&pending), before);
+
+        let branch = control_flow_branch_word(0x04, 0, 0, 1);
+        let words = [
+            (0x40, branch),
+            (
+                0x44,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+            ),
+            (0x48, special_shift_word(0, 0, 0, 0, 0)),
+        ];
+        let (mut delay, _) = staged_generated_cold_x105_machine(&words, 0x8b);
+        delay.step().unwrap();
+        assert_scheduled_delay_slot(&delay, 0xa400_0040, 0xa400_0044, 0xa400_0048);
+        assert!(matches!(
+            delay.step(),
+            Ok(MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted {
+                state,
+                cadence_plan,
+                ..
+            }) if state.instruction_pc() == CpuAddress::new(0xa400_0044)
+                && cadence_plan.advances_count()
+        ));
+        assert_eq!(delay.cpu().pc(), 0xa400_0048);
+        assert_eq!(delay.cpu().next_pc(), 0xa400_004c);
+        assert_eq!(delay.cpu().cop0_count(), 2);
+        assert_eq!(delay.cpu_delay_slot_context(), None);
+
+        let fault_words = [
+            (0x40, branch),
+            (
+                0x44,
+                sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf011),
+            ),
+            (0x48, special_shift_word(0, 0, 0, 0, 0)),
+        ];
+        let (mut fault, _) = staged_generated_cold_x105_machine(&fault_words, 0x8c);
+        fault.step().unwrap();
+        let outcome = fault.step().unwrap();
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Sw,
+                address_error,
+                cadence_plan,
+                ..
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && address_error.bad_vaddr() == CpuAddress::new(0xa400_1001)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(fault.cpu().cop0_epc(), 0xa400_0040);
+        assert!(fault.cpu().cop0_exception_branch_delay());
+        assert_eq!(fault.cpu().cop0_count(), 1);
+        assert_eq!(fault.sp_imem_opaque_word_state(0), None);
+    }
+
+    #[test]
+    fn opaque_sp_imem_lifecycle_is_reset_bootstrap_rollback_and_machine_local() {
+        let words = [(
+            0x40,
+            sw_word(MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, 2, 0xf010),
+        )];
+        let (mut first, _) = staged_generated_cold_x105_machine(&words, 0x8d);
+        let (second, _) = staged_generated_cold_x105_machine(&words, 0x8d);
+        assert_eq!(first.sp_imem_opaque_word_state(0), None);
+        assert_eq!(second.sp_imem_opaque_word_state(0), None);
+
+        first.step().unwrap();
+        let state = first.sp_imem_opaque_word_state(0).unwrap();
+        assert_eq!(second.sp_imem_opaque_word_state(0), None);
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
+        let before_failed_bootstrap = lw_snapshot(&first);
+        assert!(matches!(
+            first.stage_cartridge_bootstrap(),
+            Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
+                    profile: PifIpl2Profile::PalPinned,
+                }
+            )
+        ));
+        assert_eq!(lw_snapshot(&first), before_failed_bootstrap);
+        assert_eq!(first.sp_imem_opaque_word_state(0), Some(state));
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+        first.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(first.sp_imem_opaque_word_state(0), None);
+        first.step().unwrap();
+        assert!(first.sp_imem_opaque_word_state(0).is_some());
+        first.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(first.sp_imem_opaque_word_state(0), None);
+
+        first.step().unwrap();
+        first.reset();
+        assert_eq!(first.sp_imem_opaque_word_state(0), None);
+        assert_eq!(second.sp_imem_opaque_word_state(0), None);
+        assert_eq!(
+            Machine::from_cartridge(Cartridge::default()).sp_imem_opaque_word_state(0),
+            None
+        );
+    }
+
+    #[test]
     fn mtc0_cause_masks_software_interrupt_bits_and_preserves_read_only_cop0_state() {
         for (source_word, expected_pending) in [
             (0x0000, 0x0000),
@@ -20698,8 +21313,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_commits_generated_jal_and_reaches_init_cc_current_control_rdram_mode_unknown_store_frontier(
-    ) {
+    fn generated_x105_composition_commits_opaque_and_concrete_saves_to_find_cc_boundary() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
@@ -20821,6 +21435,31 @@ mod tests {
             (0x888, 0x0000_8825),
             (0x88c, 0x0000_8025),
             (0x890, 0xafa2_0000),
+            (0x894, 0xafa3_0004),
+            (0x898, 0xafa4_0008),
+            (0x89c, 0xafa5_000c),
+            (0x8a0, 0xafa6_0010),
+            (0x8a4, 0xafa7_0014),
+            (0x8a8, 0xafa8_0018),
+            (0x8ac, 0xafa9_001c),
+            (0x8b0, 0xafaa_0020),
+            (0x8b4, 0xafab_0024),
+            (0x8b8, 0xafac_0028),
+            (0x8bc, 0xafad_002c),
+            (0x8c0, 0xafae_0030),
+            (0x8c4, 0xafaf_0034),
+            (0x8c8, 0xafb8_0038),
+            (0x8cc, 0xafb9_003c),
+            (0x8d0, 0xafb2_0048),
+            (0x8d4, 0xafb3_004c),
+            (0x8d8, 0xafb4_0050),
+            (0x8dc, 0xafb5_0054),
+            (0x8e0, 0xafb6_0058),
+            (0x8e4, 0xafb7_005c),
+            (0x8e8, 0xafbe_0060),
+            (0x8ec, 0xafbf_0064),
+            (0x8f0, 0x0d00_0261),
+            (0x8f4, 0x0000_0000),
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -22252,23 +22891,400 @@ mod tests {
             machine.cartridge_bootstrap_state().unwrap().gpr_source(2),
             Some(MachineBootstrapGprSource::UnknownPifProduced)
         );
-        let before_init_cc_frontier = lw_snapshot(&machine);
-        let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
-        assert_eq!(rejection.identity(), CpuInstructionIdentity::Sw);
-        assert_eq!(rejection.effective_address(), Some(0xffff_ffff_a400_1ef0));
-        assert_eq!(rejection.cpu_address(), Some(CpuAddress::new(0xa400_1ef0)));
-        assert_eq!(
-            rejection.target(),
-            Some(MachineStoreWordTarget::SpImem { offset: 0x0ef0 })
-        );
-        assert_eq!(
-            rejection.reason(),
-            MachineStoreWordRejectionReason::ValueSourceUnavailable {
-                register_index: 2,
-                source: MachineBootstrapGprSource::UnknownPifProduced,
+        let opaque_saves = [
+            (0xa400_0890, 0xafa2_0000, 2, 0x0ef0),
+            (0xa400_0894, 0xafa3_0004, 3, 0x0ef4),
+            (0xa400_0898, 0xafa4_0008, 4, 0x0ef8),
+            (0xa400_089c, 0xafa5_000c, 5, 0x0efc),
+        ];
+        for (index, (pc, word, source_gpr, offset)) in opaque_saves.into_iter().enumerate() {
+            let instruction = machine.inspect_current_cpu_instruction().unwrap();
+            assert_eq!(instruction.cpu_address(), CpuAddress::new(pc));
+            assert_eq!(instruction.fields().raw().bits(), word);
+            assert_eq!(instruction.identity(), CpuInstructionIdentity::Sw);
+            assert_eq!(instruction.fields().rs(), 29);
+            assert_eq!(instruction.fields().rt(), source_gpr);
+            assert_eq!(machine.cpu().gpr(usize::from(source_gpr)), Some(0));
+            assert_eq!(
+                machine
+                    .cartridge_bootstrap_state()
+                    .unwrap()
+                    .gpr_source(usize::from(source_gpr)),
+                Some(MachineBootstrapGprSource::UnknownPifProduced)
+            );
+            let effective_address = 0xffff_ffff_a400_1ef0 + (offset - 0x0ef0) as u64;
+            let outcome = machine.step().unwrap();
+            let state = machine.sp_imem_opaque_word_state(offset).unwrap();
+            assert!(matches!(
+                outcome,
+                MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted {
+                    effective_address: observed_effective,
+                    target: MachineStoreWordTarget::SpImem { offset: observed_offset },
+                    source_gpr: observed_gpr,
+                    state: observed_state,
+                    cadence_plan,
+                } if observed_effective == effective_address
+                    && observed_offset == offset
+                    && observed_gpr == source_gpr
+                    && observed_state == state
+                    && cadence_plan.advances_count()
+            ));
+            assert_eq!(state.instruction_pc(), CpuAddress::new(pc));
+            assert_eq!(state.source_gpr(), source_gpr);
+            assert_eq!(
+                state.source_lineage(),
+                MachineBootstrapGprSource::UnknownPifProduced
+            );
+            assert_eq!(state.effective_address(), effective_address);
+            assert_eq!(
+                state.cpu_address(),
+                CpuAddress::new(effective_address as u32)
+            );
+            assert_eq!(state.physical_address(), 0x0400_1000 + offset);
+            assert!(matches!(
+                machine
+                    .sp_imem
+                    .read_known_u32_be(SpImemOffset::new(offset)),
+                Err(SpImemReadError::OpaqueWord { state: observed, .. }) if observed == state
+            ));
+            for byte_offset in offset..offset + 4 {
+                let byte = machine
+                    .sp_imem
+                    .observe_byte(SpImemOffset::new(byte_offset))
+                    .unwrap();
+                assert_eq!(byte.value(), 0);
+                assert!(!byte.is_known());
             }
-        );
-        assert_eq!(lw_snapshot(&machine), before_init_cc_frontier);
+            total_committed_steps += 1;
+            assert_eq!(machine.cpu().cop0_count(), 32_177 + index as u32);
+            assert_eq!(total_committed_steps, 32_193 + index as u32);
+            assert_eq!(machine.cpu().pc(), pc + 4);
+            assert_eq!(machine.cpu().next_pc(), pc + 8);
+        }
+
+        let opaque_states = opaque_saves
+            .map(|(_, _, _, offset)| machine.sp_imem_opaque_word_state(offset).unwrap());
+        let concrete_saves = [
+            (
+                0xa400_08a0,
+                0xafa6_0010,
+                6,
+                0x0f00,
+                0xffff_ffff_a3f0_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0150),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08a4,
+                0xafa7_0014,
+                7,
+                0x0f04,
+                0xffff_ffff_a000_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0154),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08a8,
+                0xafa8_0018,
+                8,
+                0x0f08,
+                0xffff_ffff_a470_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_00b0),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08ac,
+                0xafa9_001c,
+                9,
+                0x0f0c,
+                0xffff_ffff_8000_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_012c),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08b0,
+                0xafaa_0020,
+                10,
+                0x0f10,
+                0xffff_ffff_a3f8_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_00b4),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08b4,
+                0xafab_0024,
+                11,
+                0x0f14,
+                0xffff_ffff_a3f0_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_00b8),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08b8,
+                0xafac_0028,
+                12,
+                0x0f18,
+                0xffff_ffff_a430_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_00bc),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08bc,
+                0xafad_002c,
+                13,
+                0x0f1c,
+                0,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0134),
+                    identity: CpuInstructionIdentity::SpecialAddu,
+                    source_gpr_a: Some(0),
+                    source_gpr_b: Some(0),
+                },
+            ),
+            (
+                0xa400_08c0,
+                0xafae_0030,
+                14,
+                0x0f20,
+                0,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0138),
+                    identity: CpuInstructionIdentity::SpecialAddu,
+                    source_gpr_a: Some(0),
+                    source_gpr_b: Some(0),
+                },
+            ),
+            (
+                0xa400_08c4,
+                0xafaf_0034,
+                15,
+                0x0f24,
+                0xffff_ffff_a3f0_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_013c),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08c8,
+                0xafb8_0038,
+                24,
+                0x0f28,
+                0,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0140),
+                    identity: CpuInstructionIdentity::SpecialAddu,
+                    source_gpr_a: Some(0),
+                    source_gpr_b: Some(0),
+                },
+            ),
+            (
+                0xa400_08cc,
+                0xafb9_003c,
+                25,
+                0x0f2c,
+                0xffff_ffff_a3f0_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0144),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08d0,
+                0xafb2_0048,
+                18,
+                0x0f38,
+                0,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0158),
+                    identity: CpuInstructionIdentity::SpecialAddu,
+                    source_gpr_a: Some(0),
+                    source_gpr_b: Some(0),
+                },
+            ),
+            (
+                0xa400_08d4,
+                0xafb3_004c,
+                19,
+                0x0f3c,
+                0,
+                MachineBootstrapGprSource::CartridgeBootMedium,
+            ),
+            (
+                0xa400_08d8,
+                0xafb4_0050,
+                20,
+                0x0f40,
+                0xffff_ffff_a000_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_015c),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08dc,
+                0xafb5_0054,
+                21,
+                0x0f44,
+                0xffff_ffff_a3f0_000c,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_019c),
+                    identity: CpuInstructionIdentity::Addiu,
+                    source_gpr_a: Some(15),
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08e0,
+                0xafb6_0058,
+                22,
+                0x0f48,
+                0xffff_ffff_a000_0000,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0148),
+                    identity: CpuInstructionIdentity::Lui,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+            (
+                0xa400_08e4,
+                0xafb7_005c,
+                23,
+                0x0f4c,
+                0,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_014c),
+                    identity: CpuInstructionIdentity::SpecialAddu,
+                    source_gpr_a: Some(0),
+                    source_gpr_b: Some(0),
+                },
+            ),
+            (
+                0xa400_08e8,
+                0xafbe_0060,
+                30,
+                0x0f50,
+                0xffff_ffff_a400_1f90,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0164),
+                    identity: CpuInstructionIdentity::SpecialAddu,
+                    source_gpr_a: Some(29),
+                    source_gpr_b: Some(0),
+                },
+            ),
+            (
+                0xa400_08ec,
+                0xafbf_0064,
+                31,
+                0x0f54,
+                0xffff_ffff_a400_01a8,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_01a0),
+                    identity: CpuInstructionIdentity::Jal,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                },
+            ),
+        ];
+        for (index, (pc, word, source_gpr, offset, expected_value, expected_lineage)) in
+            concrete_saves.into_iter().enumerate()
+        {
+            let instruction = machine.inspect_current_cpu_instruction().unwrap();
+            assert_eq!(instruction.cpu_address(), CpuAddress::new(pc));
+            assert_eq!(instruction.fields().raw().bits(), word);
+            assert_eq!(instruction.identity(), CpuInstructionIdentity::Sw);
+            assert_eq!(instruction.fields().rs(), 29);
+            assert_eq!(instruction.fields().rt(), source_gpr);
+            let source_value = machine.cpu().gpr(usize::from(source_gpr)).unwrap();
+            let source_lineage = machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(usize::from(source_gpr))
+                .unwrap();
+            assert_eq!(source_value, expected_value);
+            assert_eq!(source_lineage, expected_lineage);
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::StoreWordCommitted {
+                    effective_address,
+                    target: MachineStoreWordTarget::SpImem { offset: observed_offset },
+                    source_gpr: observed_gpr,
+                    stored_word,
+                    stored_bytes,
+                    provenance,
+                    cadence_plan,
+                }) if effective_address == 0xffff_ffff_a400_1000 + u64::from(offset)
+                    && observed_offset == offset
+                    && observed_gpr == source_gpr
+                    && stored_word == source_value as u32
+                    && stored_bytes == (source_value as u32).to_be_bytes()
+                    && provenance.instruction_pc() == CpuAddress::new(pc)
+                    && provenance.source_gpr() == source_gpr
+                    && provenance.source_lineage() == source_lineage
+                    && cadence_plan.advances_count()
+            ));
+            assert_eq!(
+                machine
+                    .sp_imem
+                    .read_known_u32_be(SpImemOffset::new(offset))
+                    .unwrap()
+                    .value(),
+                source_value as u32
+            );
+            total_committed_steps += 1;
+            assert_eq!(machine.cpu().cop0_count(), 32_181 + index as u32);
+            assert_eq!(total_committed_steps, 32_197 + index as u32);
+            assert_eq!(machine.cpu().pc(), pc + 4);
+            assert_eq!(machine.cpu().next_pc(), pc + 8);
+            for (opaque_index, opaque_offset) in
+                [0x0ef0, 0x0ef4, 0x0ef8, 0x0efc].into_iter().enumerate()
+            {
+                assert_eq!(
+                    machine.sp_imem_opaque_word_state(opaque_offset),
+                    Some(opaque_states[opaque_index])
+                );
+            }
+        }
+
+        assert_eq!(machine.cpu().pc(), 0xa400_08f0);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_08f4);
+        assert_eq!(machine.cpu().cop0_count(), 32_200);
+        assert_eq!(total_committed_steps, 32_216);
         assert_eq!(machine.cpu().gpr(31), Some(0xffff_ffff_a400_01a8));
         assert_eq!(
             machine.cartridge_bootstrap_state().unwrap().gpr_source(31),
@@ -22295,6 +23311,25 @@ mod tests {
         assert_eq!(
             machine.rdram_broadcast_refresh_row_state(),
             Some(refresh_row_after_store)
+        );
+        let boundary = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(boundary.cpu_address(), CpuAddress::new(0xa400_08f0));
+        assert_eq!(boundary.fields().raw().bits(), 0x0d00_0261);
+        assert_eq!(boundary.identity(), CpuInstructionIdentity::Jal);
+        assert_eq!(
+            jump_target(0xa400_08f0, boundary.fields().jump_target()),
+            0xa400_0984
+        );
+        assert_eq!(
+            sign_extend_cpu_address(0xa400_08f0_u32.wrapping_add(8)),
+            0xffff_ffff_a400_08f8
+        );
+        assert_eq!(
+            machine
+                .fetch_sp_dmem_cpu_instruction_word(SpDmemOffset::new(0x08f4))
+                .unwrap()
+                .bits(),
+            0
         );
     }
 

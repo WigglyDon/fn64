@@ -1,6 +1,7 @@
 use core::fmt;
+use std::collections::BTreeMap;
 
-use crate::machine::MachineSpImemStoreWordProvenance;
+use crate::machine::{MachineSpImemOpaqueWordState, MachineSpImemStoreWordProvenance};
 use crate::pif_firmware::{PifIpl2Copy, PifIpl2Profile};
 
 pub(crate) const SP_IMEM_SIZE_BYTES: usize = 4 * 1024;
@@ -32,13 +33,16 @@ pub(crate) enum SpImemByteProvenance {
     CpuStoreWord {
         provenance: MachineSpImemStoreWordProvenance,
     },
+    OpaqueCpuStoreWord {
+        aligned_offset: SpImemOffset,
+    },
     #[cfg(test)]
     GeneratedMachineTestStaging,
 }
 
 impl SpImemByteProvenance {
     pub(crate) const fn is_known(self) -> bool {
-        !matches!(self, Self::Unknown)
+        !matches!(self, Self::Unknown | Self::OpaqueCpuStoreWord { .. })
     }
 }
 
@@ -79,13 +83,23 @@ pub(crate) enum SpImemReadError {
         width: usize,
         unknown_offset: SpImemOffset,
     },
+    OpaqueWord {
+        offset: SpImemOffset,
+        state: MachineSpImemOpaqueWordState,
+    },
+    InconsistentOpaqueWord {
+        offset: SpImemOffset,
+    },
 }
 
 impl SpImemReadError {
     pub(crate) const fn unknown_offset(self) -> Option<SpImemOffset> {
         match self {
             Self::UnknownByte { unknown_offset, .. } => Some(unknown_offset),
-            Self::Unaligned { .. } | Self::OutOfRange { .. } => None,
+            Self::Unaligned { .. }
+            | Self::OutOfRange { .. }
+            | Self::OpaqueWord { .. }
+            | Self::InconsistentOpaqueWord { .. } => None,
         }
     }
 }
@@ -115,6 +129,16 @@ impl fmt::Display for SpImemReadError {
                 offset.value(),
                 width,
                 unknown_offset.value()
+            ),
+            Self::OpaqueWord { offset, .. } => write!(
+                f,
+                "SP IMEM word value unavailable after opaque CPU store: offset={} width=4",
+                offset.value()
+            ),
+            Self::InconsistentOpaqueWord { offset } => write!(
+                f,
+                "SP IMEM opaque word knowledge is inconsistent: offset={} width=4",
+                offset.value()
             ),
         }
     }
@@ -152,6 +176,22 @@ pub(crate) struct SpImemStoreWordPlan {
     offset: SpImemOffset,
     bytes: [u8; 4],
     provenance: MachineSpImemStoreWordProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpImemOpaqueStoreWordPlan {
+    offset: SpImemOffset,
+    state: MachineSpImemOpaqueWordState,
+}
+
+impl SpImemOpaqueStoreWordPlan {
+    pub(crate) const fn offset(self) -> SpImemOffset {
+        self.offset
+    }
+
+    pub(crate) const fn state(self) -> MachineSpImemOpaqueWordState {
+        self.state
+    }
 }
 
 impl SpImemStoreWordPlan {
@@ -213,9 +253,11 @@ impl SpImemKnownWord {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct SpImem {
     bytes: [u8; SP_IMEM_SIZE_BYTES],
     byte_provenance: [SpImemByteProvenance; SP_IMEM_SIZE_BYTES],
+    opaque_words: BTreeMap<u32, MachineSpImemOpaqueWordState>,
 }
 
 impl SpImem {
@@ -281,6 +323,9 @@ impl SpImem {
         }
 
         let offset_usize = self.require_span(offset, 4)?;
+        if let Some(state) = self.opaque_word_state_from_start(offset, offset_usize)? {
+            return Err(SpImemReadError::OpaqueWord { offset, state });
+        }
         let byte_provenance =
             core::array::from_fn(|index| self.byte_provenance[offset_usize + index]);
         if let Some(index) = byte_provenance
@@ -303,6 +348,17 @@ impl SpImem {
             value,
             byte_provenance,
         })
+    }
+
+    pub(crate) fn opaque_word_state(
+        &self,
+        offset: SpImemOffset,
+    ) -> Result<Option<MachineSpImemOpaqueWordState>, SpImemReadError> {
+        if (offset.value() & 0x3) != 0 {
+            return Err(SpImemReadError::Unaligned { offset, width: 4 });
+        }
+        let offset_usize = self.require_span(offset, 4)?;
+        self.opaque_word_state_from_start(offset, offset_usize)
     }
 
     pub(crate) fn plan_cpu_store_word(
@@ -333,10 +389,75 @@ impl SpImem {
     pub(crate) fn apply_cpu_store_word(&mut self, plan: SpImemStoreWordPlan) {
         let start = plan.offset().as_usize();
         let end = start + plan.bytes().len();
+        self.opaque_words.remove(&plan.offset().value());
         self.bytes[start..end].copy_from_slice(&plan.bytes());
         self.byte_provenance[start..end].fill(SpImemByteProvenance::CpuStoreWord {
             provenance: plan.provenance(),
         });
+    }
+
+    pub(crate) fn plan_cpu_store_opaque_word(
+        &self,
+        offset: SpImemOffset,
+        state: MachineSpImemOpaqueWordState,
+    ) -> Result<SpImemOpaqueStoreWordPlan, SpImemStoreWordError> {
+        if (offset.value() & 0x3) != 0 {
+            return Err(SpImemStoreWordError::Unaligned { offset });
+        }
+        if state.aligned_offset() != offset.value() {
+            return Err(SpImemStoreWordError::OutOfRange { offset });
+        }
+
+        let offset_usize = offset.as_usize();
+        let Some(end) = offset_usize.checked_add(4) else {
+            return Err(SpImemStoreWordError::OutOfRange { offset });
+        };
+        if end > self.bytes.len() {
+            return Err(SpImemStoreWordError::OutOfRange { offset });
+        }
+
+        Ok(SpImemOpaqueStoreWordPlan { offset, state })
+    }
+
+    pub(crate) fn apply_cpu_store_opaque_word(&mut self, plan: SpImemOpaqueStoreWordPlan) {
+        let start = plan.offset().as_usize();
+        let end = start + 4;
+        self.opaque_words
+            .insert(plan.offset().value(), plan.state());
+        self.bytes[start..end].fill(0);
+        self.byte_provenance[start..end].fill(SpImemByteProvenance::OpaqueCpuStoreWord {
+            aligned_offset: plan.offset(),
+        });
+    }
+
+    fn opaque_word_state_from_start(
+        &self,
+        offset: SpImemOffset,
+        offset_usize: usize,
+    ) -> Result<Option<MachineSpImemOpaqueWordState>, SpImemReadError> {
+        let provenance =
+            core::array::from_fn::<_, 4, _>(|index| self.byte_provenance[offset_usize + index]);
+        let first_opaque = provenance.iter().find_map(|entry| match *entry {
+            SpImemByteProvenance::OpaqueCpuStoreWord { aligned_offset } => Some(aligned_offset),
+            _ => None,
+        });
+        let Some(aligned_offset) = first_opaque else {
+            return Ok(None);
+        };
+        if aligned_offset != offset
+            || provenance
+                .iter()
+                .any(|entry| *entry != SpImemByteProvenance::OpaqueCpuStoreWord { aligned_offset })
+        {
+            return Err(SpImemReadError::InconsistentOpaqueWord { offset });
+        }
+        let Some(state) = self.opaque_words.get(&offset.value()).copied() else {
+            return Err(SpImemReadError::InconsistentOpaqueWord { offset });
+        };
+        if state.aligned_offset() != offset.value() {
+            return Err(SpImemReadError::InconsistentOpaqueWord { offset });
+        }
+        Ok(Some(state))
     }
 
     fn require_span(&self, offset: SpImemOffset, width: usize) -> Result<usize, SpImemReadError> {
@@ -380,6 +501,7 @@ impl Default for SpImem {
         Self {
             bytes: [0; SP_IMEM_SIZE_BYTES],
             byte_provenance: [SpImemByteProvenance::Unknown; SP_IMEM_SIZE_BYTES],
+            opaque_words: BTreeMap::new(),
         }
     }
 }
@@ -639,6 +761,168 @@ mod tests {
                 .unwrap()
                 .provenance(),
             SpImemByteProvenance::Unknown
+        );
+    }
+
+    fn opaque_state(
+        offset: u32,
+        instruction_pc: u32,
+        source_gpr: u8,
+    ) -> MachineSpImemOpaqueWordState {
+        MachineSpImemOpaqueWordState::from_cpu_store(
+            offset,
+            crate::cpu::address::CpuAddress::new(instruction_pc),
+            source_gpr,
+            MachineBootstrapGprSource::UnknownPifProduced,
+            0xffff_ffff_a400_1000 + u64::from(offset),
+            crate::cpu::address::CpuAddress::new(0xa400_1000 + offset),
+            0x0400_1000 + offset,
+        )
+    }
+
+    #[test]
+    fn opaque_word_canonicalizes_private_bytes_and_exposes_only_one_coherent_state() {
+        let mut sp_imem = SpImem::default();
+        sp_imem
+            .stage_known_u32_be_for_test(SpImemOffset::new(4), 0x89ab_cdef)
+            .unwrap();
+        let state = opaque_state(4, 0xa400_0890, 2);
+
+        let plan = sp_imem
+            .plan_cpu_store_opaque_word(SpImemOffset::new(4), state)
+            .unwrap();
+        sp_imem.apply_cpu_store_opaque_word(plan);
+
+        assert_eq!(
+            sp_imem.opaque_word_state(SpImemOffset::new(4)),
+            Ok(Some(state))
+        );
+        assert_eq!(
+            sp_imem.read_known_u32_be(SpImemOffset::new(4)),
+            Err(SpImemReadError::OpaqueWord {
+                offset: SpImemOffset::new(4),
+                state,
+            })
+        );
+        for offset in 4..8 {
+            let observation = sp_imem.observe_byte(SpImemOffset::new(offset)).unwrap();
+            assert_eq!(observation.value(), 0);
+            assert!(!observation.is_known());
+            assert_eq!(
+                observation.provenance(),
+                SpImemByteProvenance::OpaqueCpuStoreWord {
+                    aligned_offset: SpImemOffset::new(4),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn identical_opaque_store_erases_prior_byte_ghosts_and_replaces_provenance_once() {
+        let mut first = SpImem::default();
+        let mut second = SpImem::default();
+        first
+            .stage_known_u32_be_for_test(SpImemOffset::new(8), 0x1112_1314)
+            .unwrap();
+        second
+            .stage_known_u32_be_for_test(SpImemOffset::new(8), 0xa1a2_a3a4)
+            .unwrap();
+        let first_state = opaque_state(8, 0xa400_0894, 3);
+        for owner in [&mut first, &mut second] {
+            let plan = owner
+                .plan_cpu_store_opaque_word(SpImemOffset::new(8), first_state)
+                .unwrap();
+            owner.apply_cpu_store_opaque_word(plan);
+        }
+        assert!(first == second);
+
+        let replacement = opaque_state(8, 0xa400_0990, 7);
+        let plan = first
+            .plan_cpu_store_opaque_word(SpImemOffset::new(8), replacement)
+            .unwrap();
+        first.apply_cpu_store_opaque_word(plan);
+        assert_eq!(
+            first.opaque_word_state(SpImemOffset::new(8)),
+            Ok(Some(replacement))
+        );
+        assert!(first != second);
+    }
+
+    #[test]
+    fn known_full_word_overwrite_replaces_only_selected_opaque_word() {
+        let mut sp_imem = SpImem::default();
+        for (offset, pc, gpr) in [(0, 0xa400_0890, 2), (4, 0xa400_0894, 3)] {
+            let state = opaque_state(offset, pc, gpr);
+            let plan = sp_imem
+                .plan_cpu_store_opaque_word(SpImemOffset::new(offset), state)
+                .unwrap();
+            sp_imem.apply_cpu_store_opaque_word(plan);
+        }
+        let provenance = MachineSpImemStoreWordProvenance::new(
+            crate::cpu::address::CpuAddress::new(0xa400_08a0),
+            6,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: crate::cpu::address::CpuAddress::new(0xa400_0150),
+                identity: crate::cpu::CpuInstructionIdentity::Lui,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            },
+        );
+        let plan = sp_imem
+            .plan_cpu_store_word(SpImemOffset::new(0), 0x0123_4567, provenance)
+            .unwrap();
+        sp_imem.apply_cpu_store_word(plan);
+
+        assert_eq!(sp_imem.opaque_word_state(SpImemOffset::new(0)), Ok(None));
+        assert_eq!(
+            sp_imem
+                .read_known_u32_be(SpImemOffset::new(0))
+                .unwrap()
+                .value(),
+            0x0123_4567
+        );
+        assert_eq!(
+            sp_imem.opaque_word_state(SpImemOffset::new(4)),
+            Ok(Some(opaque_state(4, 0xa400_0894, 3)))
+        );
+    }
+
+    #[test]
+    fn opaque_plan_and_coherence_reject_invalid_owner_state() {
+        let mut sp_imem = SpImem::default();
+        let state = opaque_state(0, 0xa400_0890, 2);
+        assert_eq!(
+            sp_imem.plan_cpu_store_opaque_word(SpImemOffset::new(1), state),
+            Err(SpImemStoreWordError::Unaligned {
+                offset: SpImemOffset::new(1),
+            })
+        );
+        assert_eq!(
+            sp_imem.plan_cpu_store_opaque_word(
+                SpImemOffset::new(SP_IMEM_SIZE_BYTES as u32),
+                opaque_state(SP_IMEM_SIZE_BYTES as u32, 0xa400_0890, 2),
+            ),
+            Err(SpImemStoreWordError::OutOfRange {
+                offset: SpImemOffset::new(SP_IMEM_SIZE_BYTES as u32),
+            })
+        );
+
+        let plan = sp_imem
+            .plan_cpu_store_opaque_word(SpImemOffset::new(0), state)
+            .unwrap();
+        sp_imem.apply_cpu_store_opaque_word(plan);
+        sp_imem.byte_provenance[3] = SpImemByteProvenance::Unknown;
+        assert_eq!(
+            sp_imem.opaque_word_state(SpImemOffset::new(0)),
+            Err(SpImemReadError::InconsistentOpaqueWord {
+                offset: SpImemOffset::new(0),
+            })
+        );
+        assert_eq!(
+            sp_imem.read_known_u32_be(SpImemOffset::new(0)),
+            Err(SpImemReadError::InconsistentOpaqueWord {
+                offset: SpImemOffset::new(0),
+            })
         );
     }
 }
