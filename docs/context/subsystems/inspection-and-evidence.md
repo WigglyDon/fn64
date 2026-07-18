@@ -35,13 +35,14 @@ fields/provenance/consumption/post-readback cases, raw global REF_ROW ownership/
 provenance/alias/AdES/lifecycle cases, exact DEVICE_ID request/value/provenance/
 alias/AdES/lifecycle/unchanged-routing cases, immutable MI_VERSION word/fields/
 lifecycle/read/provenance/alias/AdEL/closed-surface cases, exact first-responder
-request/value/provenance/alias/AdES/lifecycle/narrow-route cases, plus 32,185 generated commits
+request/value/provenance/alias/AdES/lifecycle/narrow-route cases, plus 32,192 generated commits
 through both bounded CPU waits and RI events, the exact MI write, delay-word
 construction, global RDRAM_DELAY and raw-zero RDRAM_REF_ROW commits,
 DEVICE_ID-value/request commit, fourteen CPU-local setup commits, exact
 MI_VERSION read, guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup,
 first-responder non-global RDRAM_DEVICE_ID commit, RDRAM_MODE-address `Addiu`,
-and the following JAL retained-link-lineage rejection before link/slot mutation. The
+generated JAL/Nop cadence, and five InitCCValue prologue commits before the
+exact unknown-store-source rejection. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -109,10 +110,11 @@ once. `Addiu` selects spacing `0x400`, `Ori` builds first-responder base
 `0xFFFFFFFFA3F08000`, and `Sw r14,4(r17)` at `0xA4000198` commits low word
 zero as a bounded assignment request at physical `0x03F08004`. `Addiu` at
 `0xA400019C` produces initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`.
-`Jal 0xA400087C` at `0xA40001A0` then rejects atomically because current
-source-backed r31 lineage does not authorize replacing retained link
-`0xFFFFFFFFA4001550`; link `0xFFFFFFFFA40001A8` and the Nop slot remain
-uncommitted. This is
+`Jal 0xA400087C` at `0xA40001A0` replaces retained link
+`0xFFFFFFFFA4001550` with `0xFFFFFFFFA40001A8` and exact JAL lineage; the Nop
+slot commits once. InitCCValue commits through `0xA400088C`, then
+`Sw r2,0(sp)` at `0xA4000890` rejects because r2 retains
+`UnknownPifProduced` lineage. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, general MI next-write replication, calibration, RDRAM initialization, or NMI
 execution.

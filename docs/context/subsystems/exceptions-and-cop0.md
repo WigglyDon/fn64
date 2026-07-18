@@ -33,6 +33,10 @@ and global RDRAM_DELAY/REF_ROW/DEVICE_ID or exact RCP 2.0 first-responder
 DEVICE_ID write routes add no device-specific exception.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
+Prior JAL link-destination state is no longer misclassified as an input, but a
+control-flow identity in an active delay slot and unknown JR/JALR/branch
+sources still reject before link or COP0 mutation. The generated InitCCValue
+`Sw` source-knownness rejection likewise preserves Count and COP0 exactly.
 
 The explicit generated-only NTSC cold-x105 handoff is the sole bootstrap path
 that sources inherited COP0 state. It stages Status=`0x34000000` with named

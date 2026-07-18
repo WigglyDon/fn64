@@ -127,7 +127,7 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,185-step composition through the stored
+handoff and advances a generated 32,192-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
 exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
@@ -136,9 +136,11 @@ raw-zero global RDRAM_REF_ROW commit, DEVICE_ID-value `Lui`, exact global
 RDRAM_DEVICE_ID requested-base commit, fourteen CPU-local setup steps, the
 MI_VERSION read, guest-selected RCP 2.0 branch and delay slot, spacing/base
 setup, exact first-responder zero request, and the following RDRAM_MODE-address
-`Addiu`. The next generated JAL rejects atomically at `0xA40001A0` because
-current source-backed r31 lineage does not authorize replacement; it schedules
-no delay slot. Current-control code and RDRAM_MODE are therefore not reached;
+`Addiu`. The generated JAL at `0xA40001A0` replaces retained r31 with PC+8,
+its Nop slot executes once, and five InitCCValue prologue instructions commit.
+The next `Sw r2,0(sp)` rejects before SP-IMEM mutation because r2 retains
+unknown PIF-produced lineage. Later current-control code and RDRAM_MODE are not
+reached;
 no general RI_SELECT programming, other RI write/read, other MI register/read,
 general MI replication, other RDRAM-register behavior, per-module state,
 calibration/timing process, NMI, or

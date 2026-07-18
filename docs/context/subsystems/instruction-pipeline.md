@@ -61,9 +61,11 @@ comparison selects RCP 2.0 through ordinary Bne/delay-slot semantics. Spacing
 `0x400` and first-responder base `0xFFFFFFFFA3F08000` are CPU results. The
 following exact zero store commits one bounded first-responder assignment
 request; `Addiu` then constructs initial RDRAM_MODE address
-`0xFFFFFFFFA3F0000C`. The next JAL at `0xA40001A0` rejects atomically because
-current retained-r31 lineage cannot be replaced; it writes no link and
-schedules no slot. This proves no RI timing, calibration, general MI bus
+`0xFFFFFFFFA3F0000C`. The next JAL at `0xA40001A0` replaces retained r31 with
+PC+8 and exact JAL lineage, its Nop slot executes once, and five InitCCValue
+prologue instructions commit. `Sw r2,0(sp)` then rejects atomically because
+r2's retained PIF-produced lineage is unknown. This proves no RI timing,
+calibration, general MI bus
 effect, responder/module state, assignment completion, or RDRAM process.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
@@ -97,12 +99,14 @@ Ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and
 staging. BLTZ alone reuses the existing full-GPR signed comparator; no generic
 REGIMM executor exists. A control-flow identity inside a represented slot
 selects explicit unsupported rollback. Application schedules or clears the
-CPU-owned slot context; it does not refetch or re-identify.
+CPU-owned slot context; it does not refetch or re-identify. JAL planning has no
+GPR source and does not inspect prior r31. JALR planning captures old `rs`
+before application and never treats unrelated prior `rd` as an input.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, branch-likely
 and other REGIMM/control-flow families, broader COP0 instruction execution,
 general RI_SELECT programming/other RI actions/other MI registers or reads/NMI
 and generic MMIO, MI next-write replication, RDRAM_MODE/other control-register
-access, the current retained-link JAL transition, nested control-flow
+access, later InitCCValue calls, nested control-flow
 behavior, broad fetch mapping, and instruction timing.

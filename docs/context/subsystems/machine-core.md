@@ -156,7 +156,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,185-step generated composition through the stored RI_SELECT
+handoff and a 32,192-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -171,10 +171,11 @@ routing. Fourteen CPU-local setup commits then reach the MI_VERSION load;
 executes once, and setup selects spacing `0x400` plus first-responder base
 `0xFFFFFFFFA3F08000`. Exact non-global RDRAM_DEVICE_ID physical `0x03F08004`
 then records a bounded zero assignment request. The following `Addiu` produces
-initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. The next generated JAL at
-`0xA40001A0` rejects atomically because retained r31 IPL2 link lineage cannot
-be replaced under the current source-backed gate; no link or delay slot
-commits. It does not prove an authentic firmware-executed handoff, responder
+initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. The generated JAL at
+`0xA40001A0` replaces retained r31 with PC+8, its Nop slot executes once, and
+five InitCCValue prologue instructions commit. `Sw r2,0(sp)` at `0xA4000890`
+then rejects before mutation because r2 retains unknown PIF-produced lineage.
+It does not prove an authentic firmware-executed handoff, responder
 presence/completion, RI calibration or elapsed hardware time, RDRAM_MODE or
 RDRAM initialization, BOOT-3, full ISA, game compatibility, renderer, audio,
 performance, or host integration.

@@ -140,8 +140,10 @@ branch, executes its Nop slot once, selects spacing `0x400`, and builds
 first-responder base `0xFFFFFFFFA3F08000`. The exact first-responder zero store
 commits a bounded assignment request, and `Addiu` constructs
 `0xFFFFFFFFA3F0000C` as the initial RDRAM_MODE address. The following JAL at
-`0xA40001A0` rejects before link or slot mutation because retained r31 bootstrap
-lineage is not replaceable under the current source gate. This is CPU
+`0xA40001A0` replaces retained bootstrap r31 with PC+8 and exact JAL lineage;
+its Nop slot executes once. Five InitCCValue prologue instructions then commit
+before `Sw r2,0(sp)` at `0xA4000890` rejects because r2 retains
+`UnknownPifProduced` lineage. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 branch-likely/other REGIMM and broader COP0 execution, every RI action except
@@ -149,6 +151,5 @@ the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
 RI_MODE defined-field writes, the exact MI_INIT_MODE write, and the exact
 global RDRAM_DELAY write, exact raw-zero global RDRAM_REF_ROW write, and exact
 global RDRAM_DEVICE_ID request, exact RCP 2.0 first-responder request, NMI,
-generic MMIO, the current JAL retained-link transition, nested control flow,
-RDRAM_MODE, other load/store families, and
+generic MMIO, later InitCCValue calls, RDRAM_MODE, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

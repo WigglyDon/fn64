@@ -589,6 +589,31 @@ product or reference lane requires a new explicit product decision.
   presence, assignment completion, module discovery/per-module state,
   calibration, authentic advancement, BOOT-3, and compatibility remain absent.
 
+## Era 31 — link-destination provenance and InitCCValue frontier (2026-07-18)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, R4300 JAL/JALR source semantics;
+  `LIVE_REPO_FACT`, ordinary-control-flow planning and bootstrap lineage
+  ownership; `RUNTIME_FACT`, deterministic generated public-step proof.
+- Product decisions: `LINK_DESTINATION_PRIOR_STATE_IS_NOT_AN_EXECUTION_INPUT`,
+  `JAL_REPLACES_PRIOR_R31_WITH_NAMED_INSTRUCTION_RESULT`,
+  `JALR_REQUIRES_OLD_RS_ONLY_AND_PRESERVES_ALIAS_ORDERING`, and
+  `NO_PC_SPECIFIC_OR_BOOT_PATH_LINK_WHITELIST`.
+- Accepted increment: the shared destination-only rejection is removed. JAL
+  consumes no GPR source and replaces any prior r31 value/lineage with PC+8
+  and exact JAL provenance. JALR continues to require and capture old `rs`
+  before any encoded-`rd` link write, including `rs == rd`; `rd == 0`
+  discards the link. Bootstrap staging and every genuine source-knownness gate
+  remain unchanged.
+- Generated composition: commit 32,186 executes `Jal 0xA400087C` at
+  `0xA40001A0`, producing r31 `0xFFFFFFFFA40001A8`; commit 32,187 executes its
+  Nop slot once. Five InitCCValue prologue commits save spacing/base words to
+  SP IMEM and leave PC/next-PC `0xA4000890`/`0xA4000894`, Count 32,176, at
+  32,192 commits. `Sw r2,0(sp)` then rejects atomically because r2 has
+  `UnknownPifProduced` lineage; target physical address is `0x04001EF0`.
+- Boundary: FindCC, TestCCValue, WriteCC, RDRAM_MODE, calibration, responder
+  presence, module discovery, authentic advancement, BOOT-3, and compatibility
+  remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

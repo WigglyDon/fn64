@@ -311,7 +311,10 @@ planning/application family. Conditional targets use wrapping instruction
 PC+4 plus the sign-extended shifted displacement. J/JAL region bits come from
 wrapping PC+4. JAL writes r31; JALR writes encoded `rd`; links are PC+8 under
 the represented 32-to-64-bit sign-extension rule. JALR captures the old source
-before an aliased link write, and link writes to r0 are discarded.
+before an aliased link write, and link writes to r0 are discarded. Old r31 is
+not a JAL input; old JALR `rd` is not an input except where it is also the
+captured old `rs`. Bootstrap lineage remains truthful until the named CPU
+instruction overwrites its destination.
 
 Every taken or untaken branch/jump commits to exactly one explicit CPU-owned
 delay-slot context. `next_pc` owns the selected target or fall-through. The
@@ -572,10 +575,13 @@ RCP 2.0 path and its Nop delay slot executes once. `Addiu` selects spacing
 non-global RDRAM_DEVICE_ID physical `0x03F08004`, recording a bounded
 assignment request with r14's generated `Addu` lineage. Commit 32,185 executes
 `Addiu r21,r15,0x000C`, producing `0xFFFFFFFFA3F0000C`. PC/next-PC are then
-`0xA40001A0 / 0xA40001A4`, Count is `32169`. The next generated
-`Jal 0xA400087C` rejects atomically because source-backed bootstrap rules do not
-authorize replacing r31's retained IPL2 link lineage/value; it writes no link
-and schedules no delay slot.
+`0xA40001A0 / 0xA40001A4`, Count is `32169`. The generated
+`Jal 0xA400087C` replaces retained bootstrap r31 with
+`0xFFFFFFFFA40001A8`, records JAL lineage, and schedules its Nop slot. The
+slot commits once and enters InitCCValue. Five supported prologue commits
+leave PC/next-PC `0xA4000890 / 0xA4000894`, Count `32176`, and 32,192 total
+commits. `Sw r2,0(sp)` then rejects atomically because r2 retains
+`UnknownPifProduced` lineage; its SP-IMEM physical target is `0x04001EF0`.
 These tests
 prove CPU composition only, not an authentic
 IPL2-to-IPL3 run, elapsed RI time, current calibration, RDRAM initialization,
@@ -670,13 +676,14 @@ calls only public `Machine::step` for execution. Its 155 cases cover:
 - exact RCP 2.0 first-responder DEVICE_ID zero-request ownership, provenance,
   aliases, lifecycle, AdES/delay-slot cadence, narrow aperture routing, and
   atomic rejection;
-- 32,185-step generated x105 composition through the exact 8,000-iteration CPU
+- 32,192-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
   write, delay-word construction, RDRAM_DELAY and RDRAM_REF_ROW commits,
   DEVICE_ID-value LUI/store, fourteen CPU-local setup commits, MI_VERSION read,
   guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup, first-responder
-  RDRAM_DEVICE_ID commit, initial RDRAM_MODE-address `Addiu`, and the following
-  JAL retained-link-lineage rejection before link/slot mutation;
+  RDRAM_DEVICE_ID commit, initial RDRAM_MODE-address `Addiu`, generated JAL and
+  Nop slot, and five InitCCValue prologue commits before exact atomic rejection
+  of an SP-IMEM store whose r2 source lineage remains unknown;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

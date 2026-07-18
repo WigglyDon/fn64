@@ -20698,8 +20698,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_commits_generated_jal_and_reaches_init_cc_unknown_store_frontier()
-    {
+    fn generated_x105_composition_commits_generated_jal_and_reaches_init_cc_current_control_rdram_mode_unknown_store_frontier(
+    ) {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);

@@ -73,6 +73,9 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   execute through `Machine::step` with one CPU-owned delay-slot context.
   Taken and untaken branches both execute one slot; link, alias, Count,
   branch-in-delay-slot rejection, and delay-slot EPC/BD behavior are explicit.
+  Prior r31 value or lineage is not a JAL input. JALR still consumes only its
+  captured old `rs`, including when source and link destination alias; every
+  genuine branch, jump-register, load, and store source-knownness gate remains.
   BLTZ reuses the established full-GPR signed comparison used by SLT/SLTI;
   every other REGIMM identity remains unrepresented. This is bounded ordinary
   control flow, not complete MIPS control flow.
@@ -212,12 +215,20 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   from `0xA4000138`. Commit 32,185 executes `Addiu r21,r15,0x000C`, producing
   initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. PC/next-PC become
   `0xA40001A0 / 0xA40001A4`, Count is `32169`, and total commits are `32185`.
-  The generated `Jal 0xA400087C` at `0xA40001A0` is the exact next frontier:
-  it rejects atomically because the current source-backed bootstrap lineage
-  does not authorize replacing r31's retained link value
-  `0xFFFFFFFFA4001550`. Architectural link `0xFFFFFFFFA40001A8` is not
-  written, and the Nop delay slot at `0xA40001A4` is not scheduled or
-  executed. Every instruction and byte is independently generated.
+  Commit 32,186 executes generated `Jal 0xA400087C` at `0xA40001A0`, replacing
+  retained r31 `0xFFFFFFFFA4001550` with link `0xFFFFFFFFA40001A8` and exact
+  instruction-result lineage. PC/next-PC become
+  `0xA40001A4 / 0xA400087C`, Count is `32170`. Commit 32,187 executes the Nop
+  delay slot once and enters InitCCValue. Five further commits through
+  `0xA400088C` subtract `0xA0` from sp, save spacing `0x00000400` and
+  first-responder base `0xA3F08000` to SP-IMEM offsets `0xF30/0xF34`, and
+  zero r17/r16. At 32,192 commits, PC/next-PC are
+  `0xA4000890 / 0xA4000894`, Count is `32176`, and the first unsupported
+  pressure is `Sw r2,0(sp)` (word `0xAFA20000`). Its effective/CPU/physical
+  addresses are `0xFFFFFFFFA4001EF0 / 0xA4001EF0 / 0x04001EF0`; r2 contains
+  zero but retains `UnknownPifProduced` lineage, so the supported Sw rejects
+  atomically with `ValueSourceUnavailable`. Every instruction and byte is
+  independently generated.
   This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -339,6 +350,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   constructs the initial RDRAM_MODE address, and proof stops at the following
   JAL link-lineage rejection before entering current-control code, without a
   Worker lane or queue entry.
+- `master-direct-link-destination-provenance-x105-init-cc-frontier-v1`:
+  direct Master product operation; prior link-destination state is removed as
+  a false JAL/JALR input, retained bootstrap r31 remains truthful until the
+  generated JAL replaces it, and public stepping enters InitCCValue before
+  stopping atomically at the first unknown store source, without a Worker lane
+  or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -375,14 +392,14 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: the next generated pressure is `Jal 0xA400087C` at
-  `0xA40001A0` (word `0x0D00021F`). It rejects atomically through
-  `BootstrapLinkLineageUnavailable` because r31 still owns retained IPL2 link
-  lineage/value `0xFFFFFFFFA4001550`; no new link or delay-slot context is
-  committed. The exact first-responder zero write immediately before it is now
-  represented only as an assignment request, and the intervening `Addiu`
-  constructs initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. RDRAM_MODE and
-  current-control calibration are not yet reached. No responder presence,
+- `LIVE_REPO_FACT`: the generated JAL at `0xA40001A0` now commits link
+  `0xFFFFFFFFA40001A8`, executes its Nop slot once, and enters InitCCValue.
+  The next pressure is `Sw r2,0(sp)` at `0xA4000890` (word `0xAFA20000`),
+  targeting SP IMEM physical `0x04001EF0`; it rejects atomically because r2's
+  retained `UnknownPifProduced` lineage is not a known store source. The exact
+  first-responder assignment request and initial RDRAM_MODE address
+  `0xFFFFFFFFA3F0000C` remain preserved. RDRAM_MODE and current-control
+  calibration are not yet reached. No responder presence,
   assignment completion, module identity, discovery, or per-module state is
   represented. Alternate MI_VERSION identities and a
   configuration surface remain absent. DEVICE_ID physical relocation,
