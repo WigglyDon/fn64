@@ -8,8 +8,11 @@ pub const RDRAM_SIZE_BYTES: usize = 4 * 1024 * 1024;
 pub const RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS: u32 = 0x03f8_0004;
 pub const RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS: u32 = 0x03f8_0008;
 pub const RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS: u32 = 0x03f8_0014;
+pub const RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS: u32 = 0x03f0_8004;
 pub const RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD: u32 = 0x8000_0000;
 pub const RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE: u32 = 0x0200_0000;
+pub const RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD: u32 = 0x0000_0000;
+pub const RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_REQUESTED_INITIAL_DEVICE_ID: u32 = 0x0000_0000;
 pub const RDRAM_DELAY_X105_CPU_TRANSFER_WORD: u32 = 0x1808_2838;
 pub const RDRAM_DELAY_X105_LOGICAL_CONFIGURATION: u32 = 0x2838_1808;
 pub const RDRAM_REF_ROW_X105_WRITE_WORD: u32 = 0x0000_0000;
@@ -329,6 +332,106 @@ impl MachineRdramBroadcastDeviceIdRequestState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramFirstResponderDeviceIdAperture {
+    Rcp2FirstResponder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramFirstResponderDeviceIdSource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+    },
+}
+
+impl MachineRdramFirstResponderDeviceIdSource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        match self {
+            Self::CpuStoreWord {
+                effective_address, ..
+            } => effective_address,
+        }
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { cpu_address, .. } => cpu_address,
+        }
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        match self {
+            Self::CpuStoreWord {
+                physical_address, ..
+            } => physical_address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRdramFirstResponderDeviceIdRequestState {
+    raw_cpu_word: u32,
+    requested_initial_device_id: u32,
+    aperture: MachineRdramFirstResponderDeviceIdAperture,
+    source: MachineRdramFirstResponderDeviceIdSource,
+}
+
+impl MachineRdramFirstResponderDeviceIdRequestState {
+    pub(crate) const fn from_exact_x105_zero_cpu_store(
+        source: MachineRdramFirstResponderDeviceIdSource,
+    ) -> Self {
+        debug_assert!(
+            source.physical_address() == RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS
+        );
+        Self {
+            raw_cpu_word: RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD,
+            requested_initial_device_id:
+                RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_REQUESTED_INITIAL_DEVICE_ID,
+            aperture: MachineRdramFirstResponderDeviceIdAperture::Rcp2FirstResponder,
+            source,
+        }
+    }
+
+    pub const fn raw_cpu_word(self) -> u32 {
+        self.raw_cpu_word
+    }
+
+    pub const fn requested_initial_device_id(self) -> u32 {
+        self.requested_initial_device_id
+    }
+
+    pub const fn aperture(self) -> MachineRdramFirstResponderDeviceIdAperture {
+        self.aperture
+    }
+
+    pub const fn source(self) -> MachineRdramFirstResponderDeviceIdSource {
+        self.source
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RdramAccessError {
     offset: usize,
     width: usize,
@@ -361,6 +464,7 @@ pub struct Rdram {
     broadcast_device_id_request: Option<MachineRdramBroadcastDeviceIdRequestState>,
     broadcast_delay: Option<MachineRdramBroadcastDelayState>,
     broadcast_refresh_row: Option<MachineRdramBroadcastRefreshRowState>,
+    first_responder_device_id_request: Option<MachineRdramFirstResponderDeviceIdRequestState>,
 }
 
 impl Rdram {
@@ -400,6 +504,19 @@ impl Rdram {
         state: MachineRdramBroadcastRefreshRowState,
     ) {
         self.broadcast_refresh_row = Some(state);
+    }
+
+    pub(crate) const fn first_responder_device_id_request_state(
+        &self,
+    ) -> Option<MachineRdramFirstResponderDeviceIdRequestState> {
+        self.first_responder_device_id_request
+    }
+
+    pub(crate) fn apply_first_responder_device_id_store(
+        &mut self,
+        state: MachineRdramFirstResponderDeviceIdRequestState,
+    ) {
+        self.first_responder_device_id_request = Some(state);
     }
 
     pub fn read_u8(&self, offset: usize) -> Result<u8, RdramAccessError> {
@@ -503,6 +620,7 @@ impl Default for Rdram {
             broadcast_device_id_request: None,
             broadcast_delay: None,
             broadcast_refresh_row: None,
+            first_responder_device_id_request: None,
         }
     }
 }
@@ -520,6 +638,7 @@ mod tests {
         assert_eq!(rdram.broadcast_device_id_request_state(), None);
         assert_eq!(rdram.broadcast_delay_state(), None);
         assert_eq!(rdram.broadcast_refresh_row_state(), None);
+        assert_eq!(rdram.first_responder_device_id_request_state(), None);
     }
 
     #[test]

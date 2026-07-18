@@ -27,11 +27,13 @@ use crate::pif_firmware::{
 use crate::rdram::{
     MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState,
     MachineRdramBroadcastDeviceIdRequestState, MachineRdramBroadcastDeviceIdSource,
-    MachineRdramBroadcastRefreshRowSource, MachineRdramBroadcastRefreshRowState, Rdram,
-    RdramAccessError, RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS,
+    MachineRdramBroadcastRefreshRowSource, MachineRdramBroadcastRefreshRowState,
+    MachineRdramFirstResponderDeviceIdRequestState, MachineRdramFirstResponderDeviceIdSource,
+    Rdram, RdramAccessError, RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS,
     RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
     RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD,
-    RDRAM_REF_ROW_X105_WRITE_WORD,
+    RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS,
+    RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD, RDRAM_REF_ROW_X105_WRITE_WORD,
 };
 use crate::ri::{
     MachineRiConfigState, MachineRiCurrentLoadState, MachineRiModeState, MachineRiSelectSource,
@@ -279,6 +281,7 @@ pub enum MachineStoreWordTarget {
     RdramBroadcastDeviceId,
     RdramBroadcastDelay,
     RdramBroadcastRefreshRow,
+    RdramFirstResponderDeviceId,
     RiMode,
     RiConfig,
     RiCurrentLoad,
@@ -293,6 +296,7 @@ impl MachineStoreWordTarget {
             | Self::RdramBroadcastDeviceId
             | Self::RdramBroadcastDelay
             | Self::RdramBroadcastRefreshRow
+            | Self::RdramFirstResponderDeviceId
             | Self::RiMode
             | Self::RiConfig
             | Self::RiCurrentLoad
@@ -379,6 +383,9 @@ pub enum MachineStoreWordRejectionReason {
         transfer_word: u32,
     },
     RdramDeviceIdValueUnsupported {
+        transfer_word: u32,
+    },
+    RdramFirstResponderDeviceIdValueUnsupported {
         transfer_word: u32,
     },
     SpImemWriteRejected,
@@ -1940,6 +1947,9 @@ pub(crate) enum MachineStoreWordMutationPlan {
     RdramBroadcastRefreshRow {
         state: MachineRdramBroadcastRefreshRowState,
     },
+    RdramFirstResponderDeviceId {
+        state: MachineRdramFirstResponderDeviceIdRequestState,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2659,6 +2669,14 @@ pub enum MachineRepresentedStepOutcome {
         state: MachineRdramBroadcastRefreshRowState,
         cadence_plan: MachineStepCadencePlan,
     },
+    RdramFirstResponderDeviceIdStoreCommitted {
+        effective_address: u64,
+        target: MachineStoreWordTarget,
+        source_gpr: u8,
+        stored_word: u32,
+        state: MachineRdramFirstResponderDeviceIdRequestState,
+        cadence_plan: MachineStepCadencePlan,
+    },
     Mtc0Committed {
         destination: MachineMtc0Destination,
         source_gpr: u8,
@@ -2822,6 +2840,16 @@ impl MachineRepresentedStepOutcome {
                         cadence_plan,
                     }
                 }
+                MachineStoreWordMutationPlan::RdramFirstResponderDeviceId { state } => {
+                    Self::RdramFirstResponderDeviceIdStoreCommitted {
+                        effective_address: plan.effective_address,
+                        target: plan.target,
+                        source_gpr: plan.fields.rt(),
+                        stored_word: plan.stored_word,
+                        state,
+                        cadence_plan,
+                    }
+                }
             },
             MachineClassifiedStepActionApplication::StoreWord(
                 MachineStoreWordStepApplication::DataAddressError { plan, cadence_plan },
@@ -2891,6 +2919,7 @@ impl MachineRepresentedStepOutcome {
             | Self::MiInitModeStoreCommitted { .. }
             | Self::RdramBroadcastDelayStoreCommitted { .. }
             | Self::RdramBroadcastDeviceIdStoreCommitted { .. }
+            | Self::RdramFirstResponderDeviceIdStoreCommitted { .. }
             | Self::RdramBroadcastRefreshRowStoreCommitted { .. } => {
                 Some(CpuInstructionIdentity::Sw)
             }
@@ -2914,6 +2943,7 @@ impl MachineRepresentedStepOutcome {
             | Self::MiInitModeStoreCommitted { cadence_plan, .. }
             | Self::RdramBroadcastDelayStoreCommitted { cadence_plan, .. }
             | Self::RdramBroadcastDeviceIdStoreCommitted { cadence_plan, .. }
+            | Self::RdramFirstResponderDeviceIdStoreCommitted { cadence_plan, .. }
             | Self::RdramBroadcastRefreshRowStoreCommitted { cadence_plan, .. }
             | Self::Mtc0Committed { cadence_plan, .. }
             | Self::DataAddressError { cadence_plan, .. }
@@ -2938,6 +2968,7 @@ impl MachineRepresentedStepOutcome {
             | Self::MiInitModeStoreCommitted { .. }
             | Self::RdramBroadcastDelayStoreCommitted { .. }
             | Self::RdramBroadcastDeviceIdStoreCommitted { .. }
+            | Self::RdramFirstResponderDeviceIdStoreCommitted { .. }
             | Self::RdramBroadcastRefreshRowStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
@@ -2961,6 +2992,7 @@ impl MachineRepresentedStepOutcome {
             | Self::MiInitModeStoreCommitted { .. }
             | Self::RdramBroadcastDelayStoreCommitted { .. }
             | Self::RdramBroadcastDeviceIdStoreCommitted { .. }
+            | Self::RdramFirstResponderDeviceIdStoreCommitted { .. }
             | Self::RdramBroadcastRefreshRowStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
@@ -2984,6 +3016,7 @@ impl MachineRepresentedStepOutcome {
             | Self::MiInitModeStoreCommitted { .. }
             | Self::RdramBroadcastDelayStoreCommitted { .. }
             | Self::RdramBroadcastDeviceIdStoreCommitted { .. }
+            | Self::RdramFirstResponderDeviceIdStoreCommitted { .. }
             | Self::RdramBroadcastRefreshRowStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
@@ -3007,6 +3040,7 @@ impl MachineRepresentedStepOutcome {
             | Self::MiInitModeStoreCommitted { .. }
             | Self::RdramBroadcastDelayStoreCommitted { .. }
             | Self::RdramBroadcastDeviceIdStoreCommitted { .. }
+            | Self::RdramFirstResponderDeviceIdStoreCommitted { .. }
             | Self::RdramBroadcastRefreshRowStoreCommitted { .. }
             | Self::Mtc0Committed { .. }
             | Self::DataAddressError { .. }
@@ -3380,6 +3414,12 @@ impl Machine {
         &self,
     ) -> Option<MachineRdramBroadcastRefreshRowState> {
         self.rdram.broadcast_refresh_row_state()
+    }
+
+    pub const fn rdram_first_responder_device_id_request_state(
+        &self,
+    ) -> Option<MachineRdramFirstResponderDeviceIdRequestState> {
+        self.rdram.first_responder_device_id_request_state()
     }
 
     /// Validates and transfers one owned raw PIF Boot ROM into this Machine.
@@ -4244,6 +4284,31 @@ impl Machine {
                     ),
                 }
             }
+            MachineStoreWordTarget::RdramFirstResponderDeviceId => {
+                if stored_word != RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::RdramFirstResponderDeviceIdValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                MachineStoreWordMutationPlan::RdramFirstResponderDeviceId {
+                    state: MachineRdramFirstResponderDeviceIdRequestState::from_exact_x105_zero_cpu_store(
+                        MachineRdramFirstResponderDeviceIdSource::CpuStoreWord {
+                            instruction_pc: execution_address,
+                            source_gpr: fields.rt(),
+                            source_lineage,
+                            effective_address,
+                            cpu_address,
+                            physical_address: RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS,
+                        },
+                    ),
+                }
+            }
         };
 
         Ok(MachineStoreWordStepAction::Commit(
@@ -4292,6 +4357,9 @@ impl Machine {
                     }
                     MachineStoreWordMutationPlan::RdramBroadcastRefreshRow { state } => {
                         self.rdram.apply_broadcast_refresh_row_store(state)
+                    }
+                    MachineStoreWordMutationPlan::RdramFirstResponderDeviceId { state } => {
+                        self.rdram.apply_first_responder_device_id_store(state)
                     }
                 }
                 self.cpu
@@ -5389,6 +5457,12 @@ fn classify_store_word_target(
     if physical_address == RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS {
         return Ok(MachineStoreWordTargetSelection::Supported(
             MachineStoreWordTarget::RdramBroadcastRefreshRow,
+        ));
+    }
+
+    if physical_address == RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::RdramFirstResponderDeviceId,
         ));
     }
 
@@ -16221,6 +16295,8 @@ mod tests {
         mi_version: MachineMiVersionState,
         rdram_broadcast_delay: Option<MachineRdramBroadcastDelayState>,
         rdram_broadcast_device_id_request: Option<MachineRdramBroadcastDeviceIdRequestState>,
+        rdram_first_responder_device_id_request:
+            Option<MachineRdramFirstResponderDeviceIdRequestState>,
         rdram_broadcast_refresh_row: Option<MachineRdramBroadcastRefreshRowState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
         reservation: (bool, u32, usize),
@@ -16278,6 +16354,8 @@ mod tests {
             mi_version: machine.mi_version_state(),
             rdram_broadcast_delay: machine.rdram_broadcast_delay_state(),
             rdram_broadcast_device_id_request: machine.rdram_broadcast_device_id_request_state(),
+            rdram_first_responder_device_id_request: machine
+                .rdram_first_responder_device_id_request_state(),
             rdram_broadcast_refresh_row: machine.rdram_broadcast_refresh_row_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
             reservation: (
@@ -19329,6 +19407,445 @@ mod tests {
     }
 
     #[test]
+    fn rdram_first_responder_device_id_exact_request_owns_state_lineage_and_direct_aliases() {
+        for base_upper in [0x83f0, 0xa3f0] {
+            let words = [
+                (0x40, immediate_word(0x0f, 0, 17, base_upper)),
+                (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+                (0x48, sw_word(17, 22, 0x0004)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x87);
+            assert_eq!(
+                machine.rdram_first_responder_device_id_request_state(),
+                None
+            );
+            machine.step().unwrap();
+            machine.step().unwrap();
+            let source_value = 0x1234_5678_0000_0000;
+            machine.cpu.set_gpr(22, source_value).unwrap();
+            let before = lw_snapshot(&machine);
+            let expected_cpu_address = (u32::from(base_upper) << 16) | 0x0000_8004;
+
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::RdramFirstResponderDeviceIdStoreCommitted {
+                    effective_address,
+                    target: MachineStoreWordTarget::RdramFirstResponderDeviceId,
+                    source_gpr: 22,
+                    stored_word: RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD,
+                    state,
+                    cadence_plan,
+                }) if effective_address as u32 == expected_cpu_address
+                    && state.raw_cpu_word()
+                        == RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD
+                    && state.requested_initial_device_id()
+                        == crate::rdram::RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_REQUESTED_INITIAL_DEVICE_ID
+                    && state.aperture()
+                        == crate::rdram::MachineRdramFirstResponderDeviceIdAperture::Rcp2FirstResponder
+                    && state.source().instruction_pc() == CpuAddress::new(0xa400_0048)
+                    && state.source().source_gpr() == 22
+                    && state.source().source_lineage() == MachineBootstrapGprSource::X105Seed
+                    && state.source().effective_address() == effective_address
+                    && state.source().cpu_address() == CpuAddress::new(expected_cpu_address)
+                    && state.source().physical_address()
+                        == RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS
+                    && cadence_plan.advances_count()
+            ));
+            let state = machine
+                .rdram_first_responder_device_id_request_state()
+                .unwrap();
+            assert_eq!(state.raw_cpu_word(), 0);
+            assert_eq!(state.requested_initial_device_id(), 0);
+            assert_eq!(machine.cpu().gpr(22), Some(source_value));
+            assert_eq!(machine.cpu().pc(), 0xa400_004c);
+            assert_eq!(machine.cpu().next_pc(), 0xa400_0050);
+            assert_eq!(machine.cpu().cop0_count(), 3);
+            assert_eq!(machine.rdram_broadcast_delay_state(), None);
+            assert_eq!(machine.rdram_broadcast_refresh_row_state(), None);
+            assert_eq!(machine.rdram_broadcast_device_id_request_state(), None);
+            assert_eq!(machine.mi_init_mode_state(), None);
+            assert_eq!(machine.mi_init_transfer_state(), None);
+            assert_eq!(machine.mi_version_state(), before.mi_version);
+            let after = lw_snapshot(&machine);
+            assert_eq!(after.rdram, before.rdram);
+            assert_eq!(after.sp_dmem, before.sp_dmem);
+            assert_eq!(after.sp_imem, before.sp_imem);
+            assert_eq!(after.ri_select, before.ri_select);
+            assert_eq!(after.ri_config, before.ri_config);
+            assert_eq!(after.ri_current_load, before.ri_current_load);
+            assert_eq!(after.ri_mode, before.ri_mode);
+            assert_eq!(after.reservation, before.reservation);
+        }
+
+        for address in [0x83f0_8004, 0xa3f0_8004] {
+            assert_eq!(
+                classify_store_word_target(CpuAddress::new(address)),
+                Ok(MachineStoreWordTargetSelection::Supported(
+                    MachineStoreWordTarget::RdramFirstResponderDeviceId,
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn rdram_first_responder_device_id_rejections_are_atomic_and_routes_remain_narrow() {
+        for transfer_word in [
+            0x0000_0001,
+            0x0000_0400,
+            0x0200_0000,
+            0x4000_0000,
+            0x8000_0000,
+            0xffff_ffff,
+        ] {
+            let words = [
+                (0x40, immediate_word(0x0f, 0, 17, 0xa3f0)),
+                (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+                (0x48, sw_word(17, 22, 0x0004)),
+            ];
+            let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x88);
+            machine.step().unwrap();
+            machine.step().unwrap();
+            machine.cpu.set_gpr(22, u64::from(transfer_word)).unwrap();
+            let before = lw_snapshot(&machine);
+            let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
+            assert_eq!(
+                rejection.target(),
+                Some(MachineStoreWordTarget::RdramFirstResponderDeviceId)
+            );
+            assert_eq!(
+                rejection.reason(),
+                MachineStoreWordRejectionReason::RdramFirstResponderDeviceIdValueUnsupported {
+                    transfer_word,
+                }
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+
+        let unknown_words = [
+            (0x40, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x48, sw_word(17, 7, 0x0004)),
+        ];
+        let (mut unknown, _) = staged_generated_cold_x105_machine(&unknown_words, 0x89);
+        unknown.step().unwrap();
+        unknown.step().unwrap();
+        let before = lw_snapshot(&unknown);
+        let rejection = unknown.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                register_index: 7,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&unknown), before);
+
+        let alias_words = [
+            (0x40, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x48, sw_word(17, 17, 0x0004)),
+        ];
+        let (mut shared, _) = staged_generated_cold_x105_machine(&alias_words, 0x8a);
+        shared.step().unwrap();
+        shared.step().unwrap();
+        let before = lw_snapshot(&shared);
+        let rejection = shared.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::RdramFirstResponderDeviceIdValueUnsupported {
+                transfer_word: 0xa3f0_8000,
+            }
+        );
+        assert_eq!(lw_snapshot(&shared), before);
+
+        for address in [
+            0xa3f0_4004,
+            0x83f0_4004,
+            0xa3f0_0004,
+            0xa3f0_8008,
+            0xa3f0_800c,
+            0xa3f0_8014,
+            0xa3f1_8004,
+        ] {
+            assert_eq!(
+                classify_store_word_target(CpuAddress::new(address)),
+                Err(MachineStoreWordTargetError::DirectTargetMiss {
+                    cpu_address: CpuAddress::new(address),
+                })
+            );
+        }
+
+        let pending_words = [
+            (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x010f)),
+            (0x48, sw_word(12, 9, 0)),
+            (0x4c, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x50, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x54, sw_word(17, 0, 0x0004)),
+        ];
+        let (mut pending, _) = staged_generated_cold_x105_machine(&pending_words, 0x8b);
+        for _ in 0..5 {
+            pending.step().unwrap();
+        }
+        let transfer = pending.mi_init_transfer_state().unwrap();
+        let before = lw_snapshot(&pending);
+        let rejection = pending.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::MiInitTransferUseUnsupported {
+                attempted_target: MachineStoreWordTarget::RdramFirstResponderDeviceId,
+            }
+        );
+        assert_eq!(pending.mi_init_transfer_state(), Some(transfer));
+        assert_eq!(lw_snapshot(&pending), before);
+
+        let repeat_words = [
+            (0x40, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x48, sw_word(17, 0, 0x0004)),
+            (0x4c, immediate_word(0x0d, 0, 22, 1)),
+            (0x50, sw_word(17, 22, 0x0004)),
+        ];
+        let (mut repeat, _) = staged_generated_cold_x105_machine(&repeat_words, 0x8c);
+        for _ in 0..3 {
+            repeat.step().unwrap();
+        }
+        let first = repeat
+            .rdram_first_responder_device_id_request_state()
+            .unwrap();
+        repeat.step().unwrap();
+        let before = lw_snapshot(&repeat);
+        assert!(repeat.step().is_err());
+        assert_eq!(
+            repeat.rdram_first_responder_device_id_request_state(),
+            Some(first)
+        );
+        assert_eq!(lw_snapshot(&repeat), before);
+
+        let mut no_read = staged_lw_bootstrap_machine(
+            immediate_word(0x0f, 0, 17, 0xa3f1),
+            lw_word(17, 9, 0x8004),
+        );
+        no_read.step().unwrap();
+        let before = lw_snapshot(&no_read);
+        assert_eq!(
+            no_read
+                .step()
+                .unwrap_err()
+                .load_word_rejection()
+                .unwrap()
+                .reason(),
+            MachineLoadWordRejectionReason::DirectTargetMiss
+        );
+        assert_eq!(lw_snapshot(&no_read), before);
+    }
+
+    #[test]
+    fn rdram_first_responder_device_id_delay_slot_and_ades_use_existing_atomic_cadence() {
+        let success_words = [
+            (0x40, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x48, control_flow_branch_word(0x04, 0, 0, 1)),
+            (0x4c, sw_word(17, 0, 0x0004)),
+            (0x50, special_shift_word(0, 0, 0, 0, 0)),
+        ];
+        let (mut success, _) = staged_generated_cold_x105_machine(&success_words, 0x8d);
+        success.step().unwrap();
+        success.step().unwrap();
+        assert_control_flow_commit(success.step().unwrap(), CpuInstructionIdentity::Beq);
+        assert_scheduled_delay_slot(&success, 0xa400_0048, 0xa400_004c, 0xa400_0050);
+        assert!(matches!(
+            success.step(),
+            Ok(MachineRepresentedStepOutcome::RdramFirstResponderDeviceIdStoreCommitted {
+                stored_word: RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD,
+                cadence_plan,
+                ..
+            }) if cadence_plan.advances_count()
+        ));
+        assert_eq!(success.cpu().pc(), 0xa400_0050);
+        assert_eq!(success.cpu().next_pc(), 0xa400_0054);
+        assert_eq!(success.cpu().cop0_count(), 4);
+        assert_eq!(success.cpu_delay_slot_context(), None);
+
+        let ordinary_words = [
+            (0x40, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x48, sw_word(17, 0, 0x0005)),
+        ];
+        let (mut ordinary, _) = staged_generated_cold_x105_machine(&ordinary_words, 0x8e);
+        ordinary.step().unwrap();
+        ordinary.step().unwrap();
+        assert!(matches!(
+            ordinary.step().unwrap(),
+            MachineRepresentedStepOutcome::DataAddressError {
+                effective_address: 0xffff_ffff_a3f0_8005,
+                address_error,
+                cadence_plan,
+                ..
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && address_error.bad_vaddr() == CpuAddress::new(0xa3f0_8005)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(
+            ordinary.rdram_first_responder_device_id_request_state(),
+            None
+        );
+        assert_eq!(ordinary.cpu().pc(), LOCAL_EXCEPTION_VECTOR_PC);
+        assert_eq!(ordinary.cpu().next_pc(), LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(ordinary.cpu().cop0_bad_vaddr(), 0xa3f0_8005);
+        assert_eq!(ordinary.cpu().cop0_epc(), 0xa400_0048);
+        assert!(!ordinary.cpu().cop0_exception_branch_delay());
+        assert_eq!(ordinary.cpu().cop0_count(), 2);
+
+        let delay_words = [
+            (0x40, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x44, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x48, control_flow_branch_word(0x04, 0, 0, 1)),
+            (0x4c, sw_word(17, 0, 0x0005)),
+            (0x50, special_shift_word(0, 0, 0, 0, 0)),
+        ];
+        let (mut delay, _) = staged_generated_cold_x105_machine(&delay_words, 0x8f);
+        delay.step().unwrap();
+        delay.step().unwrap();
+        assert_control_flow_commit(delay.step().unwrap(), CpuInstructionIdentity::Beq);
+        assert!(matches!(
+            delay.step().unwrap(),
+            MachineRepresentedStepOutcome::DataAddressError {
+                address_error,
+                cadence_plan,
+                ..
+            } if address_error.bad_vaddr() == CpuAddress::new(0xa3f0_8005)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(delay.rdram_first_responder_device_id_request_state(), None);
+        assert_eq!(delay.cpu().pc(), LOCAL_EXCEPTION_VECTOR_PC);
+        assert_eq!(delay.cpu().next_pc(), LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(delay.cpu().cop0_bad_vaddr(), 0xa3f0_8005);
+        assert_eq!(delay.cpu().cop0_epc(), 0xa400_0048);
+        assert!(delay.cpu().cop0_exception_branch_delay());
+        assert_eq!(delay.cpu().cop0_count(), 3);
+        assert_eq!(delay.cpu_delay_slot_context(), None);
+    }
+
+    #[test]
+    fn rdram_first_responder_device_id_preserves_prior_facts_replaces_lineage_and_owns_lifecycle() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 12, 0xa430)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x010f)),
+            (0x48, sw_word(12, 9, 0)),
+            (0x4c, immediate_word(0x0f, 0, 10, 0xa3f8)),
+            (0x50, immediate_word(0x0f, 0, 9, 0x1808)),
+            (0x54, immediate_word(0x0d, 9, 9, 0x2838)),
+            (0x58, sw_word(10, 9, 8)),
+            (0x5c, sw_word(10, 0, 0x0014)),
+            (0x60, immediate_word(0x0f, 0, 9, 0x8000)),
+            (0x64, sw_word(10, 9, 0x0004)),
+            (0x68, immediate_word(0x0f, 0, 17, 0xa3f0)),
+            (0x6c, immediate_word(0x0d, 17, 17, 0x8000)),
+            (0x70, sw_word(17, 0, 0x0004)),
+            (0x74, immediate_word(0x0d, 0, 22, 0)),
+            (0x78, sw_word(17, 22, 0x0004)),
+        ];
+        let (mut first, _) = staged_generated_cold_x105_machine(&words, 0x90);
+        let (second, _) = staged_generated_cold_x105_machine(&words, 0x90);
+        assert_eq!(first.rdram_first_responder_device_id_request_state(), None);
+        assert_eq!(second.rdram_first_responder_device_id_request_state(), None);
+        let mi_version = first.mi_version_state();
+        for _ in 0..12 {
+            first.step().unwrap();
+        }
+        let delay = first.rdram_broadcast_delay_state().unwrap();
+        let refresh_row = first.rdram_broadcast_refresh_row_state().unwrap();
+        let broadcast_device_id = first.rdram_broadcast_device_id_request_state().unwrap();
+        let before_first = lw_snapshot(&first);
+        first.step().unwrap();
+        let first_request = first
+            .rdram_first_responder_device_id_request_state()
+            .unwrap();
+        assert_eq!(first_request.source().source_gpr(), 0);
+        assert_eq!(
+            first_request.source().source_lineage(),
+            MachineBootstrapGprSource::ArchitecturalZero
+        );
+        assert_eq!(first.rdram_broadcast_delay_state(), Some(delay));
+        assert_eq!(first.rdram_broadcast_refresh_row_state(), Some(refresh_row));
+        assert_eq!(
+            first.rdram_broadcast_device_id_request_state(),
+            Some(broadcast_device_id)
+        );
+        assert_eq!(first.mi_version_state(), mi_version);
+        assert_eq!(first.mi_init_mode_state(), None);
+        assert_eq!(first.mi_init_transfer_state(), None);
+        let after_first = lw_snapshot(&first);
+        assert_eq!(after_first.rdram, before_first.rdram);
+        assert_eq!(after_first.sp_dmem, before_first.sp_dmem);
+        assert_eq!(after_first.sp_imem, before_first.sp_imem);
+        assert_eq!(after_first.ri_select, before_first.ri_select);
+        assert_eq!(after_first.ri_config, before_first.ri_config);
+        assert_eq!(after_first.ri_current_load, before_first.ri_current_load);
+        assert_eq!(after_first.ri_mode, before_first.ri_mode);
+
+        first.step().unwrap();
+        first.step().unwrap();
+        let second_request = first
+            .rdram_first_responder_device_id_request_state()
+            .unwrap();
+        assert_ne!(second_request.source(), first_request.source());
+        assert_eq!(second_request.source().source_gpr(), 22);
+        assert_eq!(
+            second_request.source().instruction_pc(),
+            CpuAddress::new(0xa400_0078)
+        );
+        assert_eq!(first.rdram_broadcast_delay_state(), Some(delay));
+        assert_eq!(first.rdram_broadcast_refresh_row_state(), Some(refresh_row));
+        assert_eq!(
+            first.rdram_broadcast_device_id_request_state(),
+            Some(broadcast_device_id)
+        );
+        assert_eq!(second.rdram_first_responder_device_id_request_state(), None);
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
+        let before_failed_bootstrap = lw_snapshot(&first);
+        assert!(matches!(
+            first.stage_cartridge_bootstrap(),
+            Err(
+                MachineCartridgeBootstrapError::UnsupportedPifIpl2HandoffProfile {
+                    profile: PifIpl2Profile::PalPinned,
+                }
+            )
+        ));
+        assert_eq!(lw_snapshot(&first), before_failed_bootstrap);
+        assert_eq!(
+            first.rdram_first_responder_device_id_request_state(),
+            Some(second_request)
+        );
+        assert_eq!(first.mi_version_state(), mi_version);
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+        first.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(first.mi_version_state(), mi_version);
+        assert_eq!(first.mi_init_mode_state(), None);
+        assert_eq!(first.mi_init_transfer_state(), None);
+        assert_eq!(first.rdram_broadcast_delay_state(), None);
+        assert_eq!(first.rdram_broadcast_refresh_row_state(), None);
+        assert_eq!(first.rdram_broadcast_device_id_request_state(), None);
+        assert_eq!(first.rdram_first_responder_device_id_request_state(), None);
+
+        for _ in 0..15 {
+            first.step().unwrap();
+        }
+        assert!(first
+            .rdram_first_responder_device_id_request_state()
+            .is_some());
+        first.reset();
+        assert_eq!(first.mi_version_state(), mi_version);
+        assert_eq!(first.rdram_broadcast_delay_state(), None);
+        assert_eq!(first.rdram_broadcast_refresh_row_state(), None);
+        assert_eq!(first.rdram_broadcast_device_id_request_state(), None);
+        assert_eq!(first.rdram_first_responder_device_id_request_state(), None);
+    }
+
+    #[test]
     fn store_word_effective_address_uses_signed_immediate_and_wrapping_u64_policy() {
         for (immediate, expected) in [(0x0000, 0), (0x0004, 4), (0xfffc, 0xffff_ffff_ffff_fffc)] {
             let mut machine = Machine::from_cartridge(Cartridge::default());
@@ -20195,7 +20712,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_reads_mi_version_and_reaches_first_responder_frontier() {
+    fn generated_x105_composition_commits_first_responder_and_reaches_current_control_frontier() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
@@ -20308,6 +20825,15 @@ mod tests {
             (0x190, immediate_word(0x09, 0, 16, 0x0400)),
             (0x194, immediate_word(0x0d, 11, 17, 0x8000)),
             (0x198, sw_word(17, 14, 0x0004)),
+            (0x19c, 0x25f5_000c),
+            (0x1a0, 0x0d00_021f),
+            (0x1a4, 0x0000_0000),
+            (0x87c, 0x27bd_ff60),
+            (0x880, 0xafb0_0040),
+            (0x884, 0xafb1_0044),
+            (0x888, 0x0000_8825),
+            (0x88c, 0x0000_8025),
+            (0x890, 0xafa2_0000),
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -21508,18 +22034,156 @@ mod tests {
         assert_eq!(frontier.fields().rt(), 14);
         assert_eq!(frontier.fields().immediate_u16(), 4);
         let before_first_responder = lw_snapshot(&machine);
-        let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
-        assert_eq!(rejection.effective_address(), Some(0xffff_ffff_a3f0_8004));
-        assert_eq!(rejection.cpu_address(), Some(CpuAddress::new(0xa3f0_8004)));
-        assert_eq!(rejection.target(), None);
-        assert_eq!(
-            rejection.reason(),
-            MachineStoreWordRejectionReason::DirectTargetMiss
-        );
-        assert_eq!(lw_snapshot(&machine), before_first_responder);
+        let first_responder_lineage = machine
+            .cartridge_bootstrap_state()
+            .unwrap()
+            .gpr_source(14)
+            .unwrap();
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::RdramFirstResponderDeviceIdStoreCommitted {
+                effective_address: 0xffff_ffff_a3f0_8004,
+                target: MachineStoreWordTarget::RdramFirstResponderDeviceId,
+                source_gpr: 14,
+                stored_word: RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD,
+                state,
+                cadence_plan,
+            }) if state.raw_cpu_word() == 0
+                && state.requested_initial_device_id() == 0
+                && state.aperture()
+                    == crate::rdram::MachineRdramFirstResponderDeviceIdAperture::Rcp2FirstResponder
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0198)
+                && state.source().source_gpr() == 14
+                && state.source().source_lineage() == first_responder_lineage
+                && state.source().effective_address() == 0xffff_ffff_a3f0_8004
+                && state.source().cpu_address() == CpuAddress::new(0xa3f0_8004)
+                && state.source().physical_address()
+                    == RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS
+                && cadence_plan.advances_count()
+        ));
+        total_committed_steps += 1;
+        let first_responder_request = machine
+            .rdram_first_responder_device_id_request_state()
+            .unwrap();
+        assert_eq!(machine.cpu().pc(), 0xa400_019c);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_01a0);
+        assert_eq!(machine.cpu().cop0_count(), 32_168);
+        assert_eq!(total_committed_steps, 32_184);
         assert_eq!(
             machine.rdram_broadcast_device_id_request_state(),
             Some(device_id_request)
+        );
+        assert_eq!(
+            machine.rdram_broadcast_delay_state(),
+            Some(delay_after_store)
+        );
+        assert_eq!(
+            machine.rdram_broadcast_refresh_row_state(),
+            Some(refresh_row_after_store)
+        );
+        assert_eq!(
+            machine.mi_version_state(),
+            before_first_responder.mi_version
+        );
+        let after_first_responder = lw_snapshot(&machine);
+        assert_eq!(after_first_responder.rdram, before_first_responder.rdram);
+        assert_eq!(
+            after_first_responder.sp_dmem,
+            before_first_responder.sp_dmem
+        );
+        assert_eq!(
+            after_first_responder.sp_imem,
+            before_first_responder.sp_imem
+        );
+        assert_eq!(
+            after_first_responder.ri_select,
+            before_first_responder.ri_select
+        );
+        assert_eq!(
+            after_first_responder.ri_config,
+            before_first_responder.ri_config
+        );
+        assert_eq!(
+            after_first_responder.ri_current_load,
+            before_first_responder.ri_current_load
+        );
+        assert_eq!(
+            after_first_responder.ri_mode,
+            before_first_responder.ri_mode
+        );
+
+        let inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(inspection.cpu_address(), CpuAddress::new(0xa400_019c));
+        assert_eq!(inspection.fields().raw().bits(), 0x25f5_000c);
+        assert_eq!(inspection.identity(), CpuInstructionIdentity::Addiu);
+        assert_eq!(
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::Addiu)
+        );
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().gpr(21), Some(0xffff_ffff_a3f0_000c));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(21),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_019c),
+                identity: CpuInstructionIdentity::Addiu,
+                source_gpr_a: Some(15),
+                source_gpr_b: None,
+            })
+        );
+        assert_eq!(machine.cpu().cop0_count(), 32_169);
+        assert_eq!(total_committed_steps, 32_185);
+
+        let inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(inspection.cpu_address(), CpuAddress::new(0xa400_01a0));
+        assert_eq!(inspection.fields().raw().bits(), 0x0d00_021f);
+        assert_eq!(inspection.identity(), CpuInstructionIdentity::Jal);
+        assert_eq!(machine.cpu().pc(), 0xa400_01a0);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_01a4);
+        assert_eq!(machine.cpu().cop0_count(), 32_169);
+        assert_eq!(total_committed_steps, 32_185);
+        assert_eq!(machine.cpu().gpr(31), Some(0xffff_ffff_a400_1550));
+        let retained_link_source = machine.cartridge_bootstrap_state().unwrap().gpr_source(31);
+        assert!(matches!(
+            retained_link_source,
+            Some(MachineBootstrapGprSource::PifIpl2RetainedLink { .. })
+        ));
+        let before_current_control_frontier = lw_snapshot(&machine);
+        let rejection = machine
+            .step()
+            .unwrap_err()
+            .ordinary_control_flow_rejection()
+            .unwrap();
+        assert_eq!(rejection.instruction_pc(), CpuAddress::new(0xa400_01a0));
+        assert_eq!(rejection.identity(), CpuInstructionIdentity::Jal);
+        assert_eq!(
+            rejection.reason(),
+            MachineOrdinaryControlFlowRejectionReason::BootstrapLinkLineageUnavailable {
+                destination_gpr: 31,
+            }
+        );
+        assert_eq!(lw_snapshot(&machine), before_current_control_frontier);
+        assert_eq!(machine.cpu().gpr(31), Some(0xffff_ffff_a400_1550));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(31),
+            retained_link_source
+        );
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+        assert_eq!(
+            machine.rdram_first_responder_device_id_request_state(),
+            Some(first_responder_request)
+        );
+        assert_eq!(
+            machine.rdram_broadcast_device_id_request_state(),
+            Some(device_id_request)
+        );
+        assert_eq!(
+            machine.rdram_broadcast_delay_state(),
+            Some(delay_after_store)
+        );
+        assert_eq!(
+            machine.rdram_broadcast_refresh_row_state(),
+            Some(refresh_row_after_store)
         );
     }
 

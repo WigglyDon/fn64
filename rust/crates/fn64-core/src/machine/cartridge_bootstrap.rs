@@ -945,6 +945,8 @@ mod tests {
         rdram_broadcast_delay: Option<crate::rdram::MachineRdramBroadcastDelayState>,
         rdram_broadcast_device_id_request:
             Option<crate::rdram::MachineRdramBroadcastDeviceIdRequestState>,
+        rdram_first_responder_device_id_request:
+            Option<crate::rdram::MachineRdramFirstResponderDeviceIdRequestState>,
         rdram_broadcast_refresh_row: Option<crate::rdram::MachineRdramBroadcastRefreshRowState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
@@ -1002,6 +1004,8 @@ mod tests {
             mi_init_transfer: machine.mi_init_transfer_state(),
             rdram_broadcast_delay: machine.rdram_broadcast_delay_state(),
             rdram_broadcast_device_id_request: machine.rdram_broadcast_device_id_request_state(),
+            rdram_first_responder_device_id_request: machine
+                .rdram_first_responder_device_id_request_state(),
             rdram_broadcast_refresh_row: machine.rdram_broadcast_refresh_row_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }
