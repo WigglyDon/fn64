@@ -1,0 +1,8 @@
+pc	word	identity	result	count_after	commits_after	bounded_fact
+0xA4000198	0xAE2E0004	Sw r14,4(r17)	committed	32168	32184	RCP2 first-responder DEVICE_ID zero request
+0xA400019C	0x25F5000C	Addiu r21,r15,0x000C	committed	32169	32185	r21=0xFFFFFFFFA3F0000C
+0xA40001A0	0x0D00021F	Jal 0xA400087C	rejected	32169	32185	BootstrapLinkLineageUnavailable r31
+0xA40001A4	0x00000000	Nop	not executed	32169	32185	JAL delay slot remains unscheduled
+0xA400087C	0x27BDFF60	Addiu sp,sp,-0x00A0	not reached	32169	32185	InitCCValue prologue source audit only
+0xA40008F0	0x0D000261	Jal 0xA4000984	not reached	32169	32185	FindCC call source audit only
+0xA400099C	0x53400018	Beql r26,r0,0xA4000A00	not reached	32169	32185	later CPU identity audit only
