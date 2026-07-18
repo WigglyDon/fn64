@@ -2,13 +2,17 @@
 
 After the outer JAL and slot, public Machine execution reaches:
 
-- InitCCValue prologue and 24 exact SP-IMEM stack saves from
-  `0xA400087C` through `0xA40008EC`;
-- `0xA40008F0`, word `0x0D000261`, `Jal 0xA4000984`;
-- `0xA40008F4`, word `0x00000000`, its Nop delay slot;
-- FindCC entry and initialization from `0xA4000984` through
-  `0xA4000998`;
-- `0xA400099C`, word `0x53400018`, unsupported `Beql`.
+- `0xA400087C`, word `0x27BDFF60`, `Addiu sp,sp,-0xA0`, producing
+  `sp=0xFFFFFFFFA4001EF0`;
+- `0xA4000880`, word `0xAFB00040`, `Sw r16,0x40(sp)`, storing the RCP
+  spacing word `0x00000400` at SP-IMEM offset `0xF30`;
+- `0xA4000884`, word `0xAFB10044`, `Sw r17,0x44(sp)`, storing the
+  first-responder base low word `0xA3F08000` at offset `0xF34`;
+- `0xA4000888`, word `0x00008825`, `Or r17,r0,r0`;
+- `0xA400088C`, word `0x00008025`, `Or r16,r0,r0`.
 
-At the frontier r12/t4 is zero, r26/k0 is one from the generated Slti, r0 is
-architectural zero, and the branch target is `0xA4000A00`.
+The first unsupported pressure is `0xA4000890`, word `0xAFA20000`,
+`Sw r2,0(sp)`. Its effective address is `0xFFFFFFFFA4001EF0`, CPU address
+`0xA4001EF0`, physical address `0x04001EF0`, and SP-IMEM offset `0xEF0`.
+r2 contains zero but has retained `UnknownPifProduced` lineage, so the exact
+result is `ValueSourceUnavailable` before mutation. No nested call is reached.

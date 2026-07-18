@@ -8,6 +8,7 @@ Preserved rejection boundaries:
 - unknown load/store sources;
 - all exception and store/load atomicity.
 
-No rejection may partially write a link. Unsupported `Beql` at
-`0xA400099C` restores the staged sequential PC and preserves complete
-Machine state with no Count advance.
+No rejection may partially write a link. The exact `Sw r2,0(sp)` frontier at
+`0xA4000890` rejects because its transfer source has `UnknownPifProduced`
+lineage. It preserves PC, next_pc, Count, all GPR values and lineage, the
+completed JAL link, represented SP memory, and every device fact.

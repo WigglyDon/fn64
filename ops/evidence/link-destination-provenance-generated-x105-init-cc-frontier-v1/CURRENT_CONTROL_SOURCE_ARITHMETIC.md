@@ -12,4 +12,6 @@ Pinned source predicts the later first manual test:
 - predicted target: CPU `0xA3F0000C`, physical `0x03F0000C`.
 
 These remain source-level predictions only. Machine execution stops earlier
-at Beql and does not reach TestCCValue, WriteCC, or RDRAM_MODE.
+at the InitCCValue prologue store `Sw r2,0(sp)` because r2 has retained
+`UnknownPifProduced` lineage. It does not reach FindCC, TestCCValue, WriteCC,
+or RDRAM_MODE.

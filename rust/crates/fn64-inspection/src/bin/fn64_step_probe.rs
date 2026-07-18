@@ -179,7 +179,7 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: generated-x105-rcp2-branch ok\
 \ncase: generated-x105-first-responder-committed ok\
 \ncase: generated-x105-current-control-mode-address ok\
-\ncase: generated-x105-current-control-jal-frontier ok\
+\ncase: generated-x105-init-cc-unknown-store-frontier ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -3285,6 +3285,13 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x198, immediate_word(0x2b, 17, 14, 0x0004)),
         (0x19c, 0x25f5_000c),
         (0x1a0, 0x0d00_021f),
+        (0x1a4, 0x0000_0000),
+        (0x87c, 0x27bd_ff60),
+        (0x880, 0xafb0_0040),
+        (0x884, 0xafb1_0044),
+        (0x888, 0x0000_8825),
+        (0x88c, 0x0000_8025),
+        (0x890, 0xafa2_0000),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -4849,6 +4856,182 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             }),
         "exact InitCCValue JAL frontier",
     )?;
+    let retained_link_source = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(31));
+    require(
+        CASE,
+        machine.cpu().gpr(31) == Some(0xffff_ffff_a400_1550)
+            && matches!(
+                retained_link_source,
+                Some(MachineBootstrapGprSource::PifIpl2RetainedLink { .. })
+            ),
+        "retained bootstrap link value and lineage before generated JAL",
+    )?;
+    let devices_before_jal = (
+        machine.mi_version_state(),
+        machine.mi_init_mode_state(),
+        machine.mi_init_transfer_state(),
+        machine.rdram_broadcast_delay_state(),
+        machine.rdram_broadcast_refresh_row_state(),
+        machine.rdram_broadcast_device_id_request_state(),
+        machine.rdram_first_responder_device_id_request_state(),
+        machine.ri_select_state(),
+        machine.ri_config_state(),
+        machine.ri_current_load_state(),
+        machine.ri_mode_state(),
+    );
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Jal)?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_186
+            && machine.cpu().pc() == 0xa400_01a4
+            && machine.cpu().next_pc() == 0xa400_087c
+            && machine.cpu().cop0_count() == 32_170
+            && machine.cpu().gpr(31) == Some(0xffff_ffff_a400_01a8)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(31))
+                == Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_01a0),
+                    identity: CpuInstructionIdentity::Jal,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                })
+            && machine
+                .cpu_delay_slot_context()
+                .is_some_and(|context| context.branch_or_jump_pc() == 0xa400_01a0)
+            && devices_before_jal
+                == (
+                    machine.mi_version_state(),
+                    machine.mi_init_mode_state(),
+                    machine.mi_init_transfer_state(),
+                    machine.rdram_broadcast_delay_state(),
+                    machine.rdram_broadcast_refresh_row_state(),
+                    machine.rdram_broadcast_device_id_request_state(),
+                    machine.rdram_first_responder_device_id_request_state(),
+                    machine.ri_select_state(),
+                    machine.ri_config_state(),
+                    machine.ri_current_load_state(),
+                    machine.ri_mode_state(),
+                ),
+        "InitCCValue JAL replaces retained link and schedules one delay slot",
+    )?;
+
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.cpu_address() == CpuAddress::new(0xa400_01a4)
+                    && instruction.fields().raw().bits() == 0
+                    && instruction.identity() == CpuInstructionIdentity::SpecialSll
+            }),
+        "exact InitCCValue JAL delay-slot Nop",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialSll,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        total_committed_steps == 32_187
+            && machine.cpu().pc() == 0xa400_087c
+            && machine.cpu().next_pc() == 0xa400_0880
+            && machine.cpu().cop0_count() == 32_171
+            && machine.cpu().gpr(31) == Some(0xffff_ffff_a400_01a8)
+            && machine.cpu_delay_slot_context().is_none(),
+        "InitCCValue delay slot commits once and transfers to the target",
+    )?;
+
+    for (pc, raw_word, identity) in [
+        (0xa400_087c, 0x27bd_ff60, CpuInstructionIdentity::Addiu),
+        (0xa400_0880, 0xafb0_0040, CpuInstructionIdentity::Sw),
+        (0xa400_0884, 0xafb1_0044, CpuInstructionIdentity::Sw),
+        (0xa400_0888, 0x0000_8825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_088c, 0x0000_8025, CpuInstructionIdentity::SpecialOr),
+    ] {
+        require(
+            CASE,
+            machine
+                .inspect_current_cpu_instruction()
+                .is_ok_and(|instruction| {
+                    instruction.cpu_address() == CpuAddress::new(pc)
+                        && instruction.fields().raw().bits() == raw_word
+                        && instruction.identity() == identity
+                }),
+            "exact generated InitCCValue prologue instruction",
+        )?;
+        let outcome = step(&mut machine, CASE)?;
+        require(
+            CASE,
+            outcome.identity() == Some(identity),
+            "generated InitCCValue prologue commit identity",
+        )?;
+        if pc == 0xa400_0880 {
+            require(
+                CASE,
+                matches!(
+                    outcome,
+                    MachineRepresentedStepOutcome::StoreWordCommitted {
+                        target: MachineStoreWordTarget::SpImem { offset: 0x0f30 },
+                        stored_word: 0x0000_0400,
+                        ..
+                    }
+                ),
+                "InitCCValue saves RCP register spacing to represented SP IMEM",
+            )?;
+        }
+        if pc == 0xa400_0884 {
+            require(
+                CASE,
+                matches!(
+                    outcome,
+                    MachineRepresentedStepOutcome::StoreWordCommitted {
+                        target: MachineStoreWordTarget::SpImem { offset: 0x0f34 },
+                        stored_word: 0xa3f0_8000,
+                        ..
+                    }
+                ),
+                "InitCCValue saves first-responder base to represented SP IMEM",
+            )?;
+        }
+        total_committed_steps += 1;
+    }
+    require(
+        CASE,
+        total_committed_steps == 32_192
+            && machine.cpu().pc() == 0xa400_0890
+            && machine.cpu().next_pc() == 0xa400_0894
+            && machine.cpu().cop0_count() == 32_176
+            && machine.cpu().gpr(29) == Some(0xffff_ffff_a400_1ef0)
+            && machine.cpu().gpr(16) == Some(0)
+            && machine.cpu().gpr(17) == Some(0),
+        "generated InitCCValue entry state and cadence",
+    )?;
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.cpu_address() == CpuAddress::new(0xa400_0890)
+                    && instruction.fields().raw().bits() == 0xafa2_0000
+                    && instruction.identity() == CpuInstructionIdentity::Sw
+                    && instruction.fields().rs() == 29
+                    && instruction.fields().rt() == 2
+                    && instruction.fields().immediate_u16() == 0
+            })
+            && machine.cpu().gpr(2) == Some(0)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(2))
+                == Some(MachineBootstrapGprSource::UnknownPifProduced),
+        "exact InitCCValue unknown-source store frontier",
+    )?;
+
     let gprs_before: [Option<u64>; 32] = core::array::from_fn(|index| machine.cpu().gpr(index));
     let bootstrap_before = machine.cartridge_bootstrap_state();
     let devices_before_frontier = (
@@ -4877,18 +5060,26 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         machine.cpu_delay_slot_context(),
     );
     match machine.step() {
-        Err(MachineRepresentedStepError::OrdinaryControlFlowRejected(rejection)) => require(
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             CASE,
-            rejection.instruction_pc() == CpuAddress::new(0xa400_01a0)
-                && rejection.identity() == CpuInstructionIdentity::Jal
+            rejection.identity() == CpuInstructionIdentity::Sw
+                && rejection.effective_address() == Some(0xffff_ffff_a400_1ef0)
+                && rejection.cpu_address() == Some(CpuAddress::new(0xa400_1ef0))
+                && rejection.target() == Some(MachineStoreWordTarget::SpImem { offset: 0x0ef0 })
                 && rejection.reason()
-                    == MachineOrdinaryControlFlowRejectionReason::BootstrapLinkLineageUnavailable {
-                        destination_gpr: 31,
+                    == MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                        register_index: 2,
+                        source: MachineBootstrapGprSource::UnknownPifProduced,
                     },
-            "InitCCValue JAL rejects before link mutation",
+            "InitCCValue store rejects unknown PIF-produced r2 before mutation",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "InitCCValue JAL remains the exact CPU frontier"),
+        Ok(_) => {
+            return assertion(
+                CASE,
+                "InitCCValue unknown-source store remains the frontier",
+            )
+        }
     }
     require(
         CASE,
@@ -4924,7 +5115,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             && machine.rdram_broadcast_device_id_request_state() == Some(device_id_request)
             && machine.rdram_first_responder_device_id_request_state()
                 == Some(first_responder_request),
-        "JAL rejection preserves CPU lineage and all represented device truth",
+        "unknown-source store rejection preserves CPU lineage and all represented device truth",
     )
 }
 

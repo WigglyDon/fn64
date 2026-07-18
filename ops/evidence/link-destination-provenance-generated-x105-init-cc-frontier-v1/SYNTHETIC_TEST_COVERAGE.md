@@ -7,7 +7,8 @@ Planned focused coverage proves:
 - JALR old-rs capture, destination irrelevance, alias order, and r0 discard;
 - source-knownness and active-slot rejection preservation;
 - unchanged bootstrap staging and lifecycle;
-- exact generated outer and nested JAL composition;
-- atomic Beql frontier.
+- exact generated outer JAL and delay-slot composition;
+- exact InitCCValue entry and represented SP-IMEM saves;
+- atomic unknown-store-source frontier without weakening store knownness.
 
 All inputs are public synthetic instructions and generated PIF-shaped bytes.
