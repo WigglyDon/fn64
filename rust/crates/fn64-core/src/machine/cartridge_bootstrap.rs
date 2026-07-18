@@ -863,6 +863,16 @@ const fn bootstrap_gpr_access(
             source_b: None,
             destination: Some(fields.rd()),
         },
+        Jal => BootstrapGprAccess {
+            source_a: None,
+            source_b: None,
+            destination: Some(31),
+        },
+        SpecialJalr => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: None,
+            destination: Some(fields.rd()),
+        },
         Addi | Daddi | Addiu | Daddiu | Slti | Sltiu | Andi | Ori | Xori => BootstrapGprAccess {
             source_a: Some(fields.rs()),
             source_b: None,
@@ -1085,6 +1095,221 @@ mod tests {
         machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
         machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
         machine.install_pif_version_bit(pif_version_bit);
+    }
+
+    fn staged_complete_cold_x105_machine(words: &[(usize, u32)], firmware_seed: u8) -> Machine {
+        let mut bytes = make_generated_normalized_boot_cartridge();
+        for &(offset, word) in words {
+            write_be_u32(&mut bytes, offset, word);
+        }
+        let cartridge = load_cartridge(bytes).unwrap();
+        let mut machine = Machine::from_cartridge(cartridge);
+        install_complete_cold_x105_inputs(
+            &mut machine,
+            PifIpl2Profile::NtscPinned,
+            MachinePifVersionBit::Zero,
+            firmware_seed,
+        );
+        machine.stage_cartridge_bootstrap().unwrap();
+        machine
+    }
+
+    const fn control_flow_jump_word(opcode: u8, target: u32) -> u32 {
+        ((opcode as u32) << 26) | ((target >> 2) & 0x03ff_ffff)
+    }
+
+    const fn control_flow_register_jump_word(rs: u8, rd: u8, funct: u8) -> u32 {
+        ((rs as u32) << 21) | ((rd as u32) << 11) | funct as u32
+    }
+
+    #[test]
+    fn jal_replaces_every_prior_bootstrap_link_destination_lineage() {
+        const PC: u32 = 0xa400_0040;
+        const TARGET: u32 = 0xa400_0050;
+        const LINK: u64 = 0xffff_ffff_a400_0048;
+        let words = [
+            (0x40, control_flow_jump_word(0x03, TARGET)),
+            (0x44, 0),
+            (0x50, 0),
+        ];
+
+        for case in 0..4 {
+            let mut machine = staged_complete_cold_x105_machine(&words, 0xb0 + case);
+            let retained_value = machine.cpu().gpr(31).unwrap();
+            let retained_source = machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(31)
+                .unwrap();
+            let (prior_value, prior_source) = match case {
+                0 => (0, MachineBootstrapGprSource::ArchitecturalZero),
+                1 => (
+                    0x1111_2222_3333_4444,
+                    MachineBootstrapGprSource::KnownInstructionResult {
+                        execution_address: CpuAddress::new(0xa400_003c),
+                        identity: CpuInstructionIdentity::Lui,
+                        source_gpr_a: None,
+                        source_gpr_b: None,
+                    },
+                ),
+                2 => (retained_value, retained_source),
+                3 => (
+                    0xaaaa_bbbb_cccc_dddd,
+                    MachineBootstrapGprSource::UnknownPifProduced,
+                ),
+                _ => unreachable!(),
+            };
+            machine.cpu.set_gpr(31, prior_value).unwrap();
+            machine.cartridge_bootstrap.as_mut().unwrap().gpr_sources[31] = prior_source;
+
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                    identity: CpuInstructionIdentity::Jal,
+                    ..
+                })
+            ));
+            assert_eq!(machine.cpu().gpr(31), Some(LINK));
+            assert_eq!(machine.cpu().pc(), PC + 4);
+            assert_eq!(machine.cpu().next_pc(), TARGET);
+            assert_eq!(machine.cpu().cop0_count(), 1);
+            assert_eq!(
+                machine.cartridge_bootstrap_state().unwrap().gpr_source(31),
+                Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(PC),
+                    identity: CpuInstructionIdentity::Jal,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                })
+            );
+
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                    identity: CpuInstructionIdentity::SpecialSll,
+                    ..
+                })
+            ));
+            assert_eq!(machine.cpu().pc(), TARGET);
+            assert_eq!(machine.cpu().next_pc(), TARGET + 4);
+            assert_eq!(machine.cpu().gpr(31), Some(LINK));
+            assert_eq!(machine.cpu_delay_slot_context(), None);
+            assert_eq!(machine.cpu().cop0_count(), 2);
+        }
+    }
+
+    #[test]
+    fn jalr_consumes_only_old_source_and_preserves_alias_ordering() {
+        const PC: u32 = 0xa400_0040;
+        const TARGET: u32 = 0xa400_0050;
+        const TARGET_VALUE: u64 = 0xffff_ffff_a400_0050;
+        const LINK: u64 = 0xffff_ffff_a400_0048;
+        let source_lineage = MachineBootstrapGprSource::KnownInstructionResult {
+            execution_address: CpuAddress::new(0xa400_003c),
+            identity: CpuInstructionIdentity::Lui,
+            source_gpr_a: None,
+            source_gpr_b: None,
+        };
+
+        for (destination, prior_destination_source) in [
+            (31, MachineBootstrapGprSource::UnknownPifProduced),
+            (
+                30,
+                MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0038),
+                    identity: CpuInstructionIdentity::Ori,
+                    source_gpr_a: Some(30),
+                    source_gpr_b: None,
+                },
+            ),
+        ] {
+            let words = [
+                (0x40, control_flow_register_jump_word(8, destination, 0x09)),
+                (0x44, 0),
+                (0x50, 0),
+            ];
+            let mut machine = staged_complete_cold_x105_machine(&words, 0xc0 + destination);
+            machine.cpu.set_gpr(8, TARGET_VALUE).unwrap();
+            machine
+                .cpu
+                .set_gpr(usize::from(destination), u64::MAX)
+                .unwrap();
+            let state = machine.cartridge_bootstrap.as_mut().unwrap();
+            state.gpr_sources[8] = source_lineage;
+            state.gpr_sources[usize::from(destination)] = prior_destination_source;
+
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                    identity: CpuInstructionIdentity::SpecialJalr,
+                    ..
+                })
+            ));
+            assert_eq!(machine.cpu().next_pc(), TARGET);
+            assert_eq!(machine.cpu().gpr(usize::from(destination)), Some(LINK));
+            assert_eq!(
+                machine
+                    .cartridge_bootstrap_state()
+                    .unwrap()
+                    .gpr_source(usize::from(destination)),
+                Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(PC),
+                    identity: CpuInstructionIdentity::SpecialJalr,
+                    source_gpr_a: Some(8),
+                    source_gpr_b: None,
+                })
+            );
+        }
+
+        let alias_words = [
+            (0x40, control_flow_register_jump_word(8, 8, 0x09)),
+            (0x44, 0),
+            (0x50, 0),
+        ];
+        let mut alias = staged_complete_cold_x105_machine(&alias_words, 0xd0);
+        alias.cpu.set_gpr(8, TARGET_VALUE).unwrap();
+        alias.cartridge_bootstrap.as_mut().unwrap().gpr_sources[8] = source_lineage;
+        assert!(matches!(
+            alias.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::SpecialJalr,
+                ..
+            })
+        ));
+        assert_eq!(alias.cpu().pc(), PC + 4);
+        assert_eq!(alias.cpu().next_pc(), TARGET);
+        assert_eq!(alias.cpu().gpr(8), Some(LINK));
+        assert_eq!(
+            alias.cartridge_bootstrap_state().unwrap().gpr_source(8),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(PC),
+                identity: CpuInstructionIdentity::SpecialJalr,
+                source_gpr_a: Some(8),
+                source_gpr_b: None,
+            })
+        );
+
+        let zero_words = [
+            (0x40, control_flow_register_jump_word(8, 0, 0x09)),
+            (0x44, 0),
+            (0x50, 0),
+        ];
+        let mut zero = staged_complete_cold_x105_machine(&zero_words, 0xd1);
+        zero.cpu.set_gpr(8, TARGET_VALUE).unwrap();
+        zero.cartridge_bootstrap.as_mut().unwrap().gpr_sources[8] = source_lineage;
+        assert!(matches!(
+            zero.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::SpecialJalr,
+                ..
+            })
+        ));
+        assert_eq!(zero.cpu().gpr(0), Some(0));
+        assert_eq!(
+            zero.cartridge_bootstrap_state().unwrap().gpr_source(0),
+            Some(MachineBootstrapGprSource::ArchitecturalZero)
+        );
+        assert_eq!(zero.cpu().next_pc(), TARGET);
     }
 
     fn encode_source_layout(mut normalized_bytes: Vec<u8>, layout: RomSourceLayout) -> Vec<u8> {

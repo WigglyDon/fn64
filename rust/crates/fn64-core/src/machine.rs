@@ -2467,9 +2467,6 @@ pub enum MachineOrdinaryControlFlowRejectionReason {
         register_index: u8,
         source: MachineBootstrapGprSource,
     },
-    BootstrapLinkLineageUnavailable {
-        destination_gpr: u8,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3716,17 +3713,6 @@ impl Machine {
                     MachineOrdinaryControlFlowRejectionReason::BootstrapSourceUnavailable {
                         register_index: operand.register_index,
                         source,
-                    },
-                ));
-            }
-        }
-
-        if let Some(link) = result.link {
-            if link.destination_gpr != 0 {
-                return Some(MachineOrdinaryControlFlowRejection::new(
-                    result,
-                    MachineOrdinaryControlFlowRejectionReason::BootstrapLinkLineageUnavailable {
-                        destination_gpr: link.destination_gpr,
                     },
                 ));
             }
@@ -20712,8 +20698,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_commits_first_responder_and_reaches_current_control_rdram_mode_jal_frontier(
-    ) {
+    fn generated_x105_composition_commits_generated_jal_and_reaches_init_cc_unknown_store_frontier()
+    {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
@@ -22149,25 +22135,149 @@ mod tests {
             retained_link_source,
             Some(MachineBootstrapGprSource::PifIpl2RetainedLink { .. })
         ));
-        let before_current_control_frontier = lw_snapshot(&machine);
-        let rejection = machine
-            .step()
-            .unwrap_err()
-            .ordinary_control_flow_rejection()
-            .unwrap();
-        assert_eq!(rejection.instruction_pc(), CpuAddress::new(0xa400_01a0));
-        assert_eq!(rejection.identity(), CpuInstructionIdentity::Jal);
+        let accepted_before_jal = lw_snapshot(&machine);
         assert_eq!(
-            rejection.reason(),
-            MachineOrdinaryControlFlowRejectionReason::BootstrapLinkLineageUnavailable {
-                destination_gpr: 31,
-            }
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::Jal)
         );
-        assert_eq!(lw_snapshot(&machine), before_current_control_frontier);
-        assert_eq!(machine.cpu().gpr(31), Some(0xffff_ffff_a400_1550));
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0xa400_01a4);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_087c);
+        assert_eq!(machine.cpu().cop0_count(), 32_170);
+        assert_eq!(total_committed_steps, 32_186);
+        assert_eq!(machine.cpu().gpr(31), Some(0xffff_ffff_a400_01a8));
         assert_eq!(
             machine.cartridge_bootstrap_state().unwrap().gpr_source(31),
-            retained_link_source
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_01a0),
+                identity: CpuInstructionIdentity::Jal,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            })
+        );
+        assert_scheduled_delay_slot(&machine, 0xa400_01a0, 0xa400_01a4, 0xa400_087c);
+        let accepted_after_jal = lw_snapshot(&machine);
+        assert_eq!(accepted_after_jal.rdram, accepted_before_jal.rdram);
+        assert_eq!(accepted_after_jal.sp_dmem, accepted_before_jal.sp_dmem);
+        assert_eq!(accepted_after_jal.sp_imem, accepted_before_jal.sp_imem);
+        assert_eq!(accepted_after_jal.ri_mode, accepted_before_jal.ri_mode);
+        assert_eq!(accepted_after_jal.ri_select, accepted_before_jal.ri_select);
+        assert_eq!(accepted_after_jal.ri_config, accepted_before_jal.ri_config);
+        assert_eq!(
+            accepted_after_jal.ri_current_load,
+            accepted_before_jal.ri_current_load
+        );
+
+        let delay_slot = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(delay_slot.cpu_address(), CpuAddress::new(0xa400_01a4));
+        assert_eq!(delay_slot.fields().raw().bits(), 0);
+        assert_eq!(delay_slot.identity(), CpuInstructionIdentity::SpecialSll);
+        assert_eq!(
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::SpecialSll)
+        );
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0xa400_087c);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0880);
+        assert_eq!(machine.cpu().cop0_count(), 32_171);
+        assert_eq!(total_committed_steps, 32_187);
+        assert_eq!(machine.cpu().gpr(31), Some(0xffff_ffff_a400_01a8));
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+
+        for (pc, raw_word, identity) in [
+            (0xa400_087c, 0x27bd_ff60, CpuInstructionIdentity::Addiu),
+            (0xa400_0880, 0xafb0_0040, CpuInstructionIdentity::Sw),
+            (0xa400_0884, 0xafb1_0044, CpuInstructionIdentity::Sw),
+            (0xa400_0888, 0x0000_8825, CpuInstructionIdentity::SpecialOr),
+            (0xa400_088c, 0x0000_8025, CpuInstructionIdentity::SpecialOr),
+        ] {
+            let instruction = machine.inspect_current_cpu_instruction().unwrap();
+            assert_eq!(instruction.cpu_address(), CpuAddress::new(pc));
+            assert_eq!(instruction.fields().raw().bits(), raw_word);
+            assert_eq!(instruction.identity(), identity);
+            assert_eq!(machine.step().unwrap().identity(), Some(identity));
+            total_committed_steps += 1;
+        }
+        assert_eq!(machine.cpu().pc(), 0xa400_0890);
+        assert_eq!(machine.cpu().next_pc(), 0xa400_0894);
+        assert_eq!(machine.cpu().cop0_count(), 32_176);
+        assert_eq!(total_committed_steps, 32_192);
+        assert_eq!(machine.cpu().gpr(29), Some(0xffff_ffff_a400_1ef0));
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x0f30))
+                .unwrap()
+                .value(),
+            0x0000_0400
+        );
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x0f34))
+                .unwrap()
+                .value(),
+            0xa3f0_8000
+        );
+        assert_eq!(machine.cpu().gpr(16), Some(0));
+        assert_eq!(machine.cpu().gpr(17), Some(0));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(16),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_088c),
+                identity: CpuInstructionIdentity::SpecialOr,
+                source_gpr_a: Some(0),
+                source_gpr_b: Some(0),
+            })
+        );
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(17),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_0888),
+                identity: CpuInstructionIdentity::SpecialOr,
+                source_gpr_a: Some(0),
+                source_gpr_b: Some(0),
+            })
+        );
+
+        let frontier = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(frontier.cpu_address(), CpuAddress::new(0xa400_0890));
+        assert_eq!(frontier.fields().raw().bits(), 0xafa2_0000);
+        assert_eq!(frontier.identity(), CpuInstructionIdentity::Sw);
+        assert_eq!(frontier.fields().rs(), 29);
+        assert_eq!(frontier.fields().rt(), 2);
+        assert_eq!(frontier.fields().immediate_u16(), 0);
+        assert_eq!(machine.cpu().gpr(2), Some(0));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(2),
+            Some(MachineBootstrapGprSource::UnknownPifProduced)
+        );
+        let before_init_cc_frontier = lw_snapshot(&machine);
+        let rejection = machine.step().unwrap_err().store_word_rejection().unwrap();
+        assert_eq!(rejection.identity(), CpuInstructionIdentity::Sw);
+        assert_eq!(rejection.effective_address(), Some(0xffff_ffff_a400_1ef0));
+        assert_eq!(rejection.cpu_address(), Some(CpuAddress::new(0xa400_1ef0)));
+        assert_eq!(
+            rejection.target(),
+            Some(MachineStoreWordTarget::SpImem { offset: 0x0ef0 })
+        );
+        assert_eq!(
+            rejection.reason(),
+            MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                register_index: 2,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&machine), before_init_cc_frontier);
+        assert_eq!(machine.cpu().gpr(31), Some(0xffff_ffff_a400_01a8));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(31),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_01a0),
+                identity: CpuInstructionIdentity::Jal,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            })
         );
         assert_eq!(machine.cpu_delay_slot_context(), None);
         assert_eq!(
@@ -23112,7 +23222,7 @@ mod tests {
     }
 
     #[test]
-    fn control_flow_bootstrap_unknown_sources_and_link_lineage_reject_before_mutation() {
+    fn control_flow_bootstrap_unknown_sources_reject_and_jal_replaces_unknown_destination() {
         let mut unknown_source =
             staged_lw_bootstrap_machine(control_flow_branch_word(0x04, 4, 0, 1), 0);
         let unknown_before = lw_snapshot(&unknown_source);
@@ -23151,24 +23261,67 @@ mod tests {
         );
         assert_eq!(lw_snapshot(&unknown_bltz), unknown_bltz_before);
 
-        let mut link_lineage =
+        for identity_word in [
+            control_flow_branch_word(0x05, 4, 0, 1),
+            control_flow_register_jump_word(4, 0, 0x08),
+            control_flow_register_jump_word(4, 31, 0x09),
+        ] {
+            let mut unknown = staged_lw_bootstrap_machine(identity_word, 0);
+            let before = lw_snapshot(&unknown);
+            let rejection = unknown
+                .step()
+                .unwrap_err()
+                .ordinary_control_flow_rejection()
+                .expect("genuine unknown control-flow source should reject");
+            assert_eq!(
+                rejection.reason(),
+                MachineOrdinaryControlFlowRejectionReason::BootstrapSourceUnavailable {
+                    register_index: 4,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
+                }
+            );
+            assert_eq!(lw_snapshot(&unknown), before);
+        }
+
+        let mut link_destination =
             staged_lw_bootstrap_machine(control_flow_jump_word(0x03, 0xa400_0050), 0);
-        let link_before = lw_snapshot(&link_lineage);
-
-        let link_error = link_lineage
-            .step()
-            .unwrap_err()
-            .ordinary_control_flow_rejection()
-            .expect("bootstrap link without a writable lineage owner should reject");
-
-        assert_eq!(link_error.identity(), CpuInstructionIdentity::Jal);
+        assert_eq!(link_destination.cpu().gpr(31), Some(0));
         assert_eq!(
-            link_error.reason(),
-            MachineOrdinaryControlFlowRejectionReason::BootstrapLinkLineageUnavailable {
-                destination_gpr: 31,
-            }
+            link_destination
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(31),
+            Some(MachineBootstrapGprSource::UnknownPifProduced)
         );
-        assert_eq!(lw_snapshot(&link_lineage), link_before);
+
+        assert_control_flow_commit(
+            link_destination.step().unwrap(),
+            CpuInstructionIdentity::Jal,
+        );
+        assert_eq!(link_destination.cpu().gpr(31), Some(0xffff_ffff_a400_0048));
+        assert_eq!(
+            link_destination
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(31),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0xa400_0040),
+                identity: CpuInstructionIdentity::Jal,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            })
+        );
+        assert_scheduled_delay_slot(&link_destination, 0xa400_0040, 0xa400_0044, 0xa400_0050);
+        assert_eq!(link_destination.cpu().cop0_count(), 1);
+
+        assert_control_flow_commit(
+            link_destination.step().unwrap(),
+            CpuInstructionIdentity::SpecialSll,
+        );
+        assert_eq!(link_destination.cpu().pc(), 0xa400_0050);
+        assert_eq!(link_destination.cpu().next_pc(), 0xa400_0054);
+        assert_eq!(link_destination.cpu_delay_slot_context(), None);
+        assert_eq!(link_destination.cpu().cop0_count(), 2);
     }
 
     #[test]
