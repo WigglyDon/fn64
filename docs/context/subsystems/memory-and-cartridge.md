@@ -63,7 +63,8 @@ staging remains distinct from this production creation event.
 
 Aligned CPU `Sw` now mutates direct SP-IMEM words, exact RI_MODE fields, exact
 RI_CONFIG state, an exact RI_CURRENT_LOAD event, exact bounded RI_SELECT state,
-the exact bounded MI_INIT_MODE state, or one global RDRAM_DELAY fact.
+the exact bounded MI_INIT_MODE state, exact global RDRAM_DELAY/REF_ROW/DEVICE_ID
+facts, or the exact RCP 2.0 first-responder DEVICE_ID request.
 A known SP-IMEM source creates four known big-endian bytes even when prior
 bytes were Unknown. Each selected byte receives CPU-store provenance carrying
 instruction PC, source GPR, and source lineage; neighboring value/provenance is
@@ -93,7 +94,13 @@ existing sole `Rdram` owner without changing RDRAM bytes. Current MI readback
 then becomes unavailable. Physical global `0x03F80014` separately accepts only
 low word zero and stores a raw REF_ROW global-aperture fact with CPU provenance
 while preserving the delay configuration. It interprets no refresh field and
-changes no RDRAM byte. SP-DMEM, other MI/RDRAM registers, device reads,
+changes no RDRAM byte. Physical global `0x03F80004` accepts only word
+`0x80000000` and records requested base `0x02000000` without relocation or
+routing effects. Exact RCP 2.0 first-responder physical `0x03F08004` accepts
+only low word zero and records requested initial device ID zero with CPU-store
+provenance. It does not require prior global RDRAM facts, prove a responder,
+or complete an assignment. RCP 1.0 physical `0x03F04004`, other non-global
+apertures, RDRAM_MODE, SP-DMEM, other MI/RDRAM registers, device reads,
 general RI_SELECT programming, and other store targets remain unsupported.
 Exact aligned `Lw` at physical `0x04300004` reads the immutable version;
 the other MI read surface remains closed.
@@ -107,8 +114,9 @@ staging, one cartridge-derived instruction commit, SP IMEM storage, optional
 cold-entry or exact CPU-written RI_SELECT, CPU-written RI_CONFIG,
 RI_CURRENT_LOAD event, CPU-written RI_MODE field facts, one exact CPU-written
 immutable MI_VERSION identity, MI initialization-mode fact/pending transfer,
-one global broadcast-delay fact,
-and one raw-zero global REF_ROW fact,
+one global broadcast-delay fact, one raw-zero global REF_ROW fact, one global
+DEVICE_ID relocation-request fact, and one RCP 2.0 first-responder DEVICE_ID
+assignment-request fact,
 narrow KSEG0/KSEG1 CPU-data routes to the
 represented SP memories, and aligned `Lw` over direct RDRAM, known SP IMEM,
 cartridge-staged SP DMEM, exact physical RI_SELECT `0x0470000C`, or exact
@@ -119,16 +127,18 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,183-step composition through the stored
+handoff and advances a generated 32,185-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
 exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
 MI_INIT_MODE write, delay-word construction, exact global RDRAM_DELAY commit,
 raw-zero global RDRAM_REF_ROW commit, DEVICE_ID-value `Lui`, exact global
 RDRAM_DEVICE_ID requested-base commit, fourteen CPU-local setup steps, the
-MI_VERSION read, guest-selected RCP 2.0 branch and delay slot, and spacing/base
-setup. The next first-responder RDRAM_DEVICE_ID store rejects as a direct
-target miss;
+MI_VERSION read, guest-selected RCP 2.0 branch and delay slot, spacing/base
+setup, exact first-responder zero request, and the following RDRAM_MODE-address
+`Addiu`. The next generated JAL rejects atomically at `0xA40001A0` because
+current source-backed r31 lineage does not authorize replacement; it schedules
+no delay slot. Current-control code and RDRAM_MODE are therefore not reached;
 no general RI_SELECT programming, other RI write/read, other MI register/read,
 general MI replication, other RDRAM-register behavior, per-module state,
 calibration/timing process, NMI, or

@@ -563,6 +563,32 @@ product or reference lane requires a new explicit product decision.
   RCP identity, RDRAM initialization, authentic advancement, BOOT-3, and
   compatibility remain absent.
 
+## Era 30 — first-responder assignment request and current-control JAL frontier (2026-07-18)
+
+- Evidence: `EXTERNAL_TECHNICAL_EVIDENCE`, pinned RDRAM definitions and bounded
+  x105 loop1 source; `LIVE_REPO_FACT`, one typed request in the existing sole
+  `Rdram` owner; `RUNTIME_FACT`, deterministic generated public-step proof.
+- Product decisions:
+  `RDRAM_FIRST_RESPONDER_DEVICE_ID_EXACT_X105_ZERO_WRITE_ONLY`,
+  `RDRAM_FIRST_RESPONDER_ASSIGNMENT_REQUEST_FACT_ONLY`,
+  `RCP2_FIRST_RESPONDER_APERTURE_EXACT_ADDRESS_ONLY`, and
+  `MODULE_PRESENCE_AND_RESPONSE_UNAVAILABLE`.
+- Accepted increment: exact direct physical `0x03F08004` accepts only low word
+  zero with known CPU-store lineage and no pending MI transfer. It records
+  requested initial device ID zero and the RCP 2.0 first-responder aperture,
+  preserves global RDRAM facts/bytes/routes, and creates no responder or
+  assignment-completion state. RCP 1.0 physical `0x03F04004` remains closed.
+- Generated composition: commit 32,184 performs the store at `0xA4000198`;
+  commit 32,185 executes `Addiu r21,r15,0x000C` and produces initial
+  RDRAM_MODE address `0xFFFFFFFFA3F0000C`. PC/next-PC are
+  `0xA40001A0`/`0xA40001A4`, Count is 32,169. The generated
+  `Jal 0xA400087C` rejects atomically because retained r31 IPL2 link lineage
+  cannot be replaced; link `0xFFFFFFFFA40001A8` and the Nop delay slot do not
+  commit.
+- Boundary: current-control code and RDRAM_MODE are not reached. Responder
+  presence, assignment completion, module discovery/per-module state,
+  calibration, authentic advancement, BOOT-3, and compatibility remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

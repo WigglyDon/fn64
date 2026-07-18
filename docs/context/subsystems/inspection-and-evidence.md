@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 144 represented cases, including ordinary
+public `Machine::step` for 155 stable cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -34,12 +34,14 @@ AdES/slot/lifecycle/no-read cases, bounded MI-transfer and RDRAM-delay
 fields/provenance/consumption/post-readback cases, raw global REF_ROW ownership/
 provenance/alias/AdES/lifecycle cases, exact DEVICE_ID request/value/provenance/
 alias/AdES/lifecycle/unchanged-routing cases, immutable MI_VERSION word/fields/
-lifecycle/read/provenance/alias/AdEL/closed-surface cases, plus 32,183 generated commits
+lifecycle/read/provenance/alias/AdEL/closed-surface cases, exact first-responder
+request/value/provenance/alias/AdES/lifecycle/narrow-route cases, plus 32,185 generated commits
 through both bounded CPU waits and RI events, the exact MI write, delay-word
 construction, global RDRAM_DELAY and raw-zero RDRAM_REF_ROW commits,
 DEVICE_ID-value/request commit, fourteen CPU-local setup commits, exact
-MI_VERSION read, guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup, and
-first-responder non-global RDRAM_DEVICE_ID target miss. The
+MI_VERSION read, guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup,
+first-responder non-global RDRAM_DEVICE_ID commit, RDRAM_MODE-address `Addiu`,
+and the following JAL retained-link-lineage rejection before link/slot mutation. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -104,8 +106,13 @@ setup and MI address lineage; `Lw r16,4(r1)` at `0xA400016C` reads
 `0x02020102` with ordinary CPU lineage. `Lui`/`Ori` build
 `0x01010101`; Bne takes the RCP 2.0 path and its Nop delay slot executes
 once. `Addiu` selects spacing `0x400`, `Ori` builds first-responder base
-`0xFFFFFFFFA3F08000`, and `Sw r14,4(r17)` at `0xA4000198` rejects at
-physical `0x03F08004` while preserving all state. This is
+`0xFFFFFFFFA3F08000`, and `Sw r14,4(r17)` at `0xA4000198` commits low word
+zero as a bounded assignment request at physical `0x03F08004`. `Addiu` at
+`0xA400019C` produces initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`.
+`Jal 0xA400087C` at `0xA40001A0` then rejects atomically because current
+source-backed r31 lineage does not authorize replacing retained link
+`0xFFFFFFFFA4001550`; link `0xFFFFFFFFA40001A8` and the Nop slot remain
+uncommitted. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, general MI next-write replication, calibration, RDRAM initialization, or NMI
 execution.

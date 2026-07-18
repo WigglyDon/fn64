@@ -60,7 +60,9 @@ gets ordinary Lw provenance while device state stays unchanged.
 
 Aligned `Sw` is a separate Machine-owned action. It reads the old base,
 resolves alignment before source consumption, accepts direct SP IMEM or exact
-RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY only, then captures old source low word and exact
+RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
+RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0
+first-responder RDRAM_DEVICE_ID only, then captures old source low word and exact
 lineage. RI_CONFIG planning rejects undefined high bits and selects only its
 input/enable fields. RI_CURRENT_LOAD planning requires stored RI_CONFIG and
 snapshots those fields into one event. Success writes no GPR and advances
@@ -73,6 +75,10 @@ mode true with source provenance, and arms one exact 16-byte pending transfer.
 That transfer blocks other represented commits and is consumed only by global
 RDRAM_DELAY low word `0x18082838`. Success stores logical fields 5/7/3/1 with
 complete CPU/MI lineage and leaves post-transfer current MI state unavailable.
+The exact first-responder route accepts only physical `0x03F08004` and low
+word zero, then records a bounded requested initial device ID with CPU-store
+provenance. It is not a ranged device route and creates no responder,
+per-module, completion, or routing state.
 Sequential or delay-slot
 AdES delegates to COP0
 with zero faulting-instruction Count; unknown sources and unsupported targets
@@ -131,14 +137,18 @@ exact global RDRAM_DEVICE_ID request without relocating bytes. Fourteen
 CPU-local setup instructions then reach MI_VERSION. Its exact `Lw` returns
 `0x02020102`; generated comparison against `0x01010101` takes the RCP 2.0
 branch, executes its Nop slot once, selects spacing `0x400`, and builds
-first-responder base `0xFFFFFFFFA3F08000`. The first-responder
-RDRAM_DEVICE_ID store then rejects. This is CPU
+first-responder base `0xFFFFFFFFA3F08000`. The exact first-responder zero store
+commits a bounded assignment request, and `Addiu` constructs
+`0xFFFFFFFFA3F0000C` as the initial RDRAM_MODE address. The following JAL at
+`0xA40001A0` rejects before link or slot mutation because retained r31 bootstrap
+lineage is not replaceable under the current source gate. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 branch-likely/other REGIMM and broader COP0 execution, every RI action except
 the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
 RI_MODE defined-field writes, the exact MI_INIT_MODE write, and the exact
 global RDRAM_DELAY write, exact raw-zero global RDRAM_REF_ROW write, and exact
-global RDRAM_DEVICE_ID request, NMI,
-generic MMIO, nested control flow, other load/store families, and
+global RDRAM_DEVICE_ID request, exact RCP 2.0 first-responder request, NMI,
+generic MMIO, the current JAL retained-link transition, nested control flow,
+RDRAM_MODE, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

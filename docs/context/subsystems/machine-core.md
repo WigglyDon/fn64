@@ -59,8 +59,9 @@ span and record the exact source cartridge offset; concrete but unclassified
 backing rejects. No serialization format is a product contract yet.
 
 Aligned `Sw` uses a separate Machine plan/application path for SP IMEM, the
-four exact RI_MODE, RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets, or exact
-MI_INIT_MODE and global RDRAM_DELAY.
+four exact RI_MODE, RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets, exact
+MI_INIT_MODE, the three exact global RDRAM writes, or the exact RCP 2.0
+first-responder DEVICE_ID target.
 The plan resolves old base, alignment, direct target, old source value, exact
 SP-IMEM span or destination-specific RI state, and CPU-store provenance before
 application. Undefined RI_CONFIG high bits, unavailable RI_CONFIG for an
@@ -74,6 +75,12 @@ and preserve it. Global RDRAM_DELAY planning accepts only physical `0x03F80008`,
 low word `0x18082838`, known lineage, and the exact 15/16 transfer. Its plan
 stores logical fields 5/7/3/1 and packed configuration `0x28381808` with CPU
 and consumed-MI provenance.
+Global REF_ROW accepts only low word zero, and global DEVICE_ID accepts only
+`0x80000000` as requested base `0x02000000`. Exact first-responder physical
+`0x03F08004` accepts only low word zero with known lineage and no pending MI
+transfer, then constructs a bounded initial-device-ID assignment request. It
+is classified by exact address, not a register range; RCP 1.0 physical
+`0x03F04004` remains unsupported.
 Application has no
 fallible operation: it mutates one selected owner, commits control flow once,
 and advances Count once. Rejection restores the captured snapshot; AdES
@@ -120,12 +127,16 @@ immutable version with ordinary CPU lineage. This is not a general next-write
 engine or MI register bank and represents no timing.
 
 The existing `Rdram` remains the sole byte owner and separately stores optional
-global/broadcast delay and raw REF_ROW facts. The exact REF_ROW route accepts
-only low word zero at physical `0x03F80014`, records CPU-store provenance, and
-preserves the delay fact. Neither store changes an RDRAM byte, creates module
-inventory or per-module state, or has a CPU read route. Reset and complete
-bootstrap clear the pending transfer and both RDRAM facts; failed bootstrap
-preserves them.
+global/broadcast delay, raw REF_ROW, global DEVICE_ID relocation-request, and
+first-responder DEVICE_ID assignment-request facts. The exact REF_ROW route
+accepts only low word zero at physical `0x03F80014`, records CPU-store
+provenance, and preserves the delay fact. Global DEVICE_ID physical
+`0x03F80004` records only requested base `0x02000000`; first-responder physical
+`0x03F08004` records only requested initial ID zero and the exact RCP 2.0
+aperture. These writes change no RDRAM byte or route, create no module
+inventory/presence/completion state, and have no CPU read route. Reset and
+complete bootstrap clear all optional RDRAM facts; failed bootstrap preserves
+them.
 
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
@@ -136,7 +147,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 153-case step probe, the bounded BOOT-2
+construction/reset probe, the 155-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -145,7 +156,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,183-step generated composition through the stored RI_SELECT
+handoff and a 32,185-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -158,11 +169,15 @@ RDRAM_DEVICE_ID records requested base `0x02000000` without moving bytes or
 routing. Fourteen CPU-local setup commits then reach the MI_VERSION load;
 `0x02020102` makes the guest comparison take RCP 2.0, the Nop delay slot
 executes once, and setup selects spacing `0x400` plus first-responder base
-`0xFFFFFFFFA3F08000`. The next non-global RDRAM_DEVICE_ID store rejects at
-physical `0x03F08004`. It does not prove an
-authentic firmware-executed handoff, RI
-calibration or elapsed hardware time, RDRAM initialization, BOOT-3, full ISA,
-game compatibility, renderer, audio, performance, or host integration.
+`0xFFFFFFFFA3F08000`. Exact non-global RDRAM_DEVICE_ID physical `0x03F08004`
+then records a bounded zero assignment request. The following `Addiu` produces
+initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. The next generated JAL at
+`0xA40001A0` rejects atomically because retained r31 IPL2 link lineage cannot
+be replaced under the current source-backed gate; no link or delay slot
+commits. It does not prove an authentic firmware-executed handoff, responder
+presence/completion, RI calibration or elapsed hardware time, RDRAM_MODE or
+RDRAM initialization, BOOT-3, full ISA, game compatibility, renderer, audio,
+performance, or host integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe

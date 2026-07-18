@@ -46,6 +46,7 @@ Current durable integration records:
 - [Exact global RDRAM REF_ROW zero write and generated x105 DEVICE_ID frontier](rdram-ref-row-generated-x105-device-id-frontier-v1/README.md)
 - [Exact global RDRAM DEVICE_ID request and generated x105 MI_VERSION frontier](rdram-device-id-generated-x105-mi-version-frontier-v1/README.md)
 - [Fixed MI_VERSION identity and generated x105 first-responder frontier](mi-version-fixed-identity-generated-x105-first-responder-frontier-v1/README.md)
+- [Exact first-responder DEVICE_ID request and generated x105 current-control frontier](rdram-first-responder-device-id-generated-x105-cc-frontier-v1/README.md)
 
 The lineage contract is:
 

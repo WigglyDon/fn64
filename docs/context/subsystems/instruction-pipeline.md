@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-Sw planning for SP IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
+`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-Sw planning for SP IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0 first-responder RDRAM_DEVICE_ID, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 153-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 155-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -58,9 +58,13 @@ DEVICE_ID transfer word, and the exact global RDRAM_DEVICE_ID `Sw` stores a
 bounded requested-base fact. Fourteen existing CPU-local commits construct the
 setup state; exact MI_VERSION `Lw` returns `0x02020102`, and the generated
 comparison selects RCP 2.0 through ordinary Bne/delay-slot semantics. Spacing
-`0x400` and first-responder base `0xFFFFFFFFA3F08000` are CPU results; the
-following non-global RDRAM_DEVICE_ID target misses atomically. This proves no RI
-timing, calibration, general MI bus effect, per-module state, or RDRAM process.
+`0x400` and first-responder base `0xFFFFFFFFA3F08000` are CPU results. The
+following exact zero store commits one bounded first-responder assignment
+request; `Addiu` then constructs initial RDRAM_MODE address
+`0xFFFFFFFFA3F0000C`. The next JAL at `0xA40001A0` rejects atomically because
+current retained-r31 lineage cannot be replaced; it writes no link and
+schedules no slot. This proves no RI timing, calibration, general MI bus
+effect, responder/module state, assignment completion, or RDRAM process.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
 source-backed cold-x105 access scope, and a known old source. Its immutable
@@ -71,7 +75,8 @@ introduced.
 The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct SP IMEM or exact
 RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY/
-global RDRAM_REF_ROW/global RDRAM_DEVICE_ID,
+global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0 first-responder
+RDRAM_DEVICE_ID,
 and only then captures source value/lineage and
 constructs a closed destination plan. RI_CONFIG planning rejects undefined
 high bits; RI_CURRENT_LOAD planning requires stored RI_CONFIG and snapshots its
@@ -82,7 +87,9 @@ rejecting nonzero bits above bit 3; MI_INIT_MODE planning accepts only low word
 transfer with exact CPU-store provenance. While pending, other represented
 commits reject. Global RDRAM_DELAY planning requires exact address, low word
 `0x18082838`, and that transfer, and creates logical configuration `0x28381808`
-with consumed lineage. Application neither reclassifies nor
+with consumed lineage. First-responder planning matches only physical
+`0x03F08004`, requires known low word zero and no pending transfer, and creates
+a request fact rather than module state. Application neither reclassifies nor
 discovers a new failure.
 
 Ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and
@@ -96,5 +103,6 @@ Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, branch-likely
 and other REGIMM/control-flow families, broader COP0 instruction execution,
 general RI_SELECT programming/other RI actions/other MI registers or reads/NMI
-and generic MMIO, MI next-write replication, RDRAM control-register access, nested control-flow
+and generic MMIO, MI next-write replication, RDRAM_MODE/other control-register
+access, the current retained-link JAL transition, nested control-flow
 behavior, broad fetch mapping, and instruction timing.

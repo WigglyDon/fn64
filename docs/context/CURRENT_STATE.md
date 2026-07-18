@@ -156,19 +156,25 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   CPU provenance and cadence. Other MI reads and MI_VERSION writes remain
   unavailable.
 - `LIVE_REPO_FACT`: the existing per-Machine `Rdram` owner remains the sole
-  RDRAM-byte owner and additionally stores optional global/broadcast delay and
-  raw REF_ROW facts. Exact aligned `Sw` at physical `0x03F80008` requires the
+  RDRAM-byte owner and additionally stores optional global/broadcast delay,
+  raw REF_ROW, relocation-request, and exact RCP 2.0 first-responder
+  assignment-request facts. Exact aligned `Sw` at physical `0x03F80008` requires the
   pending 15/16 MI transfer and low word `0x18082838`, then stores logical
   fields 5/7/3/1 and packed logical configuration `0x28381808` with CPU and
   consumed-MI provenance. It consumes the transfer and makes current
   MI_INIT_MODE readback unavailable because exact post-transfer fields are not
   source-clear. Exact aligned `Sw` at physical `0x03F80014` accepts only low
   word zero with known CPU-store lineage and records the global aperture without
-  interpreting fields. Neither write changes an RDRAM byte. No other MI or any
-  RDRAM-register read, module state, refresh engine, general replication, timing,
-  readiness, register bank, MMIO, or bus exists.
+  interpreting fields. Physical `0x03F80004` accepts only `0x80000000` and
+  records requested base `0x02000000` as a global relocation request. Exact
+  RCP 2.0 first-responder physical `0x03F08004` accepts only low word zero and
+  records requested initial device ID zero with CPU-store provenance. The
+  RCP 1.0 aperture `0x03F04004` remains unsupported. None of these writes
+  changes an RDRAM byte or address route, proves responder presence, or records
+  assignment completion. No RDRAM-register read, module state, refresh engine,
+  general replication, timing, readiness, register bank, MMIO, or bus exists.
 - `LIVE_REPO_FACT`: generated-only public-step composition now commits
-  32,183 bounded x105-shaped instructions. The accepted 32,038-step prefix
+  32,185 bounded x105-shaped instructions. The accepted 32,038-step prefix
   ends after the 8,000-iteration CPU wait loop. Commit 32,036 stores r0 to
   RI_CURRENT_LOAD, snapshotting RI_CONFIG input zero and enable true; commit
   32,037 executes `Ori r9,r0,0x14`. Final PC/next-PC are
@@ -200,11 +206,18 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   taken and its Nop delay slot executes once. RCP 2.0 setup selects spacing
   `0x400` and first-responder base `0xFFFFFFFFA3F08000`. PC/next-PC become
   `0xA4000198 / 0xA400019C`, Count is `32167`, and total commits are
-  `32183`. `Sw r14,4(r17)` then targets first-responder non-global
-  RDRAM_DEVICE_ID CPU `0xA3F08004` / physical `0x03F08004` with low word
-  zero and rejects as a direct target miss without mutation. r14 retains
-  generated `Addu` lineage from `0xA4000138`. Every instruction and byte is
-  independently generated.
+  `32183`. Commit 32,184 stores low word zero through first-responder
+  non-global RDRAM_DEVICE_ID CPU `0xA3F08004` / physical `0x03F08004`,
+  recording a bounded assignment request with r14's generated `Addu` lineage
+  from `0xA4000138`. Commit 32,185 executes `Addiu r21,r15,0x000C`, producing
+  initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. PC/next-PC become
+  `0xA40001A0 / 0xA40001A4`, Count is `32169`, and total commits are `32185`.
+  The generated `Jal 0xA400087C` at `0xA40001A0` is the exact next frontier:
+  it rejects atomically because the current source-backed bootstrap lineage
+  does not authorize replacing r31's retained link value
+  `0xFFFFFFFFA4001550`. Architectural link `0xFFFFFFFFA40001A8` is not
+  written, and the Nop delay slot at `0xA40001A4` is not scheduled or
+  executed. Every instruction and byte is independently generated.
   This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -320,6 +333,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   `0x02020102` and one exact aligned read let the guest comparison select the
   RCP 2.0 branch, and generated proof reaches the first-responder non-global
   RDRAM_DEVICE_ID `Sw` target miss without a Worker lane or queue entry.
+- `master-direct-rdram-first-responder-device-id-x105-cc-frontier-v1`:
+  direct Master product operation; exact RCP 2.0 first-responder
+  RDRAM_DEVICE_ID zero records a bounded assignment request, generated `Addiu`
+  constructs the initial RDRAM_MODE address, and proof stops at the following
+  JAL link-lineage rejection before entering current-control code, without a
+  Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -356,11 +375,16 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: the next generated pressure is `Sw r14,4(r17)` at
-  `0xA4000198`, targeting first-responder non-global RDRAM_DEVICE_ID CPU
-  `0xA3F08004` (physical `0x03F08004`) with low word zero. It rejects as a
-  direct target miss. No responder presence, module identity, discovery, or
-  per-module state is represented. Alternate MI_VERSION identities and a
+- `LIVE_REPO_FACT`: the next generated pressure is `Jal 0xA400087C` at
+  `0xA40001A0` (word `0x0D00021F`). It rejects atomically through
+  `BootstrapLinkLineageUnavailable` because r31 still owns retained IPL2 link
+  lineage/value `0xFFFFFFFFA4001550`; no new link or delay-slot context is
+  committed. The exact first-responder zero write immediately before it is now
+  represented only as an assignment request, and the intervening `Addiu`
+  constructs initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. RDRAM_MODE and
+  current-control calibration are not yet reached. No responder presence,
+  assignment completion, module identity, discovery, or per-module state is
+  represented. Alternate MI_VERSION identities and a
   configuration surface remain absent. DEVICE_ID physical relocation,
   REF_ROW interpreted
   fields, refresh behavior, general MI next-write replication, other RDRAM-register state,

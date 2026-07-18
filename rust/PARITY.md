@@ -36,7 +36,7 @@ history.
 | `PifFirmware` | private immutable owned bytes for one structurally accepted raw-Boot-ROM-shaped input and the source bytes for explicit profiled copy materialization | no path, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
 | `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
-| `Rdram` | 4 MiB zero-filled storage, checked raw fixed-width reads, one optional global/broadcast delay configuration fact with CPU/consumed-MI provenance, and one optional raw global REF_ROW zero-write fact with CPU provenance | no byte mutation from either command, CPU register read, REF_ROW field interpretation, refresh engine, module inventory/per-module state, general bus, timing, or readiness |
+| `Rdram` | 4 MiB zero-filled storage, checked raw fixed-width reads, optional global/broadcast delay, raw REF_ROW, and DEVICE_ID relocation-request facts, plus one exact RCP 2.0 first-responder DEVICE_ID assignment-request fact with CPU provenance | no byte/routing mutation from any command, CPU register read, responder presence, assignment completion, REF_ROW/DEVICE_ID field interpretation, refresh engine, module inventory/per-module state, general bus, timing, or readiness |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, checked known big-endian word reads, and an atomic profiled-copy constructor | no public mutable access, profile policy, SP register/status/DMA, or RSP execution |
 | `Ri` | optional RI_MODE defined fields/provenance, optional RI_SELECT cold-entry or exact-`0x14` CPU-store value/provenance, optional RI_CONFIG input/enable fields, and optional RI_CURRENT_LOAD event snapshot with CPU-store provenance | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, RI physical effects/timing, current-control output, NMI lifecycle, register bank, MMIO framework, or bus |
@@ -221,7 +221,8 @@ The aligned `Sw` data route accepts direct KSEG0/KSEG1 aliases of SP IMEM,
 RI_MODE at physical `0x04700000`, RI_CONFIG at `0x04700004`, RI_CURRENT_LOAD at
 `0x04700008`, RI_SELECT at `0x0470000C`, exact MI_INIT_MODE at `0x04300000`,
 exact global RDRAM_DELAY at `0x03F80008`, and exact global RDRAM_REF_ROW at
-`0x03F80014`, and exact global RDRAM_DEVICE_ID at `0x03F80004`. RI_MODE stores operating-mode bits
+`0x03F80014`, exact global RDRAM_DEVICE_ID at `0x03F80004`, and exact RCP 2.0
+first-responder RDRAM_DEVICE_ID at `0x03F08004`. RI_MODE stores operating-mode bits
 1:0 and stop-active bits 2/3; RI_CONFIG stores only defined input bits 5:0, enable
 bit 6, and CPU-store lineage; RI_CURRENT_LOAD snapshots stored configuration;
 RI_SELECT accepts only exact x105 word `0x14` and replaces its source with
@@ -235,7 +236,11 @@ words reject before mutation. Global RDRAM_REF_ROW accepts only low word zero,
 stores the raw word/global-aperture/CPU provenance fact, and preserves the delay
 configuration without changing RDRAM bytes. Global RDRAM_DEVICE_ID accepts
 only `0x80000000` and records requested base `0x02000000`, global aperture,
-and CPU-store provenance without relocating bytes or changing routing. SP DMEM, every other device/MMIO address, non-direct, and
+and CPU-store provenance without relocating bytes or changing routing. Exact
+RCP 2.0 first-responder DEVICE_ID accepts only low word zero with known source
+lineage and no pending MI transfer, then records requested initial device ID
+zero, exact aperture, addresses, and CPU-store provenance. It creates no
+responder/module/completion fact. RCP 1.0 `0x03F04004`, SP DMEM, every other device/MMIO address, non-direct, and
 target-miss addresses reject without routing. It adds no generic store
 abstraction or broader address map.
 
@@ -352,7 +357,8 @@ Planning captures the old base, applies the sign-extended immediate with the
 same wrapping represented-address rule as `Lw`, checks word alignment before
 source-value consumption, and accepts only direct KSEG0/KSEG1 aliases of SP
 IMEM or exactly RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
-RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID. All supported paths capture old `rt`
+RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0
+first-responder RDRAM_DEVICE_ID. All supported paths capture old `rt`
 and its low 32
 bits. SP IMEM stores four big-endian bytes and replaces only those bytes'
 provenance with the instruction PC, source GPR, and source lineage. RI_CONFIG
@@ -476,14 +482,19 @@ bytes for exactly one source-proven RDRAM_DELAY consumer. Repeated bootstrap
 clears stale state/transfer; failed bootstrap and every rejection preserve
 them; Machines remain independent.
 
-The existing `Rdram` byte owner separately stores one optional global delay
-fact. Physical `0x03F80008` accepts only `0x18082838` with the exact transfer,
+The existing `Rdram` byte owner separately stores optional global delay, raw
+REF_ROW, global DEVICE_ID relocation-request, and exact RCP 2.0 first-responder
+assignment-request facts. Physical `0x03F80008` accepts only `0x18082838` with the exact transfer,
 then stores fields 5/7/3/1 and logical packed value `0x28381808` with CPU and
 consumed-MI provenance. It changes no bytes, consumes the transfer, and makes
 current MI state unavailable because post-transfer readback is not source-clear.
-No other MI or any RDRAM-register read route, EBUS state, RDRAM-register mode, DP-interrupt action,
-other register, general replication, per-module state, timing, generic bank,
-MMIO, or bus is represented.
+Physical `0x03F80014` stores raw zero without interpreting REF_ROW; physical
+`0x03F80004` stores requested base `0x02000000`; physical `0x03F08004` stores
+requested initial ID zero as an exact first-responder request. These facts
+preserve each other, all bytes, and routing. No other MI or any RDRAM-register
+read route, responder/assignment completion, EBUS state, RDRAM-register mode,
+DP-interrupt action, other register, general replication, per-module state,
+timing, generic bank, MMIO, or bus is represented.
 
 ### Other represented outcomes
 
@@ -526,7 +537,7 @@ event makes the source word known and lets this represented `Lw` commit. No
 private PIF input was used, so that synthetic proof does not advance the
 authentic checkpoint.
 Generated tests separately prove the NTSC cold x105 coupled creation point and
-32,183 public-step commits. The accepted thirty-three-step prefix is followed
+32,185 public-step commits. The accepted thirty-three-step prefix is followed
 by the exact RI_CONFIG `Sw`, a generated wait-counter setup, and exactly 8,000
 loop iterations comprising 32,000 commits. The final synthetic state is
 PC/next-PC `0xA40000DC / 0xA40000E0`, Count `32019`, and s1 zero; RI_CONFIG
@@ -557,9 +568,14 @@ Commit 32,177 reads MI_VERSION `0x02020102` at CPU `0xA4300004` (physical
 `0x04300004`). `Lui`/`Ori` construct `0x01010101`; Bne takes the
 RCP 2.0 path and its Nop delay slot executes once. `Addiu` selects spacing
 `0x400`, and `Ori` builds first-responder base
-`0xFFFFFFFFA3F08000`. At 32,183 commits, PC/next-PC are
-`0xA4000198 / 0xA400019C`, Count is `32167`, and the first-responder
-non-global RDRAM_DEVICE_ID store to physical `0x03F08004` rejects atomically.
+`0xFFFFFFFFA3F08000`. Commit 32,184 stores low word zero to first-responder
+non-global RDRAM_DEVICE_ID physical `0x03F08004`, recording a bounded
+assignment request with r14's generated `Addu` lineage. Commit 32,185 executes
+`Addiu r21,r15,0x000C`, producing `0xFFFFFFFFA3F0000C`. PC/next-PC are then
+`0xA40001A0 / 0xA40001A4`, Count is `32169`. The next generated
+`Jal 0xA400087C` rejects atomically because source-backed bootstrap rules do not
+authorize replacing r31's retained IPL2 link lineage/value; it writes no link
+and schedules no delay slot.
 These tests
 prove CPU composition only, not an authentic
 IPL2-to-IPL3 run, elapsed RI time, current calibration, RDRAM initialization,
@@ -578,7 +594,8 @@ execute. Current explicit absences include:
   BLTZ, COP0 branches, and execution of a branch or jump inside a delay slot;
 - CPU load/store instructions other than aligned `Lw` and aligned `Sw` to SP
   IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
-  RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID, plus unaligned merge operations;
+  RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0
+  first-responder RDRAM_DEVICE_ID, plus unaligned merge operations;
   `Lw` has no
   device/MMIO route except the exact stored RI_SELECT word and no unclassified
   SP-DMEM source route, while `Sw` has no SP-DMEM, other RDRAM/MI register,
@@ -608,7 +625,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 153 cases cover:
+calls only public `Machine::step` for execution. Its 155 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -650,12 +667,16 @@ calls only public `Machine::step` for execution. Its 153 cases cover:
 - immutable MI_VERSION raw word/derived fields/lifecycle, exact aliases,
   ordinary and delay-slot Lw cadence, destination provenance, AdEL, closed
   neighboring reads, and state preservation;
-- 32,183-step generated x105 composition through the exact 8,000-iteration CPU
+- exact RCP 2.0 first-responder DEVICE_ID zero-request ownership, provenance,
+  aliases, lifecycle, AdES/delay-slot cadence, narrow aperture routing, and
+  atomic rejection;
+- 32,185-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
   write, delay-word construction, RDRAM_DELAY and RDRAM_REF_ROW commits,
   DEVICE_ID-value LUI/store, fourteen CPU-local setup commits, MI_VERSION read,
-  guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup, and first-responder
-  RDRAM_DEVICE_ID aligned-Sw miss;
+  guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup, first-responder
+  RDRAM_DEVICE_ID commit, initial RDRAM_MODE-address `Addiu`, and the following
+  JAL retained-link-lineage rejection before link/slot mutation;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;
