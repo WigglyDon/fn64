@@ -20712,7 +20712,8 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_composition_commits_first_responder_and_reaches_current_control_frontier() {
+    fn generated_x105_composition_commits_first_responder_and_reaches_current_control_rdram_mode_jal_frontier(
+    ) {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
