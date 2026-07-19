@@ -49,6 +49,7 @@ Current durable integration records:
 - [Exact first-responder DEVICE_ID request and generated x105 current-control frontier](rdram-first-responder-device-id-generated-x105-cc-frontier-v1/README.md)
 - [Link-destination provenance and generated x105 InitCCValue frontier](link-destination-provenance-generated-x105-init-cc-frontier-v1/README.md)
 - [Opaque aligned SP-IMEM words and generated x105 FindCC boundary](opaque-sp-imem-word-generated-x105-find-cc-frontier-v1/README.md)
+- [Exact BEQL annul semantics and generated x105 TestCC frontier](beql-generated-x105-test-cc-frontier-v1/README.md)
 
 The lineage contract is:
 
