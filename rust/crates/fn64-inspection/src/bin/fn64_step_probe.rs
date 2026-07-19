@@ -182,6 +182,15 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: generated-x105-opaque-sp-imem-saves-committed ok\
 \ncase: generated-x105-concrete-sp-imem-saves-committed ok\
 \ncase: generated-x105-find-cc-boundary ok\
+\ncase: generated-x105-find-cc-jal-committed ok\
+\ncase: generated-x105-beql-annulled ok\
+\ncase: generated-x105-test-cc-jal-committed ok\
+\ncase: generated-x105-write-cc-call-committed ok\
+\ncase: generated-x105-rdram-mode-frontier ok\
+\ncase: beql-taken-delay-slot ok\
+\ncase: beql-not-taken-annul ok\
+\ncase: beql-unknown-source-rejection ok\
+\ncase: beql-in-delay-slot-rejection ok\
 \ncase: control-flow-taken-delay-slot ok\
 \ncase: control-flow-untaken-delay-slot ok\
 \ncase: control-flow-jal-link ok\
@@ -299,6 +308,7 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_generated_x105_post_mtc0_trio_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
+    probe_beql_paths_and_rejections()?;
     probe_control_flow_taken_delay_slot()?;
     probe_control_flow_untaken_delay_slot()?;
     probe_control_flow_jal_link()?;
@@ -3362,6 +3372,52 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0x8ec, 0xafbf_0064),
         (0x8f0, 0x0d00_0261),
         (0x8f4, 0x0000_0000),
+        (0x984, 0x27bd_ffe0),
+        (0x988, 0xafbf_001c),
+        (0x98c, 0x0000_4825),
+        (0x990, 0x0000_5825),
+        (0x994, 0x0000_6025),
+        (0x998, 0x299a_0040),
+        (0x99c, 0x5340_0018),
+        (0x9a0, 0x0000_1025),
+        (0x9a4, 0x0d00_0284),
+        (0x9a8, 0x0180_2025),
+        (0xa10, 0x27bd_ffd8),
+        (0xa14, 0xafbf_001c),
+        (0xa18, 0x0000_1025),
+        (0xa1c, 0x0d00_02d1),
+        (0xa20, 0x2405_0002),
+        (0xb44, 0x27bd_ffd8),
+        (0xb48, 0x3084_00ff),
+        (0xb4c, 0x241b_0001),
+        (0xb50, 0x3884_003f),
+        (0xb54, 0xafbf_001c),
+        (0xb58, 0x14bb_0003),
+        (0xb5c, 0x3c0f_4600),
+        (0xb60, 0x3c1a_8000),
+        (0xb64, 0x01fa_7825),
+        (0xb68, 0x309a_0001),
+        (0xb6c, 0x001a_d180),
+        (0xb70, 0x01fa_7825),
+        (0xb74, 0x309a_0002),
+        (0xb78, 0x001a_d340),
+        (0xb7c, 0x01fa_7825),
+        (0xb80, 0x309a_0004),
+        (0xb84, 0x001a_d500),
+        (0xb88, 0x01fa_7825),
+        (0xb8c, 0x309a_0008),
+        (0xb90, 0x001a_d100),
+        (0xb94, 0x01fa_7825),
+        (0xb98, 0x309a_0010),
+        (0xb9c, 0x001a_d2c0),
+        (0xba0, 0x01fa_7825),
+        (0xba4, 0x309a_0020),
+        (0xba8, 0x001a_d480),
+        (0xbac, 0x01fa_7825),
+        (0xbb0, 0x241b_0001),
+        (0xbb4, 0x14bb_0003),
+        (0xbb8, 0xaeaf_0000),
+        (0xbc4, 0x8fbf_001c),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -5302,8 +5358,442 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             && boundary.identity() == CpuInstructionIdentity::Jal
             && ((0xa400_08f4 & 0xf000_0000) | (boundary.fields().jump_target() << 2))
                 == 0xa400_0984
-            && words.last() == Some(&(0x8f4, 0x0000_0000)),
+            && words.contains(&(0x8f4, 0x0000_0000)),
         "unexecuted FindCC JAL, target, and delay-slot Nop boundary",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Jal)?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_08f4
+            && machine.cpu().next_pc() == 0xa400_0984
+            && machine.cpu().cop0_count() == 32_201
+            && total_committed_steps == 32_217
+            && machine.cpu().gpr(31) == Some(0xffff_ffff_a400_08f8)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(31))
+                == Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_08f0),
+                    identity: CpuInstructionIdentity::Jal,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                })
+            && machine
+                .cpu_delay_slot_context()
+                .is_some_and(|context| context.branch_or_jump_pc() == 0xa400_08f0),
+        "FindCC JAL link, target, provenance, and cadence",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialSll,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0984
+            && machine.cpu().next_pc() == 0xa400_0988
+            && machine.cpu().cop0_count() == 32_202
+            && total_committed_steps == 32_218
+            && machine.cpu_delay_slot_context().is_none(),
+        "FindCC JAL delay-slot cadence",
+    )?;
+
+    for (pc, raw_word, identity) in [
+        (0xa400_0984, 0x27bd_ffe0, CpuInstructionIdentity::Addiu),
+        (0xa400_0988, 0xafbf_001c, CpuInstructionIdentity::Sw),
+        (0xa400_098c, 0x0000_4825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0990, 0x0000_5825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0994, 0x0000_6025, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0998, 0x299a_0040, CpuInstructionIdentity::Slti),
+    ] {
+        require(
+            CASE,
+            machine
+                .inspect_current_cpu_instruction()
+                .is_ok_and(|instruction| {
+                    instruction.cpu_address() == CpuAddress::new(pc)
+                        && instruction.fields().raw().bits() == raw_word
+                        && instruction.identity() == identity
+                }),
+            "FindCC setup byte and identity",
+        )?;
+        let outcome = step(&mut machine, CASE)?;
+        require(
+            CASE,
+            outcome.identity() == Some(identity)
+                && outcome
+                    .cadence_plan()
+                    .is_some_and(|cadence| cadence.advances_count()),
+            "FindCC setup commit",
+        )?;
+        total_committed_steps += 1;
+    }
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_099c
+            && machine.cpu().next_pc() == 0xa400_09a0
+            && machine.cpu().cop0_count() == 32_208
+            && total_committed_steps == 32_224
+            && machine.cpu().gpr(29) == Some(0xffff_ffff_a400_1ed0)
+            && machine.cpu().gpr(12) == Some(0)
+            && machine.cpu().gpr(26) == Some(1)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(26))
+                == Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0998),
+                    identity: CpuInstructionIdentity::Slti,
+                    source_gpr_a: Some(12),
+                    source_gpr_b: None,
+                }),
+        "accepted pre-BEQL state",
+    )?;
+    require(
+        CASE,
+        machine
+            .inspect_current_cpu_instruction()
+            .is_ok_and(|instruction| {
+                instruction.cpu_address() == CpuAddress::new(0xa400_099c)
+                    && instruction.fields().raw().bits() == 0x5340_0018
+                    && instruction.identity() == CpuInstructionIdentity::Beql
+                    && instruction.fields().opcode() == 0x14
+                    && instruction.fields().rs() == 26
+                    && instruction.fields().rt() == 0
+                    && instruction.fields().immediate_u16() == 0x0018
+            })
+            && machine.cpu().gpr(26) == Some(1)
+            && machine.cpu().gpr(0) == Some(0)
+            && machine.cpu().gpr(2) == Some(0)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(2))
+                == Some(MachineBootstrapGprSource::UnknownPifProduced),
+        "exact generated BEQL operands and pre-annul r2 truth",
+    )?;
+    let devices_before_beql = (
+        machine.mi_version_state(),
+        machine.mi_init_mode_state(),
+        machine.mi_init_transfer_state(),
+        machine.rdram_broadcast_delay_state(),
+        machine.rdram_broadcast_refresh_row_state(),
+        machine.rdram_broadcast_device_id_request_state(),
+        machine.rdram_first_responder_device_id_request_state(),
+        machine.ri_select_state(),
+        machine.ri_config_state(),
+        machine.ri_current_load_state(),
+        machine.ri_mode_state(),
+    );
+    let outcome = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            outcome,
+            MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Beql,
+                cadence_plan,
+            } if cadence_plan.source() == MachineStepCadenceSource::BranchLikelyAnnul
+                && cadence_plan.control_flow_action()
+                    == MachineStepControlFlowAction::CommitBeqlAnnul
+                && cadence_plan.count_action() == MachineStepCountAction::Advance
+        ),
+        "generated not-taken BEQL annul outcome",
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_09a4
+            && machine.cpu().next_pc() == 0xa400_09a8
+            && machine.cpu().cop0_count() == 32_209
+            && total_committed_steps == 32_225
+            && machine.cpu_delay_slot_context().is_none()
+            && machine.cpu().gpr(2) == Some(0)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(2))
+                == Some(MachineBootstrapGprSource::UnknownPifProduced)
+            && devices_before_beql
+                == (
+                    machine.mi_version_state(),
+                    machine.mi_init_mode_state(),
+                    machine.mi_init_transfer_state(),
+                    machine.rdram_broadcast_delay_state(),
+                    machine.rdram_broadcast_refresh_row_state(),
+                    machine.rdram_broadcast_device_id_request_state(),
+                    machine.rdram_first_responder_device_id_request_state(),
+                    machine.ri_select_state(),
+                    machine.ri_config_state(),
+                    machine.ri_current_load_state(),
+                    machine.ri_mode_state(),
+                )
+            && [0x0ef0, 0x0ef4, 0x0ef8, 0x0efc]
+                .into_iter()
+                .enumerate()
+                .all(|(index, offset)| {
+                    machine.sp_imem_opaque_word_state(offset) == Some(opaque_states[index])
+                }),
+        "annul skips r2 Or with one BEQL count and complete represented-state preservation",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Jal)?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_09a8
+            && machine.cpu().next_pc() == 0xa400_0a10
+            && machine.cpu().cop0_count() == 32_210
+            && total_committed_steps == 32_226
+            && machine.cpu().gpr(31) == Some(0xffff_ffff_a400_09ac)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(31))
+                == Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_09a4),
+                    identity: CpuInstructionIdentity::Jal,
+                    source_gpr_a: None,
+                    source_gpr_b: None,
+                }),
+        "TestCCValue JAL target, link, provenance, and cadence",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialOr,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0a10
+            && machine.cpu().next_pc() == 0xa400_0a14
+            && machine.cpu().cop0_count() == 32_211
+            && total_committed_steps == 32_227
+            && machine.cpu().gpr(4) == Some(0)
+            && machine.cpu_delay_slot_context().is_none(),
+        "TestCCValue JAL delay-slot value and cadence",
+    )?;
+
+    for (pc, raw_word, identity) in [
+        (0xa400_0a10, 0x27bd_ffd8, CpuInstructionIdentity::Addiu),
+        (0xa400_0a14, 0xafbf_001c, CpuInstructionIdentity::Sw),
+        (0xa400_0a18, 0x0000_1025, CpuInstructionIdentity::SpecialOr),
+    ] {
+        require(
+            CASE,
+            machine
+                .inspect_current_cpu_instruction()
+                .is_ok_and(|instruction| {
+                    instruction.cpu_address() == CpuAddress::new(pc)
+                        && instruction.fields().raw().bits() == raw_word
+                        && instruction.identity() == identity
+                }),
+            "TestCCValue setup byte and identity",
+        )?;
+        let outcome = step(&mut machine, CASE)?;
+        require(
+            CASE,
+            outcome.identity() == Some(identity)
+                && outcome
+                    .cadence_plan()
+                    .is_some_and(|cadence| cadence.advances_count()),
+            "TestCCValue setup commit",
+        )?;
+        total_committed_steps += 1;
+    }
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Jal)?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0a20
+            && machine.cpu().next_pc() == 0xa400_0b44
+            && machine.cpu().cop0_count() == 32_215
+            && total_committed_steps == 32_231
+            && machine.cpu().gpr(31) == Some(0xffff_ffff_a400_0a24),
+        "WriteCC JAL target, link, and cadence",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0b44
+            && machine.cpu().next_pc() == 0xa400_0b48
+            && machine.cpu().cop0_count() == 32_216
+            && total_committed_steps == 32_232
+            && machine.cpu().gpr(5) == Some(2)
+            && machine.cpu_delay_slot_context().is_none(),
+        "WriteCC JAL CC_MANUAL delay-slot value and cadence",
+    )?;
+
+    for (index, (pc, raw_word, identity)) in [
+        (0xa400_0b44, 0x27bd_ffd8, CpuInstructionIdentity::Addiu),
+        (0xa400_0b48, 0x3084_00ff, CpuInstructionIdentity::Andi),
+        (0xa400_0b4c, 0x241b_0001, CpuInstructionIdentity::Addiu),
+        (0xa400_0b50, 0x3884_003f, CpuInstructionIdentity::Xori),
+        (0xa400_0b54, 0xafbf_001c, CpuInstructionIdentity::Sw),
+        (0xa400_0b58, 0x14bb_0003, CpuInstructionIdentity::Bne),
+        (0xa400_0b5c, 0x3c0f_4600, CpuInstructionIdentity::Lui),
+        (0xa400_0b68, 0x309a_0001, CpuInstructionIdentity::Andi),
+        (0xa400_0b6c, 0x001a_d180, CpuInstructionIdentity::SpecialSll),
+        (0xa400_0b70, 0x01fa_7825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0b74, 0x309a_0002, CpuInstructionIdentity::Andi),
+        (0xa400_0b78, 0x001a_d340, CpuInstructionIdentity::SpecialSll),
+        (0xa400_0b7c, 0x01fa_7825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0b80, 0x309a_0004, CpuInstructionIdentity::Andi),
+        (0xa400_0b84, 0x001a_d500, CpuInstructionIdentity::SpecialSll),
+        (0xa400_0b88, 0x01fa_7825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0b8c, 0x309a_0008, CpuInstructionIdentity::Andi),
+        (0xa400_0b90, 0x001a_d100, CpuInstructionIdentity::SpecialSll),
+        (0xa400_0b94, 0x01fa_7825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0b98, 0x309a_0010, CpuInstructionIdentity::Andi),
+        (0xa400_0b9c, 0x001a_d2c0, CpuInstructionIdentity::SpecialSll),
+        (0xa400_0ba0, 0x01fa_7825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0ba4, 0x309a_0020, CpuInstructionIdentity::Andi),
+        (0xa400_0ba8, 0x001a_d480, CpuInstructionIdentity::SpecialSll),
+        (0xa400_0bac, 0x01fa_7825, CpuInstructionIdentity::SpecialOr),
+        (0xa400_0bb0, 0x241b_0001, CpuInstructionIdentity::Addiu),
+        (0xa400_0bb4, 0x14bb_0003, CpuInstructionIdentity::Bne),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        require(
+            CASE,
+            machine
+                .inspect_current_cpu_instruction()
+                .is_ok_and(|instruction| {
+                    instruction.cpu_address() == CpuAddress::new(pc)
+                        && instruction.fields().raw().bits() == raw_word
+                        && instruction.identity() == identity
+                }),
+            "WriteCC byte and identity",
+        )?;
+        let outcome = step(&mut machine, CASE)?;
+        require(
+            CASE,
+            outcome.identity() == Some(identity)
+                && outcome
+                    .cadence_plan()
+                    .is_some_and(|cadence| cadence.advances_count()),
+            "WriteCC instruction commit",
+        )?;
+        total_committed_steps += 1;
+        require(
+            CASE,
+            machine.cpu().cop0_count() == 32_217 + index as u32
+                && total_committed_steps == 32_233 + index as u32,
+            "WriteCC Count and committed-step cadence",
+        )?;
+    }
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0bb8
+            && machine.cpu().next_pc() == 0xa400_0bc4
+            && machine.cpu().cop0_count() == 32_243
+            && total_committed_steps == 32_259
+            && machine
+                .cpu_delay_slot_context()
+                .is_some_and(|context| context.branch_or_jump_pc() == 0xa400_0bb4)
+            && machine.cpu().gpr(4) == Some(0x3f)
+            && machine.cpu().gpr(5) == Some(2)
+            && machine.cpu().gpr(21) == Some(0xffff_ffff_a3f0_000c)
+            && machine.cpu().gpr(15) == Some(0x0000_0000_46c0_c0c0)
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(15))
+                == Some(MachineBootstrapGprSource::KnownInstructionResult {
+                    execution_address: CpuAddress::new(0xa400_0bac),
+                    identity: CpuInstructionIdentity::SpecialOr,
+                    source_gpr_a: Some(15),
+                    source_gpr_b: Some(26),
+                }),
+        "first manual current-control word, target base, and exact frontier cadence",
+    )?;
+    let frontier = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    require(
+        CASE,
+        frontier.cpu_address() == CpuAddress::new(0xa400_0bb8)
+            && frontier.fields().raw().bits() == 0xaeaf_0000
+            && frontier.identity() == CpuInstructionIdentity::Sw
+            && frontier.fields().rs() == 21
+            && frontier.fields().rt() == 15
+            && frontier.fields().immediate_u16() == 0,
+        "exact RDRAM_MODE frontier instruction",
+    )?;
+    let pc_before = machine.cpu().pc();
+    let next_pc_before = machine.cpu().next_pc();
+    let count_before = machine.cpu().cop0_count();
+    let delay_before = machine.cpu_delay_slot_context();
+    let source_before = machine.cpu().gpr(15);
+    let base_before = machine.cpu().gpr(21);
+    let source_lineage_before = machine
+        .cartridge_bootstrap_state()
+        .and_then(|state| state.gpr_source(15));
+    let device_truth_before = (
+        machine.mi_version_state(),
+        machine.mi_init_mode_state(),
+        machine.mi_init_transfer_state(),
+        machine.rdram_broadcast_delay_state(),
+        machine.rdram_broadcast_refresh_row_state(),
+        machine.rdram_broadcast_device_id_request_state(),
+        machine.rdram_first_responder_device_id_request_state(),
+        machine.ri_select_state(),
+        machine.ri_config_state(),
+        machine.ri_current_load_state(),
+        machine.ri_mode_state(),
+    );
+    match machine.step() {
+        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
+            CASE,
+            rejection.fields().raw().bits() == 0xaeaf_0000
+                && rejection.effective_address() == Some(0xffff_ffff_a3f0_000c)
+                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f0_000c))
+                && rejection.target().is_none()
+                && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
+            "RDRAM_MODE direct-target-miss rejection",
+        )?,
+        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
+        Ok(_) => return assertion(CASE, "RDRAM_MODE must remain the first rejected frontier"),
+    }
+    require(
+        CASE,
+        machine.cpu().pc() == pc_before
+            && machine.cpu().next_pc() == next_pc_before
+            && machine.cpu().cop0_count() == count_before
+            && machine.cpu_delay_slot_context() == delay_before
+            && machine.cpu().gpr(15) == source_before
+            && machine.cpu().gpr(21) == base_before
+            && machine
+                .cartridge_bootstrap_state()
+                .and_then(|state| state.gpr_source(15))
+                == source_lineage_before
+            && device_truth_before
+                == (
+                    machine.mi_version_state(),
+                    machine.mi_init_mode_state(),
+                    machine.mi_init_transfer_state(),
+                    machine.rdram_broadcast_delay_state(),
+                    machine.rdram_broadcast_refresh_row_state(),
+                    machine.rdram_broadcast_device_id_request_state(),
+                    machine.rdram_first_responder_device_id_request_state(),
+                    machine.ri_select_state(),
+                    machine.ri_config_state(),
+                    machine.ri_current_load_state(),
+                    machine.ri_mode_state(),
+                )
+            && source_before == Some(0x0000_0000_46c0_c0c0)
+            && base_before == Some(0xffff_ffff_a3f0_000c)
+            && (base_before.unwrap() as u32 & 0x1fff_ffff) == 0x03f0_000c,
+        "RDRAM_MODE frontier preserves complete represented device and CPU truth",
     )
 }
 
@@ -5455,6 +5945,154 @@ fn probe_sp_dmem_lw_delay_slot_adel() -> Result<(), StepProbeError> {
         CASE,
         machine.cpu_delay_slot_context().is_none(),
         "slot AdEL context cleared",
+    )
+}
+
+fn probe_beql_paths_and_rejections() -> Result<(), StepProbeError> {
+    const TAKEN_CASE: &str = "beql-taken-delay-slot";
+    let mut taken = Machine::from_cartridge(Cartridge::default());
+    seed_instruction(&mut taken, TAKEN_CASE, 0x00, branch_word(0x14, 0, 0, 2))?;
+    seed_instruction(&mut taken, TAKEN_CASE, 0x04, immediate_word(0x09, 2, 2, 1))?;
+    taken.stage_cpu_pc(DIRECT_CPU_PC);
+
+    require_committed_identity(
+        TAKEN_CASE,
+        step(&mut taken, TAKEN_CASE)?,
+        CpuInstructionIdentity::Beql,
+    )?;
+    require(
+        TAKEN_CASE,
+        taken.cpu().pc() == 0x8000_0004
+            && taken.cpu().next_pc() == 0x8000_000c
+            && taken.cpu().cop0_count() == 1
+            && taken.cpu().gpr(2) == Some(0)
+            && taken
+                .cpu_delay_slot_context()
+                .map(|context| context.branch_or_jump_pc())
+                == Some(DIRECT_CPU_PC),
+        "taken BEQL schedules one unexecuted slot",
+    )?;
+    require_committed_identity(
+        TAKEN_CASE,
+        step(&mut taken, TAKEN_CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    require(
+        TAKEN_CASE,
+        taken.cpu().pc() == 0x8000_000c
+            && taken.cpu().next_pc() == 0x8000_0010
+            && taken.cpu().cop0_count() == 2
+            && taken.cpu().gpr(2) == Some(1)
+            && taken.cpu_delay_slot_context().is_none(),
+        "taken BEQL slot commits separately and once",
+    )?;
+
+    const ANNUL_CASE: &str = "beql-not-taken-annul";
+    let mut annul = Machine::from_cartridge(Cartridge::default());
+    seed_instruction(&mut annul, ANNUL_CASE, 0x00, immediate_word(0x09, 0, 4, 1))?;
+    seed_instruction(&mut annul, ANNUL_CASE, 0x04, branch_word(0x14, 4, 0, 2))?;
+    seed_instruction(&mut annul, ANNUL_CASE, 0x08, immediate_word(0x09, 2, 2, 1))?;
+    annul.stage_cpu_pc(DIRECT_CPU_PC);
+    require_committed_identity(
+        ANNUL_CASE,
+        step(&mut annul, ANNUL_CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    let outcome = step(&mut annul, ANNUL_CASE)?;
+    require(
+        ANNUL_CASE,
+        matches!(
+            outcome,
+            MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Beql,
+                cadence_plan,
+            } if cadence_plan.source() == MachineStepCadenceSource::BranchLikelyAnnul
+                && cadence_plan.control_flow_action()
+                    == MachineStepControlFlowAction::CommitBeqlAnnul
+                && cadence_plan.count_action() == MachineStepCountAction::Advance
+        ),
+        "not-taken BEQL exposes exact annul cadence",
+    )?;
+    require(
+        ANNUL_CASE,
+        annul.cpu().pc() == 0x8000_000c
+            && annul.cpu().next_pc() == 0x8000_0010
+            && annul.cpu().cop0_count() == 2
+            && annul.cpu().gpr(2) == Some(0)
+            && annul.cpu_delay_slot_context().is_none(),
+        "not-taken BEQL skips the slot without a second count",
+    )?;
+
+    const UNKNOWN_CASE: &str = "beql-unknown-source-rejection";
+    let unknown_words = [(0x40, branch_word(0x14, 4, 0, 1))];
+    let (mut unknown, _) = generated_cold_x105_machine(UNKNOWN_CASE, &unknown_words)?;
+    let unknown_pc = unknown.cpu().pc();
+    let unknown_next_pc = unknown.cpu().next_pc();
+    let unknown_count = unknown.cpu().cop0_count();
+    let unknown_context = unknown.cpu_delay_slot_context();
+    match unknown.step() {
+        Err(MachineRepresentedStepError::OrdinaryControlFlowRejected(rejection)) => require(
+            UNKNOWN_CASE,
+            rejection.reason()
+                == MachineOrdinaryControlFlowRejectionReason::BootstrapSourceUnavailable {
+                    register_index: 4,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
+                },
+            "unknown BEQL operand uses ordinary source rejection",
+        )?,
+        Err(source) => {
+            return Err(StepProbeError::Step {
+                case: UNKNOWN_CASE,
+                source,
+            });
+        }
+        Ok(_) => return assertion(UNKNOWN_CASE, "unknown BEQL source rejected"),
+    }
+    require(
+        UNKNOWN_CASE,
+        unknown.cpu().pc() == unknown_pc
+            && unknown.cpu().next_pc() == unknown_next_pc
+            && unknown.cpu().cop0_count() == unknown_count
+            && unknown.cpu_delay_slot_context() == unknown_context,
+        "unknown BEQL rejection preserves control state",
+    )?;
+
+    const DELAY_CASE: &str = "beql-in-delay-slot-rejection";
+    const OUTER_TARGET: u32 = 0x8000_0020;
+    let mut nested = Machine::from_cartridge(Cartridge::default());
+    seed_instruction(&mut nested, DELAY_CASE, 0x00, jump_word(0x02, OUTER_TARGET))?;
+    seed_instruction(&mut nested, DELAY_CASE, 0x04, branch_word(0x14, 0, 0, 1))?;
+    nested.stage_cpu_pc(DIRECT_CPU_PC);
+    require_committed_identity(
+        DELAY_CASE,
+        step(&mut nested, DELAY_CASE)?,
+        CpuInstructionIdentity::J,
+    )?;
+    let nested_pc = nested.cpu().pc();
+    let nested_next_pc = nested.cpu().next_pc();
+    let nested_count = nested.cpu().cop0_count();
+    let nested_context = nested.cpu_delay_slot_context();
+    require(
+        DELAY_CASE,
+        matches!(
+            step(&mut nested, DELAY_CASE)?,
+            MachineRepresentedStepOutcome::Unsupported {
+                instruction,
+                cadence_plan,
+            } if instruction.identity() == CpuInstructionIdentity::Beql
+                && instruction.category()
+                    == MachineStepUnsupportedInstructionCategory::ControlFlowInDelaySlot
+                && cadence_plan.count_action() == MachineStepCountAction::DoNotAdvance
+        ),
+        "BEQL in an active delay slot remains rejected",
+    )?;
+    require(
+        DELAY_CASE,
+        nested.cpu().pc() == nested_pc
+            && nested.cpu().next_pc() == nested_next_pc
+            && nested.cpu().cop0_count() == nested_count
+            && nested.cpu_delay_slot_context() == nested_context,
+        "nested BEQL rejection preserves the outer slot",
     )
 }
 
