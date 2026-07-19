@@ -135,7 +135,7 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,216-step composition through the stored
+handoff and advances a generated 32,259-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
 exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
@@ -147,9 +147,10 @@ setup, exact first-responder zero request, and the following RDRAM_MODE-address
 `Addiu`. The generated JAL at `0xA40001A0` replaces retained r31 with PC+8,
 its Nop slot executes once, and five InitCCValue entry instructions commit.
 Four inherited-unknown r2-r5 saves then create opaque aligned SP-IMEM words;
-twenty known-source saves follow without disturbing them. Execution stops
-before the FindCC JAL at `0xA40008F0`; later current-control code and
-RDRAM_MODE are not reached;
+twenty known-source saves follow without disturbing them. FindCC JAL/Nop,
+BEQL annul, TestCCValue, and WriteCC then commit through public stepping. The
+actual first manual word is `0x46C0C0C0`; its `Sw` at CPU `0xA3F0000C` /
+physical `0x03F0000C` rejects atomically, so RDRAM_MODE remains unrepresented;
 no general RI_SELECT programming, other RI write/read, other MI register/read,
 general MI replication, other RDRAM-register behavior, per-module state,
 calibration/timing process, NMI, or

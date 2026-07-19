@@ -155,7 +155,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 157-case step probe, the bounded BOOT-2
+construction/reset probe, the 166-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -164,7 +164,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,216-step generated composition through the stored RI_SELECT
+handoff and a 32,259-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -184,7 +184,13 @@ initial RDRAM_MODE address `0xFFFFFFFFA3F0000C`. The generated JAL at
 five InitCCValue entry instructions commit. Four inherited-unknown r2-r5 saves
 then create opaque aligned SP-IMEM words; twenty known-source saves follow
 without disturbing them. PC/next-PC reach `0xA40008F0 / 0xA40008F4`, Count
-`32200`, at 32,216 commits. The FindCC JAL is not executed.
+`32200`, at 32,216 commits. The FindCC JAL and Nop slot then commit, and six
+entry/setup instructions produce nominal CC input zero plus known r26=1. Exact
+BEQL word `0x53400018` is not taken and annuls its `Or r2,r0,r0` slot without
+execution, commit, Count, effect, exception, or delay context. TestCCValue and
+WriteCC commit through public stepping and produce `0x46C0C0C0`. At Count
+`32243` and 32,259 commits, `Sw r15,0(r21)` at `0xA4000BB8` targets physical
+RDRAM_MODE `0x03F0000C` and rejects atomically as `DirectTargetMiss`.
 It does not prove an authentic firmware-executed handoff, responder
 presence/completion, RI calibration or elapsed hardware time, RDRAM_MODE or
 RDRAM initialization, BOOT-3, full ISA, game compatibility, renderer, audio,

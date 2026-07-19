@@ -638,6 +638,21 @@ product or reference lane requires a new explicit product decision.
   `0xFFFFFFFFA40008F8`, and its Nop delay slot are not executed. RDRAM_MODE,
   calibration, authentic advancement, BOOT-3, and compatibility remain absent.
 
+## Era 33 — exact BEQL annul and RDRAM_MODE frontier (2026-07-19)
+
+- CPU decision: BEQL alone joins ordinary control flow. Available old GPRs are
+  compared across all 64 bits with the existing signed PC+4-relative target.
+  Taken execution uses one existing slot; not-taken execution nullifies PC+4
+  without a hidden step, commit, Count, effect, exception, or second owner.
+- Generated composition: FindCC commits through `Slti r26,r12,64`. BEQL word
+  `0x53400018` is not taken and annuls `Or r2,r0,r0` at `0xA40009A0`, so r2
+  remains `UnknownPifProduced`. TestCCValue and WriteCC then commit through
+  public `Machine::step` and construct exact manual word `0x46C0C0C0`.
+- Boundary: at Count `32243` and 32,259 commits, `Sw r15,0(r21)` at
+  `0xA4000BB8` targets CPU `0xA3F0000C` / physical `0x03F0000C` and rejects
+  atomically as `DirectTargetMiss`. RDRAM_MODE, current-control calibration,
+  BOOT-3, and compatibility remain unearned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

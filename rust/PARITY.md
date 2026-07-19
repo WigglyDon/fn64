@@ -309,8 +309,8 @@ code 12 state, and does not advance Count or BadVAddr.
 
 ### Ordinary control flow and one delay slot
 
-`BEQ`, `BNE`, `J`, `JAL`, `JR`, and `JALR` execute through one Machine-owned
-planning/application family. Conditional targets use wrapping instruction
+`BEQ`, exact `BEQL`, `BNE`, `J`, `JAL`, `JR`, and `JALR` execute through one
+Machine-owned planning/application family. Conditional targets use wrapping instruction
 PC+4 plus the sign-extended shifted displacement. J/JAL region bits come from
 wrapping PC+4. JAL writes r31; JALR writes encoded `rd`; links are PC+8 under
 the represented 32-to-64-bit sign-extension rule. JALR captures the old source
@@ -319,11 +319,14 @@ not a JAL input; old JALR `rd` is not an input except where it is also the
 captured old `rs`. Bootstrap lineage remains truthful until the named CPU
 instruction overwrites its destination.
 
-Every taken or untaken branch/jump commits to exactly one explicit CPU-owned
-delay-slot context. `next_pc` owns the selected target or fall-through. The
-branch/jump and successful slot each advance Count once. Successful slot
-completion clears context. Reset and direct synthetic PC staging clear stale
-context; rollback restores it.
+Ordinary branches and jumps, plus taken BEQL, commit to exactly one explicit
+CPU-owned delay-slot context. `next_pc` owns the selected target or
+fall-through. The branch/jump and successful slot each advance Count once.
+Successful slot completion clears context. Not-taken BEQL compares complete
+available 64-bit GPR values and architecturally nullifies PC+4: it commits
+directly to P+8/P+12, creates no delay context, and the slot is not executed,
+committed, counted, mutated, or allowed to raise an exception. Reset and direct
+synthetic PC staging clear stale context; rollback restores it.
 
 A branch or jump encountered in a delay slot is explicitly unsupported and
 restores all represented state without link, target, PC, Count, or COP0
@@ -596,8 +599,15 @@ Four r2-r5 stores commit opaque SP-IMEM words at offsets
 `0xEF0/0xEF4/0xEF8/0xEFC`; twenty known-source saves then commit through
 `0xA40008EC`. PC/next-PC become `0xA40008F0 / 0xA40008F4`, Count is `32200`,
 and total commits are 32,216. The FindCC JAL word `0x0D000261`, target
-`0xA4000984`, prospective link `0xFFFFFFFFA40008F8`, and its Nop slot remain
-unexecuted.
+`0xA4000984`, link `0xFFFFFFFFA40008F8`, and its Nop slot commit. Six setup
+instructions reach BEQL word `0x53400018` with r26=1 and r0=0. The branch is
+not taken; `Or r2,r0,r0` at `0xA40009A0` is nullified and r2 remains
+`UnknownPifProduced`. TestCCValue and WriteCC then commit through public
+stepping. Nominal input zero becomes `0x3F`; base flags `0x46000000` and
+scattered bits `0x00C0C0C0` produce `0x46C0C0C0`. PC/next-PC become
+`0xA4000BB8 / 0xA4000BC4`, Count is `32243`, and total commits are 32,259.
+The `Sw` at that PC targets CPU `0xA3F0000C` / physical `0x03F0000C` and
+rejects atomically as `DirectTargetMiss`.
 These tests
 prove CPU composition only, not an authentic
 IPL2-to-IPL3 run, elapsed RI time, current calibration, RDRAM initialization,
@@ -612,8 +622,9 @@ reached.
 Identity classification may name instructions that the public step does not
 execute. Current explicit absences include:
 
-- branch-likely annul, every REGIMM identity except non-linking/non-likely
-  BLTZ, COP0 branches, and execution of a branch or jump inside a delay slot;
+- every branch-likely identity except exact BEQL, every REGIMM identity except
+  non-linking/non-likely BLTZ, COP0 branches, and execution of a branch or jump
+  inside a delay slot;
 - CPU load/store instructions other than aligned `Lw` and aligned `Sw` to SP
   IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
   RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0
@@ -647,7 +658,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 157 cases cover:
+calls only public `Machine::step` for execution. Its 166 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -667,6 +678,9 @@ calls only public `Machine::step` for execution. Its 157 cases cover:
 - BLTZ taken/untaken/full-width signed discrimination, positive/negative
   targets, ordinary slot commit, slot exception, nested-control-flow rejection,
   and unknown-source rejection;
+- BEQL taken-slot cadence, not-taken architectural annul, unavailable-source
+  rejection, active-delay rejection, generated annul, TestCCValue/WriteCC
+  call composition, and exact RDRAM_MODE frontier;
 - bounded MTC0 Cause masking/knownness, Count and Compare write-before-cadence,
   timer clear/relatch ordering, ordinary-slot success, and atomic rejection;
 - exact RI_SELECT lifecycle/read/alias/AdEL/target-miss/rejection behavior,
@@ -694,14 +708,15 @@ calls only public `Machine::step` for execution. Its 157 cases cover:
 - exact RCP 2.0 first-responder DEVICE_ID zero-request ownership, provenance,
   aliases, lifecycle, AdES/delay-slot cadence, narrow aperture routing, and
   atomic rejection;
-- 32,216-step generated x105 composition through the exact 8,000-iteration CPU
+- 32,259-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
   write, delay-word construction, RDRAM_DELAY and RDRAM_REF_ROW commits,
   DEVICE_ID-value LUI/store, fourteen CPU-local setup commits, MI_VERSION read,
   guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup, first-responder
   RDRAM_DEVICE_ID commit, initial RDRAM_MODE-address `Addiu`, generated JAL and
-  Nop slot, five InitCCValue entry commits, four opaque r2-r5 saves, and twenty
-  concrete saves before the unexecuted FindCC JAL;
+  Nop slot, five InitCCValue entry commits, four opaque r2-r5 saves, twenty
+  concrete saves, FindCC JAL/Nop, exact BEQL annul, TestCCValue and WriteCC,
+  and exact `0x46C0C0C0` production before the RDRAM_MODE store miss;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

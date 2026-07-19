@@ -40,8 +40,12 @@ Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 Prior JAL link-destination state is no longer misclassified as an input, but a
 control-flow identity in an active delay slot and unknown JR/JALR/branch
-sources still reject before link or COP0 mutation. The generated InitCCValue
-`Sw` source-knownness rejection likewise preserves Count and COP0 exactly.
+sources still reject before link or COP0 mutation. Unknown device and SP-DMEM
+store sources likewise preserve Count and COP0 exactly.
+Exact BEQL adds no intrinsic exception. Its taken slot retains this existing
+EPC/BD owner and zero normal Count cadence when the slot faults. Its not-taken
+path architecturally annuls PC+4, so the nullified word cannot raise AdEL,
+AdES, overflow, reserved-instruction, or any other represented exception.
 
 The explicit generated-only NTSC cold-x105 handoff is the sole bootstrap path
 that sources inherited COP0 state. It stages Status=`0x34000000` with named

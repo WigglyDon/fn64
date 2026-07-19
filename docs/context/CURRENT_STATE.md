@@ -229,11 +229,24 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   backing sentinels are not transferred truth. Twenty following known-source
   stores commit normally through `0xA40008EC` without changing those opaque
   words. At 32,216 commits, PC/next-PC are
-  `0xA40008F0 / 0xA40008F4`, Count is `32200`, and the next composition
-  boundary is unexecuted word `0x0D000261`, `Jal 0xA4000984` (FindCC), with
-  prospective link `0xFFFFFFFFA40008F8` and unexecuted Nop slot at
-  `0xA40008F4`. Every instruction and represented state is independently
-  generated.
+  `0xA40008F0 / 0xA40008F4` and Count is `32200`. Commit 32,217 executes
+  generated `Jal 0xA4000984` (FindCC), writes link
+  `0xFFFFFFFFA40008F8`, and schedules its Nop slot; commit 32,218 executes the
+  slot once. Six FindCC entry/setup commits produce nominal CC input zero and
+  known `r26=1`. Commit 32,225 executes word `0x53400018`,
+  `Beql r26,r0,0xA4000A00`, as not taken and architecturally annuls
+  `Or r2,r0,r0` at `0xA40009A0`: the slot is not executed, committed, or
+  counted, creates no delay context, and leaves r2 `UnknownPifProduced`.
+  Generated JAL/delay-slot execution then enters TestCCValue with a0 zero,
+  creates its frame, and enters WriteCC with a1=`CC_MANUAL`. Actual generated
+  arithmetic transforms zero through `0x3F`, combines base flags
+  `0x46000000` with scattered bits `0x00C0C0C0`, and produces
+  `r15=0x46C0C0C0`. At 32,259 commits, PC/next-PC are
+  `0xA4000BB8 / 0xA4000BC4`, Count is `32243`, and the first unsupported
+  pressure is delay-slot word `0xAEAF0000`, `Sw r15,0(r21)`, to CPU
+  `0xA3F0000C` / physical `0x03F0000C`. It rejects atomically as
+  `DirectTargetMiss`; RDRAM_MODE remains unrepresented. Every instruction and
+  represented state is independently generated.
   This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -405,9 +418,14 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   it, aligned Lw rejects explicitly, and no instruction fetch can decode its
   sentinel. Twenty following concrete saves commit normally. The exact
   first-responder assignment request and initial RDRAM_MODE address
-  `0xFFFFFFFFA3F0000C` remain preserved. The unexecuted FindCC JAL at
-  `0xA40008F0` is the next composition boundary; RDRAM_MODE and current-control
-  calibration are not reached. No responder presence,
+  `0xFFFFFFFFA3F0000C` remain preserved. FindCC now executes through public
+  stepping. BEQL is represented as one exact identity: known 64-bit equality
+  takes one existing delay slot, while inequality annuls `PC+4` with no slot
+  execution, commit, Count, effect, exception, or delay context. The generated
+  BEQL is not taken, so r2 remains unavailable until TestCCValue later writes
+  it. Generated TestCCValue and WriteCC reach exact RDRAM_MODE word
+  `0x46C0C0C0` at CPU `0xA3F0000C`; that store rejects atomically and no
+  current-control device effect occurs. No responder presence,
   assignment completion, module identity, discovery, or per-module state is
   represented. Alternate MI_VERSION identities and a
   configuration surface remain absent. DEVICE_ID physical relocation,

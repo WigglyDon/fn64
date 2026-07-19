@@ -36,14 +36,17 @@ provenance/alias/AdES/lifecycle cases, exact DEVICE_ID request/value/provenance/
 alias/AdES/lifecycle/unchanged-routing cases, immutable MI_VERSION word/fields/
 lifecycle/read/provenance/alias/AdEL/closed-surface cases, exact first-responder
 request/value/provenance/alias/AdES/lifecycle/narrow-route cases, opaque
-SP-IMEM cause/sentinel/coherence/overwrite/Lw/AdES/lifecycle cases, plus 32,216 generated commits
+SP-IMEM cause/sentinel/coherence/overwrite/Lw/AdES/lifecycle cases, exact BEQL
+taken/annul/source/exception cases, plus 32,259 generated commits
 through both bounded CPU waits and RI events, the exact MI write, delay-word
 construction, global RDRAM_DELAY and raw-zero RDRAM_REF_ROW commits,
 DEVICE_ID-value/request commit, fourteen CPU-local setup commits, exact
 MI_VERSION read, guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup,
 first-responder non-global RDRAM_DEVICE_ID commit, RDRAM_MODE-address `Addiu`,
 generated JAL/Nop cadence, five InitCCValue entry commits, four opaque r2-r5
-saves, and twenty concrete saves before the unexecuted FindCC JAL. The
+saves, twenty concrete saves, FindCC JAL/Nop, not-taken BEQL annul,
+TestCCValue/WriteCC calls, and exact word construction before the RDRAM_MODE
+store miss. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -115,8 +118,10 @@ zero as a bounded assignment request at physical `0x03F08004`. `Addiu` at
 `0xFFFFFFFFA4001550` with `0xFFFFFFFFA40001A8` and exact JAL lineage; the Nop
 slot commits once. InitCCValue commits through `0xA400088C`; r2-r5 then save as
 four cause-known, value-unavailable SP-IMEM words and twenty known-source saves
-commit through `0xA40008EC`. The proof stops before the FindCC JAL at
-`0xA40008F0`. This is
+commit through `0xA40008EC`. FindCC JAL/Nop and setup then commit. BEQL at
+`0xA400099C` annuls `0xA40009A0`; TestCCValue and WriteCC execute until
+`Sw r15,0(r21)` at `0xA4000BB8` rejects at physical RDRAM_MODE
+`0x03F0000C`, carrying exact word `0x46C0C0C0`. This is
 synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
 time, general MI next-write replication, calibration, RDRAM initialization, or NMI
 execution.

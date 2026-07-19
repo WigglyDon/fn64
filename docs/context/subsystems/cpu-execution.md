@@ -144,14 +144,18 @@ commits a bounded assignment request, and `Addiu` constructs
 its Nop slot executes once. Five InitCCValue entry instructions then commit.
 The four aligned r2-r5 stores commit cause-known, value-unavailable words only
 to SP IMEM; twenty following known-source saves commit through `0xA40008EC`.
-Execution stops before `Jal 0xA4000984` at `0xA40008F0`, with Count `32200`
-and 32,216 committed steps. This is CPU
+`Jal 0xA4000984` and its Nop slot then commit. FindCC setup reaches exact BEQL
+word `0x53400018`; complete available 64-bit operands compare unequal, so its
+`0xA40009A0` slot is architecturally annulled with no execution, commit, Count,
+effect, exception, or delay context. TestCCValue and WriteCC commit through
+public stepping and construct `0x46C0C0C0`. Execution stops at physical
+RDRAM_MODE `0x03F0000C` with Count `32243` and 32,259 committed steps. This is CPU
 composition, not elapsed RI time or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
-branch-likely/other REGIMM and broader COP0 execution, every RI action except
+other branch-likely/other REGIMM and broader COP0 execution, every RI action except
 the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
 RI_MODE defined-field writes, the exact MI_INIT_MODE write, and the exact
 global RDRAM_DELAY write, exact raw-zero global RDRAM_REF_ROW write, and exact
 global RDRAM_DEVICE_ID request, exact RCP 2.0 first-responder request, NMI,
-generic MMIO, the FindCC call and later InitCCValue calls, RDRAM_MODE, other load/store families, and
+generic MMIO, RDRAM_MODE, later current-control memory testing, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.
