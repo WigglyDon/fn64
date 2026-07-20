@@ -10,9 +10,9 @@ use fn64_core::{
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
     MachinePifVersionBit, MachineRdramBroadcastDeviceIdAperture,
     MachineRdramBroadcastRefreshRowAperture, MachineRdramFirstResponderDeviceIdAperture,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRiModeSource,
-    MachineRiSelectSource, MachineSpDmemLoadWordProvenance, MachineStepCadenceSource,
-    MachineStepControlFlowAction, MachineStepCountAction,
+    MachineRdramInitialModeAperture, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineRiModeSource, MachineRiSelectSource, MachineSpDmemLoadWordProvenance,
+    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
     MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
     MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
     MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
@@ -22,7 +22,8 @@ use fn64_core::{
     RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
     RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD, RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE,
     RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS,
-    RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD, RDRAM_REF_ROW_X105_WRITE_WORD,
+    RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD, RDRAM_INITIAL_MODE_PHYSICAL_ADDRESS,
+    RDRAM_INITIAL_MODE_X105_FIRST_MANUAL_WRITE_WORD, RDRAM_REF_ROW_X105_WRITE_WORD,
     RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
@@ -186,7 +187,9 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: generated-x105-beql-annulled ok\
 \ncase: generated-x105-test-cc-jal-committed ok\
 \ncase: generated-x105-write-cc-call-committed ok\
-\ncase: generated-x105-rdram-mode-frontier ok\
+\ncase: generated-x105-rdram-mode-committed ok\
+\ncase: generated-x105-write-cc-return-path ok\
+\ncase: generated-x105-calibration-response-boundary ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -3418,6 +3421,12 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0xbb4, 0x14bb_0003),
         (0xbb8, 0xaeaf_0000),
         (0xbc4, 0x8fbf_001c),
+        (0xbc8, 0x27bd_0028),
+        (0xbcc, 0x03e0_0008),
+        (0xbd0, 0x0000_0000),
+        (0xa24, 0x0000_f025),
+        (0xa28, 0x241a_ffff),
+        (0xa2c, 0xae9a_0000),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -5729,10 +5738,6 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             && frontier.fields().immediate_u16() == 0,
         "exact RDRAM_MODE frontier instruction",
     )?;
-    let pc_before = machine.cpu().pc();
-    let next_pc_before = machine.cpu().next_pc();
-    let count_before = machine.cpu().cop0_count();
-    let delay_before = machine.cpu_delay_slot_context();
     let source_before = machine.cpu().gpr(15);
     let base_before = machine.cpu().gpr(21);
     let source_lineage_before = machine
@@ -5751,25 +5756,38 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         machine.ri_current_load_state(),
         machine.ri_mode_state(),
     );
-    match machine.step() {
-        Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
-            CASE,
-            rejection.fields().raw().bits() == 0xaeaf_0000
-                && rejection.effective_address() == Some(0xffff_ffff_a3f0_000c)
-                && rejection.cpu_address() == Some(CpuAddress::new(0xa3f0_000c))
-                && rejection.target().is_none()
-                && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RDRAM_MODE direct-target-miss rejection",
-        )?,
-        Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
-        Ok(_) => return assertion(CASE, "RDRAM_MODE must remain the first rejected frontier"),
-    }
+    let outcome = step(&mut machine, CASE)?;
+    total_committed_steps += 1;
     require(
         CASE,
-        machine.cpu().pc() == pc_before
-            && machine.cpu().next_pc() == next_pc_before
-            && machine.cpu().cop0_count() == count_before
-            && machine.cpu_delay_slot_context() == delay_before
+        matches!(
+            outcome,
+            MachineRepresentedStepOutcome::RdramInitialModeStoreCommitted {
+                effective_address: 0xffff_ffff_a3f0_000c,
+                target: MachineStoreWordTarget::RdramInitialMode,
+                source_gpr: 15,
+                stored_word: RDRAM_INITIAL_MODE_X105_FIRST_MANUAL_WRITE_WORD,
+                state,
+                cadence_plan,
+            } if state.raw_word() == RDRAM_INITIAL_MODE_X105_FIRST_MANUAL_WRITE_WORD
+                && state.aperture() == MachineRdramInitialModeAperture::InitialNonGlobal
+                && state.device_enable()
+                && state.auto_skip()
+                && state.current_control_multiplier()
+                && !state.current_control_enable()
+                && state.encoded_current_control_code() == 0x3f
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0bb8)
+                && state.source().source_gpr() == 15
+                && state.source().source_lineage() == source_lineage_before.unwrap()
+                && state.source().effective_address() == 0xffff_ffff_a3f0_000c
+                && state.source().cpu_address() == CpuAddress::new(0xa3f0_000c)
+                && state.source().physical_address() == RDRAM_INITIAL_MODE_PHYSICAL_ADDRESS
+                && cadence_plan.advances_count()
+        ) && machine.cpu().pc() == 0xa400_0bc4
+            && machine.cpu().next_pc() == 0xa400_0bc8
+            && machine.cpu().cop0_count() == 32_244
+            && total_committed_steps == 32_260
+            && machine.cpu_delay_slot_context().is_none()
             && machine.cpu().gpr(15) == source_before
             && machine.cpu().gpr(21) == base_before
             && machine
@@ -5793,7 +5811,119 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             && source_before == Some(0x0000_0000_46c0_c0c0)
             && base_before == Some(0xffff_ffff_a3f0_000c)
             && (base_before.unwrap() as u32 & 0x1fff_ffff) == 0x03f0_000c,
-        "RDRAM_MODE frontier preserves complete represented device and CPU truth",
+        "RDRAM_MODE request, derived facts, delay-slot cadence, and prior truth",
+    )?;
+    let mode_request =
+        machine
+            .rdram_initial_mode_request_state()
+            .ok_or(StepProbeError::Assertion {
+                case: CASE,
+                check: "initial RDRAM_MODE request available",
+            })?;
+
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                effective_address: 0xffff_ffff_a400_1e9c,
+                target: MachineLoadWordTarget::SpImem { offset: 0x0e9c },
+                destination_gpr: 31,
+                loaded_word: 0xa400_0a24,
+                result_value: 0xffff_ffff_a400_0a24,
+                cadence_plan,
+            } if cadence_plan.advances_count()
+        ),
+        "WriteCC restores the exact known return address",
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == 32_245
+            && machine.cpu().gpr(31) == Some(0xffff_ffff_a400_0a24),
+        "WriteCC return address load cadence",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0bcc
+            && machine.cpu().next_pc() == 0xa400_0bd0
+            && machine.cpu().cop0_count() == 32_246
+            && machine.cpu().gpr(29) == Some(0xffff_ffff_a400_1ea8),
+        "WriteCC stack restoration",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialJr,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0bd0
+            && machine.cpu().next_pc() == 0xa400_0a24
+            && machine.cpu().cop0_count() == 32_247
+            && machine
+                .cpu_delay_slot_context()
+                .is_some_and(|context| context.branch_or_jump_pc() == 0xa400_0bcc),
+        "WriteCC JR target and delay owner",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialSll,
+    )?;
+    total_committed_steps += 1;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0a24
+            && machine.cpu().next_pc() == 0xa400_0a28
+            && machine.cpu().cop0_count() == 32_248
+            && machine.cpu_delay_slot_context().is_none(),
+        "WriteCC JR Nop slot cadence",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::SpecialOr,
+    )?;
+    total_committed_steps += 1;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    total_committed_steps += 1;
+    let response_test = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0a2c
+            && machine.cpu().next_pc() == 0xa400_0a30
+            && machine.cpu().cop0_count() == 32_250
+            && total_committed_steps == 32_266
+            && response_test.cpu_address() == CpuAddress::new(0xa400_0a2c)
+            && response_test.fields().raw().bits() == 0xae9a_0000
+            && response_test.identity() == CpuInstructionIdentity::Sw
+            && response_test.fields().rs() == 20
+            && response_test.fields().rt() == 26
+            && machine.cpu().gpr(20) == Some(0xffff_ffff_a000_0000)
+            && machine.cpu().gpr(26) == Some(0xffff_ffff_ffff_ffff)
+            && machine.rdram_initial_mode_request_state() == Some(mode_request),
+        "unexecuted first response-test store at physical RDRAM address zero",
     )
 }
 

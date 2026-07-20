@@ -608,6 +608,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::RdramFirstResponderDeviceIdStoreCommitted {
                         ..
                     }
+                    | MachineRepresentedStepOutcome::RdramInitialModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted {
                         ..
                     }
@@ -758,6 +759,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramFirstResponderDeviceIdStoreCommitted { .. }
+            | MachineRepresentedStepOutcome::RdramInitialModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. }
             | MachineRepresentedStepOutcome::Mtc0Committed { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
@@ -799,6 +801,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         }
         MachineRepresentedStepOutcome::RdramFirstResponderDeviceIdStoreCommitted { .. } => {
             "rdram-first-responder-device-id-store-committed"
+        }
+        MachineRepresentedStepOutcome::RdramInitialModeStoreCommitted { .. } => {
+            "rdram-initial-mode-store-committed"
         }
         MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. } => {
             "rdram-broadcast-refresh-row-store-committed"
