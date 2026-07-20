@@ -161,7 +161,8 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: the existing per-Machine `Rdram` owner remains the sole
   RDRAM-byte owner and additionally stores optional global/broadcast delay,
   raw REF_ROW, relocation-request, and exact RCP 2.0 first-responder
-  assignment-request facts. Exact aligned `Sw` at physical `0x03F80008` requires the
+  assignment-request facts plus one exact initial non-global RDRAM_MODE request.
+  Exact aligned `Sw` at physical `0x03F80008` requires the
   pending 15/16 MI transfer and low word `0x18082838`, then stores logical
   fields 5/7/3/1 and packed logical configuration `0x28381808` with CPU and
   consumed-MI provenance. It consumes the transfer and makes current
@@ -172,9 +173,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   records requested base `0x02000000` as a global relocation request. Exact
   RCP 2.0 first-responder physical `0x03F08004` accepts only low word zero and
   records requested initial device ID zero with CPU-store provenance. The
-  RCP 1.0 aperture `0x03F04004` remains unsupported. None of these writes
+  RCP 1.0 aperture `0x03F04004` remains unsupported. Exact physical
+  `0x03F0000C` accepts only low word `0x46C0C0C0` and records one initial
+  non-global request with CPU-store provenance. Device-enable, auto-skip,
+  current-control multiplier, absent current-control enable, and encoded code
+  `0x3F` derive read-only from that one raw word. None of these writes
   changes an RDRAM byte or address route, proves responder presence, or records
-  assignment completion. No RDRAM-register read, module state, refresh engine,
+  assignment/calibration completion. No RDRAM-register read, physical
+  current-control effect, module state, refresh engine,
   general replication, timing, readiness, register bank, MMIO, or bus exists.
 - `LIVE_REPO_FACT`: generated-only public-step composition now commits
   32,185 bounded x105-shaped instructions. The accepted 32,038-step prefix
@@ -242,11 +248,17 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   arithmetic transforms zero through `0x3F`, combines base flags
   `0x46000000` with scattered bits `0x00C0C0C0`, and produces
   `r15=0x46C0C0C0`. At 32,259 commits, PC/next-PC are
-  `0xA4000BB8 / 0xA4000BC4`, Count is `32243`, and the first unsupported
-  pressure is delay-slot word `0xAEAF0000`, `Sw r15,0(r21)`, to CPU
-  `0xA3F0000C` / physical `0x03F0000C`. It rejects atomically as
-  `DirectTargetMiss`; RDRAM_MODE remains unrepresented. Every instruction and
-  represented state is independently generated.
+  `0xA4000BB8 / 0xA4000BC4` and Count is `32243`. Commit 32,260 executes
+  delay-slot word `0xAEAF0000`, `Sw r15,0(r21)`, to CPU `0xA3F0000C` /
+  physical `0x03F0000C`; it records the exact initial non-global request,
+  reaches `0xA4000BC4 / 0xA4000BC8`, advances Count to `32244`, and clears the
+  existing BNE context. Six further supported commits restore WriteCC ra/sp,
+  return through JR/Nop to TestCCValue, zero s8, and construct r26 all ones.
+  At 32,266 commits, PC/next-PC are `0xA4000A2C / 0xA4000A30` and Count is
+  `32250`. The first response-test word `0xAE9A0000`, `Sw r26,0(r20)`, would
+  target CPU `0xA0000000` / physical RDRAM zero with word `0xFFFFFFFF`; it is
+  inspected but not executed. Every instruction and represented state is
+  independently generated.
   This CPU-composition proof
   establishes neither RI elapsed time nor calibration and does not change
   BOOT-2.
@@ -374,6 +386,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   generated JAL replaces it, and public stepping enters InitCCValue before
   stopping atomically at the first unknown store source, without a Worker lane
   or queue entry.
+- `master-direct-rdram-mode-first-manual-x105-calibration-boundary-v1`:
+  direct Master product operation; exact initial non-global RDRAM_MODE word
+  `0x46C0C0C0` records one request-only fact, generated public stepping returns
+  from WriteCC, and proof stops before the first RDRAM response-test access
+  without a Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -423,9 +440,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   takes one existing delay slot, while inequality annuls `PC+4` with no slot
   execution, commit, Count, effect, exception, or delay context. The generated
   BEQL is not taken, so r2 remains unavailable until TestCCValue later writes
-  it. Generated TestCCValue and WriteCC reach exact RDRAM_MODE word
-  `0x46C0C0C0` at CPU `0xA3F0000C`; that store rejects atomically and no
-  current-control device effect occurs. No responder presence,
+  it. Generated TestCCValue and WriteCC commit exact RDRAM_MODE request word
+  `0x46C0C0C0` at CPU `0xA3F0000C`; its named fields derive from the one raw
+  word, while CPU readback and physical effect remain unavailable. Public
+  stepping returns from WriteCC and stops before response-test `Sw` at
+  `0xA4000A2C`, so no response or calibration score exists. No responder presence,
   assignment completion, module identity, discovery, or per-module state is
   represented. Alternate MI_VERSION identities and a
   configuration surface remain absent. DEVICE_ID physical relocation,

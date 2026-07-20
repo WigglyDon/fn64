@@ -653,6 +653,19 @@ product or reference lane requires a new explicit product decision.
   atomically as `DirectTargetMiss`. RDRAM_MODE, current-control calibration,
   BOOT-3, and compatibility remain unearned.
 
+## Era 34 — exact first-manual RDRAM_MODE request (2026-07-19)
+
+- Ownership decision: the existing per-Machine `Rdram` stores one raw initial
+  non-global request word `0x46C0C0C0` plus exact CPU provenance. Named flag
+  and encoded-code facts derive from the word; readback and physical effect do
+  not exist.
+- Generated composition: the `Sw` at `0xA4000BB8` commits as the taken BNE's
+  existing delay slot. WriteCC restores ra/sp and returns through JR/Nop;
+  TestCCValue zeroes s8 and constructs the all-ones response-test word.
+- Boundary: PC/next-PC `0xA4000A2C/0xA4000A30`, Count 32250, and 32,266
+  commits expose `Sw r26,0(r20)` to physical RDRAM zero. It is not executed;
+  no response, score, calibration result, BOOT-3, or compatibility is earned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

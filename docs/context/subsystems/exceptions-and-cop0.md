@@ -46,6 +46,10 @@ Exact BEQL adds no intrinsic exception. Its taken slot retains this existing
 EPC/BD owner and zero normal Count cadence when the slot faults. Its not-taken
 path architecturally annuls PC+4, so the nullified word cannot raise AdEL,
 AdES, overflow, reserved-instruction, or any other represented exception.
+The exact initial non-global RDRAM_MODE request adds no exception machinery.
+Unaligned candidates retain ordinary/delay-slot AdES precedence and the
+enclosing branch's EPC/BD owner; nonexact values reject without Count or COP0
+mutation. The generated aligned request commits through normal slot cadence.
 
 The explicit generated-only NTSC cold-x105 handoff is the sole bootstrap path
 that sources inherited COP0 state. It stages Status=`0x34000000` with named

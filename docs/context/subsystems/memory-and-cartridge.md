@@ -100,8 +100,12 @@ routing effects. Exact RCP 2.0 first-responder physical `0x03F08004` accepts
 only low word zero and records requested initial device ID zero with CPU-store
 provenance. It does not require prior global RDRAM facts, prove a responder,
 or complete an assignment. RCP 1.0 physical `0x03F04004`, other non-global
-apertures, RDRAM_MODE, SP-DMEM, other MI/RDRAM registers, device reads,
+apertures, SP-DMEM, other MI/RDRAM registers, device reads,
 general RI_SELECT programming, and other store targets remain unsupported.
+Exact initial non-global physical `0x03F0000C` accepts only
+`0x46C0C0C0`, records one raw request and CPU provenance, and derives five
+named facts without changing bytes/routes. Other RDRAM_MODE words/apertures,
+CPU readback, physical current-control effect, and response remain unsupported.
 Exact aligned `Lw` at physical `0x04300004` reads the immutable version;
 the other MI read surface remains closed.
 
@@ -117,7 +121,7 @@ immutable MI_VERSION identity, MI initialization-mode fact/pending transfer,
 one global broadcast-delay fact, one raw-zero global REF_ROW fact, one global
 DEVICE_ID relocation-request fact, one RCP 2.0 first-responder DEVICE_ID
 assignment-request fact, and cause-known value-unavailable aligned SP-IMEM
-word truth,
+word truth, plus one exact initial non-global RDRAM_MODE request,
 narrow KSEG0/KSEG1 CPU-data routes to the
 represented SP memories, and aligned `Lw` over direct RDRAM, known SP IMEM,
 cartridge-staged SP DMEM, exact physical RI_SELECT `0x0470000C`, or exact
@@ -135,7 +139,7 @@ the external producer for the observed x105 prefix `[0x000, 0x020)` and initial
 mutation range `[0x000, 0x02c)`. Explicit profiled copy now represents that
 byte-transfer effect from lawful input, but no private PIF was used. Generated proof combines it atomically with the bounded NTSC
 cold-x105 CPU
-handoff and advances a generated 32,259-step composition through the stored
+handoff and advances a generated 32,266-step composition through the stored
 RI_SELECT read, cold BNE/NOP slot, five high-SP-IMEM saves, exact RI_CONFIG
 store, 8,000 CPU-loop iterations, RI_CURRENT_LOAD event, following `Ori`, and
 exact RI_SELECT write, both RI_MODE writes, both bounded CPU waits, the exact
@@ -150,7 +154,8 @@ Four inherited-unknown r2-r5 saves then create opaque aligned SP-IMEM words;
 twenty known-source saves follow without disturbing them. FindCC JAL/Nop,
 BEQL annul, TestCCValue, and WriteCC then commit through public stepping. The
 actual first manual word is `0x46C0C0C0`; its `Sw` at CPU `0xA3F0000C` /
-physical `0x03F0000C` rejects atomically, so RDRAM_MODE remains unrepresented;
+physical `0x03F0000C` commits one request. WriteCC returns through JR/Nop and
+execution stops before the physical-zero response-test `Sw`;
 no general RI_SELECT programming, other RI write/read, other MI register/read,
 general MI replication, other RDRAM-register behavior, per-module state,
 calibration/timing process, NMI, or

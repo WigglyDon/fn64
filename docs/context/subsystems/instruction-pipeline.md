@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 166-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 168-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -69,8 +69,10 @@ then commit. BEQL alone is represented among likely branches: available old
 GPR values compare across all 64 bits; taken execution uses the existing one
 slot, and not-taken execution annuls PC+4 with no slot execution, commit,
 Count, effect, exception, or context. The generated BEQL is not taken;
-TestCCValue and WriteCC then produce exact `0x46C0C0C0` before the physical
-RDRAM_MODE `0x03F0000C` store rejects as `DirectTargetMiss`. This proves no RI timing,
+TestCCValue and WriteCC then produce exact `0x46C0C0C0`; the physical
+RDRAM_MODE `0x03F0000C` store commits one request through the existing BNE
+slot. Existing Lw/Addiu/JR/Nop/Or/Addiu execution returns to TestCCValue and
+stops before response-test `Sw` at physical RDRAM zero. This proves no RI timing,
 calibration, general MI bus
 effect, responder/module state, assignment completion, or RDRAM process.
 
@@ -84,7 +86,7 @@ The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct SP IMEM or exact
 RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY/
 global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0 first-responder
-RDRAM_DEVICE_ID,
+RDRAM_DEVICE_ID/exact initial non-global RDRAM_MODE,
 and only then captures source value/lineage and
 constructs a closed destination plan. RI_CONFIG planning rejects undefined
 high bits; RI_CURRENT_LOAD planning requires stored RI_CONFIG and snapshots its
@@ -97,7 +99,9 @@ commits reject. Global RDRAM_DELAY planning requires exact address, low word
 `0x18082838`, and that transfer, and creates logical configuration `0x28381808`
 with consumed lineage. First-responder planning matches only physical
 `0x03F08004`, requires known low word zero and no pending transfer, and creates
-a request fact rather than module state. Application neither reclassifies nor
+a request fact rather than module state. Initial-mode planning matches only
+physical `0x03F0000C`, known low word `0x46C0C0C0`, and no pending transfer;
+its fields derive from one raw request. Application neither reclassifies nor
 discovers a new failure.
 
 After alignment, direct normalization, and exact destination classification,

@@ -148,14 +148,17 @@ to SP IMEM; twenty following known-source saves commit through `0xA40008EC`.
 word `0x53400018`; complete available 64-bit operands compare unequal, so its
 `0xA40009A0` slot is architecturally annulled with no execution, commit, Count,
 effect, exception, or delay context. TestCCValue and WriteCC commit through
-public stepping and construct `0x46C0C0C0`. Execution stops at physical
-RDRAM_MODE `0x03F0000C` with Count `32243` and 32,259 committed steps. This is CPU
-composition, not elapsed RI time or calibration. Known
+public stepping and construct `0x46C0C0C0`. The physical RDRAM_MODE
+`0x03F0000C` store commits in the existing BNE slot as one request fact.
+WriteCC restores ra/sp and returns through JR/Nop; TestCCValue then reaches
+unexecuted physical-RDRAM-zero response-test `Sw` at `0xA4000A2C`, Count
+`32250`, and 32,266 committed steps. This is CPU composition, not elapsed RI
+time, physical mode application, or calibration. Known
 unknowns include complete public-step ISA integration, real timing,
 other branch-likely/other REGIMM and broader COP0 execution, every RI action except
 the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
 RI_MODE defined-field writes, the exact MI_INIT_MODE write, and the exact
 global RDRAM_DELAY write, exact raw-zero global RDRAM_REF_ROW write, and exact
 global RDRAM_DEVICE_ID request, exact RCP 2.0 first-responder request, NMI,
-generic MMIO, RDRAM_MODE, later current-control memory testing, other load/store families, and
+generic MMIO, general RDRAM_MODE/readback, current-control response testing, other load/store families, and
 performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.

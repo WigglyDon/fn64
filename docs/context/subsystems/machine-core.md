@@ -62,7 +62,8 @@ backing rejects. No serialization format is a product contract yet.
 Aligned `Sw` uses a separate Machine plan/application path for SP IMEM, the
 four exact RI_MODE, RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets, exact
 MI_INIT_MODE, the three exact global RDRAM writes, or the exact RCP 2.0
-first-responder DEVICE_ID target.
+first-responder DEVICE_ID target, plus one exact initial non-global RDRAM_MODE
+request.
 The plan resolves old base, alignment, direct target, old source value, exact
 SP-IMEM span or destination-specific RI state, and CPU-store provenance before
 application. Undefined RI_CONFIG high bits, unavailable RI_CONFIG for an
@@ -141,7 +142,11 @@ accepts only low word zero at physical `0x03F80014`, records CPU-store
 provenance, and preserves the delay fact. Global DEVICE_ID physical
 `0x03F80004` records only requested base `0x02000000`; first-responder physical
 `0x03F08004` records only requested initial ID zero and the exact RCP 2.0
-aperture. These writes change no RDRAM byte or route, create no module
+aperture. Exact initial non-global physical `0x03F0000C` accepts only raw word
+`0x46C0C0C0`; it stores one request and CPU provenance. Device-enable,
+auto-skip, multiplier, absent current-control enable, and encoded code `0x3F`
+derive read-only from the raw word. These writes change no RDRAM byte or route,
+create no physical current-control effect, readback, or module
 inventory/presence/completion state, and have no CPU read route. Reset and
 complete bootstrap clear all optional RDRAM facts; failed bootstrap preserves
 them.
@@ -155,7 +160,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 166-case step probe, the bounded BOOT-2
+construction/reset probe, the 168-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -164,7 +169,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,259-step generated composition through the stored RI_SELECT
+handoff and a 32,266-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -190,9 +195,14 @@ BEQL word `0x53400018` is not taken and annuls its `Or r2,r0,r0` slot without
 execution, commit, Count, effect, exception, or delay context. TestCCValue and
 WriteCC commit through public stepping and produce `0x46C0C0C0`. At Count
 `32243` and 32,259 commits, `Sw r15,0(r21)` at `0xA4000BB8` targets physical
-RDRAM_MODE `0x03F0000C` and rejects atomically as `DirectTargetMiss`.
+RDRAM_MODE `0x03F0000C` and commits one exact request in the existing BNE
+delay slot. WriteCC restores ra/sp and returns through JR/Nop; two
+TestCCValue-local commits then expose response-test `Sw r26,0(r20)` at
+`0xA4000A2C`. At Count `32250` and 32,266 commits that instruction remains
+unexecuted.
 It does not prove an authentic firmware-executed handoff, responder
-presence/completion, RI calibration or elapsed hardware time, RDRAM_MODE or
+presence/completion, RI calibration or elapsed hardware time, RDRAM_MODE
+physical effect/readback or
 RDRAM initialization, BOOT-3, full ISA, game compatibility, renderer, audio,
 performance, or host integration.
 
