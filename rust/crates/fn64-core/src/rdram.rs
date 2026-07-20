@@ -9,6 +9,7 @@ pub const RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS: u32 = 0x03f8_0004;
 pub const RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS: u32 = 0x03f8_0008;
 pub const RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS: u32 = 0x03f8_0014;
 pub const RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS: u32 = 0x03f0_8004;
+pub const RDRAM_INITIAL_MODE_PHYSICAL_ADDRESS: u32 = 0x03f0_000c;
 pub const RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD: u32 = 0x8000_0000;
 pub const RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE: u32 = 0x0200_0000;
 pub const RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_WRITE_WORD: u32 = 0x0000_0000;
@@ -16,6 +17,11 @@ pub const RDRAM_FIRST_RESPONDER_DEVICE_ID_X105_REQUESTED_INITIAL_DEVICE_ID: u32 
 pub const RDRAM_DELAY_X105_CPU_TRANSFER_WORD: u32 = 0x1808_2838;
 pub const RDRAM_DELAY_X105_LOGICAL_CONFIGURATION: u32 = 0x2838_1808;
 pub const RDRAM_REF_ROW_X105_WRITE_WORD: u32 = 0x0000_0000;
+pub const RDRAM_INITIAL_MODE_X105_FIRST_MANUAL_WRITE_WORD: u32 = 0x46c0_c0c0;
+pub const RDRAM_MODE_DEVICE_ENABLE: u32 = 0x0200_0000;
+pub const RDRAM_MODE_AUTO_SKIP: u32 = 0x0400_0000;
+pub const RDRAM_MODE_CC_MULT: u32 = 0x4000_0000;
+pub const RDRAM_MODE_CC_ENABLE: u32 = 0x8000_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRdramBroadcastDelaySource {
@@ -432,6 +438,122 @@ impl MachineRdramFirstResponderDeviceIdRequestState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramInitialModeAperture {
+    InitialNonGlobal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramInitialModeSource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+    },
+}
+
+impl MachineRdramInitialModeSource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        match self {
+            Self::CpuStoreWord {
+                effective_address, ..
+            } => effective_address,
+        }
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { cpu_address, .. } => cpu_address,
+        }
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        match self {
+            Self::CpuStoreWord {
+                physical_address, ..
+            } => physical_address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRdramInitialModeRequestState {
+    raw_word: u32,
+    aperture: MachineRdramInitialModeAperture,
+    source: MachineRdramInitialModeSource,
+}
+
+impl MachineRdramInitialModeRequestState {
+    pub(crate) const fn from_exact_x105_first_manual_cpu_store(
+        source: MachineRdramInitialModeSource,
+    ) -> Self {
+        debug_assert!(source.physical_address() == RDRAM_INITIAL_MODE_PHYSICAL_ADDRESS);
+        Self {
+            raw_word: RDRAM_INITIAL_MODE_X105_FIRST_MANUAL_WRITE_WORD,
+            aperture: MachineRdramInitialModeAperture::InitialNonGlobal,
+            source,
+        }
+    }
+
+    pub const fn raw_word(self) -> u32 {
+        self.raw_word
+    }
+
+    pub const fn aperture(self) -> MachineRdramInitialModeAperture {
+        self.aperture
+    }
+
+    pub const fn source(self) -> MachineRdramInitialModeSource {
+        self.source
+    }
+
+    pub const fn device_enable(self) -> bool {
+        self.raw_word & RDRAM_MODE_DEVICE_ENABLE != 0
+    }
+
+    pub const fn auto_skip(self) -> bool {
+        self.raw_word & RDRAM_MODE_AUTO_SKIP != 0
+    }
+
+    pub const fn current_control_multiplier(self) -> bool {
+        self.raw_word & RDRAM_MODE_CC_MULT != 0
+    }
+
+    pub const fn current_control_enable(self) -> bool {
+        self.raw_word & RDRAM_MODE_CC_ENABLE != 0
+    }
+
+    pub const fn encoded_current_control_code(self) -> u8 {
+        (((self.raw_word >> 6) & 1) as u8)
+            | ((((self.raw_word >> 14) & 1) as u8) << 1)
+            | ((((self.raw_word >> 22) & 1) as u8) << 2)
+            | ((((self.raw_word >> 7) & 1) as u8) << 3)
+            | ((((self.raw_word >> 15) & 1) as u8) << 4)
+            | ((((self.raw_word >> 23) & 1) as u8) << 5)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RdramAccessError {
     offset: usize,
     width: usize,
@@ -465,6 +587,7 @@ pub struct Rdram {
     broadcast_delay: Option<MachineRdramBroadcastDelayState>,
     broadcast_refresh_row: Option<MachineRdramBroadcastRefreshRowState>,
     first_responder_device_id_request: Option<MachineRdramFirstResponderDeviceIdRequestState>,
+    initial_mode_request: Option<MachineRdramInitialModeRequestState>,
 }
 
 impl Rdram {
@@ -517,6 +640,16 @@ impl Rdram {
         state: MachineRdramFirstResponderDeviceIdRequestState,
     ) {
         self.first_responder_device_id_request = Some(state);
+    }
+
+    pub(crate) const fn initial_mode_request_state(
+        &self,
+    ) -> Option<MachineRdramInitialModeRequestState> {
+        self.initial_mode_request
+    }
+
+    pub(crate) fn apply_initial_mode_store(&mut self, state: MachineRdramInitialModeRequestState) {
+        self.initial_mode_request = Some(state);
     }
 
     pub fn read_u8(&self, offset: usize) -> Result<u8, RdramAccessError> {
@@ -621,6 +754,7 @@ impl Default for Rdram {
             broadcast_delay: None,
             broadcast_refresh_row: None,
             first_responder_device_id_request: None,
+            initial_mode_request: None,
         }
     }
 }
@@ -639,6 +773,7 @@ mod tests {
         assert_eq!(rdram.broadcast_delay_state(), None);
         assert_eq!(rdram.broadcast_refresh_row_state(), None);
         assert_eq!(rdram.first_responder_device_id_request_state(), None);
+        assert_eq!(rdram.initial_mode_request_state(), None);
     }
 
     #[test]

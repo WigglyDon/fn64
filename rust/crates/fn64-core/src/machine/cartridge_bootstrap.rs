@@ -957,6 +957,7 @@ mod tests {
             Option<crate::rdram::MachineRdramBroadcastDeviceIdRequestState>,
         rdram_first_responder_device_id_request:
             Option<crate::rdram::MachineRdramFirstResponderDeviceIdRequestState>,
+        rdram_initial_mode_request: Option<crate::rdram::MachineRdramInitialModeRequestState>,
         rdram_broadcast_refresh_row: Option<crate::rdram::MachineRdramBroadcastRefreshRowState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
@@ -1016,6 +1017,7 @@ mod tests {
             rdram_broadcast_device_id_request: machine.rdram_broadcast_device_id_request_state(),
             rdram_first_responder_device_id_request: machine
                 .rdram_first_responder_device_id_request_state(),
+            rdram_initial_mode_request: machine.rdram_initial_mode_request_state(),
             rdram_broadcast_refresh_row: machine.rdram_broadcast_refresh_row_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }
