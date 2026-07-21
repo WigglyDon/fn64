@@ -1,0 +1,16 @@
+phase	pc_or_range	events	committed_truth
+start	0xA4000A2C	1	PC=0xA4000A2C next=0xA4000A30 Count=32250 commits=32266
+test-cc	0xA4000A10..0xA4000A80	320 calls	three stores ten reads and bit-count loops execute per call
+find-cc	0xA4000984..0xA4000A0C	12 calls	8 present searches plus 4 absent searches
+convert	0xA4000A84..0xA4000B40	8 calls	manual target 5280 converts to auto 7
+write-cc	0xA4000B44..0xA4000BD0	388 post-start calls	generated manual and automatic raw mode words
+read-cc	0xA4000BD4..0xA4000C6C	128 calls	MI-gated module-mode reads
+loop1	0xA40001A8..0xA4000288	3 iterations	2 present modules and 1 absent termination
+global-relocation	0xA4000290..0xA4000298	2 writes	mode 0xC4000000 and base 0x02000000 request
+loop2	0xA40002A4..0xA4000398	2 iterations	final bases 0 and 0x00200000 final modes 0xC6808080
+refresh	0xA40003B0..0xA40003B4	2 instructions	RI_REFRESH write/read 0x001E3634
+memory-size	0xA40003CC	1 store	0x00400000 at physical 0x000003F0
+teardown	0xA40003D0..0xA40003FC	12 instructions	stack and saved-register restoration
+frontier	0xA4000400	0 executions	word 0x4080E000 Cop0Mtc0 zero register 28
+totals	post-start	214734 commits	final Count=246984 total commits=247000
+

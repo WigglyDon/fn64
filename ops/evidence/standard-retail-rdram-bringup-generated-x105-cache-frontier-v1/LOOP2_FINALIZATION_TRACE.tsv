@@ -1,0 +1,4 @@
+iteration	module	final_device_id_word	final_base	final_mode	settling_reads	result
+0	0	0x00000000	0x00000000	0xC6808080	8	finalized
+1	1	0x08000000	0x00200000	0xC6808080	8	finalized
+
