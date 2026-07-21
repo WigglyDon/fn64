@@ -1,0 +1,2 @@
+load_pc	store_pc	source_cpu_first	source_cpu_last	source_local_first	source_local_last	destination_cpu_first	destination_cpu_last	words	source_classification	loads	stores	branches_taken	branches_untaken	delay_slots	count_delta	committed_delta
+0xA40004DC	0xA40004F0	0xA4000554	0xA4000884	0x0554	0x0884	0xA0000004	0xA0000334	205	CartridgeBootstrap at exact per-word cartridge offset	205	205	204	1	205	1230	1230

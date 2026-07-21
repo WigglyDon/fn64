@@ -598,6 +598,8 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::SpStatusStoreCommitted { .. }
+                    | MachineRepresentedStepOutcome::SpPcStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
@@ -618,6 +620,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     }
                     | MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::Mtc0Committed { .. }
+                    | MachineRepresentedStepOutcome::CacheIndexStoreTagCommitted { .. }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
                     MachineRepresentedStepOutcome::DataAddressError { .. } => {
                         first_frontier = Some(format_frontier(
@@ -772,6 +775,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. }
             | MachineRepresentedStepOutcome::Mtc0Committed { .. }
+            | MachineRepresentedStepOutcome::CacheIndexStoreTagCommitted { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
     )
 }
@@ -798,6 +802,8 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. } => {
             "opaque-sp-imem-store-word-committed"
         }
+        MachineRepresentedStepOutcome::SpStatusStoreCommitted { .. } => "sp-status-store-committed",
+        MachineRepresentedStepOutcome::SpPcStoreCommitted { .. } => "sp-pc-store-committed",
         MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. } => {
             "rdram-store-word-committed"
         }
@@ -832,6 +838,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
             "ri-refresh-store-committed"
         }
         MachineRepresentedStepOutcome::Mtc0Committed { .. } => "mtc0-committed",
+        MachineRepresentedStepOutcome::CacheIndexStoreTagCommitted { .. } => {
+            "cache-index-store-tag-committed"
+        }
         MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
         MachineRepresentedStepOutcome::ArithmeticOverflowException { .. } => {
             "arithmetic-overflow-exception"
@@ -981,6 +990,9 @@ fn format_load_word_rejection_frontier(
         Some(MachineLoadWordTarget::SpImem { offset }) => {
             format!("sp-imem offset=0x{offset:08X}")
         }
+        Some(MachineLoadWordTarget::Cartridge { offset }) => {
+            format!("cartridge offset=0x{offset:08X}")
+        }
         Some(MachineLoadWordTarget::RiSelect { source }) => {
             format!("ri-select source={source:?}")
         }
@@ -999,6 +1011,9 @@ fn format_load_word_rejection_frontier(
         MachineLoadWordRejectionReason::DirectTargetMiss => "direct-target-miss".to_owned(),
         MachineLoadWordRejectionReason::DirectRdramReadRejected => {
             "direct-rdram-read-rejected".to_owned()
+        }
+        MachineLoadWordRejectionReason::CartridgeReadRejected => {
+            "cartridge-read-rejected".to_owned()
         }
         MachineLoadWordRejectionReason::SpDmemUnknown {
             first_unknown_offset,
@@ -1112,6 +1127,26 @@ fn format_instruction_source(source: MachineCpuInstructionSource) -> String {
         MachineCpuInstructionSource::DirectRdram { offset } => {
             format!("direct-rdram offset=0x{:08X}", offset.value())
         }
+        MachineCpuInstructionSource::PrimaryInstructionCacheHit {
+            offset,
+            line_index,
+            physical_tag,
+        } => format!(
+            "primary-icache-hit rdram_offset=0x{:08X} line={} physical_tag=0x{:08X}",
+            offset.value(),
+            line_index,
+            physical_tag
+        ),
+        MachineCpuInstructionSource::PrimaryInstructionCacheFillFromRdram {
+            offset,
+            line_index,
+            physical_line_address,
+        } => format!(
+            "primary-icache-fill-from-rdram rdram_offset=0x{:08X} line={} physical_line=0x{:08X}",
+            offset.value(),
+            line_index,
+            physical_line_address
+        ),
         MachineCpuInstructionSource::SpDmem {
             offset,
             provenance: MachineSpDmemInstructionProvenance::CartridgeBootstrap { cartridge_offset },

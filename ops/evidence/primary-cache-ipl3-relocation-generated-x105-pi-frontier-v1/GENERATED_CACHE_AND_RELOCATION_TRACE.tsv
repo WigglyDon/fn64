@@ -1,0 +1,11 @@
+phase	start_pc	end_or_next_pc	attempted_steps	committed_steps	count_start	count_end	result
+cp0_tags	0xA4000400	0xA4000408	2	2	246984	246986	TagLo and TagHi raw zero
+icache_loop	0xA4000408	0xA4000418	2048	2048	246986	249034	512 lines invalid
+dcache_setup	0xA4000418	0xA4000428	4	4	249034	249038	address bounds established
+dcache_loop	0xA4000428	0xA4000438	2048	2048	249038	251086	512 lines invalid
+branch_to_load_ipl3	0xA4000438	0xA4000488	2	2	251086	251088	branch and Nop slot
+sp_and_relocation_setup	0xA4000488	0xA40004DC	21	21	251088	251109	SP halt and PC reset included
+relocation_loop	0xA40004DC	0xA40004F4	1230	1230	251109	252339	205 loads and stores
+rsp_start_and_jump	0xA40004F4	0x80000004	6	6	252339	252345	JR plus SP start slot
+relocated_cpu_prefix	0x80000004	0x8000001C	6	6	252345	252351	I-cache fill hit cartridge read and PI setup
+total	0xA4000400	0x8000001C	5367	5367	246984	252351	first PI access remains unexecuted

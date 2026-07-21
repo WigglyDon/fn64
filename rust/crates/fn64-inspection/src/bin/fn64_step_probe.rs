@@ -28,7 +28,7 @@ use fn64_core::{
     RI_MODE_DEFINED_FIELDS_MASK, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 
-const DIRECT_CPU_PC: u32 = 0x8000_0000;
+const DIRECT_CPU_PC: u32 = 0xa000_0000;
 const GENERAL_EXCEPTION_VECTOR_PC: u32 = 0x8000_0180;
 const GENERAL_EXCEPTION_VECTOR_NEXT_PC: u32 = 0x8000_0184;
 
@@ -367,10 +367,10 @@ fn probe_cpu_local_committed_success() -> Result<(), StepProbeError> {
         machine.cpu().gpr(2) == Some(0xffff_ffff_8000_0000),
         "visible LUI writeback",
     )?;
-    require(CASE, machine.cpu().pc() == 0x8000_0004, "committed pc")?;
+    require(CASE, machine.cpu().pc() == 0xa000_0004, "committed pc")?;
     require(
         CASE,
-        machine.cpu().next_pc() == 0x8000_0008,
+        machine.cpu().next_pc() == 0xa000_0008,
         "committed next_pc",
     )?;
     require(
@@ -451,7 +451,7 @@ fn probe_cpu_local_arithmetic_overflow() -> Result<(), StepProbeError> {
     )?;
     require(
         CASE,
-        machine.cpu().cop0_epc() == 0x8000_000c,
+        machine.cpu().cop0_epc() == 0xa000_000c,
         "arithmetic-overflow EPC",
     )?;
     require(
@@ -1383,7 +1383,14 @@ fn probe_mtc0_cause_and_timer() -> Result<(), StepProbeError> {
     )?;
 
     const READONLY_CASE: &str = "mtc0-cause-preserve-readonly-state";
-    let words = [(0x40, immediate_word(0x23, 11, 8, 0x0041))];
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 8, 0x8000)),
+        (0x44, immediate_word(0x0d, 8, 8, 0x0180)),
+        (0x48, cop0_move_word(4, 0, 28)),
+        (0x4c, cop0_move_word(4, 0, 29)),
+        (0x50, immediate_word(0x2f, 8, 8, 0)),
+        (0x54, immediate_word(0x23, 11, 8, 0x0041)),
+    ];
     let (mut readonly, _) = generated_cold_x105_machine(READONLY_CASE, &words)?;
     readonly
         .write_rdram_u32_be(0x180, cop0_move_word(4, 0, 13))
@@ -1391,6 +1398,9 @@ fn probe_mtc0_cause_and_timer() -> Result<(), StepProbeError> {
             case: READONLY_CASE,
             source,
         })?;
+    for _ in 0..5 {
+        step(&mut readonly, READONLY_CASE)?;
+    }
     require(
         READONLY_CASE,
         matches!(
@@ -6585,8 +6595,8 @@ fn probe_beql_paths_and_rejections() -> Result<(), StepProbeError> {
     )?;
     require(
         TAKEN_CASE,
-        taken.cpu().pc() == 0x8000_0004
-            && taken.cpu().next_pc() == 0x8000_000c
+        taken.cpu().pc() == 0xa000_0004
+            && taken.cpu().next_pc() == 0xa000_000c
             && taken.cpu().cop0_count() == 1
             && taken.cpu().gpr(2) == Some(0)
             && taken
@@ -6602,8 +6612,8 @@ fn probe_beql_paths_and_rejections() -> Result<(), StepProbeError> {
     )?;
     require(
         TAKEN_CASE,
-        taken.cpu().pc() == 0x8000_000c
-            && taken.cpu().next_pc() == 0x8000_0010
+        taken.cpu().pc() == 0xa000_000c
+            && taken.cpu().next_pc() == 0xa000_0010
             && taken.cpu().cop0_count() == 2
             && taken.cpu().gpr(2) == Some(1)
             && taken.cpu_delay_slot_context().is_none(),
@@ -6638,8 +6648,8 @@ fn probe_beql_paths_and_rejections() -> Result<(), StepProbeError> {
     )?;
     require(
         ANNUL_CASE,
-        annul.cpu().pc() == 0x8000_000c
-            && annul.cpu().next_pc() == 0x8000_0010
+        annul.cpu().pc() == 0xa000_000c
+            && annul.cpu().next_pc() == 0xa000_0010
             && annul.cpu().cop0_count() == 2
             && annul.cpu().gpr(2) == Some(0)
             && annul.cpu_delay_slot_context().is_none(),
@@ -6681,7 +6691,7 @@ fn probe_beql_paths_and_rejections() -> Result<(), StepProbeError> {
     )?;
 
     const DELAY_CASE: &str = "beql-in-delay-slot-rejection";
-    const OUTER_TARGET: u32 = 0x8000_0020;
+    const OUTER_TARGET: u32 = 0xa000_0020;
     let mut nested = Machine::from_cartridge(Cartridge::default());
     seed_instruction(&mut nested, DELAY_CASE, 0x00, jump_word(0x02, OUTER_TARGET))?;
     seed_instruction(&mut nested, DELAY_CASE, 0x04, branch_word(0x14, 0, 0, 1))?;
@@ -6727,10 +6737,10 @@ fn probe_control_flow_taken_delay_slot() -> Result<(), StepProbeError> {
     machine.stage_cpu_pc(DIRECT_CPU_PC);
 
     require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Beq)?;
-    require(CASE, machine.cpu().pc() == 0x8000_0004, "taken slot pc")?;
+    require(CASE, machine.cpu().pc() == 0xa000_0004, "taken slot pc")?;
     require(
         CASE,
-        machine.cpu().next_pc() == 0x8000_000c,
+        machine.cpu().next_pc() == 0xa000_000c,
         "taken branch target",
     )?;
     require(
@@ -6754,7 +6764,7 @@ fn probe_control_flow_taken_delay_slot() -> Result<(), StepProbeError> {
         CpuInstructionIdentity::Addiu,
     )?;
     require(CASE, machine.cpu().gpr(2) == Some(1), "slot executed once")?;
-    require(CASE, machine.cpu().pc() == 0x8000_000c, "target after slot")?;
+    require(CASE, machine.cpu().pc() == 0xa000_000c, "target after slot")?;
     require(
         CASE,
         machine.cpu_delay_slot_context().is_none(),
@@ -6775,10 +6785,10 @@ fn probe_control_flow_untaken_delay_slot() -> Result<(), StepProbeError> {
     machine.stage_cpu_pc(DIRECT_CPU_PC);
 
     require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Bne)?;
-    require(CASE, machine.cpu().pc() == 0x8000_0004, "untaken slot pc")?;
+    require(CASE, machine.cpu().pc() == 0xa000_0004, "untaken slot pc")?;
     require(
         CASE,
-        machine.cpu().next_pc() == 0x8000_0008,
+        machine.cpu().next_pc() == 0xa000_0008,
         "untaken fall-through",
     )?;
     require(
@@ -6804,7 +6814,7 @@ fn probe_control_flow_untaken_delay_slot() -> Result<(), StepProbeError> {
     )?;
     require(
         CASE,
-        machine.cpu().pc() == 0x8000_0008,
+        machine.cpu().pc() == 0xa000_0008,
         "fall-through after slot",
     )?;
     require(
@@ -6821,8 +6831,8 @@ fn probe_control_flow_untaken_delay_slot() -> Result<(), StepProbeError> {
 
 fn probe_control_flow_jal_link() -> Result<(), StepProbeError> {
     const CASE: &str = "control-flow-jal-link";
-    const TARGET: u32 = 0x8000_0010;
-    const LINK: u64 = 0xffff_ffff_8000_0008;
+    const TARGET: u32 = 0xa000_0010;
+    const LINK: u64 = 0xffff_ffff_a000_0008;
     let mut machine = Machine::from_cartridge(Cartridge::default());
     seed_instruction(&mut machine, CASE, 0x00, jump_word(0x03, TARGET))?;
     seed_instruction(&mut machine, CASE, 0x04, special_word(31, 0, 5, 0x21))?;
@@ -6854,7 +6864,7 @@ fn probe_control_flow_jal_link() -> Result<(), StepProbeError> {
 fn probe_control_flow_jalr_alias() -> Result<(), StepProbeError> {
     const CASE: &str = "control-flow-jalr-alias";
     const TARGET: u32 = 0x8000_0020;
-    const LINK: u64 = 0xffff_ffff_8000_0010;
+    const LINK: u64 = 0xffff_ffff_a000_0010;
     let mut machine = Machine::from_cartridge(Cartridge::default());
     for (offset, instruction) in [
         (0x00, immediate_word(0x0f, 0, 4, 0x8000)),
@@ -6911,8 +6921,8 @@ fn probe_control_flow_jalr_alias() -> Result<(), StepProbeError> {
 
 fn probe_control_flow_delay_slot_exception() -> Result<(), StepProbeError> {
     const CASE: &str = "control-flow-delay-slot-exception";
-    const BRANCH_PC: u32 = 0x8000_0008;
-    const TARGET: u32 = 0x8000_0020;
+    const BRANCH_PC: u32 = 0xa000_0008;
+    const TARGET: u32 = 0xa000_0020;
     let mut machine = Machine::from_cartridge(Cartridge::default());
     for (offset, instruction) in [
         (0x00, immediate_word(0x0f, 0, 2, 0x7fff)),
@@ -6977,10 +6987,10 @@ fn probe_control_flow_delay_slot_exception() -> Result<(), StepProbeError> {
 
 fn probe_control_flow_branch_in_delay_slot_rejection() -> Result<(), StepProbeError> {
     const CASE: &str = "control-flow-branch-in-delay-slot-rejection";
-    const TARGET: u32 = 0x8000_0020;
+    const TARGET: u32 = 0xa000_0020;
     let mut machine = Machine::from_cartridge(Cartridge::default());
     seed_instruction(&mut machine, CASE, 0x00, jump_word(0x02, TARGET))?;
-    seed_instruction(&mut machine, CASE, 0x04, jump_word(0x03, 0x8000_0040))?;
+    seed_instruction(&mut machine, CASE, 0x04, jump_word(0x03, 0xa000_0040))?;
     machine.stage_cpu_pc(DIRECT_CPU_PC);
 
     require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::J)?;
@@ -7215,10 +7225,10 @@ fn assert_normal_single_step_cadence(
     machine: &Machine,
     case: &'static str,
 ) -> Result<(), StepProbeError> {
-    require(case, machine.cpu().pc() == 0x8000_0004, "committed pc")?;
+    require(case, machine.cpu().pc() == 0xa000_0004, "committed pc")?;
     require(
         case,
-        machine.cpu().next_pc() == 0x8000_0008,
+        machine.cpu().next_pc() == 0xa000_0008,
         "committed next_pc",
     )?;
     require(

@@ -1,0 +1,2 @@
+loop	cache_pc	branch_pc	slot_pc	first_address	last_address	stride	index_store_tags	branches_taken	branches_untaken	delay_slots	count_delta	committed_delta	final_t0	final_t1
+primary_i	0xA4000408	0xA4000410	0xA4000414	0x80000000	0x80003FE0	0x20	512	511	1	512	2048	2048	0x80004000	0x80003FE0
