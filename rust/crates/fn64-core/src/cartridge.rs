@@ -139,6 +139,30 @@ impl Cartridge {
 
         Ok(self.image[offset])
     }
+
+    pub fn read_u32_be(&self, cart_addr: u32) -> Result<u32, CartridgeReadError> {
+        let Some(final_addr) = cart_addr.checked_add(3) else {
+            return Err(CartridgeReadError::OutOfRange {
+                addr: cart_addr,
+                width: 4,
+                size: self.image.len(),
+            });
+        };
+        if final_addr as usize >= self.image.len() {
+            return Err(CartridgeReadError::OutOfRange {
+                addr: cart_addr,
+                width: 4,
+                size: self.image.len(),
+            });
+        }
+
+        Ok(u32::from_be_bytes([
+            self.image[cart_addr as usize],
+            self.image[cart_addr as usize + 1],
+            self.image[cart_addr as usize + 2],
+            self.image[cart_addr as usize + 3],
+        ]))
+    }
 }
 
 impl Default for Cartridge {
@@ -216,10 +240,7 @@ fn span_available(size: usize, offset: u32, byte_count: u32) -> bool {
 }
 
 fn read_cartridge_u32_be(cartridge: &Cartridge, offset: u32) -> Result<u32, CartridgeReadError> {
-    Ok(((cartridge.read_u8(offset)? as u32) << 24)
-        | ((cartridge.read_u8(offset + 1)? as u32) << 16)
-        | ((cartridge.read_u8(offset + 2)? as u32) << 8)
-        | (cartridge.read_u8(offset + 3)? as u32))
+    cartridge.read_u32_be(offset)
 }
 
 #[cfg(test)]
@@ -459,6 +480,8 @@ mod tests {
         let cartridge = load_cartridge(normalized_bytes.clone()).unwrap();
 
         assert_eq!(cartridge.read_u8(0).unwrap(), 0x80);
+        assert_eq!(cartridge.read_u32_be(0), Ok(0x8037_1240));
+        assert_eq!(cartridge.read_u32_be(8), Ok(0x8024_6000));
         assert_eq!(
             cartridge
                 .read_u8((normalized_bytes.len() - 1) as u32)
@@ -481,6 +504,24 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "cartridge read out of range: addr=0x00000060 width=1 size=96"
+        );
+        assert_eq!(
+            cartridge
+                .read_u32_be((normalized_bytes.len() - 3) as u32)
+                .unwrap_err(),
+            CartridgeReadError::OutOfRange {
+                addr: (normalized_bytes.len() - 3) as u32,
+                width: 4,
+                size: normalized_bytes.len(),
+            }
+        );
+        assert_eq!(
+            cartridge.read_u32_be(u32::MAX).unwrap_err(),
+            CartridgeReadError::OutOfRange {
+                addr: u32::MAX,
+                width: 4,
+                size: normalized_bytes.len(),
+            }
         );
     }
 

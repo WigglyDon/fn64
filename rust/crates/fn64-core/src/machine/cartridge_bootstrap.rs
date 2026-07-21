@@ -6,8 +6,9 @@ use crate::cartridge::{
 };
 use crate::cpu::address::{CpuAddress, RdramOffset};
 use crate::cpu::{
-    decode_cpu_instruction_word, identify_cpu_instruction, Cpu, CpuInstructionFields,
-    CpuInstructionIdentity, CpuRegisterIndexError, CPU_GPR_COUNT,
+    decode_cpu_instruction_word, identify_cpu_instruction, primary_instruction_cache_line_index,
+    Cpu, CpuInstructionFields, CpuInstructionIdentity, CpuRegisterIndexError, CPU_GPR_COUNT,
+    PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
 use crate::machine::{Machine, MachineCpuInstructionFetchError, MachineCpuInstructionFetchTarget};
 use crate::pif_firmware::{MachinePifFirmwareState, PifIpl2CopyLayout, PifIpl2Profile};
@@ -448,6 +449,16 @@ pub enum MachineCpuInstructionSource {
     DirectRdram {
         offset: RdramOffset,
     },
+    PrimaryInstructionCacheHit {
+        offset: RdramOffset,
+        line_index: u16,
+        physical_tag: u32,
+    },
+    PrimaryInstructionCacheFillFromRdram {
+        offset: RdramOffset,
+        line_index: u16,
+        physical_line_address: u32,
+    },
     SpDmem {
         offset: SpDmemOffset,
         provenance: MachineSpDmemInstructionProvenance,
@@ -703,6 +714,7 @@ impl Machine {
         self.rdram = Rdram::default();
         self.sp_dmem = replacement_sp_dmem;
         *self.sp_imem = replacement_sp_imem;
+        self.sp = crate::sp::Sp::default();
         self.ri = replacement_ri;
         self.mi = crate::mi::Mi::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
@@ -795,7 +807,7 @@ impl Machine {
         let target = Self::classify_cpu_instruction_fetch_target(cpu_address)
             .map_err(MachineCpuInstructionFetchError::from_target_error)?;
         let instruction_word = self.fetch_cpu_instruction_word_at(cpu_address)?;
-        let source = self.classify_cpu_instruction_source(target);
+        let source = self.classify_cpu_instruction_source(cpu_address, target);
         let fields = decode_cpu_instruction_word(instruction_word);
 
         Ok(MachineCpuInstructionInspection {
@@ -808,11 +820,36 @@ impl Machine {
 
     fn classify_cpu_instruction_source(
         &self,
+        cpu_address: CpuAddress,
         target: MachineCpuInstructionFetchTarget,
     ) -> MachineCpuInstructionSource {
         match target {
             MachineCpuInstructionFetchTarget::DirectRdram { offset } => {
-                MachineCpuInstructionSource::DirectRdram { offset }
+                if (0x8000_0000..=0x9fff_ffff).contains(&cpu_address.value()) {
+                    let physical_address = cpu_address.value() & 0x1fff_ffff;
+                    let line_index = primary_instruction_cache_line_index(physical_address) as u16;
+                    if self
+                        .cpu
+                        .lookup_primary_instruction_cache_word(physical_address)
+                        .is_some()
+                    {
+                        MachineCpuInstructionSource::PrimaryInstructionCacheHit {
+                            offset,
+                            line_index,
+                            physical_tag: physical_address
+                                & !((PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES as u32) - 1),
+                        }
+                    } else {
+                        MachineCpuInstructionSource::PrimaryInstructionCacheFillFromRdram {
+                            offset,
+                            line_index,
+                            physical_line_address: physical_address
+                                & !((PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES as u32) - 1),
+                        }
+                    }
+                } else {
+                    MachineCpuInstructionSource::DirectRdram { offset }
+                }
             }
             MachineCpuInstructionFetchTarget::SpDmem { offset } => {
                 let provenance = match self.cartridge_bootstrap {

@@ -1,6 +1,7 @@
 use core::fmt;
 
 use super::Cpu;
+use super::{MachineCop0TagState, MachineCop0TagWriteProvenance};
 use crate::cpu::address::{
     CpuAddress, CpuAddressErrorExceptionEntryError, CpuAddressErrorKind, CpuDataAddressError,
 };
@@ -22,6 +23,8 @@ pub(super) struct Cop0 {
     bad_vaddr: u32,
     exception_code: u8,
     exception_branch_delay: bool,
+    tag_lo: Option<MachineCop0TagState>,
+    tag_hi: Option<MachineCop0TagState>,
 }
 
 impl Cop0 {
@@ -37,6 +40,8 @@ impl Cop0 {
             bad_vaddr: 0,
             exception_code: 0,
             exception_branch_delay: false,
+            tag_lo: None,
+            tag_hi: None,
         }
     }
 
@@ -100,6 +105,22 @@ impl Cop0 {
 
     fn exception_branch_delay(&self) -> bool {
         self.exception_branch_delay
+    }
+
+    fn tag_lo(&self) -> Option<MachineCop0TagState> {
+        self.tag_lo
+    }
+
+    fn tag_hi(&self) -> Option<MachineCop0TagState> {
+        self.tag_hi
+    }
+
+    fn write_tag_lo(&mut self, value: u32, provenance: MachineCop0TagWriteProvenance) {
+        self.tag_lo = Some(MachineCop0TagState::new(value, provenance));
+    }
+
+    fn write_tag_hi(&mut self, value: u32, provenance: MachineCop0TagWriteProvenance) {
+        self.tag_hi = Some(MachineCop0TagState::new(value, provenance));
     }
 }
 
@@ -187,6 +208,14 @@ impl Cpu {
         self.cop0.exception_branch_delay()
     }
 
+    pub fn cop0_tag_lo(&self) -> Option<MachineCop0TagState> {
+        self.cop0.tag_lo()
+    }
+
+    pub fn cop0_tag_hi(&self) -> Option<MachineCop0TagState> {
+        self.cop0.tag_hi()
+    }
+
     pub(crate) fn stage_cop0_status_for_bootstrap(&mut self, status: u32) {
         self.cop0.status = status;
     }
@@ -206,6 +235,22 @@ impl Cpu {
 
     pub(crate) fn write_cop0_compare(&mut self, value: u32) {
         self.cop0.write_compare(value);
+    }
+
+    pub(crate) fn write_cop0_tag_lo(
+        &mut self,
+        value: u32,
+        provenance: MachineCop0TagWriteProvenance,
+    ) {
+        self.cop0.write_tag_lo(value, provenance);
+    }
+
+    pub(crate) fn write_cop0_tag_hi(
+        &mut self,
+        value: u32,
+        provenance: MachineCop0TagWriteProvenance,
+    ) {
+        self.cop0.write_tag_hi(value, provenance);
     }
 
     #[cfg(test)]
@@ -359,6 +404,8 @@ mod tests {
         assert_eq!(cpu.cop0_bad_vaddr(), 0);
         assert_eq!(cpu.cop0_exception_code(), 0);
         assert!(!cpu.cop0_exception_branch_delay());
+        assert_eq!(cpu.cop0_tag_lo(), None);
+        assert_eq!(cpu.cop0_tag_hi(), None);
     }
 
     #[test]

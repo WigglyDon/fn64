@@ -7,6 +7,7 @@ mod mi;
 mod pif_firmware;
 pub mod rdram;
 mod ri;
+mod sp;
 pub mod sp_dmem;
 mod sp_imem;
 
@@ -21,14 +22,21 @@ pub use cpu::{
     decode_cpu_instruction_word, identify_cpu_instruction, Cpu, CpuAddressErrorExceptionEntryError,
     CpuAddressErrorKind, CpuDataAccessKind, CpuDataAddressError, CpuDataAlignmentError,
     CpuDataWidth, CpuDelaySlotContext, CpuInstructionFields, CpuInstructionIdentity,
-    CpuInstructionWord, CpuRegisterIndexError, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC,
-    NON_BOOT_RESET_VECTOR_PC,
+    CpuInstructionWord, CpuRegisterIndexError, MachineCop0TagState, MachineCop0TagWriteProvenance,
+    MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,
+    MachinePrimaryCaches, MachinePrimaryDataCacheLineState,
+    MachinePrimaryInstructionCacheFillProvenance, MachinePrimaryInstructionCacheLineState,
+    CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC,
+    PRIMARY_DATA_CACHE_LINE_COUNT, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+    PRIMARY_DATA_CACHE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_COUNT,
+    PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
 pub use machine::{
     select_cpu_instruction_fetch_address_error, DirectRdramAccessError, Machine,
     MachineArithmeticOverflowExceptionEntryRejection, MachineBootstrapControlFlowSource,
     MachineBootstrapCop0StatusSource, MachineBootstrapCpuStateKind,
-    MachineBootstrapCpuStateUnavailable, MachineBootstrapGprSource, MachineCartridgeBootstrapError,
+    MachineBootstrapCpuStateUnavailable, MachineBootstrapGprSource, MachineCacheOperationRejection,
+    MachineCacheOperationRejectionReason, MachineCartridgeBootstrapError,
     MachineCartridgeBootstrapState, MachineCpuInstructionFetchError,
     MachineCpuInstructionFetchTarget, MachineCpuInstructionFetchTargetError,
     MachineCpuInstructionInspection, MachineCpuInstructionSource,
@@ -107,5 +115,10 @@ pub use ri::{
     RI_MODE_STOP_RECEIVE_ACTIVE_MASK, RI_MODE_STOP_TRANSMIT_ACTIVE_MASK,
     RI_REFRESH_PHYSICAL_ADDRESS, RI_REFRESH_X105_BASE_WORD, RI_SELECT_PHYSICAL_ADDRESS,
     RI_SELECT_X105_ENABLE_TX_RX_WORD,
+};
+pub use sp::{
+    MachineSpCpuStoreProvenance, MachineSpPcState, MachineSpStatusState, SP_PC_PHYSICAL_ADDRESS,
+    SP_PC_X105_RESET_WORD, SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_X105_HALT_CONFIGURE_WORD,
+    SP_STATUS_X105_START_WORD,
 };
 pub use sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};

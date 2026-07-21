@@ -1,4 +1,5 @@
 pub mod address;
+mod cache;
 mod cop0;
 mod instruction;
 mod registers;
@@ -10,6 +11,18 @@ pub(crate) use cop0::CpuArithmeticOverflowExceptionEntryError;
 pub use address::{
     CpuAddressErrorExceptionEntryError, CpuAddressErrorKind, CpuDataAccessKind,
     CpuDataAddressError, CpuDataAlignmentError, CpuDataWidth,
+};
+pub(crate) use cache::{
+    primary_data_cache_line_index, primary_instruction_cache_line_index,
+    MachinePrimaryInstructionCacheFillPlan,
+};
+pub use cache::{
+    MachineCop0TagState, MachineCop0TagWriteProvenance, MachinePrimaryCacheIndexStoreTagTarget,
+    MachinePrimaryCacheOperationProvenance, MachinePrimaryCaches, MachinePrimaryDataCacheLineState,
+    MachinePrimaryInstructionCacheFillProvenance, MachinePrimaryInstructionCacheLineState,
+    PRIMARY_DATA_CACHE_LINE_COUNT, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+    PRIMARY_DATA_CACHE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_COUNT,
+    PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
 #[cfg(test)]
 pub(crate) use instruction::CpuLocalExecutedHelperFamily;
@@ -38,6 +51,7 @@ pub struct Cpu {
     lo: u64,
     gprs: [u64; CPU_GPR_COUNT],
     cop0: Cop0,
+    primary_caches: Box<MachinePrimaryCaches>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -51,6 +65,7 @@ impl Cpu {
             lo: 0,
             gprs: [0; CPU_GPR_COUNT],
             cop0: Cop0::new(),
+            primary_caches: Box::new(MachinePrimaryCaches::new()),
         }
     }
 }
