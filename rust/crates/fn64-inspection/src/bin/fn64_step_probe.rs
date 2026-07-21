@@ -9,10 +9,11 @@ use fn64_core::{
     MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
     MachinePifVersionBit, MachineRdramBroadcastDeviceIdAperture,
-    MachineRdramBroadcastRefreshRowAperture, MachineRdramFirstResponderDeviceIdAperture,
-    MachineRdramInitialModeAperture, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineRiModeSource, MachineRiSelectSource, MachineSpDmemLoadWordProvenance,
-    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
+    MachineRdramBroadcastRefreshRowAperture, MachineRdramCalibrationStatus,
+    MachineRdramFirstResponderDeviceIdAperture, MachineRdramInitialModeAperture,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRiModeSource,
+    MachineRiSelectSource, MachineSpDmemLoadWordProvenance, MachineStepCadenceSource,
+    MachineStepControlFlowAction, MachineStepCountAction,
     MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
     MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
     MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
@@ -190,6 +191,12 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: generated-x105-rdram-mode-committed ok\
 \ncase: generated-x105-write-cc-return-path ok\
 \ncase: generated-x105-calibration-response-boundary ok\
+\ncase: generated-x105-current-control-calibration-complete ok\
+\ncase: generated-x105-rdram-module-discovery-complete ok\
+\ncase: generated-x105-rdram-final-mapping-complete ok\
+\ncase: generated-x105-ri-refresh-committed ok\
+\ncase: generated-x105-memory-size-store-committed ok\
+\ncase: generated-x105-rdram-init-cache-frontier ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -965,7 +972,7 @@ fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
     )?;
 
     let unsupported_words = [
-        (0x40, immediate_word(0x0f, 0, 1, 0x8000)),
+        (0x40, immediate_word(0x0f, 0, 1, 0xa400)),
         (0x44, immediate_word(0x0d, 1, 1, 0x0100)),
         (0x48, immediate_word(0x2b, 1, 0, 0)),
     ];
@@ -989,10 +996,10 @@ fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
             matches!(
                 rejection.reason(),
                 MachineStoreWordRejectionReason::UnsupportedTarget {
-                    target: MachineStoreWordUnsupportedTarget::DirectRdram { .. }
+                    target: MachineStoreWordUnsupportedTarget::SpDmem { .. }
                 }
             ),
-            "unsupported RDRAM target rejection",
+            "unsupported SP-DMEM target rejection",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
         Ok(_) => return assertion(CASE, "unsupported target Sw rejection"),
@@ -1914,7 +1921,7 @@ fn probe_ri_config_routes_and_lifecycle() -> Result<(), StepProbeError> {
     const MISS_CASE: &str = "ri-config-neighbor-target-miss";
     let words = [
         (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
-        (0x44, immediate_word(0x2b, 8, 0, 0x0010)),
+        (0x44, immediate_word(0x2b, 8, 0, 0x0014)),
     ];
     let (mut miss, _) = generated_cold_x105_machine(MISS_CASE, &words)?;
     step(&mut miss, MISS_CASE)?;
@@ -1928,9 +1935,9 @@ fn probe_ri_config_routes_and_lifecycle() -> Result<(), StepProbeError> {
     match miss.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             MISS_CASE,
-            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0010))
+            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0014))
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RI_REFRESH remains a direct target miss",
+            "unrepresented RI neighbor remains a direct target miss",
         )?,
         Err(source) => {
             return Err(StepProbeError::Step {
@@ -2216,7 +2223,7 @@ fn probe_ri_current_load_routes_and_lifecycle() -> Result<(), StepProbeError> {
         (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
         (0x44, immediate_word(0x0d, 0, 9, 0x0040)),
         (0x48, immediate_word(0x2b, 8, 9, 0x0004)),
-        (0x4c, immediate_word(0x2b, 8, 9, 0x0010)),
+        (0x4c, immediate_word(0x2b, 8, 9, 0x0014)),
     ];
     let (mut miss, _) = generated_cold_x105_machine(MISS_CASE, &words)?;
     step(&mut miss, MISS_CASE)?;
@@ -2233,9 +2240,9 @@ fn probe_ri_current_load_routes_and_lifecycle() -> Result<(), StepProbeError> {
     match miss.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             MISS_CASE,
-            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0010))
+            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0014))
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RI_REFRESH remains unsupported",
+            "unrepresented RI neighbor remains unsupported",
         )?,
         Err(source) => {
             return Err(StepProbeError::Step {
@@ -2532,7 +2539,7 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
     const MISS_CASE: &str = "ri-select-neighbor-target-miss";
     let words = [
         (0x40, immediate_word(0x0f, 0, 8, 0xa470)),
-        (0x44, immediate_word(0x2b, 8, 0, 0x0010)),
+        (0x44, immediate_word(0x2b, 8, 0, 0x0014)),
     ];
     let (mut miss, _) = generated_cold_x105_machine(MISS_CASE, &words)?;
     step(&mut miss, MISS_CASE)?;
@@ -2545,9 +2552,9 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
     match miss.step() {
         Err(MachineRepresentedStepError::StoreWordRejected(rejection)) => require(
             MISS_CASE,
-            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0010))
+            rejection.cpu_address() == Some(CpuAddress::new(0xa470_0014))
                 && rejection.reason() == MachineStoreWordRejectionReason::DirectTargetMiss,
-            "RI_REFRESH remains a direct target miss",
+            "unrepresented RI neighbor remains a direct target miss",
         )?,
         Err(source) => {
             return Err(StepProbeError::Step {
@@ -2555,7 +2562,7 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
                 source,
             })
         }
-        Ok(_) => return assertion(MISS_CASE, "RI_REFRESH write rejected"),
+        Ok(_) => return assertion(MISS_CASE, "unrepresented RI neighbor write rejected"),
     }
     require(
         MISS_CASE,
@@ -3427,6 +3434,385 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
         (0xa24, 0x0000_f025),
         (0xa28, 0x241a_ffff),
         (0xa2c, 0xae9a_0000),
+        (0x1a8, 0x1040_0038),
+        (0x1ac, 0x0000_0000),
+        (0x1b0, 0xafa2_0000),
+        (0x1b4, 0x2409_2000),
+        (0x1b8, 0xad89_0000),
+        (0x1bc, 0x8deb_0000),
+        (0x1c0, 0x3c08_f0ff),
+        (0x1c4, 0x0168_5824),
+        (0x1c8, 0xafab_0004),
+        (0x1cc, 0x23bd_0008),
+        (0x1d0, 0x2409_1000),
+        (0x1d4, 0xad89_0000),
+        (0x1d8, 0x3c08_b019),
+        (0x1dc, 0x1568_000c),
+        (0x1e0, 0x0000_0000),
+        (0x1e4, 0x3c08_0800),
+        (0x1e8, 0x0308_c020),
+        (0x1ec, 0x0330_c820),
+        (0x1f0, 0x0330_c820),
+        (0x1f4, 0x3c08_0020),
+        (0x1f8, 0x02c8_b020),
+        (0x1fc, 0x0288_a020),
+        (0x200, 0x0012_9040),
+        (0x204, 0x2252_0001),
+        (0x208, 0x1000_0003),
+        (0x20c, 0x0000_0000),
+        (0x210, 0x3c08_0010),
+        (0x214, 0x0288_a020),
+        (0x218, 0x2408_2000),
+        (0x21c, 0xad88_0000),
+        (0x220, 0x8de9_0024),
+        (0x224, 0x8dfa_0000),
+        (0x228, 0x2408_1000),
+        (0x22c, 0xad88_0000),
+        (0x230, 0x3129_ffff),
+        (0x234, 0x2408_0500),
+        (0x238, 0x1528_0009),
+        (0x23c, 0x0000_0000),
+        (0x240, 0x3c1b_0100),
+        (0x244, 0x035b_d024),
+        (0x248, 0x1740_0005),
+        (0x24c, 0x0000_0000),
+        (0x250, 0x3c08_101c),
+        (0x254, 0x3508_0a04),
+        (0x258, 0xade8_0018),
+        (0x25c, 0x1000_0003),
+        (0x260, 0x3c08_080c),
+        (0x264, 0x3508_1204),
+        (0x268, 0xade8_0018),
+        (0x26c, 0x3c08_0800),
+        (0x270, 0x01c8_7020),
+        (0x274, 0x01f0_7820),
+        (0x278, 0x01f0_7820),
+        (0x27c, 0x25ad_0001),
+        (0x280, 0x2da8_0008),
+        (0x284, 0x1500_ffc4),
+        (0x288, 0x0000_0000),
+        (0x28c, 0x3c08_c400),
+        (0x290, 0xad48_000c),
+        (0x294, 0x3c08_8000),
+        (0x298, 0xad48_0004),
+        (0x29c, 0x03c0_e825),
+        (0x2a0, 0x0000_1825),
+        (0x2a4, 0x8fa9_0004),
+        (0x2a8, 0x3c08_b009),
+        (0x2ac, 0x1528_0016),
+        (0x2b0, 0x0000_0000),
+        (0x2b4, 0xae38_0004),
+        (0x2b8, 0x2735_000c),
+        (0x2bc, 0x8fa4_0000),
+        (0x2c0, 0x23bd_0008),
+        (0x2c4, 0x2405_0001),
+        (0x2c8, 0x0d00_02d1),
+        (0x2cc, 0x0000_0000),
+        (0x2d0, 0x8ec8_0000),
+        (0x2d4, 0x3c08_0008),
+        (0x2d8, 0x0116_4020),
+        (0x2dc, 0x8d09_0000),
+        (0x2e0, 0x8ec8_0000),
+        (0x2e4, 0x3c08_0008),
+        (0x2e8, 0x0116_4020),
+        (0x2ec, 0x8d09_0000),
+        (0x2f0, 0x3c08_0400),
+        (0x2f4, 0x01c8_7020),
+        (0x2f8, 0x0330_c820),
+        (0x2fc, 0x3c08_0010),
+        (0x300, 0x02c8_b020),
+        (0x304, 0x1000_0021),
+        (0x308, 0xae37_0004),
+        (0x30c, 0x24d5_000c),
+        (0x310, 0x8fa4_0000),
+        (0x314, 0x23bd_0008),
+        (0x318, 0x2405_0001),
+        (0x31c, 0x0d00_02d1),
+        (0x320, 0x0000_0000),
+        (0x324, 0x8ce8_0000),
+        (0x328, 0x3c08_0008),
+        (0x32c, 0x0107_4020),
+        (0x330, 0x8d09_0000),
+        (0x334, 0x3c08_0010),
+        (0x338, 0x0107_4020),
+        (0x33c, 0x8d09_0000),
+        (0x340, 0x3c08_0018),
+        (0x344, 0x0107_4020),
+        (0x348, 0x8d09_0000),
+        (0x34c, 0x8ce8_0000),
+        (0x350, 0x3c08_0008),
+        (0x354, 0x0107_4020),
+        (0x358, 0x8d09_0000),
+        (0x35c, 0x3c08_0010),
+        (0x360, 0x0107_4020),
+        (0x364, 0x8d09_0000),
+        (0x368, 0x3c08_0018),
+        (0x36c, 0x0107_4020),
+        (0x370, 0x8d09_0000),
+        (0x374, 0x3c08_0800),
+        (0x378, 0x02e8_b820),
+        (0x37c, 0x00d0_3020),
+        (0x380, 0x00d0_3020),
+        (0x384, 0x3c08_0020),
+        (0x388, 0x00e8_3820),
+        (0x38c, 0x2463_0001),
+        (0x390, 0x006d_402a),
+        (0x394, 0x1500_ffc3),
+        (0x398, 0x0000_0000),
+        (0x39c, 0x3c0a_a470),
+        (0x3a0, 0x0012_94c0),
+        (0x3a4, 0x3c09_0006),
+        (0x3a8, 0x3529_3634),
+        (0x3ac, 0x0132_4825),
+        (0x3b0, 0xad49_0010),
+        (0x3b4, 0x8d49_0010),
+        (0x3b8, 0x3c08_a000),
+        (0x3bc, 0x3508_03f0),
+        (0x3c0, 0x3c09_0fff),
+        (0x3c4, 0x3529_ffff),
+        (0x3c8, 0x02c9_b024),
+        (0x3cc, 0xad16_0000),
+        (0x3d0, 0x03c0_e825),
+        (0x3d4, 0x27bd_0048),
+        (0x3d8, 0x8fb3_0000),
+        (0x3dc, 0x8fb4_0004),
+        (0x3e0, 0x8fb5_0008),
+        (0x3e4, 0x8fb6_000c),
+        (0x3e8, 0x8fb7_0010),
+        (0x3ec, 0x27bd_0018),
+        (0x3f0, 0x3c08_8000),
+        (0x3f4, 0x2508_0000),
+        (0x3f8, 0x2509_4000),
+        (0x3fc, 0x2529_ffe0),
+        (0x400, 0x4080_e000),
+        (0x8f8, 0x2610_0001),
+        (0x8fc, 0x2a09_0004),
+        (0x900, 0x1520_fffb),
+        (0x904, 0x0222_8821),
+        (0x908, 0x0011_2082),
+        (0x90c, 0x0d00_02d1),
+        (0x910, 0x2405_0001),
+        (0x914, 0x8fbf_0064),
+        (0x918, 0x0011_1082),
+        (0x91c, 0x8fb1_0044),
+        (0x920, 0x8fa3_0004),
+        (0x924, 0x8fa4_0008),
+        (0x928, 0x8fa5_000c),
+        (0x92c, 0x8fa6_0010),
+        (0x930, 0x8fa7_0014),
+        (0x934, 0x8fa8_0018),
+        (0x938, 0x8fa9_001c),
+        (0x93c, 0x8faa_0020),
+        (0x940, 0x8fab_0024),
+        (0x944, 0x8fac_0028),
+        (0x948, 0x8fad_002c),
+        (0x94c, 0x8fae_0030),
+        (0x950, 0x8faf_0034),
+        (0x954, 0x8fb8_0038),
+        (0x958, 0x8fb9_003c),
+        (0x95c, 0x8fb0_0040),
+        (0x960, 0x8fb2_0048),
+        (0x964, 0x8fb3_004c),
+        (0x968, 0x8fb4_0050),
+        (0x96c, 0x8fb5_0054),
+        (0x970, 0x8fb6_0058),
+        (0x974, 0x8fb7_005c),
+        (0x978, 0x8fbe_0060),
+        (0x97c, 0x03e0_0008),
+        (0x980, 0x27bd_00a0),
+        (0x984, 0x27bd_ffe0),
+        (0x988, 0xafbf_001c),
+        (0x98c, 0x0000_4825),
+        (0x990, 0x0000_5825),
+        (0x994, 0x0000_6025),
+        (0x998, 0x299a_0040),
+        (0x99c, 0x5340_0018),
+        (0x9a0, 0x0000_1025),
+        (0x9a4, 0x0d00_0284),
+        (0x9a8, 0x0180_2025),
+        (0x9ac, 0x5840_0008),
+        (0x9b0, 0x293a_0050),
+        (0x9b4, 0x0049_d023),
+        (0x9b8, 0x034c_0019),
+        (0x9bc, 0x0040_4825),
+        (0x9c0, 0x0000_d012),
+        (0x9c4, 0x017a_5821),
+        (0x9c8, 0x0000_0000),
+        (0x9cc, 0x293a_0050),
+        (0x9d0, 0x1740_fff1),
+        (0x9d4, 0x258c_0001),
+        (0x9d8, 0x000b_2080),
+        (0x9dc, 0x008b_2023),
+        (0x9e0, 0x0004_2080),
+        (0x9e4, 0x008b_2023),
+        (0x9e8, 0x0004_2040),
+        (0x9ec, 0x0d00_02a1),
+        (0x9f0, 0x2484_fc90),
+        (0x9f4, 0x1000_0003),
+        (0x9f8, 0x8fbf_001c),
+        (0x9fc, 0x0000_1025),
+        (0xa00, 0x8fbf_001c),
+        (0xa04, 0x27bd_0020),
+        (0xa08, 0x03e0_0008),
+        (0xa0c, 0x0000_0000),
+        (0xa10, 0x27bd_ffd8),
+        (0xa14, 0xafbf_001c),
+        (0xa18, 0x0000_1025),
+        (0xa1c, 0x0d00_02d1),
+        (0xa20, 0x2405_0002),
+        (0xa24, 0x0000_f025),
+        (0xa28, 0x241a_ffff),
+        (0xa2c, 0xae9a_0004),
+        (0xa30, 0x8e83_0004),
+        (0xa34, 0xae9a_0000),
+        (0xa38, 0xae9a_0000),
+        (0xa3c, 0x0000_e025),
+        (0xa40, 0x0003_1c02),
+        (0xa44, 0x307a_0001),
+        (0xa48, 0x5340_0003),
+        (0xa4c, 0x279c_0001),
+        (0xa50, 0x2442_0001),
+        (0xa54, 0x279c_0001),
+        (0xa58, 0x2b9a_0008),
+        (0xa5c, 0x1740_fff9),
+        (0xa60, 0x0003_1842),
+        (0xa64, 0x27de_0001),
+        (0xa68, 0x2bda_000a),
+        (0xa6c, 0x5740_ffef),
+        (0xa70, 0x241a_ffff),
+        (0xa74, 0x8fbf_001c),
+        (0xa78, 0x27bd_0028),
+        (0xa7c, 0x03e0_0008),
+        (0xa80, 0x0000_0000),
+        (0xa84, 0x27bd_ffd8),
+        (0xa88, 0xafbf_001c),
+        (0xa8c, 0xafa4_0020),
+        (0xa90, 0xa3a0_0027),
+        (0xa94, 0x0000_4025),
+        (0xa98, 0x0000_5025),
+        (0xa9c, 0x340d_c800),
+        (0xaa0, 0x0000_7025),
+        (0xaa4, 0x29da_0040),
+        (0xaa8, 0x5740_0004),
+        (0xaac, 0x01c0_2025),
+        (0xab0, 0x1000_0020),
+        (0xab4, 0x0000_1025),
+        (0xab8, 0x01c0_2025),
+        (0xabc, 0x0d00_02d1),
+        (0xac0, 0x2405_0001),
+        (0xac4, 0x0d00_02f5),
+        (0xac8, 0x27a4_0027),
+        (0xacc, 0x0d00_02f5),
+        (0xad0, 0x27a4_0027),
+        (0xad4, 0x93ba_0027),
+        (0xad8, 0x241b_0320),
+        (0xadc, 0x8fa4_0020),
+        (0xae0, 0x035b_0019),
+        (0xae4, 0x0000_4012),
+        (0xae8, 0x0104_d023),
+        (0xaec, 0x0743_0003),
+        (0xaf0, 0x034d_d82a),
+        (0xaf4, 0x0088_d023),
+        (0xaf8, 0x034d_d82a),
+        (0xafc, 0x5360_0004),
+        (0xb00, 0x8fa4_0020),
+        (0xb04, 0x0340_6825),
+        (0xb08, 0x01c0_5025),
+        (0xb0c, 0x8fa4_0020),
+        (0xb10, 0x0104_d82a),
+        (0xb14, 0x5360_0006),
+        (0xb18, 0x014e_1021),
+        (0xb1c, 0x25ce_0001),
+        (0xb20, 0x29db_0041),
+        (0xb24, 0x5760_ffe0),
+        (0xb28, 0x29da_0040),
+        (0xb2c, 0x014e_1021),
+        (0xb30, 0x0002_1042),
+        (0xb34, 0x8fbf_001c),
+        (0xb38, 0x27bd_0028),
+        (0xb3c, 0x03e0_0008),
+        (0xb40, 0x0000_0000),
+        (0xb44, 0x27bd_ffd8),
+        (0xb48, 0x3084_00ff),
+        (0xb4c, 0x241b_0001),
+        (0xb50, 0x3884_003f),
+        (0xb54, 0xafbf_001c),
+        (0xb58, 0x14bb_0003),
+        (0xb5c, 0x3c0f_4600),
+        (0xb60, 0x3c1a_8000),
+        (0xb64, 0x01fa_7825),
+        (0xb68, 0x309a_0001),
+        (0xb6c, 0x001a_d180),
+        (0xb70, 0x01fa_7825),
+        (0xb74, 0x309a_0002),
+        (0xb78, 0x001a_d340),
+        (0xb7c, 0x01fa_7825),
+        (0xb80, 0x309a_0004),
+        (0xb84, 0x001a_d500),
+        (0xb88, 0x01fa_7825),
+        (0xb8c, 0x309a_0008),
+        (0xb90, 0x001a_d100),
+        (0xb94, 0x01fa_7825),
+        (0xb98, 0x309a_0010),
+        (0xb9c, 0x001a_d2c0),
+        (0xba0, 0x01fa_7825),
+        (0xba4, 0x309a_0020),
+        (0xba8, 0x001a_d480),
+        (0xbac, 0x01fa_7825),
+        (0xbb0, 0x241b_0001),
+        (0xbb4, 0x14bb_0003),
+        (0xbb8, 0xaeaf_0000),
+        (0xbbc, 0x3c1a_a430),
+        (0xbc0, 0xaf40_0000),
+        (0xbc4, 0x8fbf_001c),
+        (0xbc8, 0x27bd_0028),
+        (0xbcc, 0x03e0_0008),
+        (0xbd0, 0x0000_0000),
+        (0xbd4, 0x27bd_ffd8),
+        (0xbd8, 0xafbf_001c),
+        (0xbdc, 0x241a_2000),
+        (0xbe0, 0x3c1b_a430),
+        (0xbe4, 0xaf7a_0000),
+        (0xbe8, 0x0000_f025),
+        (0xbec, 0x8ebe_0000),
+        (0xbf0, 0x241a_1000),
+        (0xbf4, 0xaf7a_0000),
+        (0xbf8, 0x241b_0040),
+        (0xbfc, 0x037e_d824),
+        (0xc00, 0x001b_d982),
+        (0xc04, 0x0000_d025),
+        (0xc08, 0x035b_d025),
+        (0xc0c, 0x241b_4000),
+        (0xc10, 0x037e_d824),
+        (0xc14, 0x001b_db42),
+        (0xc18, 0x035b_d025),
+        (0xc1c, 0x3c1b_0040),
+        (0xc20, 0x037e_d824),
+        (0xc24, 0x001b_dd02),
+        (0xc28, 0x035b_d025),
+        (0xc2c, 0x241b_0080),
+        (0xc30, 0x037e_d824),
+        (0xc34, 0x001b_d902),
+        (0xc38, 0x035b_d025),
+        (0xc3c, 0x341b_8000),
+        (0xc40, 0x037e_d824),
+        (0xc44, 0x001b_dac2),
+        (0xc48, 0x035b_d025),
+        (0xc4c, 0x3c1b_0080),
+        (0xc50, 0x037e_d824),
+        (0xc54, 0x001b_dc82),
+        (0xc58, 0x035b_d025),
+        (0xc5c, 0xa09a_0000),
+        (0xc60, 0x8fbf_001c),
+        (0xc64, 0x27bd_0028),
+        (0xc68, 0x03e0_0008),
+        (0xc6c, 0x0000_0000),
+        (0xa2c, 0xae9a_0000),
+        (0xa30, 0xae9a_0000),
+        (0xa34, 0xae9a_0004),
+        (0xa38, 0x8e83_0004),
+        (0xa3c, 0x0003_1c02),
+        (0xa40, 0x0000_e025),
     ];
     let (mut machine, generated_sp_imem_word) = generated_cold_x105_machine(CASE, &words)?;
     require(
@@ -5505,7 +5891,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
                 cadence_plan,
             } if cadence_plan.source() == MachineStepCadenceSource::BranchLikelyAnnul
                 && cadence_plan.control_flow_action()
-                    == MachineStepControlFlowAction::CommitBeqlAnnul
+                    == MachineStepControlFlowAction::CommitBranchLikelyAnnul
                 && cadence_plan.count_action() == MachineStepCountAction::Advance
         ),
         "generated not-taken BEQL annul outcome",
@@ -5924,6 +6310,113 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             && machine.cpu().gpr(26) == Some(0xffff_ffff_ffff_ffff)
             && machine.rdram_initial_mode_request_state() == Some(mode_request),
         "unexecuted first response-test store at physical RDRAM address zero",
+    )?;
+
+    let mut subsystem_attempts = 0_u32;
+    while machine.cpu().pc() != 0xa400_0400 {
+        require(
+            CASE,
+            subsystem_attempts < 2_000_000,
+            "bounded RDRAM composition ceiling",
+        )?;
+        step(&mut machine, CASE)?;
+        subsystem_attempts += 1;
+        total_committed_steps += 1;
+    }
+
+    let profile = machine.rdram_profile();
+    require(
+        CASE,
+        machine.rdram_initialization_complete()
+            && profile.name() == "fixed-standard-retail-4mib-two-module-digital-cc-v1"
+            && profile.capacity_bytes() == 0x0040_0000
+            && profile.module_count() == 2
+            && profile.module_size_bytes() == 0x0020_0000
+            && profile.device_type_word() == 0xb019_0000
+            && profile.manufacturer_word() == 0x0000_0500
+            && !profile.enhanced_speed(),
+        "fixed standard-retail RDRAM profile",
+    )?;
+    require(
+        CASE,
+        subsystem_attempts == 214_734
+            && machine.cpu().pc() == 0xa400_0400
+            && machine.cpu().next_pc() == 0xa400_0404
+            && machine.cpu().cop0_count() == 246_984
+            && total_committed_steps == 247_000,
+        "generated RDRAM completion cadence",
+    )?;
+    require(
+        CASE,
+        machine.rdram().read_u32_be(0x3f0) == Ok(0x0040_0000),
+        "guest-detected memory size",
+    )?;
+
+    let modules = machine.rdram_modules();
+    require(CASE, modules.len() == 2, "fixed profile module count")?;
+    for (index, module) in modules.iter().enumerate() {
+        let expected_base = index as u32 * 0x0020_0000;
+        let expected_device_id_word = index as u32 * 0x0800_0000;
+        let mode = module.mode_state();
+        let ras = module.ras_interval_state();
+        require(
+            CASE,
+            module.index() == index as u8
+                && module.module_size_bytes() == 0x0020_0000
+                && module.device_type_word() == 0xb019_0000
+                && module.manufacturer_word() == 0x0000_0500
+                && module.mapped_physical_base() == expected_base
+                && module.temporary_device_id_word() == Some(expected_device_id_word)
+                && module.final_device_id_word() == Some(expected_device_id_word)
+                && mode.is_some_and(|state| {
+                    state.raw_word() == 0xc680_8080
+                        && state.current_control_enable()
+                        && state.nominal_current_control_input() == 7
+                        && state.source().instruction_pc() == CpuAddress::new(0xa400_0bb8)
+                        && state.source().source_gpr() == 15
+                        && state.source().physical_address() == 0x03f0_000c + index as u32 * 0x800
+                })
+                && ras.is_some_and(|state| {
+                    state.raw_word() == 0x101c_0a04
+                        && state.source().instruction_pc() == CpuAddress::new(0xa400_0258)
+                        && state.source().source_gpr() == 8
+                        && state.source().physical_address() == 0x03f0_0018 + index as u32 * 0x800
+                })
+                && module.calibration_status()
+                    == MachineRdramCalibrationStatus::Calibrated { automatic_input: 7 },
+            "generated module calibration, configuration, and mapping",
+        )?;
+    }
+
+    let refresh = machine.ri_refresh_state();
+    require(
+        CASE,
+        refresh.is_some_and(|state| {
+            state.raw_word() == 0x001e_3634
+                && state.two_megabyte_module_mask() == 3
+                && state.optimize()
+                && state.enabled()
+                && !state.refresh_bank()
+                && state.dirty_delay() == 0x36
+                && state.clean_delay() == 0x34
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_03b0)
+                && state.source().source_gpr() == 9
+        }),
+        "generated RI_REFRESH state",
+    )?;
+
+    let cache_frontier = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    require(
+        CASE,
+        cache_frontier.cpu_address() == CpuAddress::new(0xa400_0400)
+            && cache_frontier.fields().raw().bits() == 0x4080_e000
+            && cache_frontier.identity() == CpuInstructionIdentity::Cop0Mtc0,
+        "unexecuted cache initialization MTC0 frontier",
     )
 }
 
@@ -6138,7 +6631,7 @@ fn probe_beql_paths_and_rejections() -> Result<(), StepProbeError> {
                 cadence_plan,
             } if cadence_plan.source() == MachineStepCadenceSource::BranchLikelyAnnul
                 && cadence_plan.control_flow_action()
-                    == MachineStepControlFlowAction::CommitBeqlAnnul
+                    == MachineStepControlFlowAction::CommitBranchLikelyAnnul
                 && cadence_plan.count_action() == MachineStepCountAction::Advance
         ),
         "not-taken BEQL exposes exact annul cadence",

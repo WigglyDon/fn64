@@ -593,14 +593,18 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
 
                 match outcome {
                     MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
+                    | MachineRepresentedStepOutcome::SpImemByteCommitted { .. }
                     | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::MiInitModeStoreCommitted { .. }
+                    | MachineRepresentedStepOutcome::MiRdramRegisterModeStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted {
                         ..
@@ -612,6 +616,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted {
                         ..
                     }
+                    | MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::Mtc0Committed { .. }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
                     MachineRepresentedStepOutcome::DataAddressError { .. } => {
@@ -748,19 +753,24 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
     matches!(
         outcome,
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
+            | MachineRepresentedStepOutcome::SpImemByteCommitted { .. }
             | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
+            | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
+            | MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::MiInitModeStoreCommitted { .. }
+            | MachineRepresentedStepOutcome::MiRdramRegisterModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastDeviceIdStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramFirstResponderDeviceIdStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramInitialModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. }
+            | MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. }
             | MachineRepresentedStepOutcome::Mtc0Committed { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
     )
@@ -779,10 +789,17 @@ fn instruction_is_cartridge_derived(inspection: MachineCpuInstructionInspection)
 fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static str {
     match outcome {
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. } => "cpu-local-committed",
+        MachineRepresentedStepOutcome::SpImemByteCommitted { .. } => "sp-imem-byte-committed",
         MachineRepresentedStepOutcome::LoadWordCommitted { .. } => "load-word-committed",
+        MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. } => {
+            "opaque-sp-imem-load-word-committed"
+        }
         MachineRepresentedStepOutcome::StoreWordCommitted { .. } => "store-word-committed",
         MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. } => {
             "opaque-sp-imem-store-word-committed"
+        }
+        MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. } => {
+            "rdram-store-word-committed"
         }
         MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. } => "ri-config-store-committed",
         MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. } => {
@@ -792,6 +809,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         MachineRepresentedStepOutcome::RiModeStoreCommitted { .. } => "ri-mode-store-committed",
         MachineRepresentedStepOutcome::MiInitModeStoreCommitted { .. } => {
             "mi-init-mode-store-committed"
+        }
+        MachineRepresentedStepOutcome::MiRdramRegisterModeStoreCommitted { .. } => {
+            "mi-rdram-register-mode-store-committed"
         }
         MachineRepresentedStepOutcome::RdramBroadcastDelayStoreCommitted { .. } => {
             "rdram-broadcast-delay-store-committed"
@@ -807,6 +827,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         }
         MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. } => {
             "rdram-broadcast-refresh-row-store-committed"
+        }
+        MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. } => {
+            "ri-refresh-store-committed"
         }
         MachineRepresentedStepOutcome::Mtc0Committed { .. } => "mtc0-committed",
         MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
@@ -961,6 +984,13 @@ fn format_load_word_rejection_frontier(
         Some(MachineLoadWordTarget::RiSelect { source }) => {
             format!("ri-select source={source:?}")
         }
+        Some(MachineLoadWordTarget::RdramModuleRegister { physical_address }) => {
+            format!("rdram-module-register physical_address=0x{physical_address:08X}")
+        }
+        Some(MachineLoadWordTarget::RdramCalibrationAbsent { physical_address }) => {
+            format!("rdram-calibration-absent physical_address=0x{physical_address:08X}")
+        }
+        Some(MachineLoadWordTarget::RiRefresh) => "ri-refresh".to_owned(),
         Some(MachineLoadWordTarget::MiVersion) => "mi-version".to_owned(),
         None => "unclassified".to_owned(),
     };
@@ -983,6 +1013,13 @@ fn format_load_word_rejection_frontier(
         } => format!("sp-imem-word-opaque aligned_offset=0x{aligned_offset:08X} source={source:?}"),
         MachineLoadWordRejectionReason::SpImemReadRejected => "sp-imem-read-rejected".to_owned(),
         MachineLoadWordRejectionReason::RiSelectUnavailable => "ri-select-unavailable".to_owned(),
+        MachineLoadWordRejectionReason::RdramRegisterModeDisabled => {
+            "rdram-register-mode-disabled".to_owned()
+        }
+        MachineLoadWordRejectionReason::RdramModuleRegisterUnavailable => {
+            "rdram-module-register-unavailable".to_owned()
+        }
+        MachineLoadWordRejectionReason::RiRefreshUnavailable => "ri-refresh-unavailable".to_owned(),
     };
 
     format!(
