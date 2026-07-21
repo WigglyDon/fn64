@@ -165,10 +165,16 @@ WriteCC restores ra/sp and returns through JR/Nop. From the accepted 32,266-step
 state, 214,734 further public steps execute the complete deterministic digital
 calibration and module-discovery/finalization path, RI_REFRESH, detected-size
 store, and frame teardown. Total commits are 247,000 at PC/next-PC
-`0xA4000400 / 0xA4000404`, Count `246984`. Current cache-specific word
-`0x4080E000` (`MTC0 C0_TAGLO`) remains unexecuted. This is synthetic CPU/device
-composition, not authentic IPL2 execution or analog timing accuracy. Known
-unknowns include full ISA integration, real timing, unearned likely/REGIMM and
-broader COP0 identities, CACHE, NMI, generic MMIO, unrelated load/store
-families, and performance. Next authority must be earned by a bounded product
-packet, not a generic dispatcher.
+`0xA4000400 / 0xA4000404`, Count `246984`. The next 5,367 public steps
+commit zero TagLo/TagHi, 512 I-cache and 512 D-cache Index Store Tag
+operations, exact SP control, 205 ordinary relocation loads/stores, the JR to
+`0x80000004`, one real KSEG0 I-cache fill, and six relocated CPU-local or
+cartridge-read instructions. PC/next-PC become
+`0x8000001C / 0x80000020`, Count `252351`, total commits 252,367. The first
+PI store remains unexecuted. This is synthetic CPU/device composition, not
+authentic IPL2 execution, RSP execution, PI behavior, functional D-cache data
+flow, or analog/cache timing accuracy. Known unknowns include full ISA
+integration, real timing, unearned likely/REGIMM and broader COP0/CACHE
+identities, NMI, generic MMIO, unrelated load/store families, and performance.
+Next authority must be earned by a bounded product packet, not a generic
+dispatcher.

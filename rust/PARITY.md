@@ -35,10 +35,11 @@ history.
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or direct game-entry execution |
 | `PifFirmware` | private immutable owned bytes for one structurally accepted raw-Boot-ROM-shaped input and the source bytes for explicit profiled copy materialization | no path, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, and the represented COP0 subset | no host cadence, full ISA, interrupt controller, or TLB/MMU |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, represented COP0 including raw TagLo/TagHi, and per-Machine direct-mapped primary I/D cache arrays with provenance | no host cadence, full ISA, interrupt controller, TLB/MMU, secondary cache, cache timing, or functional D-cache data path |
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
-| `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads, concrete/opaque CPU-store provenance, narrow opaque-word load transport preserving unavailable lineage, and atomic profiled-copy replacement | no public mutable access, opaque value exposure as known truth, SP instruction-fetch route, profile policy, SP register/status/DMA, or RSP execution |
+| `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads, concrete/opaque CPU-store provenance, narrow opaque-word load transport preserving unavailable lineage, and atomic profiled-copy replacement | no public mutable access, opaque value exposure as known truth, SP instruction-fetch route, profile policy, DMA, or RSP execution |
+| `Sp` | optional exact x105 SP_STATUS and SP_PC register/control truth with CPU-store provenance | no status/PC reads, arbitrary command bank, semaphore, DMA, RSP scalar/vector state, or RSP execution |
 | `Ri` | optional RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD, and exact RI_REFRESH raw/provenance state with source-clear derived fields | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, refresh timing/electrical effect, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Mi` | immutable MI_VERSION `0x02020102`, optional exact-x105 initialization state, one bounded pending transfer, and exact generated RDRAM-register access-mode command state with CPU provenance | no alternate identity/configuration, unrelated MI register behavior, command bank, general next-write replication, timing, MMIO framework, or bus |
 | `Machine` | Cartridge, optional accepted PifFirmware and PifIpl2Profile, explicit handoff selectors, Cpu, Rdram, SpDmem, SpImem, Ri, Mi, bootstrap provenance/GPR-knownness/COP0/control-flow state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
@@ -281,7 +282,9 @@ execution support.
 Instruction fetch represents:
 
 - 4-byte alignment before target access;
-- direct KSEG0/KSEG1 RDRAM word fetch;
+- direct KSEG1 RDRAM word fetch;
+- CPU-owned direct-mapped KSEG0 I-cache lookup, exact 32-byte RDRAM-line fill,
+  cached-word truth, and rollback when instruction application rejects;
 - read-only SP DMEM word fetch;
 - source classification that distinguishes cartridge-bootstrap SP DMEM bytes
   from unclassified Machine storage;
@@ -472,14 +475,15 @@ slot Count zero times, uses the BLTZ PC for EPC with BD set, commits neither
 target nor fall-through, and reuses the existing AdEL/AdES owner. BGEZ, likely
 and link variants, and REGIMM traps remain unrepresented.
 
-### Machine-owned bounded `MTC0` boot trio
+### Machine-owned bounded `MTC0` boot registers and primary cache
 
-`Cop0Mtc0` selects a closed Machine plan only for Cause register 13, Count
-register 9, and Compare register 11 while the source-backed NTSC cold-x105
-kernel handoff is active. Planning validates zero reserved low bits, the exact
-destination, access scope, and a known old `rt`, then transfers only its low
-32 bits. Unsupported destinations, malformed encodings, unavailable sources,
-and other contexts reject before COP0, control-flow, or Count mutation.
+`Cop0Mtc0` selects a closed Machine plan for Cause register 13, Count
+register 9, Compare register 11, TagLo register 28, and TagHi register 29 while
+the source-backed NTSC cold-x105 kernel handoff is active. Planning validates
+zero reserved low bits, the exact destination, access scope, and a known old
+`rt`, then transfers only its low 32 bits. Unsupported destinations,
+malformed encodings, unavailable sources, and other contexts reject before
+COP0, control-flow, or Count mutation.
 
 Cause writes only software-pending IP1/IP0 (`0x00000300`) and makes that
 two-bit state known; it preserves exception code, BD, timer pending, and all
@@ -488,9 +492,13 @@ which then advances Count once and performs the existing Compare equality
 check. Compare installs the transfer word and clears timer pending before
 normal cadence, whose post-increment equality may relatch it. Successful MTC0
 in an ordinary delay slot uses the existing slot cadence and creates no branch
-or GPR write. Interrupt delivery, unrelated RI behavior, other MTC0
-destinations, MFC0,
-DMTC0, privilege completeness, and a generic CP0 register bank remain absent.
+or GPR write. TagLo and TagHi each store one raw word plus exact MTC0
+provenance. CACHE op 0x08 and 0x09 implement primary I/D Index Store Tag only:
+known KSEG0 base plus current tags select exactly one line, and generated zero
+tags make it invalid without mutating backing memory. The cold loops execute
+512 operations per cache. Interrupt delivery, unrelated RI behavior, other
+MTC0 destinations, other CACHE operations, MFC0, DMTC0, privilege
+completeness, and a generic CP0/cache framework remain absent.
 
 ### Minimal RI and RI_REFRESH state
 
@@ -696,18 +704,20 @@ execute. Current explicit absences include:
 - CPU load/store identities other than the detailed aligned `Lw`/`Sw` and
   SP-IMEM-only `LBU`/`SB` surfaces, including unaligned merge operations,
   unclassified SP-DMEM access, and unearned device/register targets;
-- signed multiply, divide, trap, every COP0 instruction except the bounded
-  MTC0 boot trio, ERET, and LL/SC execution;
-- cache instruction execution and MTC0 destinations beyond the bounded boot
-  trio; current execution stops before C0_TAGLO;
+- signed multiply, divide, trap, every COP0 instruction except bounded MTC0
+  Cause/Count/Compare/TagLo/TagHi, ERET, and LL/SC execution;
+- CACHE operations other than primary I/D Index Store Tag, secondary cache,
+  functional primary D-cache data access, cache timing, parity, and cache-error
+  exceptions;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
   PI DMA, authentic firmware-executed bootstrap handoff, and cartridge-entry
   execution;
 - authentic PIF firmware/revision validation, firmware execution, and
   coupled PAL/MPAL or other-family/NMI/DD handoff-state production;
-- authentic private-firmware-backed SP IMEM observations, RSP/COP2 execution, and SP
-  register/status/DMA/control behavior;
+- authentic private-firmware-backed SP IMEM observations, RSP/COP2 execution,
+  SP DMA/semaphore behavior, and SP register behavior beyond exact generated
+  status/PC writes;
 - a broad bus or memory map, device/MMIO routing, DMA, and N64 scheduling or
   timing;
 - renderer, input, window, audio, ROM-path host, and platform event loop;
@@ -777,7 +787,7 @@ calls only public `Machine::step` for execution. Its 174 cases cover:
 - exact initial non-global RDRAM_MODE raw request/derived fields/provenance,
   aliases, exact-value rejection, AdES/delay-slot cadence, lifecycle, unchanged
   bytes/routes, and closed readback/physical-effect boundary;
-- 247,000-step generated x105 composition through the exact 8,000-iteration CPU
+- 252,367-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
   write, delay-word construction, RDRAM_DELAY and RDRAM_REF_ROW commits,
   DEVICE_ID-value LUI/store, fourteen CPU-local setup commits, MI_VERSION read,
@@ -787,8 +797,11 @@ calls only public `Machine::step` for execution. Its 174 cases cover:
   concrete saves, FindCC JAL/Nop, exact BEQL annul, TestCCValue and WriteCC,
   exact `0x46C0C0C0` request commit, complete fixed-profile calibration,
   two-module discovery/final mapping, module reads and RAS writes, RI_REFRESH,
-  guest-detected 4 MiB size, frame teardown, and the unexecuted cache-specific
-  C0_TAGLO frontier;
+  guest-detected 4 MiB size, frame teardown, zero TagLo/TagHi writes, exact
+  512-line I-cache and 512-line D-cache invalidation loops, exact SP halt/PC/
+  start control, 205-word public IPL3 relocation, JR to `0x80000004`, one
+  KSEG0 I-cache fill from relocated RDRAM, cached cartridge-header setup, and
+  the unexecuted PI_DRAM_ADDR store frontier;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

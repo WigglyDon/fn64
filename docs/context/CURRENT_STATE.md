@@ -79,15 +79,17 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   BLTZ reuses the established full-GPR signed comparison used by SLT/SLTI;
   every other REGIMM identity remains unrepresented. This is bounded ordinary
   control flow, not complete MIPS control flow.
-- `LIVE_REPO_FACT`: `Cop0Mtc0` executes only for Cause software-pending bits,
-  Count, and Compare while the source-backed cold-x105 kernel state is active.
+- `LIVE_REPO_FACT`: `Cop0Mtc0` executes for Cause software-pending bits,
+  Count, Compare, and the exact CPU-owned primary-cache TagLo/TagHi
+  destinations while the source-backed cold-x105 kernel state is active.
   It transfers the known source GPR's low word, preserves the source, and
   rejects malformed encodings, other destinations, unavailable sources, or
   other access contexts before mutation. Cause writes only IP1/IP0 and does
   not clear timer pending; Count writes before normal committed cadence;
   Compare clears timer pending before that cadence, whose post-increment
-  equality check may relatch it. Interrupt delivery and general COP0 access
-  remain absent.
+  equality check may relatch it. TagLo and TagHi each retain a raw low word and
+  source provenance; the generated cold sequence writes zero from
+  ArchitecturalZero. Interrupt delivery and general COP0 access remain absent.
 - `LIVE_REPO_FACT`: Machine structurally accepts an explicitly supplied
   1,984-byte raw-Boot-ROM-shaped input, rejects the 2,048-byte full-map shape as
   unsupported, and classifies other lengths as malformed. Acceptance proves no
@@ -277,10 +279,23 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `0xA4000400 / 0xA4000404`. Guest-written memory size is `0x00400000`, matching
   the Machine backing. The current unexecuted word is `0x4080E000`,
   `Cop0Mtc0 zero,$28` (C0_TAGLO), the first cache-initialization-specific
-  operation. Every instruction and represented state is independently
-  generated. This synthetic composition proves the deterministic fixed digital
-  profile, not analog accuracy or authentic IPL2 execution, and does not change
-  BOOT-2.
+  operation. From there, 5,367 further public steps write zero TagLo/TagHi,
+  invalidate all 512 direct-mapped 32-byte I-cache lines and all 512
+  direct-mapped 16-byte D-cache lines, apply exact SP status words
+  `0x000000CE` and `0x000000AD` plus SP_PC zero, and copy 820 public bytes from
+  SP DMEM `[0x554,0x888)` to physical RDRAM `[0x4,0x338)`. The generated JR
+  enters KSEG0 at `0x80000004`; a real CPU-owned I-cache miss fills physical
+  line zero from the relocated RDRAM bytes, and the following cached
+  instructions consume a synthetic Machine-owned cartridge-header word. At
+  total commit 252,367, Count `252351`, PC/next-PC
+  `0x8000001C / 0x80000020`, `Sw r9,0(r1)` word `0xAC290000` is the first PI
+  access: r1 is `0xFFFFFFFFA4600000`, r9 low word is `0x00001000`, and the
+  physical target is PI_DRAM_ADDR `0x04600000`. It remains unexecuted and its
+  pure plan rejects atomically as `DirectTargetMiss`. Every instruction and
+  represented state is independently generated. This synthetic composition
+  proves the deterministic fixed digital profile, cache initialization, and
+  relocation—not analog accuracy, RSP execution, PI execution, authentic IPL2
+  execution, or a cartridge handoff—and does not change BOOT-2.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -415,6 +430,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   two-module fixed digital profile, generated public stepping completes RDRAM
   calibration/discovery/configuration and detected-size storage, and proof stops
   before cache-specific C0_TAGLO without a Worker lane or queue entry.
+- `master-direct-primary-cache-ipl3-relocation-x105-pi-frontier-v1`: direct
+  Master coherent-subsystem operation; CPU-owned primary cache arrays and
+  TagLo/TagHi execute both generated 512-line invalidation loops, exact
+  Machine-owned SP control permits ordinary relocation of the public IPL3
+  suffix into RDRAM, and cached relocated KSEG0 execution reaches but does not
+  execute the first PI store, without a Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -458,11 +479,16 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   RI_REFRESH. Both modules select automatic input 7, final mode `0xC6808080`,
   RAS `0x101C0A04`, and final bases zero/2 MiB. Guest size `0x00400000` matches
   backing capacity. Opaque frame restores transport unavailable lineage without
-  converting sentinel backing to known truth. At commit 247,000 execution is at
-  `0xA4000400`, before unrepresented cache-specific `MTC0 C0_TAGLO` word
-  `0x4080E000`. Analog timing/accuracy, host-selected profiles, arbitrary module
-  topology, general RI/MI/RDRAM programming, CACHE, broader COP0, NMI, a generic
-  bus/MMIO/map, BOOT-3, and compatibility remain absent.
+  converting sentinel backing to known truth. CPU-owned TagLo/TagHi and primary
+  cache arrays then execute exact 512-line I/D invalidation loops. Exact SP
+  register commands bracket an 820-byte SP-DMEM-to-RDRAM relocation; the
+  generated KSEG0 jump fills I-cache line zero from those bytes and executes
+  through the synthetic cartridge-header load. At commit 252,367 execution is
+  at `0x8000001C`, before PI_DRAM_ADDR store word `0xAC290000`. Functional
+  D-cache data flow, cache timing, RSP execution, PI registers/DMA, analog
+  timing/accuracy, host-selected profiles, arbitrary module topology, general
+  RI/MI/RDRAM programming, broader COP0/CACHE, NMI, a generic bus/MMIO/map,
+  BOOT-3, and compatibility remain absent.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that

@@ -74,12 +74,19 @@ RDRAM_MODE `0x03F0000C` store commits one request through the existing BNE
 slot. Existing and newly required source-clear identities then execute every
 guest calibration, discovery, module-register, final-mapping, refresh, and
 frame-teardown transition. At 247,000 commits, PC/next-PC are
-`0xA4000400 / 0xA4000404`, Count is `246984`, guest size is `0x00400000`, and
-the unexecuted first cache-specific word is `0x4080E000` (C0_TAGLO). This proves
-the deterministic fixed digital profile, not RI/RDRAM analog timing or
-authentic IPL2 execution.
+`0xA4000400 / 0xA4000404`, Count is `246984`, and guest size is
+`0x00400000`. Bounded MTC0 then stores zero TagLo/TagHi and CACHE op
+`0x08/0x09` invalidates every primary I/D line. KSEG1 continues to fetch
+directly. After public relocation, KSEG0 fetch requires CPU-owned I-cache
+truth: a miss reads one complete 32-byte Machine-owned RDRAM line, applies one
+fill before decode, and rolls it back if instruction application rejects; a
+matching valid line returns its cached word without backing access. At 252,367
+commits the current cached word is `0xAC290000`, an unexecuted first PI store.
+This proves the deterministic fixed digital profile, primary-cache
+initialization, and public relocation, not RI/RDRAM analog timing, cache
+timing, RSP or PI execution, or authentic IPL2 execution.
 
-The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
+The MTC0 producer accepts only zero low bits, Cause/Count/Compare/TagLo/TagHi, the
 source-backed cold-x105 access scope, and a known old source. Its immutable
 plan resolves all fallible facts before destination-specific COP0 mutation and
 existing cadence application. No numeric CP0 register map or generic writer is

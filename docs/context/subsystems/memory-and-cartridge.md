@@ -123,12 +123,16 @@ actual first manual word is `0x46C0C0C0`; its `Sw` at CPU `0xA3F0000C` /
 physical `0x03F0000C` commits one request. WriteCC returns through JR/Nop and
 execution continues through the full digital calibration, two-module discovery,
 one absent probe, final mapping, module RAS configuration, RI_REFRESH, detected
-4 MiB size store, and frame teardown. It stops at PC `0xA4000400` before
-cache-specific word `0x4080E000`. No general RI/MI programming, analog timing,
-NMI, or generic MMIO route exists. It does not establish authentic SP IMEM contents,
-firmware-executed handoff,
-PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
-N64 memory system. Rollback/preflight exists
+4 MiB size store, and frame teardown. Exact SP status/PC state then brackets
+the generated relocation from SP-DMEM local `[0x554,0x888)` into physical
+RDRAM `[0x4,0x338)`. Existing owners perform all 205 known-word loads and
+stores; no shadow buffer or byte owner is added. Relocated KSEG0 execution
+fills one I-cache line from those bytes, reads a synthetic Machine-owned
+cartridge-header word, and stops at PC `0x8000001C` before PI. No general
+RI/MI/PI programming, RSP execution, analog or cache timing, NMI, or generic
+MMIO route exists. It does not establish authentic SP IMEM contents,
+firmware-executed handoff, PIF/BIOS boot, SP DMA, controller protocol, game
+compatibility, or a complete N64 memory system. Rollback/preflight exists
 only where the detailed ledger says it is sealed.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.

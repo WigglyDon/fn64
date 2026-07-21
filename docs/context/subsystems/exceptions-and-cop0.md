@@ -81,9 +81,13 @@ untaken BLTZ with an AdEL slot: EPC is the BLTZ PC, BD is set, BadVAddr is
 exact, the branch Count remains, the faulting slot adds zero, and neither
 target nor fall-through commits. Bounded `Cop0Mtc0` in an ordinary slot commits
 its destination once and then uses the existing slot cadence; it has no
-intrinsic represented exception. Other COP0 instructions and destinations
-remain unrepresented. Generated composition stops before `MTC0 C0_TAGLO` at
-`0xA4000400`; that cache-specific destination is not executed.
+intrinsic represented exception. In addition to Cause/Count/Compare, the CPU
+now owns optional raw TagLo and TagHi words plus exact MTC0 provenance. The
+generated writes at `0xA4000400` and `0xA4000404` consume r0
+ArchitecturalZero and store raw zero before ordinary cadence. Index Store Tag
+then consumes these facts but owns no new exception path. Other COP0
+instructions, destinations, cache errors, parity, and interrupt delivery remain
+unrepresented.
 
 Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
 owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting

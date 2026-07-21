@@ -128,9 +128,22 @@ physical RDRAM_MODE `0x03F0000C` request. WriteCC returns through JR/Nop;
 214,734 further public steps execute the deterministic digital calibration,
 module discovery/configuration/mapping, RI_REFRESH, detected-size store, and
 teardown. Execution stops at PC `0xA4000400`, Count `246984`, commit 247,000,
-before word `0x4080E000` (`MTC0 C0_TAGLO`). This is synthetic
-CPU/device-composition evidence, not authentic cartridge boot, analog timing,
-general MI programming, NMI, CACHE execution, or compatibility evidence.
+then 5,367 further public steps execute zero TagLo/TagHi, 1,024 CACHE
+operations, exact SP control, an 820-byte relocation, one KSEG0 I-cache fill,
+and relocated CPU-local/cartridge-read operations. Execution stops at
+PC/next-PC `0x8000001C / 0x80000020`, Count `252351`, commit 252,367,
+before PI_DRAM_ADDR store word `0xAC290000`. Inspection observes cache hit or
+fill provenance but cannot create cache/SP/relocation truth. This is synthetic
+CPU/device-composition evidence, not authentic cartridge boot, analog or cache
+timing, RSP or PI execution, general MI programming, NMI, or compatibility
+evidence.
+
+Generic CPU-local/control-flow step-probe fixtures use the already represented
+uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and
+must establish its I-cache state through public MTC0/CACHE/fill execution. The
+exception-vector preservation fixture likewise invalidates its selected line
+through public steps before the KSEG0 vector fill; inspection owns no cache
+seeding API.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use

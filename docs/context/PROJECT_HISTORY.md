@@ -666,6 +666,36 @@ product or reference lane requires a new explicit product decision.
   commits expose `Sw r26,0(r20)` to physical RDRAM zero. It is not executed;
   no response, score, calibration result, BOOT-3, or compatibility is earned.
 
+## Era 35 — fixed-profile RDRAM bring-up (2026-07-20)
+
+- Ownership decision: the existing 4 MiB RDRAM backing selects one immutable
+  two-module standard-retail digital profile. Existing Rdram, Mi, and Ri owners
+  retain byte, module, register-mode, and RI_REFRESH truth without a host
+  selector, generic bus, or analog claim.
+- Generated composition: public stepping executes current-control calibration,
+  discovers/configures/maps both 2 MiB modules, stores RI_REFRESH
+  `0x001E3634`, and writes detected size `0x00400000`.
+- Boundary: PC/next-PC `0xA4000400/0xA4000404`, Count 246,984, and 247,000
+  commits expose zero TagLo MTC0 before execution. Synthetic RDRAM
+  initialization is complete; BOOT-2 remains highest.
+
+## Era 36 — primary caches, IPL3 relocation, and PI frontier (2026-07-21)
+
+- Ownership decision: CPU owns raw TagLo/TagHi and fixed direct-mapped primary
+  I/D arrays. One per-Machine Sp owner records only exact generated SP_STATUS
+  and SP_PC truth. Existing SP-DMEM and RDRAM owners perform relocation.
+- Generated composition: zero tags drive 512 I-cache and 512 D-cache Index
+  Store Tag operations. Exact SP control brackets 205 ordinary word copies
+  from local SP DMEM `0x554..0x887` to physical RDRAM
+  `0x00000004..0x00000337`. JR enters `0x80000004`; the first KSEG0 fetch
+  fills I-cache line zero from the relocated bytes and cached execution
+  consumes the synthetic cartridge header.
+- Boundary: after 5,367 new commits, PC/next-PC are
+  `0x8000001C/0x80000020`, Count is 252,351, and total commits are 252,367.
+  PI_DRAM_ADDR store word `0xAC290000` remains unexecuted. RSP execution,
+  functional D-cache data flow, PI, authentic advancement, BOOT-3, and
+  compatibility remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

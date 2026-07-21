@@ -181,11 +181,20 @@ TestCCValue-local commits then expose response-test `Sw r26,0(r20)` at
 steps execute every RDRAM bring-up loop and return. Guest size `0x00400000`
 matches Machine capacity; both modules are calibrated/configured/mapped;
 RI_REFRESH is `0x001E3634`; and execution reaches PC/next-PC
-`0xA4000400 / 0xA4000404`, Count `246984`, commit 247,000. Current word
-`0x4080E000` is cache-specific C0_TAGLO and remains unexecuted.
-It does not prove an authentic firmware-executed handoff, analog or elapsed
-hardware accuracy, BOOT-3, full ISA, game compatibility, renderer, audio,
-performance, or host integration.
+`0xA4000400 / 0xA4000404`, Count `246984`, commit 247,000. From that
+accepted state, the CPU-owned raw TagLo/TagHi facts become zero and two
+direct-mapped 512-line arrays execute the complete generated Index Store Tag
+loops. Exact Machine-owned SP status/PC commands then bracket 205 ordinary
+SP-DMEM loads and RDRAM stores, relocating public bytes from local
+`[0x554,0x888)` to physical `[0x4,0x338)`. The generated JR enters
+`0x80000004`; KSEG0 instruction fetch fills I-cache line zero from those
+RDRAM bytes, while KSEG1 remains uncached. Six relocated instructions reach
+PC/next-PC `0x8000001C / 0x80000020`, Count `252351`, commit 252,367.
+The current word `0xAC290000` is the first PI_DRAM_ADDR store and remains
+unexecuted. It does not prove an authentic firmware-executed handoff, analog or
+elapsed hardware accuracy, RSP or PI execution, functional D-cache data flow,
+BOOT-3, full ISA, game compatibility, renderer, audio, performance, or host
+integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
