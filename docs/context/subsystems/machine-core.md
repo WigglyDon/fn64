@@ -13,8 +13,8 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_MODE,
-RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, immutable MI_VERSION identity,
-and MI initialization-mode state,
+RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, RI_REFRESH, immutable MI_VERSION
+identity, MI initialization-mode state, and MI RDRAM-register access mode,
 reset/power state, optional
 structurally accepted immutable
 PIF firmware input, optional explicit PIF IPL2 copy profile, explicit narrow
@@ -59,11 +59,9 @@ Direct SP-DMEM reads are additionally gated by the current cartridge-bootstrap
 span and record the exact source cartridge offset; concrete but unclassified
 backing rejects. No serialization format is a product contract yet.
 
-Aligned `Sw` uses a separate Machine plan/application path for SP IMEM, the
-four exact RI_MODE, RI_CONFIG, RI_CURRENT_LOAD, and RI_SELECT targets, exact
-MI_INIT_MODE, the three exact global RDRAM writes, or the exact RCP 2.0
-first-responder DEVICE_ID target, plus one exact initial non-global RDRAM_MODE
-request.
+Aligned `Sw` uses a separate Machine plan/application path for direct RDRAM,
+SP IMEM, the represented RI/MI/global RDRAM targets, and the exact generated
+RCP-2 module-register families.
 The plan resolves old base, alignment, direct target, old source value, exact
 SP-IMEM span or destination-specific RI state, and CPU-store provenance before
 application. Undefined RI_CONFIG high bits, unavailable RI_CONFIG for an
@@ -88,8 +86,10 @@ An unavailable store source may form an opaque plan only after the exact
 destination is classified as an aligned existing SP-IMEM word. The plan stores
 cause and addresses but no value bits. Application canonicalizes private bytes
 and installs one coherent `SpImem` record; known aligned overwrite removes it.
-Aligned Lw rejects opaque words, and every device/SP-DMEM unknown write remains
-closed.
+Aligned Lw from an opaque word may now transport the unavailable source through
+canonical zero backing while retaining its unavailable lineage. The backing is
+never known truth and every later genuine consumer still rejects. Every
+device/SP-DMEM unknown write remains closed.
 Application has no
 fallible operation: it mutates one selected owner, commits control flow once,
 and advances Count once. Rejection restores the captured snapshot; AdES
@@ -101,55 +101,34 @@ source, and low transfer word before mutation. Application performs the
 destination-specific COP0 write before the existing committed cadence. It is
 not a numeric CP0 map or a general register-write framework.
 
-One private `Ri` owner stores optional RI_MODE, RI_SELECT, RI_CONFIG, and
-RI_CURRENT_LOAD event state separately from bootstrap selectors. Construction
-and general reset leave all unavailable.
-The complete supported cold-x105 plan creates RI_SELECT zero with
-`ColdX105Entry` provenance and leaves the other three facts unavailable; repeated
-complete staging restores that cold value/source and clears stale RI_CONFIG,
-RI_CURRENT_LOAD, RI_MODE, and CPU-store provenance. The aligned-`Lw`
-plan reads only RI_SELECT at
-physical `0x0470000C`. The aligned-`Sw` plan writes only RI_MODE at physical
-`0x04700000`, RI_CONFIG at `0x04700004`, RI_CURRENT_LOAD at `0x04700008`, or
-RI_SELECT at `0x0470000C`.
-RI_CURRENT_LOAD requires and
-snapshots stored RI_CONFIG fields while recording the transfer word and
-CPU-store lineage. RI_SELECT accepts only exact `0x14`, replaces value/source
-with CPU-store provenance, and leaves both siblings unchanged. RI_MODE stores
-operating-mode bits 1:0 and the two stop-active bits with CPU-store provenance;
-bits above bit 3 reject before mutation. No RI route mutates memory. No path
-derives RI state from reset kind. RI_CONFIG/RI_CURRENT_LOAD/RI_MODE reads,
-general RI_SELECT programming, current-control
-output/processing/timing, NMI, generic MMIO, and a bus remain absent.
+One private `Ri` owner stores optional RI_MODE, RI_SELECT, RI_CONFIG,
+RI_CURRENT_LOAD event, and RI_REFRESH state separately from bootstrap selectors.
+The existing narrow fields and provenance remain unchanged. Exact physical
+`0x04700010` stores and reads profile-derived raw RI_REFRESH word `0x001E3634`;
+its module mask and defined fields derive read-only. No refresh timing,
+current-control electrical behavior, NMI, generic MMIO, or bus is represented.
 
-One private `Mi` owner separately stores immutable MI_VERSION word
-`0x02020102`, optional MI initialization state, and one bounded pending
-transfer. IO/RAC/RDP/RSP bytes derive from the one raw word. Construction,
-reset, and complete cold-x105 bootstrap preserve identity while leaving mutable
-state unavailable; repeated bootstrap clears stale mutable state and failed
-bootstrap preserves all state. The
-exact physical `0x04300000` store has no CPU read route and creates no other MI
-fact. The pending transfer is consumed only by the exact x105 RDRAM_DELAY pair;
-post-consumption current MI state becomes unavailable because exact readback is
-not source-clear. Exact aligned `Lw` at physical `0x04300004` reads only the
-immutable version with ordinary CPU lineage. This is not a general next-write
-engine or MI register bank and represents no timing.
+One private `Mi` owner stores immutable MI_VERSION `0x02020102`, optional
+initialization state, one bounded pending transfer, and optional RDRAM-register
+access mode. Existing initialization and version semantics remain unchanged.
+Exact generated commands `0x2000` and `0x1000` enable and disable module-register
+reads; zero records a source-clear no-change command. This is not a command
+bank, readback surface, general next-write engine, or timing model.
 
-The existing `Rdram` remains the sole byte owner and separately stores optional
-global/broadcast delay, raw REF_ROW, global DEVICE_ID relocation-request, and
-first-responder DEVICE_ID assignment-request facts. The exact REF_ROW route
-accepts only low word zero at physical `0x03F80014`, records CPU-store
-provenance, and preserves the delay fact. Global DEVICE_ID physical
-`0x03F80004` records only requested base `0x02000000`; first-responder physical
-`0x03F08004` records only requested initial ID zero and the exact RCP 2.0
-aperture. Exact initial non-global physical `0x03F0000C` accepts only raw word
-`0x46C0C0C0`; it stores one request and CPU provenance. Device-enable,
-auto-skip, multiplier, absent current-control enable, and encoded code `0x3F`
-derive read-only from the raw word. These writes change no RDRAM byte or route,
-create no physical current-control effect, readback, or module
-inventory/presence/completion state, and have no CPU read route. Reset and
-complete bootstrap clear all optional RDRAM facts; failed bootstrap preserves
-them.
+The existing `Rdram` remains the sole byte, fixed-profile, module, register,
+mapping, and calibration-response owner. Current 4 MiB backing selects two
+present 2 MiB modules with DEVICE_TYPE `0xB0190000`, fixed manufacturer
+`0x0500`, and no enhanced-speed bit. Exact RCP-2 register spacing is `0x400`.
+Generated register-mode reads expose module type, manufacturer, and mode;
+generated writes own DEVICE_ID mappings, module/global modes, and RAS_INTERVAL
+`0x101C0A04`. Manual calibration produces deterministic monotonic scores
+`10..80` for nominal inputs `0..7`; absent modules return zero. Guest execution
+selects automatic input 7 and final mode `0xC6808080`, then maps the modules at
+zero and 2 MiB without duplicating or relocating backing bytes. Reset and
+complete bootstrap retain the immutable capacity-derived profile while clearing
+mutable initialization state; failed bootstrap preserves the complete owner.
+There is no cartridge/host profile selection, analog claim, generic register
+array, bus, MMIO framework, or timing engine.
 
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
@@ -160,7 +139,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 168-case step probe, the bounded BOOT-2
+construction/reset probe, the 174-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -169,7 +148,7 @@ materialization now gives generated or user-supplied firmware bytes a
 production copy event; the authentic
 no-firmware SP-IMEM load still rejects before mutation because byte zero is
 unknown. Generated proof also establishes the bounded NTSC cold-x105 coupled
-handoff and a 32,266-step generated composition through the stored RI_SELECT
+handoff and a 247,000-step generated composition through the stored RI_SELECT
 read, cold BNE/NOP slot, high-SP-IMEM stack stores, exact RI_CONFIG store, and
 8,000 generated CPU-loop iterations, the RI_CURRENT_LOAD event, following
 `Ori`, exact RI_SELECT write, both RI_MODE stores, a four-iteration CPU wait,
@@ -198,12 +177,14 @@ WriteCC commit through public stepping and produce `0x46C0C0C0`. At Count
 RDRAM_MODE `0x03F0000C` and commits one exact request in the existing BNE
 delay slot. WriteCC restores ra/sp and returns through JR/Nop; two
 TestCCValue-local commits then expose response-test `Sw r26,0(r20)` at
-`0xA4000A2C`. At Count `32250` and 32,266 commits that instruction remains
-unexecuted.
-It does not prove an authentic firmware-executed handoff, responder
-presence/completion, RI calibration or elapsed hardware time, RDRAM_MODE
-physical effect/readback or
-RDRAM initialization, BOOT-3, full ISA, game compatibility, renderer, audio,
+`0xA4000A2C`. From Count `32250` and commit 32,266, 214,734 further public
+steps execute every RDRAM bring-up loop and return. Guest size `0x00400000`
+matches Machine capacity; both modules are calibrated/configured/mapped;
+RI_REFRESH is `0x001E3634`; and execution reaches PC/next-PC
+`0xA4000400 / 0xA4000404`, Count `246984`, commit 247,000. Current word
+`0x4080E000` is cache-specific C0_TAGLO and remains unexecuted.
+It does not prove an authentic firmware-executed handoff, analog or elapsed
+hardware accuracy, BOOT-3, full ISA, game compatibility, renderer, audio,
 performance, or host integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented

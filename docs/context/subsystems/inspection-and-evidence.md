@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 155 stable cases, including ordinary
+public `Machine::step` for 174 stable cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -38,7 +38,7 @@ lifecycle/read/provenance/alias/AdEL/closed-surface cases, exact first-responder
 request/value/provenance/alias/AdES/lifecycle/narrow-route cases, opaque
 SP-IMEM cause/sentinel/coherence/overwrite/Lw/AdES/lifecycle cases, exact BEQL
 taken/annul/source/exception cases, exact RDRAM_MODE request/fields/provenance/
-alias/rejection/AdES/lifecycle cases, plus 32,266 generated commits
+alias/rejection/AdES/lifecycle cases, plus 247,000 generated commits
 through both bounded CPU waits and RI events, the exact MI write, delay-word
 construction, global RDRAM_DELAY and raw-zero RDRAM_REF_ROW commits,
 DEVICE_ID-value/request commit, fourteen CPU-local setup commits, exact
@@ -46,8 +46,10 @@ MI_VERSION read, guest-selected RCP 2.0 Bne/Nop slot, spacing/base setup,
 first-responder non-global RDRAM_DEVICE_ID commit, RDRAM_MODE-address `Addiu`,
 generated JAL/Nop cadence, five InitCCValue entry commits, four opaque r2-r5
 saves, twenty concrete saves, FindCC JAL/Nop, not-taken BEQL annul,
-TestCCValue/WriteCC calls, exact request commit, WriteCC return, and the
-unexecuted first response-test access. The
+TestCCValue/WriteCC calls, exact request commit, complete fixed-profile digital
+calibration, two-module discovery and final mapping, module/RAS/RI_REFRESH
+state, detected 4 MiB size, teardown, and the unexecuted cache-specific C0_TAGLO
+frontier. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -123,10 +125,12 @@ commit through `0xA40008EC`. FindCC JAL/Nop and setup then commit. BEQL at
 `0xA400099C` annuls `0xA40009A0`; TestCCValue and WriteCC execute until
 `Sw r15,0(r21)` at `0xA4000BB8` commits exact word `0x46C0C0C0` as one
 physical RDRAM_MODE `0x03F0000C` request. WriteCC returns through JR/Nop;
-execution stops before `Sw r26,0(r20)` at physical RDRAM zero. This is
-synthetic CPU-composition evidence, not authentic cartridge boot, elapsed RI
-time, general MI next-write replication, calibration, RDRAM initialization, or NMI
-execution.
+214,734 further public steps execute the deterministic digital calibration,
+module discovery/configuration/mapping, RI_REFRESH, detected-size store, and
+teardown. Execution stops at PC `0xA4000400`, Count `246984`, commit 247,000,
+before word `0x4080E000` (`MTC0 C0_TAGLO`). This is synthetic
+CPU/device-composition evidence, not authentic cartridge boot, analog timing,
+general MI programming, NMI, CACHE execution, or compatibility evidence.
 
 Required validation: `./rust/verify-forward`; the boot probe and private-input
 digest/size are separate explicit evidence. Evidence manifests additionally use

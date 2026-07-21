@@ -30,12 +30,14 @@ and one CPU-owned context now represent a selected ordinary delay slot. Count
 advances only through the committed-step owner. Exception actions restore or
 preserve control flow before delegating to the sealed entry owner.
 
-`BEQ`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`, `JR`, and `JALR`
-share one bounded Machine planning/application family. BLTZ reuses the exact
+`BEQ`, `BNE`, non-linking/non-likely `BLTZ`, exact `BEQL`, `BNEL`, `BLEZL`,
+`BGEZL`, `J`, `JAL`, `JR`, and `JALR` share one bounded Machine
+planning/application family. BLTZ reuses the exact
 full-GPR signed comparison already used by SLT/SLTI; it does not create an
 execution-width owner. Target and link arithmetic is explicit, including PC+4
 jump-region selection, PC+8 links, JALR alias read-before-write, and r0 discard.
-Taken and untaken branches schedule one slot. A slot exception uses the owning
+Ordinary taken/untaken branches and taken likely branches schedule one slot;
+not-taken likely branches annul PC+4 without execution or Count. A slot exception uses the owning
 branch/jump PC for EPC and sets BD; inner control flow is rejected before
 source consumption or mutation.
 
@@ -59,10 +61,9 @@ target reads immutable word `0x02020102` from the Mi owner; the destination
 gets ordinary Lw provenance while device state stays unchanged.
 
 Aligned `Sw` is a separate Machine-owned action. It reads the old base,
-resolves alignment before source consumption, accepts direct SP IMEM or exact
-RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global
-RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0
-first-responder RDRAM_DEVICE_ID only, then captures old source low word and exact
+resolves alignment before source consumption, accepts direct RDRAM/SP IMEM and
+the exact represented RI, MI, global RDRAM, or generated RCP-2 module-register
+targets, then captures old source low word and exact
 lineage. RI_CONFIG planning rejects undefined high bits and selects only its
 input/enable fields. RI_CURRENT_LOAD planning requires stored RI_CONFIG and
 snapshots those fields into one event. Success writes no GPR and advances
@@ -93,16 +94,17 @@ destinations reject before mutation, and no general CP0 executor exists.
 
 The same complete cold-x105 plan creates optional Machine-owned RI_SELECT zero
 with `ColdX105Entry` provenance and clears optional RI_CONFIG,
-RI_CURRENT_LOAD, and RI_MODE state. The aligned-`Lw`
-planner reads only RI_SELECT physical `0x0470000C`; aligned `Sw` writes only
+RI_CURRENT_LOAD, RI_MODE, and RI_REFRESH state. The aligned-`Lw`
+planner reads RI_SELECT physical `0x0470000C` and RI_REFRESH at `0x04700010`;
+aligned `Sw` writes
 RI_MODE physical `0x04700000`, RI_CONFIG physical `0x04700004`,
 RI_CURRENT_LOAD physical `0x04700008`, or RI_SELECT physical `0x0470000C`, with
 CPU-store provenance and ordinary cadence. The event consumes stored RI_CONFIG
 without creating a hardware result. RI_SELECT exact-write replaces value and
 source, and the existing `Lw` observes it without side effects. No path derives
 state from reset kind or generalizes CPU device access. RI_CONFIG/
-RI_CURRENT_LOAD/RI_MODE reads, general RI_SELECT programming, calibration,
-and timing remain absent.
+RI_CURRENT_LOAD/RI_MODE reads and general RI_SELECT programming remain absent.
+RI_REFRESH raw word `0x001E3634` has no timing effect.
 
 One private Machine-owned MI_VERSION identity is always available and remains
 `0x02020102` through reset and bootstrap. Exact aligned `Lw` at physical
@@ -111,7 +113,16 @@ fact is unavailable at construction, reset, and cold bootstrap. Exact aligned `S
 `0x04300000` creates length 15 / initialization mode true only for word
 `0x0000010F`; other words, nearby MI addresses, and unknown sources reject
 atomically. There is no other MI `Lw`, other MI register, physical next-write
-replication, RDRAM-register state, or timing owner.
+replication or timing owner. Exact generated `0x2000`/`0x1000` commands toggle
+one MI-owned RDRAM-register mode; module reads reject while it is disabled.
+
+`MULTU` is the one newly represented multiply identity and uses unsigned
+low-32-bit operands with the architecturally defined HI/LO word results. `LBU`
+and `SB` are represented only over direct SP IMEM. Aligned opaque-word `Lw`
+transports unavailable lineage using canonical zero backing during generated
+frame teardown; the backing never becomes known truth and later consumers
+still reject. These identities retain ordinary alias, zero-register,
+source-knownness, delay-slot, exception, and Count ownership.
 
 Coupled staging also owns Status=`0x34000000`,
 PC/next-PC=`0xA4000040 / 0xA4000044`, and a clear delay-slot context. It does
@@ -150,15 +161,14 @@ word `0x53400018`; complete available 64-bit operands compare unequal, so its
 effect, exception, or delay context. TestCCValue and WriteCC commit through
 public stepping and construct `0x46C0C0C0`. The physical RDRAM_MODE
 `0x03F0000C` store commits in the existing BNE slot as one request fact.
-WriteCC restores ra/sp and returns through JR/Nop; TestCCValue then reaches
-unexecuted physical-RDRAM-zero response-test `Sw` at `0xA4000A2C`, Count
-`32250`, and 32,266 committed steps. This is CPU composition, not elapsed RI
-time, physical mode application, or calibration. Known
-unknowns include complete public-step ISA integration, real timing,
-other branch-likely/other REGIMM and broader COP0 execution, every RI action except
-the exact RI_SELECT read/`0x14` write, RI_CONFIG write, RI_CURRENT_LOAD event,
-RI_MODE defined-field writes, the exact MI_INIT_MODE write, and the exact
-global RDRAM_DELAY write, exact raw-zero global RDRAM_REF_ROW write, and exact
-global RDRAM_DEVICE_ID request, exact RCP 2.0 first-responder request, NMI,
-generic MMIO, general RDRAM_MODE/readback, current-control response testing, other load/store families, and
-performance. Next authority must be earned by a bounded product packet, not a generic dispatcher.
+WriteCC restores ra/sp and returns through JR/Nop. From the accepted 32,266-step
+state, 214,734 further public steps execute the complete deterministic digital
+calibration and module-discovery/finalization path, RI_REFRESH, detected-size
+store, and frame teardown. Total commits are 247,000 at PC/next-PC
+`0xA4000400 / 0xA4000404`, Count `246984`. Current cache-specific word
+`0x4080E000` (`MTC0 C0_TAGLO`) remains unexecuted. This is synthetic CPU/device
+composition, not authentic IPL2 execution or analog timing accuracy. Known
+unknowns include full ISA integration, real timing, unearned likely/REGIMM and
+broader COP0 identities, CACHE, NMI, generic MMIO, unrelated load/store
+families, and performance. Next authority must be earned by a bounded product
+packet, not a generic dispatcher.

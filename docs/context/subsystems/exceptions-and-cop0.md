@@ -34,22 +34,23 @@ DEVICE_ID write routes add no device-specific exception.
 Opaque-candidate SP-IMEM stores retain this same AdES-before-source policy in
 ordinary and delay-slot contexts; no opaque marker or private sentinel is
 installed on fault. An unaligned Lw within an opaque word retains AdEL
-precedence, while an aligned opaque Lw rejects without exception, destination
-mutation, or Count cadence.
+precedence. An aligned opaque Lw now commits a non-exception unavailable-lineage
+transport with ordinary cadence; its canonical backing zero remains non-truth
+and cannot satisfy a later source-knownness gate.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
 Prior JAL link-destination state is no longer misclassified as an input, but a
 control-flow identity in an active delay slot and unknown JR/JALR/branch
 sources still reject before link or COP0 mutation. Unknown device and SP-DMEM
 store sources likewise preserve Count and COP0 exactly.
-Exact BEQL adds no intrinsic exception. Its taken slot retains this existing
+Represented BEQL/BNEL/BLEZL/BGEZL add no intrinsic exception. A taken slot retains this existing
 EPC/BD owner and zero normal Count cadence when the slot faults. Its not-taken
 path architecturally annuls PC+4, so the nullified word cannot raise AdEL,
 AdES, overflow, reserved-instruction, or any other represented exception.
-The exact initial non-global RDRAM_MODE request adds no exception machinery.
-Unaligned candidates retain ordinary/delay-slot AdES precedence and the
-enclosing branch's EPC/BD owner; nonexact values reject without Count or COP0
-mutation. The generated aligned request commits through normal slot cadence.
+The generated RDRAM_MODE, module-register, direct-RDRAM, MI register-mode, and
+RI_REFRESH paths add no exception machinery. Unaligned candidates retain
+ordinary/delay-slot AdES precedence and the enclosing branch's EPC/BD owner;
+unsupported values reject without Count or COP0 mutation.
 
 The explicit generated-only NTSC cold-x105 handoff is the sole bootstrap path
 that sources inherited COP0 state. It stages Status=`0x34000000` with named
@@ -81,7 +82,8 @@ exact, the branch Count remains, the faulting slot adds zero, and neither
 target nor fall-through commits. Bounded `Cop0Mtc0` in an ordinary slot commits
 its destination once and then uses the existing slot cadence; it has no
 intrinsic represented exception. Other COP0 instructions and destinations
-remain unrepresented.
+remain unrepresented. Generated composition stops before `MTC0 C0_TAGLO` at
+`0xA4000400`; that cache-specific destination is not executed.
 
 Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
 owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting

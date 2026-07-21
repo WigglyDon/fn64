@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, aligned-Lw planning, aligned-Sw planning for SP IMEM or exact RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY/global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0 first-responder RDRAM_DEVICE_ID, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
+`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, represented load/store planning for direct RDRAM, SP IMEM, or exact RI/MI/global-RDRAM/generated-module targets, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 168-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 174-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -71,10 +71,13 @@ slot, and not-taken execution annuls PC+4 with no slot execution, commit,
 Count, effect, exception, or context. The generated BEQL is not taken;
 TestCCValue and WriteCC then produce exact `0x46C0C0C0`; the physical
 RDRAM_MODE `0x03F0000C` store commits one request through the existing BNE
-slot. Existing Lw/Addiu/JR/Nop/Or/Addiu execution returns to TestCCValue and
-stops before response-test `Sw` at physical RDRAM zero. This proves no RI timing,
-calibration, general MI bus
-effect, responder/module state, assignment completion, or RDRAM process.
+slot. Existing and newly required source-clear identities then execute every
+guest calibration, discovery, module-register, final-mapping, refresh, and
+frame-teardown transition. At 247,000 commits, PC/next-PC are
+`0xA4000400 / 0xA4000404`, Count is `246984`, guest size is `0x00400000`, and
+the unexecuted first cache-specific word is `0x4080E000` (C0_TAGLO). This proves
+the deterministic fixed digital profile, not RI/RDRAM analog timing or
+authentic IPL2 execution.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare, the
 source-backed cold-x105 access scope, and a known old source. Its immutable
@@ -83,10 +86,8 @@ existing cadence application. No numeric CP0 register map or generic writer is
 introduced.
 
 The `Sw` producer checks base knownness, computes address, selects AdES before
-source-value consumption, rejects every target except direct SP IMEM or exact
-RI_MODE/RI_CONFIG/RI_CURRENT_LOAD/RI_SELECT/MI_INIT_MODE/global RDRAM_DELAY/
-global RDRAM_REF_ROW/global RDRAM_DEVICE_ID/exact RCP 2.0 first-responder
-RDRAM_DEVICE_ID/exact initial non-global RDRAM_MODE,
+source-value consumption, rejects every target except direct RDRAM/SP IMEM or
+the exact represented RI, MI, global RDRAM, and generated RCP-2 module targets,
 and only then captures source value/lineage and
 constructs a closed destination plan. RI_CONFIG planning rejects undefined
 high bits; RI_CURRENT_LOAD planning requires stored RI_CONFIG and snapshots its
@@ -110,11 +111,11 @@ already-supported aligned SP-IMEM word. The plan carries cause and address but
 no value bits; application canonicalizes private backing and installs one
 coherent owner state. Unknown effective addresses, SP-DMEM stores, device
 commands, and unsupported targets retain their rejection paths. Aligned Lw
-from opaque SP IMEM rejects before destination mutation; no unknown GPR result
-is created.
+from opaque SP IMEM may transport canonical backing with the original
+unavailable lineage; the backing remains non-truth and later consumers reject.
 
-Ordinary `BEQ`, exact `BEQL`, `BNE`, non-linking/non-likely `BLTZ`, `J`, `JAL`,
-`JR`, and `JALR` identities now select one bounded Machine-owned action before sequential
+Ordinary `BEQ`/`BNE`/`BLTZ`, exact likely `BEQL`/`BNEL`/`BLEZL`/`BGEZL`,
+`J`, `JAL`, `JR`, and `JALR` identities select one bounded Machine-owned action before sequential
 staging. BLTZ alone reuses the existing full-GPR signed comparator; no generic
 REGIMM executor exists. A control-flow identity inside a represented slot
 selects explicit unsupported rollback. Application schedules or clears the
@@ -124,8 +125,6 @@ before application and never treats unrelated prior `rd` as an input.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, every other
-branch-likely and other REGIMM/control-flow family, broader COP0 instruction execution,
-general RI_SELECT programming/other RI actions/other MI registers or reads/NMI
-and generic MMIO, MI next-write replication, RDRAM_MODE/other control-register
-access, later current-control memory testing, nested control-flow
-behavior, broad fetch mapping, and instruction timing.
+branch-likely/REGIMM family member, broader COP0 and CACHE execution, general
+RI/MI programming, NMI, generic MMIO, nested control flow, broad fetch mapping,
+analog device behavior, and instruction timing.

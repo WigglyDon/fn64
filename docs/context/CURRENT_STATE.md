@@ -124,7 +124,7 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   product authority. The three copy profiles remain supported independently;
   only the coupled handoff is NTSC-only.
 - `LIVE_REPO_FACT`: one private per-Machine `Ri` owner stores optional
-  RI_MODE, RI_SELECT, RI_CONFIG, and RI_CURRENT_LOAD event facts. Construction and
+  RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, and RI_REFRESH facts. Construction and
   general reset leave all unavailable; the complete supported NTSC
   cold-cartridge x105 bootstrap atomically creates RI_SELECT zero with
   `ColdX105Entry` provenance and leaves the other three facts unavailable. Exact
@@ -141,11 +141,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   stop-receive-active bit 3 with CPU-store provenance. Any bit above bit 3
   rejects before mutation as fn64's unsupported boundary; no hardware-trap
   claim follows. RI_CONFIG, RI_CURRENT_LOAD, and RI_MODE have no read route.
+  Exact generated RI_REFRESH word `0x001E3634` writes and reads at physical
+  `0x04700010`; its named fields derive from the one raw word, with no timing
+  effect or refresh engine.
   General RI_SELECT programming, other RI actions,
   NMI, a register bank, MMIO framework, and bus remain absent.
 - `LIVE_REPO_FACT`: one private per-Machine `Mi` owner stores immutable
   standard-retail MI_VERSION identity `0x02020102`, optional current MI
-  initialization-mode state, and one bounded pending transfer. The raw version
+  initialization-mode state, one bounded pending transfer, and optional
+  RDRAM-register access mode. The raw version
   word is the single stored truth; IO/RAC/RDP/RSP fields derive as
   `02/01/02/02`. Construction, reset, and complete cold-x105 bootstrap
   preserve the identity while leaving both mutable facts unavailable. Exact aligned
@@ -156,12 +160,18 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   bootstrap clears stale MI state/transfer and preserves identity; failed
   bootstrap preserves all three. Exact aligned `Lw` at physical
   `0x04300004` reads the identity through either direct alias with ordinary
-  CPU provenance and cadence. Other MI reads and MI_VERSION writes remain
-  unavailable.
+  CPU provenance and cadence. Exact generated commands `0x00002000` and
+  `0x00001000` enable and disable RDRAM-register access; generated zero records
+  its source-clear no-change command. Module-register reads remain closed while
+  the mode is disabled. Other MI reads and MI_VERSION writes remain unavailable.
 - `LIVE_REPO_FACT`: the existing per-Machine `Rdram` owner remains the sole
-  RDRAM-byte owner and additionally stores optional global/broadcast delay,
-  raw REF_ROW, relocation-request, and exact RCP 2.0 first-responder
-  assignment-request facts plus one exact initial non-global RDRAM_MODE request.
+  RDRAM-byte, fixed-profile, module, mapping, register-request, and deterministic
+  calibration-response owner. The current fixed 4 MiB backing selects profile
+  `fixed-standard-retail-4mib-two-module-digital-cc-v1`: two present 2 MiB
+  modules with DEVICE_TYPE `0xB0190000`, fixed NEC manufacturer `0x0500`, and
+  enhanced-speed false. Optional global/broadcast delay, raw REF_ROW,
+  relocation, first-responder/final DEVICE_ID, RDRAM_MODE, RAS_INTERVAL, and
+  calibration facts all remain inside that one owner.
   Exact aligned `Sw` at physical `0x03F80008` requires the
   pending 15/16 MI transfer and low word `0x18082838`, then stores logical
   fields 5/7/3/1 and packed logical configuration `0x28381808` with CPU and
@@ -171,19 +181,22 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   word zero with known CPU-store lineage and records the global aperture without
   interpreting fields. Physical `0x03F80004` accepts only `0x80000000` and
   records requested base `0x02000000` as a global relocation request. Exact
-  RCP 2.0 first-responder physical `0x03F08004` accepts only low word zero and
-  records requested initial device ID zero with CPU-store provenance. The
-  RCP 1.0 aperture `0x03F04004` remains unsupported. Exact physical
-  `0x03F0000C` accepts only low word `0x46C0C0C0` and records one initial
-  non-global request with CPU-store provenance. Device-enable, auto-skip,
-  current-control multiplier, absent current-control enable, and encoded code
-  `0x3F` derive read-only from that one raw word. None of these writes
-  changes an RDRAM byte or address route, proves responder presence, or records
-  assignment/calibration completion. No RDRAM-register read, physical
-  current-control effect, module state, refresh engine,
-  general replication, timing, readiness, register bank, MMIO, or bus exists.
-- `LIVE_REPO_FACT`: generated-only public-step composition now commits
-  32,185 bounded x105-shaped instructions. The accepted 32,038-step prefix
+  RCP 2.0 first-responder and direct module apertures follow exact `0x400`
+  register spacing. Generated DEVICE_ID requests select present unassigned
+  modules in profile order, allow one exact absent-module probe, and finish at
+  physical bases `0x00000000` and `0x00200000` without copying backing bytes.
+  Generated module-register mode reads expose DEVICE_TYPE, manufacturer, and
+  current mode only while MI RDRAM-register mode is enabled. Manual calibration
+  reads deterministically return `min(n + 1, 8)` one bits in response byte
+  23:16 for nominal input `n`; absent modules return zero. This digital profile
+  makes guest scores `10,20,30,40,50,60,70,80`, selects manual/automatic input
+  7, and ends with per-module mode `0xC6808080` and RAS_INTERVAL `0x101C0A04`.
+  Outside active calibration, direct RDRAM reads retain backing-byte truth.
+  The model claims no analog accuracy, electrical timing, generic register
+  bank, MMIO framework, bus, or cartridge-selected policy.
+- `LIVE_REPO_FACT`: generated-only public-step composition retains the
+  accepted 32,185-instruction prefix and now continues through complete RDRAM
+  initialization. The accepted 32,038-step prefix
   ends after the 8,000-iteration CPU wait loop. Commit 32,036 stores r0 to
   RI_CURRENT_LOAD, snapshotting RI_CONFIG input zero and enable true; commit
   32,037 executes `Ori r9,r0,0x14`. Final PC/next-PC are
@@ -255,12 +268,18 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   existing BNE context. Six further supported commits restore WriteCC ra/sp,
   return through JR/Nop to TestCCValue, zero s8, and construct r26 all ones.
   At 32,266 commits, PC/next-PC are `0xA4000A2C / 0xA4000A30` and Count is
-  `32250`. The first response-test word `0xAE9A0000`, `Sw r26,0(r20)`, would
-  target CPU `0xA0000000` / physical RDRAM zero with word `0xFFFFFFFF`; it is
-  inspected but not executed. Every instruction and represented state is
-  independently generated.
-  This CPU-composition proof
-  establishes neither RI elapsed time nor calibration and does not change
+  `32250`. From there 214,734 further public `Machine::step` calls commit the
+  three initial RDRAM test stores, all guest TestCCValue/FindCC/
+  ConvertManualToAuto/ReadCC/WriteCC loops and calls, discovery of both present
+  modules plus one absent probe, module register reads/writes, final mapping,
+  RI_REFRESH write/read, detected-size store, and frame teardown. Total commits
+  are `247000`; Count is `246984`; PC/next-PC are
+  `0xA4000400 / 0xA4000404`. Guest-written memory size is `0x00400000`, matching
+  the Machine backing. The current unexecuted word is `0x4080E000`,
+  `Cop0Mtc0 zero,$28` (C0_TAGLO), the first cache-initialization-specific
+  operation. Every instruction and represented state is independently
+  generated. This synthetic composition proves the deterministic fixed digital
+  profile, not analog accuracy or authentic IPL2 execution, and does not change
   BOOT-2.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
@@ -391,6 +410,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   `0x46C0C0C0` records one request-only fact, generated public stepping returns
   from WriteCC, and proof stops before the first RDRAM response-test access
   without a Worker lane or queue entry.
+- `master-direct-standard-retail-rdram-bringup-x105-cache-frontier-v1`:
+  direct Master coherent-subsystem operation; current 4 MiB backing selects one
+  two-module fixed digital profile, generated public stepping completes RDRAM
+  calibration/discovery/configuration and detected-size storage, and proof stops
+  before cache-specific C0_TAGLO without a Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -427,38 +451,18 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
   state, or IPL2 execution.
-- `LIVE_REPO_FACT`: the generated JAL at `0xA40001A0` now commits link
-  `0xFFFFFFFFA40001A8`, executes its Nop slot once, and enters InitCCValue.
-  Aligned stores of explicitly unavailable r2-r5 now commit only to the
-  existing SP-IMEM owner as four opaque aligned words. Opaque state records
-  cause and destination but no value bits; known full-word overwrite replaces
-  it, aligned Lw rejects explicitly, and no instruction fetch can decode its
-  sentinel. Twenty following concrete saves commit normally. The exact
-  first-responder assignment request and initial RDRAM_MODE address
-  `0xFFFFFFFFA3F0000C` remain preserved. FindCC now executes through public
-  stepping. BEQL is represented as one exact identity: known 64-bit equality
-  takes one existing delay slot, while inequality annuls `PC+4` with no slot
-  execution, commit, Count, effect, exception, or delay context. The generated
-  BEQL is not taken, so r2 remains unavailable until TestCCValue later writes
-  it. Generated TestCCValue and WriteCC commit exact RDRAM_MODE request word
-  `0x46C0C0C0` at CPU `0xA3F0000C`; its named fields derive from the one raw
-  word, while CPU readback and physical effect remain unavailable. Public
-  stepping returns from WriteCC and stops before response-test `Sw` at
-  `0xA4000A2C`, so no response or calibration score exists. No responder presence,
-  assignment completion, module identity, discovery, or per-module state is
-  represented. Alternate MI_VERSION identities and a
-  configuration surface remain absent. DEVICE_ID physical relocation,
-  REF_ROW interpreted
-  fields, refresh behavior, general MI next-write replication, other RDRAM-register state,
-  per-module state, timing, and readiness are absent. RI_CONFIG,
-  RI_CURRENT_LOAD, and RI_MODE have no read routes or hardware-process model;
-  general RI_SELECT programming and every other RI action remain absent. NMI,
-  all other REGIMM
-  identities, every other COP0 instruction or MTC0 destination,
-  RDRAM/SP-DMEM/device stores beyond the exact RI, MI, broadcast-delay, and
-  raw REF_ROW writes, and broader store
-  identities remain absent; no generic CP0, branch/store, bus, MMIO, or
-  generalized memory-map route is implied.
+- `LIVE_REPO_FACT`: generated public stepping now completes the current fixed
+  two-module RDRAM bring-up. The sole `Rdram` owner holds the capacity-derived
+  profile, module/register/mapping provenance, and deterministic digital
+  calibration response; `Mi` holds RDRAM-register mode and `Ri` holds raw
+  RI_REFRESH. Both modules select automatic input 7, final mode `0xC6808080`,
+  RAS `0x101C0A04`, and final bases zero/2 MiB. Guest size `0x00400000` matches
+  backing capacity. Opaque frame restores transport unavailable lineage without
+  converting sentinel backing to known truth. At commit 247,000 execution is at
+  `0xA4000400`, before unrepresented cache-specific `MTC0 C0_TAGLO` word
+  `0x4080E000`. Analog timing/accuracy, host-selected profiles, arbitrary module
+  topology, general RI/MI/RDRAM programming, CACHE, broader COP0, NMI, a generic
+  bus/MMIO/map, BOOT-3, and compatibility remain absent.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that
