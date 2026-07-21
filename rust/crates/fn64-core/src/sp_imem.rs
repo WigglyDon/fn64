@@ -33,6 +33,9 @@ pub(crate) enum SpImemByteProvenance {
     CpuStoreWord {
         provenance: MachineSpImemStoreWordProvenance,
     },
+    CpuStoreByte {
+        provenance: MachineSpImemStoreWordProvenance,
+    },
     OpaqueCpuStoreWord {
         aligned_offset: SpImemOffset,
     },
@@ -150,6 +153,33 @@ impl std::error::Error for SpImemReadError {}
 pub(crate) enum SpImemStoreWordError {
     Unaligned { offset: SpImemOffset },
     OutOfRange { offset: SpImemOffset },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpImemStoreByteError {
+    OutOfRange { offset: SpImemOffset },
+    OpaqueWordPartialOverwrite { aligned_offset: SpImemOffset },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpImemStoreBytePlan {
+    offset: SpImemOffset,
+    value: u8,
+    provenance: MachineSpImemStoreWordProvenance,
+}
+
+impl SpImemStoreBytePlan {
+    pub(crate) const fn offset(self) -> SpImemOffset {
+        self.offset
+    }
+
+    pub(crate) const fn value(self) -> u8 {
+        self.value
+    }
+
+    pub(crate) const fn provenance(self) -> MachineSpImemStoreWordProvenance {
+        self.provenance
+    }
 }
 
 impl fmt::Display for SpImemStoreWordError {
@@ -350,6 +380,19 @@ impl SpImem {
         })
     }
 
+    pub(crate) fn read_known_u8(&self, offset: SpImemOffset) -> Result<u8, SpImemReadError> {
+        let offset_usize = self.require_span(offset, 1)?;
+        let provenance = self.byte_provenance[offset_usize];
+        if !provenance.is_known() {
+            return Err(SpImemReadError::UnknownByte {
+                offset,
+                width: 1,
+                unknown_offset: offset,
+            });
+        }
+        Ok(self.bytes[offset_usize])
+    }
+
     pub(crate) fn opaque_word_state(
         &self,
         offset: SpImemOffset,
@@ -394,6 +437,35 @@ impl SpImem {
         self.byte_provenance[start..end].fill(SpImemByteProvenance::CpuStoreWord {
             provenance: plan.provenance(),
         });
+    }
+
+    pub(crate) fn plan_cpu_store_byte(
+        &self,
+        offset: SpImemOffset,
+        value: u8,
+        provenance: MachineSpImemStoreWordProvenance,
+    ) -> Result<SpImemStoreBytePlan, SpImemStoreByteError> {
+        let offset_usize = offset.as_usize();
+        if offset_usize >= self.bytes.len() {
+            return Err(SpImemStoreByteError::OutOfRange { offset });
+        }
+        let aligned_offset = SpImemOffset::new(offset.value() & !3);
+        if self.opaque_words.contains_key(&aligned_offset.value()) {
+            return Err(SpImemStoreByteError::OpaqueWordPartialOverwrite { aligned_offset });
+        }
+        Ok(SpImemStoreBytePlan {
+            offset,
+            value,
+            provenance,
+        })
+    }
+
+    pub(crate) fn apply_cpu_store_byte(&mut self, plan: SpImemStoreBytePlan) {
+        let offset = plan.offset().as_usize();
+        self.bytes[offset] = plan.value();
+        self.byte_provenance[offset] = SpImemByteProvenance::CpuStoreByte {
+            provenance: plan.provenance(),
+        };
     }
 
     pub(crate) fn plan_cpu_store_opaque_word(

@@ -222,6 +222,7 @@ pub(crate) enum CpuLocalExecutedHelperFamily {
     SpecialShift,
     SpecialBitwiseLogical,
     SpecialHiLoTransfer,
+    SpecialMultiply,
     SpecialNonTrappingInteger,
     SpecialTrappingInteger,
     ImmediateTrappingInteger,
@@ -427,6 +428,7 @@ pub(crate) const fn select_cpu_local_executed_helper(
         | CpuInstructionIdentity::SpecialMtlo => {
             Some(CpuLocalExecutedHelperFamily::SpecialHiLoTransfer)
         }
+        CpuInstructionIdentity::SpecialMultu => Some(CpuLocalExecutedHelperFamily::SpecialMultiply),
         CpuInstructionIdentity::SpecialAddu
         | CpuInstructionIdentity::SpecialSubu
         | CpuInstructionIdentity::SpecialDaddu
@@ -1172,6 +1174,17 @@ impl Cpu {
                         error, selection,
                     ));
                 }
+            }
+            CpuLocalExecutedHelperFamily::SpecialMultiply => {
+                if identity != CpuInstructionIdentity::SpecialMultu {
+                    return Err(
+                        CpuLocalExecutedHelperInvocationError::HelperRejectedSelection(selection),
+                    );
+                }
+                let product = u64::from(read_gpr_word(self, instruction.rs()))
+                    .wrapping_mul(u64::from(read_gpr_word(self, instruction.rt())));
+                self.hi = sign_extend_u32_to_cpu_value((product >> 32) as u32);
+                self.lo = sign_extend_u32_to_cpu_value(product as u32);
             }
             CpuLocalExecutedHelperFamily::SpecialNonTrappingInteger => {
                 if let Err(error) =
@@ -2488,6 +2501,11 @@ mod tests {
             );
         }
 
+        assert_cpu_local_executed_helper_selection(
+            SpecialMultu,
+            CpuLocalExecutedHelperFamily::SpecialMultiply,
+        );
+
         for identity in [
             SpecialAddu,
             SpecialSubu,
@@ -2566,7 +2584,6 @@ mod tests {
             SpecialSyscall,
             SpecialBreak,
             SpecialMult,
-            SpecialMultu,
             SpecialDiv,
             SpecialDivu,
             SpecialDmult,
@@ -3646,6 +3663,51 @@ mod tests {
         assert_eq!(cpu.lo(), 0x5555_6666_7777_8888);
         assert_eq!(cpu.gpr(4), Some(0xffff_0000_ffff_0000));
         assert_eq!(cpu.gpr(6), Some(0x0123_4567_89ab_cdef));
+    }
+
+    #[test]
+    fn special_multu_multiplies_unsigned_low_words_and_sign_extends_hi_lo_halves() {
+        let cases = [
+            (
+                0xffff_ffff_ffff_ffff,
+                0xaaaa_bbbb_ffff_ffff,
+                0xffff_ffff_ffff_fffe,
+                0x0000_0000_0000_0001,
+            ),
+            (
+                0x1234_5678_8000_0000,
+                0xdead_beef_0000_0002,
+                0x0000_0000_0000_0001,
+                0x0000_0000_0000_0000,
+            ),
+            (0, u64::MAX, 0, 0),
+        ];
+
+        for (rs_value, rt_value, expected_hi, expected_lo) in cases {
+            let mut cpu = Cpu::new();
+            cpu.stage_hi(0x1111_2222_3333_4444);
+            cpu.stage_lo(0x5555_6666_7777_8888);
+            cpu.set_gpr(4, rs_value).unwrap();
+            cpu.set_gpr(5, rt_value).unwrap();
+            let fields = decode(special_shift_word(4, 5, 0, 0, 0x19));
+            let selection = select_cpu_local_executed_helper(CpuInstructionIdentity::SpecialMultu)
+                .expect("MULTU has one exact CPU-local helper");
+
+            let outcome = cpu
+                .invoke_cpu_local_executed_helper(fields, selection)
+                .expect("MULTU should execute");
+
+            assert_executed_invocation(
+                outcome,
+                CpuInstructionIdentity::SpecialMultu,
+                CpuLocalExecutedHelperFamily::SpecialMultiply,
+            );
+            assert_eq!(cpu.hi(), expected_hi);
+            assert_eq!(cpu.lo(), expected_lo);
+            assert_eq!(cpu.gpr(4), Some(rs_value));
+            assert_eq!(cpu.gpr(5), Some(rt_value));
+            assert_eq!(cpu.gpr(0), Some(0));
+        }
     }
 
     #[test]

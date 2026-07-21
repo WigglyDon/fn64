@@ -16,6 +16,15 @@ pub const RI_CONFIG_DEFINED_FIELDS_MASK: u32 =
 pub const RI_CURRENT_LOAD_PHYSICAL_ADDRESS: u32 = 0x0470_0008;
 pub const RI_SELECT_PHYSICAL_ADDRESS: u32 = 0x0470_000c;
 pub const RI_SELECT_X105_ENABLE_TX_RX_WORD: u32 = 0x0000_0014;
+pub const RI_REFRESH_PHYSICAL_ADDRESS: u32 = 0x0470_0010;
+pub const RI_REFRESH_X105_BASE_WORD: u32 = 0x0006_3634;
+
+pub const fn ri_refresh_x105_word(module_count: u8) -> Option<u32> {
+    if module_count == 0 || module_count > 13 {
+        return None;
+    }
+    Some(RI_REFRESH_X105_BASE_WORD | (((1_u32 << module_count) - 1) << 19))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRiSelectSource {
@@ -306,12 +315,98 @@ impl MachineRiModeState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRiRefreshSource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    },
+}
+
+impl MachineRiRefreshSource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRiRefreshState {
+    raw_word: u32,
+    source: MachineRiRefreshSource,
+}
+
+impl MachineRiRefreshState {
+    pub(crate) const fn from_cpu_store_word(
+        raw_word: u32,
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    ) -> Self {
+        Self {
+            raw_word,
+            source: MachineRiRefreshSource::CpuStoreWord {
+                instruction_pc,
+                source_gpr,
+                source_lineage,
+            },
+        }
+    }
+
+    pub const fn raw_word(self) -> u32 {
+        self.raw_word
+    }
+
+    pub const fn two_megabyte_module_mask(self) -> u16 {
+        ((self.raw_word >> 19) & 0x1fff) as u16
+    }
+
+    pub const fn optimize(self) -> bool {
+        self.raw_word & (1 << 18) != 0
+    }
+
+    pub const fn enabled(self) -> bool {
+        self.raw_word & (1 << 17) != 0
+    }
+
+    pub const fn refresh_bank(self) -> bool {
+        self.raw_word & (1 << 16) != 0
+    }
+
+    pub const fn dirty_delay(self) -> u8 {
+        (self.raw_word >> 8) as u8
+    }
+
+    pub const fn clean_delay(self) -> u8 {
+        self.raw_word as u8
+    }
+
+    pub const fn source(self) -> MachineRiRefreshSource {
+        self.source
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Ri {
     select: Option<MachineRiSelectState>,
     config: Option<MachineRiConfigState>,
     current_load: Option<MachineRiCurrentLoadState>,
     mode: Option<MachineRiModeState>,
+    refresh: Option<MachineRiRefreshState>,
 }
 
 impl Ri {
@@ -321,6 +416,7 @@ impl Ri {
             config: None,
             current_load: None,
             mode: None,
+            refresh: None,
         }
     }
 
@@ -340,6 +436,10 @@ impl Ri {
         self.mode
     }
 
+    pub(crate) const fn refresh_state(self) -> Option<MachineRiRefreshState> {
+        self.refresh
+    }
+
     pub(crate) fn apply_config_store(&mut self, state: MachineRiConfigState) {
         self.config = Some(state);
     }
@@ -354,6 +454,10 @@ impl Ri {
 
     pub(crate) fn apply_mode_store(&mut self, state: MachineRiModeState) {
         self.mode = Some(state);
+    }
+
+    pub(crate) fn apply_refresh_store(&mut self, state: MachineRiRefreshState) {
+        self.refresh = Some(state);
     }
 }
 
@@ -513,5 +617,43 @@ mod tests {
             assert_eq!(state.source().source_gpr(), 0);
             assert_eq!(state.source().source_lineage(), source_lineage);
         }
+    }
+
+    #[test]
+    fn x105_refresh_word_is_capacity_derived_register_truth_without_timing() {
+        assert_eq!(ri_refresh_x105_word(0), None);
+        assert_eq!(ri_refresh_x105_word(2), Some(0x001e_3634));
+        assert_eq!(ri_refresh_x105_word(4), Some(0x007e_3634));
+        assert_eq!(ri_refresh_x105_word(14), None);
+
+        let lineage = MachineBootstrapGprSource::KnownInstructionResult {
+            execution_address: CpuAddress::new(0xa400_03ac),
+            identity: crate::cpu::CpuInstructionIdentity::SpecialOr,
+            source_gpr_a: Some(9),
+            source_gpr_b: Some(10),
+        };
+        let state = MachineRiRefreshState::from_cpu_store_word(
+            ri_refresh_x105_word(2).unwrap(),
+            CpuAddress::new(0xa400_03b0),
+            9,
+            lineage,
+        );
+        assert_eq!(state.raw_word(), 0x001e_3634);
+        assert_eq!(state.two_megabyte_module_mask(), 3);
+        assert!(state.optimize());
+        assert!(state.enabled());
+        assert!(!state.refresh_bank());
+        assert_eq!(state.dirty_delay(), 0x36);
+        assert_eq!(state.clean_delay(), 0x34);
+        assert_eq!(
+            state.source().instruction_pc(),
+            CpuAddress::new(0xa400_03b0)
+        );
+        assert_eq!(state.source().source_gpr(), 9);
+        assert_eq!(state.source().source_lineage(), lineage);
+
+        let mut ri = Ri::default();
+        ri.apply_refresh_store(state);
+        assert_eq!(ri.refresh_state(), Some(state));
     }
 }

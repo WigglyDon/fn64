@@ -115,7 +115,7 @@ impl Cpu {
         self.delay_slot_context = Some(CpuDelaySlotContext::new(snapshot.pc));
     }
 
-    pub(crate) fn commit_beql_annul(&mut self, snapshot: CpuControlFlowSnapshot) {
+    pub(crate) fn commit_branch_likely_annul(&mut self, snapshot: CpuControlFlowSnapshot) {
         self.pc = snapshot.pc.wrapping_add(8);
         self.next_pc = snapshot.pc.wrapping_add(12);
         self.delay_slot_context = None;

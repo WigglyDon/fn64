@@ -702,7 +702,7 @@ impl Machine {
         self.cpu = replacement_cpu;
         self.rdram = Rdram::default();
         self.sp_dmem = replacement_sp_dmem;
-        self.sp_imem = replacement_sp_imem;
+        *self.sp_imem = replacement_sp_imem;
         self.ri = replacement_ri;
         self.mi = crate::mi::Mi::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
@@ -769,6 +769,21 @@ impl Machine {
                 source_gpr_a: access.source_a,
                 source_gpr_b: access.source_b,
             };
+    }
+
+    pub(crate) fn record_bootstrap_gpr_source(
+        &mut self,
+        register_index: u8,
+        source: MachineBootstrapGprSource,
+    ) {
+        let Some(state) = self.cartridge_bootstrap.as_mut() else {
+            return;
+        };
+        if register_index == 0 {
+            state.gpr_sources[0] = MachineBootstrapGprSource::ArchitecturalZero;
+        } else {
+            state.gpr_sources[usize::from(register_index)] = source;
+        }
     }
 
     /// Reads the current instruction through Machine-owned address routing,
@@ -858,6 +873,11 @@ const fn bootstrap_gpr_access(
             source_b: None,
             destination: None,
         },
+        SpecialMultu => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: Some(fields.rt()),
+            destination: None,
+        },
         SpecialMfhi | SpecialMflo => BootstrapGprAccess {
             source_a: None,
             source_b: None,
@@ -878,10 +898,15 @@ const fn bootstrap_gpr_access(
             source_b: None,
             destination: Some(fields.rt()),
         },
-        Lw => BootstrapGprAccess {
+        Lw | Lbu => BootstrapGprAccess {
             source_a: Some(fields.rs()),
             source_b: None,
             destination: Some(fields.rt()),
+        },
+        Sb => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: Some(fields.rt()),
+            destination: None,
         },
         Lui => BootstrapGprAccess {
             source_a: None,
@@ -950,14 +975,19 @@ mod tests {
         ri_config: Option<crate::ri::MachineRiConfigState>,
         ri_current_load: Option<crate::ri::MachineRiCurrentLoadState>,
         ri_mode: Option<crate::ri::MachineRiModeState>,
+        ri_refresh: Option<crate::ri::MachineRiRefreshState>,
         mi_init_mode: Option<crate::mi::MachineMiInitModeState>,
         mi_init_transfer: Option<crate::mi::MachineMiInitTransferState>,
+        mi_rdram_register_mode: Option<crate::mi::MachineMiRdramRegisterModeState>,
         rdram_broadcast_delay: Option<crate::rdram::MachineRdramBroadcastDelayState>,
         rdram_broadcast_device_id_request:
             Option<crate::rdram::MachineRdramBroadcastDeviceIdRequestState>,
         rdram_first_responder_device_id_request:
             Option<crate::rdram::MachineRdramFirstResponderDeviceIdRequestState>,
         rdram_initial_mode_request: Option<crate::rdram::MachineRdramInitialModeRequestState>,
+        rdram_global_mode_request: Option<crate::rdram::MachineRdramModeState>,
+        rdram_profile: crate::rdram::MachineRdramProfile,
+        rdram_modules: Vec<crate::rdram::MachineRdramModuleState>,
         rdram_broadcast_refresh_row: Option<crate::rdram::MachineRdramBroadcastRefreshRowState>,
         bootstrap: Option<MachineCartridgeBootstrapState>,
     }
@@ -1011,13 +1041,18 @@ mod tests {
             ri_config: machine.ri_config_state(),
             ri_current_load: machine.ri_current_load_state(),
             ri_mode: machine.ri_mode_state(),
+            ri_refresh: machine.ri_refresh_state(),
             mi_init_mode: machine.mi_init_mode_state(),
             mi_init_transfer: machine.mi_init_transfer_state(),
+            mi_rdram_register_mode: machine.mi_rdram_register_mode_state(),
             rdram_broadcast_delay: machine.rdram_broadcast_delay_state(),
             rdram_broadcast_device_id_request: machine.rdram_broadcast_device_id_request_state(),
             rdram_first_responder_device_id_request: machine
                 .rdram_first_responder_device_id_request_state(),
             rdram_initial_mode_request: machine.rdram_initial_mode_request_state(),
+            rdram_global_mode_request: machine.rdram_global_mode_request_state(),
+            rdram_profile: machine.rdram_profile(),
+            rdram_modules: machine.rdram_modules().to_vec(),
             rdram_broadcast_refresh_row: machine.rdram_broadcast_refresh_row_state(),
             bootstrap: machine.cartridge_bootstrap_state(),
         }

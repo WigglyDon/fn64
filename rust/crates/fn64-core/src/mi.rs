@@ -7,6 +7,8 @@ pub const MI_INIT_MODE_X105_INIT_LENGTH: u8 = 15;
 pub const MI_INIT_MODE_X105_REPEATED_BYTE_COUNT: u8 = 16;
 pub const MI_VERSION_PHYSICAL_ADDRESS: u32 = 0x0430_0004;
 pub const MI_VERSION_STANDARD_RETAIL_NUS_WORD: u32 = 0x0202_0102;
+pub const MI_SET_RDRAM_REGISTER_MODE_WORD: u32 = 0x0000_2000;
+pub const MI_CLEAR_RDRAM_REGISTER_MODE_WORD: u32 = 0x0000_1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineMiVersionState {
@@ -117,6 +119,80 @@ pub struct MachineMiInitTransferState {
     source: MachineMiInitModeSource,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineMiRdramRegisterModeSource {
+    CpuStoreWord {
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    },
+}
+
+impl MachineMiRdramRegisterModeSource {
+    pub const fn instruction_pc(self) -> CpuAddress {
+        match self {
+            Self::CpuStoreWord { instruction_pc, .. } => instruction_pc,
+        }
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        match self {
+            Self::CpuStoreWord { source_gpr, .. } => source_gpr,
+        }
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        match self {
+            Self::CpuStoreWord { source_lineage, .. } => source_lineage,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineMiRdramRegisterModeState {
+    command_word: u32,
+    enabled: bool,
+    source: MachineMiRdramRegisterModeSource,
+}
+
+impl MachineMiRdramRegisterModeState {
+    pub(crate) const fn from_cpu_store_word(
+        command_word: u32,
+        previously_enabled: bool,
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    ) -> Self {
+        let enabled = match command_word {
+            MI_SET_RDRAM_REGISTER_MODE_WORD => true,
+            MI_CLEAR_RDRAM_REGISTER_MODE_WORD => false,
+            0 => previously_enabled,
+            _ => previously_enabled,
+        };
+        Self {
+            command_word,
+            enabled,
+            source: MachineMiRdramRegisterModeSource::CpuStoreWord {
+                instruction_pc,
+                source_gpr,
+                source_lineage,
+            },
+        }
+    }
+
+    pub const fn command_word(self) -> u32 {
+        self.command_word
+    }
+
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    pub const fn source(self) -> MachineMiRdramRegisterModeSource {
+        self.source
+    }
+}
+
 impl MachineMiInitTransferState {
     const fn from_exact_x105_init_mode(state: MachineMiInitModeState) -> Self {
         Self {
@@ -149,6 +225,7 @@ pub(crate) struct Mi {
     version: MachineMiVersionState,
     init_mode: Option<MachineMiInitModeState>,
     init_transfer: Option<MachineMiInitTransferState>,
+    rdram_register_mode: Option<MachineMiRdramRegisterModeState>,
 }
 
 impl Default for Mi {
@@ -157,6 +234,7 @@ impl Default for Mi {
             version: MachineMiVersionState::standard_retail_nus(),
             init_mode: None,
             init_transfer: None,
+            rdram_register_mode: None,
         }
     }
 }
@@ -174,6 +252,17 @@ impl Mi {
         self.init_transfer
     }
 
+    pub(crate) const fn rdram_register_mode_state(self) -> Option<MachineMiRdramRegisterModeState> {
+        self.rdram_register_mode
+    }
+
+    pub(crate) const fn rdram_register_mode_enabled(self) -> bool {
+        match self.rdram_register_mode {
+            Some(state) => state.enabled(),
+            None => false,
+        }
+    }
+
     pub(crate) fn apply_init_mode_store(&mut self, state: MachineMiInitModeState) {
         self.init_mode = Some(state);
         self.init_transfer = Some(MachineMiInitTransferState::from_exact_x105_init_mode(state));
@@ -182,6 +271,13 @@ impl Mi {
     pub(crate) fn consume_init_transfer(&mut self) {
         self.init_mode = None;
         self.init_transfer = None;
+    }
+
+    pub(crate) fn apply_rdram_register_mode_store(
+        &mut self,
+        state: MachineMiRdramRegisterModeState,
+    ) {
+        self.rdram_register_mode = Some(state);
     }
 }
 
@@ -244,5 +340,53 @@ mod tests {
         assert_eq!(state.rac_version(), 0x01);
         assert_eq!(state.rdp_version(), 0x02);
         assert_eq!(state.rsp_version(), 0x02);
+    }
+
+    #[test]
+    fn rdram_register_mode_set_clear_and_zero_are_exact_and_provenanced() {
+        let lineage = MachineBootstrapGprSource::KnownInstructionResult {
+            execution_address: CpuAddress::new(0xa400_0b34),
+            identity: CpuInstructionIdentity::Ori,
+            source_gpr_a: Some(0),
+            source_gpr_b: None,
+        };
+        let mut mi = Mi::default();
+        assert!(!mi.rdram_register_mode_enabled());
+
+        let set = MachineMiRdramRegisterModeState::from_cpu_store_word(
+            MI_SET_RDRAM_REGISTER_MODE_WORD,
+            false,
+            CpuAddress::new(0xa400_0b38),
+            9,
+            lineage,
+        );
+        mi.apply_rdram_register_mode_store(set);
+        assert!(mi.rdram_register_mode_enabled());
+        assert_eq!(set.command_word(), 0x0000_2000);
+        assert_eq!(set.source().instruction_pc(), CpuAddress::new(0xa400_0b38));
+        assert_eq!(set.source().source_gpr(), 9);
+        assert_eq!(set.source().source_lineage(), lineage);
+
+        let zero = MachineMiRdramRegisterModeState::from_cpu_store_word(
+            0,
+            mi.rdram_register_mode_enabled(),
+            CpuAddress::new(0xa400_0b60),
+            0,
+            MachineBootstrapGprSource::ArchitecturalZero,
+        );
+        mi.apply_rdram_register_mode_store(zero);
+        assert!(mi.rdram_register_mode_enabled());
+        assert_eq!(zero.command_word(), 0);
+
+        let clear = MachineMiRdramRegisterModeState::from_cpu_store_word(
+            MI_CLEAR_RDRAM_REGISTER_MODE_WORD,
+            mi.rdram_register_mode_enabled(),
+            CpuAddress::new(0xa400_0b3c),
+            9,
+            lineage,
+        );
+        mi.apply_rdram_register_mode_store(clear);
+        assert!(!mi.rdram_register_mode_enabled());
+        assert_eq!(clear.command_word(), 0x0000_1000);
     }
 }
