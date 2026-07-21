@@ -2,4 +2,3 @@ iteration	aperture	requested_base	response	device_type	manufacturer	ras_interval
 0	0x03F00000	0x00000000	present	0xB0190000	0x00000500	0x101C0A04	module-0-recorded
 1	0x03F00800	0x00200000	present	0xB0190000	0x00000500	0x101C0A04	module-1-recorded
 2	0x03F01000	0x00400000	absent	unavailable	unavailable	unavailable	loop1-terminated
-

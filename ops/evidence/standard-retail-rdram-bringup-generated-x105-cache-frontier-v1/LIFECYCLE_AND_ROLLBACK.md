@@ -9,4 +9,3 @@ Failed bootstrap preserves the complete prior Machine, including completed
 module configuration and provenance. Clone/equality includes profile, module,
 MI, RI, SP, CPU, and byte truth; independently mutated Machines do not share
 state.
-

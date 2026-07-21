@@ -15,4 +15,3 @@ No failure path advances normal Count or loses active delay context. Snapshot
 tests include complete RDRAM profile/module state, MI mode, RI refresh, concrete
 and opaque SP memory, CPU, devices, reservations, cartridge, and host-owned
 absence.
-

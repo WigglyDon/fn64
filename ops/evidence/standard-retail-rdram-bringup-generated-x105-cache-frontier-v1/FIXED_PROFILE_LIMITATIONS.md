@@ -10,4 +10,3 @@ digital response curve. The 8 MiB structural profile exists only as the
 capacity-derived four-module alternative; the current Machine was not resized.
 No general RDRAM register array, bus, MMIO framework, or physical device model
 was added.
-

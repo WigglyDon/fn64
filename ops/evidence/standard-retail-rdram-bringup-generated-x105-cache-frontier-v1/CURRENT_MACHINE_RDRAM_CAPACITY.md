@@ -7,4 +7,3 @@ two present modules of `0x00200000` bytes each.
 The profile constructor also defines the source-clear 8 MiB alternative as
 four 2 MiB modules and rejects every other capacity. There is no host selector;
 the current product still constructs only its existing 4 MiB backing.
-

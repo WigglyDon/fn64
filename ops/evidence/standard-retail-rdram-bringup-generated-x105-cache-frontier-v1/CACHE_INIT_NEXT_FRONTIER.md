@@ -12,4 +12,3 @@ RDRAM initialization is complete at:
 Pinned source begins cold cache initialization here and follows with another
 tag register write and CACHE loops. The frontier instruction is inspected but
 not executed. CACHE and general cache state remain unimplemented.
-

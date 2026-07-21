@@ -8,4 +8,3 @@ The pinned manufacturer branch consequently selects
 `RASINTERVAL(16, 28, 10, 4)`, raw word `0x101C0A04`. Generated execution writes
 that exact word to both present modules. No timing or electrical effect is
 represented.
-

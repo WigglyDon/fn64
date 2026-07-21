@@ -10,4 +10,3 @@ Inspection reads public immutable observations and drives only public
 `Machine::step`; it owns no emulated state. There is no parallel module owner,
 general register bank, generic bus, generic MMIO layer, or host calibration
 policy.
-

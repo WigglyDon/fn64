@@ -12,4 +12,3 @@ The result is the explicit fn64 profile
 digital Machine truth, not analog or electrical hardware-conformance evidence.
 The authentic cartridge checkpoint remains BOOT-2 and no compatibility claim
 is made.
-

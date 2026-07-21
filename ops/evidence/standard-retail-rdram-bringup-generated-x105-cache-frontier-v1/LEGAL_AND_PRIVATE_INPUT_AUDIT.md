@@ -9,4 +9,3 @@ The public N64-IPL source was inspected for relationships and constants; no
 external source tree or proprietary firmware bytes are copied into repository
 evidence. Synthetic completion does not advance authentic BOOT-2 or establish
 game compatibility.
-

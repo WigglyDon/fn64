@@ -6,4 +6,3 @@ Machine-owned RDRAM byte capacity exactly.
 
 This is guest-produced ordinary byte truth. It does not resize RDRAM or derive
 capacity from a host policy.
-

@@ -17,4 +17,3 @@ Immutable facts:
 Selection depends only on Machine-owned byte capacity. It does not consult a
 cartridge, title, filename, region, digest, environment variable, or host
 callback.
-

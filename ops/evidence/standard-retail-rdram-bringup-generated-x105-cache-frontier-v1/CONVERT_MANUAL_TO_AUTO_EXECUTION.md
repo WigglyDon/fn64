@@ -10,4 +10,3 @@ Each candidate performs one automatic `WriteCC` and two ordinary `ReadCC`
 calls. The complete trace therefore contains 64 conversion-candidate writes
 and 128 register-mode reads. No return value is assigned by host or inspection
 code.
-

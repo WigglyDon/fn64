@@ -18,4 +18,3 @@ new TLB, FPU, RSP, or unrelated instruction was implemented.
 The return-frame `Lw` operations over four opaque SP-IMEM words transport the
 same unavailable lineage into r2-r5. Their deterministic backing zero remains
 non-truth; any later genuine consumer still rejects unavailable lineage.
-

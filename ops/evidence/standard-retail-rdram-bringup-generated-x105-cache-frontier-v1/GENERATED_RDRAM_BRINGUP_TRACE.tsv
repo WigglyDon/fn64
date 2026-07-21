@@ -13,4 +13,3 @@ memory-size	0xA40003CC	1 store	0x00400000 at physical 0x000003F0
 teardown	0xA40003D0..0xA40003FC	12 instructions	stack and saved-register restoration
 frontier	0xA4000400	0 executions	word 0x4080E000 Cop0Mtc0 zero register 28
 totals	post-start	214734 commits	final Count=246984 total commits=247000
-

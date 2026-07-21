@@ -8,4 +8,3 @@ Module register bases after final placement are `0x03F00000` and `0x03F00800`.
 Final data bases are `0x00000000` and `0x00200000`, yielding one linear range
 through `0x003FFFFF`. Module metadata does not duplicate or relocate the single
 RDRAM byte backing.
-

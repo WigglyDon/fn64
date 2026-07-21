@@ -9,4 +9,3 @@ DEVICE_TYPE and manufacturer are immutable profile reads. RDRAM_MODE stores one
 raw generated-family word per selected module and derives fields. RAS_INTERVAL
 accepts the exact fixed-profile word. Register reads require MI register mode.
 Absent register apertures do not create modules.
-

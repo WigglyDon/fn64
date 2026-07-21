@@ -12,4 +12,3 @@ Module-register loads require enabled mode. Post-start command counts are two
 set/clear pairs for DEVICE_TYPE, two for manufacturer/type, 69 zero writes from
 automatic `WriteCC`, and 128 set/clear pairs from `ReadCC`. Unrelated MI
 behavior remains unchanged.
-

@@ -16,4 +16,3 @@ Automatic register-mode readback exposes the candidate nominal code required
 by the pinned `ReadCC`/`ConvertManualToAuto` algorithm. This is a deliberate
 digital profile. It makes no claim about current, voltage, timing, process
 variation, or analog transfer accuracy.
-

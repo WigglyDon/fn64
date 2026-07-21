@@ -22,4 +22,3 @@ register mode and line 804 defines `RI_REFRESH`.
 
 Generated instruction words in the repository fixture, not source-level
 pseudo-instruction spelling, are execution authority.
-

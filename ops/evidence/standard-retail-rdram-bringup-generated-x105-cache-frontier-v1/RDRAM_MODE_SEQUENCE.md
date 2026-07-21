@@ -12,4 +12,3 @@ Manual nominal inputs zero through seven yield scores 10 through 80 on present
 modules. Automatic candidates zero through seven execute during conversion.
 Both final module words are `0xC6808080`, with automatic nominal input seven.
 The raw word is the stored truth; fields are derived.
-

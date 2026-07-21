@@ -5,4 +5,3 @@ source GPR r8 to physical addresses `0x03F00018` and `0x03F00818`.
 
 Each module retains that raw word and exact CPU-store provenance. No refresh,
 timing, delay, or electrical consequence is inferred from it.
-

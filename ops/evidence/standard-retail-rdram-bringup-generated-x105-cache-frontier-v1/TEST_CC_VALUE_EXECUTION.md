@@ -10,4 +10,3 @@ There are 320 calls from the accepted starting state through loop1 completion:
 starting state is already inside the first call, so the post-start trace sees
 319 additional TestCCValue JALs/entries. Every guest loop, branch, delay slot,
 load, and store executes through public `Machine::step`.
-
