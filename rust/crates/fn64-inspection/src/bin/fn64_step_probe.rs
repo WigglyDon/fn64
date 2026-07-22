@@ -6,14 +6,14 @@ use fn64_core::{
     load_cartridge, Cartridge, CartridgeLoadError, CpuAddressErrorKind, CpuInstructionIdentity,
     Machine, MachineBootstrapGprSource, MachineCartridgeBootstrapError,
     MachineCpuInstructionFetchError, MachineLoadWordRejectionReason, MachineLoadWordTarget,
-    MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
-    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRdramBroadcastDeviceIdAperture,
-    MachineRdramBroadcastRefreshRowAperture, MachineRdramCalibrationStatus,
-    MachineRdramFirstResponderDeviceIdAperture, MachineRdramInitialModeAperture,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRiModeSource,
-    MachineRiSelectSource, MachineSpDmemLoadWordProvenance, MachineStepCadenceSource,
-    MachineStepControlFlowAction, MachineStepCountAction,
+    MachineMiInterruptSource, MachineMtc0Destination, MachineMtc0RejectionReason,
+    MachineOrdinaryControlFlowRejectionReason, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRdramBroadcastDeviceIdAperture, MachineRdramBroadcastRefreshRowAperture,
+    MachineRdramCalibrationStatus, MachineRdramFirstResponderDeviceIdAperture,
+    MachineRdramInitialModeAperture, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineRiModeSource, MachineRiSelectSource, MachineSpDmemLoadWordProvenance,
+    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
     MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
     MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
     MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
@@ -53,7 +53,7 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: sp-imem-sw-delay-slot-ades ok\
 \ncase: sp-imem-sw-unknown-base-rejection ok\
 \ncase: sp-imem-sw-opaque-source-committed ok\
-\ncase: sp-imem-sw-unsupported-target-rejection ok\
+\ncase: pi-rd-len-sw-unsupported-target-rejection ok\
 \ncase: bltz-taken ok\
 \ncase: bltz-untaken ok\
 \ncase: bltz-zero-source ok\
@@ -197,6 +197,15 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: generated-x105-ri-refresh-committed ok\
 \ncase: generated-x105-memory-size-store-committed ok\
 \ncase: generated-x105-rdram-init-cache-frontier ok\
+\ncase: pi-dram-address-programmed ok\
+\ncase: pi-cartridge-address-programmed ok\
+\ncase: pi-dma-atomic-complete ok\
+\ncase: pi-status-idle ok\
+\ncase: pi-interrupt-set-clear ok\
+\ncase: pi-dma-cache-nonsnoop ok\
+\ncase: dcache-kseg0-fill ok\
+\ncase: dcache-kseg0-hit ok\
+\ncase: dcache-kseg1-bypass ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -316,6 +325,7 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_ri_mode_routes_and_lifecycle()?;
     probe_mi_init_mode_routes_and_lifecycle()?;
     probe_generated_x105_post_mtc0_trio_frontier()?;
+    probe_pi_dma_and_dcache_path()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
     probe_beql_paths_and_rejections()?;
@@ -326,6 +336,232 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_control_flow_delay_slot_exception()?;
     probe_control_flow_branch_in_delay_slot_rejection()?;
     Ok(())
+}
+
+fn probe_pi_dma_and_dcache_path() -> Result<(), StepProbeError> {
+    const CASE: &str = "pi-dma-and-dcache-path";
+    const PAYLOAD_OFFSET: usize = 0x1000;
+    const PAYLOAD_SIZE: usize = 0x0010_0000;
+    const SENTINEL_WORD: u32 = 0x2402_0042;
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+        (0x44, immediate_word(0x0d, 0, 9, 0x1000)),
+        (0x48, immediate_word(0x2b, 1, 9, 0x0000)),
+        (0x4c, immediate_word(0x0f, 0, 10, 0x1000)),
+        (0x50, immediate_word(0x0d, 10, 10, 0x1000)),
+        (0x54, immediate_word(0x2b, 1, 10, 0x0004)),
+        (0x58, immediate_word(0x0f, 0, 11, 0x000f)),
+        (0x5c, immediate_word(0x0d, 11, 11, 0xffff)),
+        (0x60, immediate_word(0x2b, 1, 11, 0x000c)),
+        (0x64, immediate_word(0x23, 1, 12, 0x0010)),
+        (0x68, immediate_word(0x09, 0, 13, 0x0002)),
+        (0x6c, immediate_word(0x2b, 1, 13, 0x0010)),
+        (0x70, immediate_word(0x0f, 0, 14, 0x8000)),
+        (0x74, immediate_word(0x0d, 14, 14, 0x1000)),
+        (0x78, immediate_word(0x23, 14, 2, 0x0000)),
+        (0x7c, immediate_word(0x23, 14, 3, 0x0000)),
+        (0x80, immediate_word(0x0f, 0, 15, 0xa000)),
+        (0x84, immediate_word(0x0d, 15, 15, 0x1000)),
+        (0x88, immediate_word(0x23, 15, 4, 0x0000)),
+    ];
+    let cartridge = generated_public_pi_cartridge(CASE, SENTINEL_WORD, &words)?;
+    let (mut machine, _) = generated_cold_x105_machine_from_cartridge(CASE, cartridge)?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::DeviceStoreWordCommitted {
+                target: MachineStoreWordTarget::PiDramAddress,
+                source_gpr: 9,
+                stored_word: 0x0000_1000,
+                ..
+            }
+        ) && machine.pi_dram_address_state().is_some_and(|state| {
+            state.raw_word() == 0x0000_1000
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0048)
+        }),
+        "PI DRAM address programming",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::DeviceStoreWordCommitted {
+                target: MachineStoreWordTarget::PiCartridgeAddress,
+                source_gpr: 10,
+                stored_word: 0x1000_1000,
+                ..
+            }
+        ) && machine.pi_cartridge_address_state().is_some_and(|state| {
+            state.raw_word() == 0x1000_1000
+                && state.source().instruction_pc() == CpuAddress::new(0xa400_0054)
+        }),
+        "PI cartridge address programming",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    let caches_before_dma = machine.cpu().primary_caches().clone();
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::DeviceStoreWordCommitted {
+                target: MachineStoreWordTarget::PiWriteLength,
+                source_gpr: 11,
+                stored_word: 0x000f_ffff,
+                ..
+            }
+        ),
+        "PI DMA trigger commit",
+    )?;
+    let completed = machine.pi_completed_dma_state();
+    require(
+        CASE,
+        completed.is_some_and(|state| {
+            state.trigger_instruction_pc() == CpuAddress::new(0xa400_0060)
+                && state.cartridge_bus_address() == 0x1000_1000
+                && state.cartridge_byte_offset() == PAYLOAD_OFFSET as u32
+                && state.rdram_physical_address() == PAYLOAD_OFFSET as u32
+                && state.byte_count() == PAYLOAD_SIZE as u32
+        }) && (0..PAYLOAD_SIZE).all(|offset| {
+            machine
+                .cartridge()
+                .read_u8((PAYLOAD_OFFSET + offset) as u32)
+                .expect("public PI payload remains in bounds")
+                == machine
+                    .rdram()
+                    .read_u8(PAYLOAD_OFFSET + offset)
+                    .expect("public PI destination remains in bounds")
+        }),
+        "atomic PI DMA bytes and record",
+    )?;
+    require(
+        CASE,
+        machine.cpu().primary_caches() == &caches_before_dma,
+        "PI DMA does not snoop either primary cache",
+    )?;
+    require(
+        CASE,
+        machine
+            .mi_interrupt_state()
+            .pending(MachineMiInterruptSource::Pi),
+        "PI completion pending interrupt",
+    )?;
+
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::PiStatus,
+                destination_gpr: 12,
+                loaded_word: 0,
+                result_value: 0,
+                ..
+            }
+        ) && machine.pi_status_word() == 0,
+        "atomic PI status read",
+    )?;
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::DeviceStoreWordCommitted {
+                target: MachineStoreWordTarget::PiStatus,
+                source_gpr: 13,
+                stored_word: 2,
+                ..
+            }
+        ) && !machine
+            .mi_interrupt_state()
+            .pending(MachineMiInterruptSource::Pi),
+        "PI interrupt clear",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::DirectRdram { .. },
+                destination_gpr: 2,
+                loaded_word: SENTINEL_WORD,
+                result_value: 0x0000_0000_2402_0042,
+                ..
+            }
+        ),
+        "KSEG0 D-cache fill load",
+    )?;
+    let data_line = machine
+        .cpu()
+        .primary_caches()
+        .data_line((PAYLOAD_OFFSET / 16) % 512)
+        .expect("fixed D-cache index is in bounds");
+    require(
+        CASE,
+        data_line.is_valid_clean()
+            && !data_line.is_valid_dirty()
+            && data_line.physical_tag() == Some(0)
+            && data_line.fill_provenance().is_some_and(|source| {
+                source.requested_cpu_address() == CpuAddress::new(0x8000_1000)
+                    && source.physical_line_address() == 0x1000
+            }),
+        "KSEG0 D-cache fill state",
+    )?;
+
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::DirectRdram { .. },
+                destination_gpr: 3,
+                loaded_word: SENTINEL_WORD,
+                result_value: 0x0000_0000_2402_0042,
+                ..
+            }
+        ) && machine
+            .cpu()
+            .primary_caches()
+            .data_line((PAYLOAD_OFFSET / 16) % 512)
+            == Some(data_line),
+        "KSEG0 D-cache hit retains the filled line",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::DirectRdram { .. },
+                destination_gpr: 4,
+                loaded_word: SENTINEL_WORD,
+                result_value: 0x0000_0000_2402_0042,
+                ..
+            }
+        ) && machine
+            .cpu()
+            .primary_caches()
+            .data_line((PAYLOAD_OFFSET / 16) % 512)
+            == Some(data_line),
+        "KSEG1 bypass retains the D-cache line",
+    )
 }
 
 fn probe_cpu_local_committed_success() -> Result<(), StepProbeError> {
@@ -972,9 +1208,9 @@ fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
     )?;
 
     let unsupported_words = [
-        (0x40, immediate_word(0x0f, 0, 1, 0xa400)),
-        (0x44, immediate_word(0x0d, 1, 1, 0x0100)),
-        (0x48, immediate_word(0x2b, 1, 0, 0)),
+        (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+        (0x44, immediate_word(0x0d, 1, 1, 0x0000)),
+        (0x48, immediate_word(0x2b, 1, 0, 0x0008)),
     ];
     let (mut unsupported, _) = generated_cold_x105_machine(CASE, &unsupported_words)?;
     require_committed_identity(
@@ -996,10 +1232,10 @@ fn probe_sp_imem_sw_rejections() -> Result<(), StepProbeError> {
             matches!(
                 rejection.reason(),
                 MachineStoreWordRejectionReason::UnsupportedTarget {
-                    target: MachineStoreWordUnsupportedTarget::SpDmem { .. }
+                    target: MachineStoreWordUnsupportedTarget::PiReadLength
                 }
             ),
-            "unsupported SP-DMEM target rejection",
+            "unsupported PI_RD_LEN target rejection",
         )?,
         Err(source) => return Err(StepProbeError::Step { case: CASE, source }),
         Ok(_) => return assertion(CASE, "unsupported target Sw rejection"),
@@ -7151,11 +7387,44 @@ fn generated_cartridge(
     load_cartridge(bytes).map_err(|source| StepProbeError::Cartridge { case, source })
 }
 
+fn generated_public_pi_cartridge(
+    case: &'static str,
+    entry_word: u32,
+    words: &[(usize, u32)],
+) -> Result<Cartridge, StepProbeError> {
+    const PAYLOAD_OFFSET: usize = 0x1000;
+    const PAYLOAD_SIZE: usize = 0x0010_0000;
+    let mut bytes = vec![0; PAYLOAD_OFFSET + PAYLOAD_SIZE];
+    write_be_u32(&mut bytes, 0x00, 0x8037_1240);
+    write_be_u32(&mut bytes, 0x08, 0x8000_1000);
+    let title = b"FN64 PUBLIC PI DMA";
+    bytes[0x20..0x20 + title.len()].copy_from_slice(title);
+    bytes[0x3c] = b'P';
+    bytes[0x3d] = b'I';
+    bytes[0x3e] = 0x45;
+    bytes[0x3f] = 1;
+    for offset in 0..PAYLOAD_SIZE {
+        bytes[PAYLOAD_OFFSET + offset] = (offset as u8).wrapping_mul(17).wrapping_add(3);
+    }
+    write_be_u32(&mut bytes, PAYLOAD_OFFSET, entry_word);
+    for &(offset, word) in words {
+        write_be_u32(&mut bytes, offset, word);
+    }
+    load_cartridge(bytes).map_err(|source| StepProbeError::Cartridge { case, source })
+}
+
 fn generated_cold_x105_machine(
     case: &'static str,
     words: &[(usize, u32)],
 ) -> Result<(Machine, u32), StepProbeError> {
     let cartridge = generated_cartridge(case, words)?;
+    generated_cold_x105_machine_from_cartridge(case, cartridge)
+}
+
+fn generated_cold_x105_machine_from_cartridge(
+    case: &'static str,
+    cartridge: Cartridge,
+) -> Result<(Machine, u32), StepProbeError> {
     let mut machine = Machine::from_cartridge(cartridge);
     let mut firmware: Vec<u8> = (0..PIF_BOOT_ROM_SIZE_BYTES)
         .map(|index| 0xa5_u8.wrapping_add((index as u8).wrapping_mul(29)))

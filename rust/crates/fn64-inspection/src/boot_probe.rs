@@ -601,6 +601,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::SpStatusStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::SpPcStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::DeviceStoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
                     | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
@@ -762,6 +763,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. }
+            | MachineRepresentedStepOutcome::DeviceStoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiSelectStoreCommitted { .. }
@@ -806,6 +808,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         MachineRepresentedStepOutcome::SpPcStoreCommitted { .. } => "sp-pc-store-committed",
         MachineRepresentedStepOutcome::RdramStoreWordCommitted { .. } => {
             "rdram-store-word-committed"
+        }
+        MachineRepresentedStepOutcome::DeviceStoreWordCommitted { .. } => {
+            "device-store-word-committed"
         }
         MachineRepresentedStepOutcome::RiConfigStoreCommitted { .. } => "ri-config-store-committed",
         MachineRepresentedStepOutcome::RiCurrentLoadStoreCommitted { .. } => {
@@ -1004,6 +1009,7 @@ fn format_load_word_rejection_frontier(
         }
         Some(MachineLoadWordTarget::RiRefresh) => "ri-refresh".to_owned(),
         Some(MachineLoadWordTarget::MiVersion) => "mi-version".to_owned(),
+        Some(MachineLoadWordTarget::PiStatus) => "pi-status".to_owned(),
         None => "unclassified".to_owned(),
     };
     let reason = match rejection.reason() {
