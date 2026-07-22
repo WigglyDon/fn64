@@ -12,9 +12,10 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 ## Mission and owner
 
 `fn64-core::Machine` is the current production owner of each represented
-machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, minimal RI_MODE,
+machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, concrete PI,
+minimal RI_MODE,
 RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, RI_REFRESH, immutable MI_VERSION
-identity, MI initialization-mode state, and MI RDRAM-register access mode,
+identity, MI initialization-mode/RDRAM-register mode and interrupt state,
 reset/power state, optional
 structurally accepted immutable
 PIF firmware input, optional explicit PIF IPL2 copy profile, explicit narrow
@@ -139,7 +140,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 174-case step probe, the bounded BOOT-2
+construction/reset probe, the 183-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -189,12 +190,16 @@ SP-DMEM loads and RDRAM stores, relocating public bytes from local
 `[0x554,0x888)` to physical `[0x4,0x338)`. The generated JR enters
 `0x80000004`; KSEG0 instruction fetch fills I-cache line zero from those
 RDRAM bytes, while KSEG1 remains uncached. Six relocated instructions reach
-PC/next-PC `0x8000001C / 0x80000020`, Count `252351`, commit 252,367.
-The current word `0xAC290000` is the first PI_DRAM_ADDR store and remains
-unexecuted. It does not prove an authentic firmware-executed handoff, analog or
-elapsed hardware accuracy, RSP or PI execution, functional D-cache data flow,
-BOOT-3, full ISA, game compatibility, renderer, audio, performance, or host
-integration.
+PC/next-PC `0x8000001C / 0x80000020`, Count `252351`, commit 252,367. From
+there one concrete `Pi` owner receives the exact three-register program and
+atomically copies one MiB from the public Cartridge owner into Rdram while
+`Mi` records PI pending truth. CPU-owned functional KSEG0 D-cache `Lw` then
+executes the complete checksum with 65,536 fills and 196,608 hits; exact final
+control writes, boot-global stores, and 2,048 SP-memory stores follow. JR/Nop
+lands at `0x80001000 / 0x80001004`, Count `7477812`, commit 7,477,828, without
+executing entry word `0x24020042`. This does not prove PI timing, an authentic
+firmware/cartridge handoff, RSP execution, dirty D-cache behavior, BOOT-3, full
+ISA, game compatibility, renderer, audio, performance, or host integration.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe

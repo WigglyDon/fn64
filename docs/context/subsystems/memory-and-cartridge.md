@@ -127,13 +127,17 @@ one absent probe, final mapping, module RAS configuration, RI_REFRESH, detected
 the generated relocation from SP-DMEM local `[0x554,0x888)` into physical
 RDRAM `[0x4,0x338)`. Existing owners perform all 205 known-word loads and
 stores; no shadow buffer or byte owner is added. Relocated KSEG0 execution
-fills one I-cache line from those bytes, reads a synthetic Machine-owned
-cartridge-header word, and stops at PC `0x8000001C` before PI. No general
-RI/MI/PI programming, RSP execution, analog or cache timing, NMI, or generic
-MMIO route exists. It does not establish authentic SP IMEM contents,
-firmware-executed handoff, PIF/BIOS boot, SP DMA, controller protocol, game
-compatibility, or a complete N64 memory system. Rollback/preflight exists
-only where the detailed ledger says it is sealed.
+fills one I-cache line and reads the public cartridge header. `Cartridge` then
+remains sole owner of a complete public 0x101000-byte fixture while `Pi`
+atomically transfers offsets `[0x1000,0x101000)` into the sole `Rdram` backing
+range `[0x1000,0x101000)`. CPU D-cache reads cached copies only; PI does not
+snoop cache state. Generated known stores overwrite all SP DMEM/IMEM words
+with `0xA4002000`, replacing opaque truth through existing owners. No general
+PI programming, RSP execution, PI/cache timing, NMI, dirty D-cache writeback,
+or generic MMIO route exists. It does not establish authentic SP IMEM,
+firmware/cartridge execution, PIF/BIOS boot, SP DMA, controller protocol, game
+compatibility, or a complete N64 memory system. Rollback/preflight exists only
+where the detailed ledger says it is sealed.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.

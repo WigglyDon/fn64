@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 174 stable cases, including ordinary
+public `Machine::step` for 183 stable cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -48,8 +48,9 @@ generated JAL/Nop cadence, five InitCCValue entry commits, four opaque r2-r5
 saves, twenty concrete saves, FindCC JAL/Nop, not-taken BEQL annul,
 TestCCValue/WriteCC calls, exact request commit, complete fixed-profile digital
 calibration, two-module discovery and final mapping, module/RAS/RI_REFRESH
-state, detected 4 MiB size, teardown, and the unexecuted cache-specific C0_TAGLO
-frontier. The
+state, detected 4 MiB size, cache initialization/relocation, exact PI
+programming/DMA/status, KSEG0 D-cache fill/hit, MI interrupt transitions, and
+the final synthetic-entry boundary. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -131,12 +132,15 @@ teardown. Execution stops at PC `0xA4000400`, Count `246984`, commit 247,000,
 then 5,367 further public steps execute zero TagLo/TagHi, 1,024 CACHE
 operations, exact SP control, an 820-byte relocation, one KSEG0 I-cache fill,
 and relocated CPU-local/cartridge-read operations. Execution stops at
-PC/next-PC `0x8000001C / 0x80000020`, Count `252351`, commit 252,367,
-before PI_DRAM_ADDR store word `0xAC290000`. Inspection observes cache hit or
-fill provenance but cannot create cache/SP/relocation truth. This is synthetic
-CPU/device-composition evidence, not authentic cartridge boot, analog or cache
-timing, RSP or PI execution, general MI programming, NMI, or compatibility
-evidence.
+PC/next-PC `0x8000001C / 0x80000020`, Count `252351`, commit 252,367. Another
+7,225,461 public steps perform the atomic one-MiB PI transfer, complete guest
+checksum `0xFAD40ECC / 0x1F137F19`, clear generated interrupt state, write boot
+globals, overwrite 2,048 SP words, and execute JR/Nop to
+`0x80001000 / 0x80001004`, Count `7477812`, commit 7,477,828. Inspection
+observes but cannot create PI/cache/SP/cartridge truth, and it does not execute
+entry word `0x24020042`. This is synthetic CPU/device composition, not
+authentic cartridge boot, PI/cache timing, RSP execution, general MI
+programming, NMI, or compatibility evidence.
 
 Generic CPU-local/control-flow step-probe fixtures use the already represented
 uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and

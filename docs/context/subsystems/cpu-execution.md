@@ -31,7 +31,7 @@ advances only through the committed-step owner. Exception actions restore or
 preserve control flow before delegating to the sealed entry owner.
 
 `BEQ`, `BNE`, non-linking/non-likely `BLTZ`, exact `BEQL`, `BNEL`, `BLEZL`,
-`BGEZL`, `J`, `JAL`, `JR`, and `JALR` share one bounded Machine
+`BGEZL`, linking/non-likely `BGEZAL`, `J`, `JAL`, `JR`, and `JALR` share one bounded Machine
 planning/application family. BLTZ reuses the exact
 full-GPR signed comparison already used by SLT/SLTI; it does not create an
 execution-width owner. Target and link arithmetic is explicit, including PC+4
@@ -170,11 +170,16 @@ commit zero TagLo/TagHi, 512 I-cache and 512 D-cache Index Store Tag
 operations, exact SP control, 205 ordinary relocation loads/stores, the JR to
 `0x80000004`, one real KSEG0 I-cache fill, and six relocated CPU-local or
 cartridge-read instructions. PC/next-PC become
-`0x8000001C / 0x80000020`, Count `252351`, total commits 252,367. The first
-PI store remains unexecuted. This is synthetic CPU/device composition, not
-authentic IPL2 execution, RSP execution, PI behavior, functional D-cache data
-flow, or analog/cache timing accuracy. Known unknowns include full ISA
-integration, real timing, unearned likely/REGIMM and broader COP0/CACHE
-identities, NMI, generic MMIO, unrelated load/store families, and performance.
+`0x8000001C / 0x80000020`, Count `252351`, total commits 252,367. The next
+7,225,461 public steps program and complete the atomic PI copy, use general
+`BGEZAL` plus existing scalar/control-flow identities, and execute the full
+one-MiB checksum through KSEG0 D-cache `Lw`. Exact device clears, boot globals,
+SP teardown, and JR/Nop reach `0x80001000 / 0x80001004`, Count `7477812`, total
+commits 7,477,828, without executing the synthetic entry. This is synthetic
+CPU/device composition, not authentic IPL2/cartridge or RSP execution, PI
+timing, dirty D-cache behavior, or analog/cache timing accuracy. Known unknowns
+include full ISA integration, real timing, unearned likely/REGIMM and broader
+COP0/CACHE identities, NMI, generic MMIO, unrelated load/store families, and
+performance.
 Next authority must be earned by a bounded product packet, not a generic
 dispatcher.

@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 174-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 183-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -81,10 +81,14 @@ directly. After public relocation, KSEG0 fetch requires CPU-owned I-cache
 truth: a miss reads one complete 32-byte Machine-owned RDRAM line, applies one
 fill before decode, and rolls it back if instruction application rejects; a
 matching valid line returns its cached word without backing access. At 252,367
-commits the current cached word is `0xAC290000`, an unexecuted first PI store.
-This proves the deterministic fixed digital profile, primary-cache
-initialization, and public relocation, not RI/RDRAM analog timing, cache
-timing, RSP or PI execution, or authentic IPL2 execution.
+commits cached word `0xAC290000` begins exact PI programming. Subsequent closed
+plans cover PI registers/status, one atomic DMA, exact final control targets,
+and SP-DMEM/IMEM teardown stores. KSEG0 aligned `Lw` uses CPU-owned D-cache
+hit/fill truth over one 16-byte RDRAM line; KSEG1 remains uncached. Generated
+execution reaches the synthetic entry after JR/Nop. This proves deterministic
+fixed-profile cache/PI/final-handoff composition, not PI or cache timing, RSP
+execution, dirty D-cache stores, authentic IPL2/cartridge execution, or generic
+device routing.
 
 The MTC0 producer accepts only zero low bits, Cause/Count/Compare/TagLo/TagHi, the
 source-backed cold-x105 access scope, and a known old source. Its immutable
@@ -93,8 +97,9 @@ existing cadence application. No numeric CP0 register map or generic writer is
 introduced.
 
 The `Sw` producer checks base knownness, computes address, selects AdES before
-source-value consumption, rejects every target except direct RDRAM/SP IMEM or
-the exact represented RI, MI, global RDRAM, and generated RCP-2 module targets,
+source-value consumption, rejects every target except direct RDRAM/SP memories
+or the exact represented RI, MI, PI, SP-control, SI/AI-clear, global RDRAM, and
+generated RCP-2 module targets,
 and only then captures source value/lineage and
 constructs a closed destination plan. RI_CONFIG planning rejects undefined
 high bits; RI_CURRENT_LOAD planning requires stored RI_CONFIG and snapshots its

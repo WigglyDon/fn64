@@ -89,6 +89,11 @@ then consumes these facts but owns no new exception path. Other COP0
 instructions, destinations, cache errors, parity, and interrupt delivery remain
 unrepresented.
 
+The separate `Mi` owner records generated SP/SI/AI/PI/DP pending-source clears
+and all-six mask clears. These are RCP register facts, not COP0 Cause delivery
+or CPU interrupt exceptions. The atomic PI model sets and clears PI pending
+without scheduling an interrupt or changing the sealed exception path.
+
 Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
 owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting
 load. It reuses the existing exception entry and adds no COP0 field or policy.

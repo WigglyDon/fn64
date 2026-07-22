@@ -288,14 +288,21 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   line zero from the relocated RDRAM bytes, and the following cached
   instructions consume a synthetic Machine-owned cartridge-header word. At
   total commit 252,367, Count `252351`, PC/next-PC
-  `0x8000001C / 0x80000020`, `Sw r9,0(r1)` word `0xAC290000` is the first PI
-  access: r1 is `0xFFFFFFFFA4600000`, r9 low word is `0x00001000`, and the
-  physical target is PI_DRAM_ADDR `0x04600000`. It remains unexecuted and its
-  pure plan rejects atomically as `DirectTargetMiss`. Every instruction and
-  represented state is independently generated. This synthetic composition
-  proves the deterministic fixed digital profile, cache initialization, and
-  relocation—not analog accuracy, RSP execution, PI execution, authentic IPL2
-  execution, or a cartridge handoff—and does not change BOOT-2.
+  `0x8000001C / 0x80000020`, `Sw r9,0(r1)` word `0xAC290000` begins the PI
+  path. From there 7,225,461 public steps program PI_DRAM_ADDR `0x00001000`,
+  PI_CART_ADDR `0x10001000`, and PI_WR_LEN `0x000FFFFF`; atomically copy one
+  MiB of public synthetic cartridge bytes to RDRAM; set and later clear the
+  MI-owned PI pending source; fill 65,536 D-cache lines and take 196,608 hits
+  while the guest produces checksum words `0xFAD40ECC / 0x1F137F19`; clear the
+  generated MI/SP/SI/AI/DP/PI interrupt state; write the seven boot globals;
+  and execute all 2,048 known-word SP-memory teardown stores. Final JR word
+  `0x01200008` at `0x8000027C` and its Nop slot reach PC/next-PC
+  `0x80001000 / 0x80001004`, Count `7477812`, total commit 7,477,828, with no
+  active delay context. The independently encoded entry word `0x24020042`
+  remains unexecuted. Every instruction and represented state is generated
+  from public synthetic input. This proves deterministic PI/D-cache/final-IPL3
+  composition, not PI timing, RSP execution, authentic IPL2 or cartridge
+  execution, BOOT-3, or compatibility; BOOT-2 remains unchanged.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -436,6 +443,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   Machine-owned SP control permits ordinary relocation of the public IPL3
   suffix into RDRAM, and cached relocated KSEG0 execution reaches but does not
   execute the first PI store, without a Worker lane or queue entry.
+- `master-direct-pi-dma-ipl3-final-handoff-x105-synthetic-entry-v1`: direct
+  Master coherent-subsystem operation; one concrete `Pi` owner, MI-owned
+  interrupt truth, functional KSEG0 D-cache reads, a public one-MiB synthetic
+  cartridge, exact final device controls, genuine SP teardown stores, and the
+  generated JR/delay slot reach but do not execute the synthetic cartridge
+  entrypoint, without a Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -483,12 +496,16 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   cache arrays then execute exact 512-line I/D invalidation loops. Exact SP
   register commands bracket an 820-byte SP-DMEM-to-RDRAM relocation; the
   generated KSEG0 jump fills I-cache line zero from those bytes and executes
-  through the synthetic cartridge-header load. At commit 252,367 execution is
-  at `0x8000001C`, before PI_DRAM_ADDR store word `0xAC290000`. Functional
-  D-cache data flow, cache timing, RSP execution, PI registers/DMA, analog
-  timing/accuracy, host-selected profiles, arbitrary module topology, general
-  RI/MI/RDRAM programming, broader COP0/CACHE, NMI, a generic bus/MMIO/map,
-  BOOT-3, and compatibility remain absent.
+  through the synthetic cartridge-header load. The exact PI register sequence
+  then performs one atomic one-MiB cartridge-to-RDRAM copy, while MI owns its
+  completion interrupt. Functional KSEG0 D-cache `Lw` executes the complete
+  checksum; exact final control writes and 2,048 ordinary SP stores complete
+  IPL3 teardown. The final JR slot reaches synthetic entry `0x80001000` without
+  executing its first word. PI timing, dirty D-cache stores/writeback, RSP
+  execution, authentic cartridge execution, analog timing/accuracy,
+  host-selected profiles, arbitrary module topology, general device routing,
+  broader COP0/CACHE, NMI, a generic bus/MMIO/map, BOOT-3, and compatibility
+  remain absent.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that

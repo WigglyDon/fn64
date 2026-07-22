@@ -35,14 +35,15 @@ history.
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or direct game-entry execution |
 | `PifFirmware` | private immutable owned bytes for one structurally accepted raw-Boot-ROM-shaped input and the source bytes for explicit profiled copy materialization | no path, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, represented COP0 including raw TagLo/TagHi, and per-Machine direct-mapped primary I/D cache arrays with provenance | no host cadence, full ISA, interrupt controller, TLB/MMU, secondary cache, cache timing, or functional D-cache data path |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, represented COP0 including raw TagLo/TagHi, and per-Machine direct-mapped primary I/D cache arrays with provenance and functional KSEG0 D-cache `Lw` | no host cadence, full ISA, CPU interrupt delivery, TLB/MMU, secondary cache, cache timing, KSEG0 cache stores, or dirty writeback |
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
-| `SpDmem` | 4 KiB zero-filled storage, checked reads, and private Machine-owned range staging for the normalized bootstrap span | no public write surface, DMA, RSP, or COP2 execution |
+| `SpDmem` | 4 KiB zero-filled storage, checked reads, private Machine-owned range staging, and known aligned CPU stores with provenance | no public mutable backdoor, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads, concrete/opaque CPU-store provenance, narrow opaque-word load transport preserving unavailable lineage, and atomic profiled-copy replacement | no public mutable access, opaque value exposure as known truth, SP instruction-fetch route, profile policy, DMA, or RSP execution |
-| `Sp` | optional exact x105 SP_STATUS and SP_PC register/control truth with CPU-store provenance | no status/PC reads, arbitrary command bank, semaphore, DMA, RSP scalar/vector state, or RSP execution |
+| `Sp` | exact x105 SP_STATUS, SP_PC, and cleared semaphore register/control truth with CPU-store provenance | no status/PC/semaphore reads, arbitrary command bank, DMA, RSP scalar/vector state, or RSP execution |
 | `Ri` | optional RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD, and exact RI_REFRESH raw/provenance state with source-clear derived fields | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, refresh timing/electrical effect, NMI lifecycle, register bank, MMIO framework, or bus |
-| `Mi` | immutable MI_VERSION `0x02020102`, optional exact-x105 initialization state, one bounded pending transfer, and exact generated RDRAM-register access-mode command state with CPU provenance | no alternate identity/configuration, unrelated MI register behavior, command bank, general next-write replication, timing, MMIO framework, or bus |
-| `Machine` | Cartridge, optional accepted PifFirmware and PifIpl2Profile, explicit handoff selectors, Cpu, Rdram, SpDmem, SpImem, Ri, Mi, bootstrap provenance/GPR-knownness/COP0/control-flow state, private RDRAM reservation state, powered/reset state, represented fetch/data composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
+| `Mi` | immutable MI_VERSION `0x02020102`, exact-x105 initialization and RDRAM-register mode, one bounded transfer, and SP/SI/AI/VI/PI/DP pending/mask truth with CPU provenance | no CPU interrupt delivery, alternate identity, general command/read bank, timing, MMIO framework, or bus |
+| `Pi` | exact programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, and one completed atomic x105 one-MiB cart-to-RDRAM DMA record | no PI_RD_LEN, cartridge writes, timing/progress, FIFO, domain timing, controller reset, generic PI bank, or byte ownership |
+| `Machine` | Cartridge, optional accepted PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Ri, Mi, Pi, bootstrap lineage, powered/reset state, represented fetch/data/device composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio, input, or event loop |
 | `fn64-inspection` | construction/reset, represented-step, and bounded cartridge-bootstrap no-window probes over public core APIs; exact CLI spellings for explicit firmware, profile, family, reset, medium, and PIF-version inputs | no machine truth, selector meaning, general runtime loop, graphics, or compatibility authority |
 
 ## Cartridge representation
@@ -684,10 +685,17 @@ store, and frame teardown. Final module modes are `0xC6808080`; RAS words are
 `0x101C0A04`; mappings cover `0x00000000..0x003FFFFF`; RI_REFRESH is
 `0x001E3634`; and guest-written size is `0x00400000`. At total commit 247,000,
 Count is `246984` and PC/next-PC are `0xA4000400 / 0xA4000404`. Current word
-`0x4080E000`, `Cop0Mtc0 zero,$28` (C0_TAGLO), is inspected but not executed as
-the first cache-specific frontier. These tests prove synthetic fixed-profile
-CPU/device composition, not an authentic IPL2-to-IPL3 run, analog accuracy,
-NMI execution, or game compatibility.
+`0x4080E000`, `Cop0Mtc0 zero,$28` (C0_TAGLO), begins cache initialization.
+Another 5,367 public commits initialize both 512-line caches, control SP, copy
+820 public bytes, and enter relocated KSEG0 execution at first PI word
+`0xAC290000`. Another 7,225,461 commits program an exact one-MiB atomic PI DMA,
+execute the guest checksum through functional D-cache reads, produce header
+words `0xFAD40ECC / 0x1F137F19`, clear final interrupt/control state, write
+boot globals, overwrite all 2,048 SP words, and execute JR/Nop to synthetic
+entry `0x80001000`. Total commits are 7,477,828 and Count is 7,477,812; entry
+word `0x24020042` is not executed. These tests prove synthetic fixed-profile
+CPU/device composition, not an authentic IPL2/cartridge run, PI/cache timing,
+RSP execution, NMI delivery, or game compatibility.
 One-word staging would be both incomplete and unauthorized: the observed x105
 prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
@@ -699,7 +707,7 @@ Identity classification may name instructions that the public step does not
 execute. Current explicit absences include:
 
 - branch-likely identities other than exact BEQL/BNEL/BLEZL/BGEZL, REGIMM
-  identities other than BLTZ/BGEZL, COP0 branches, and execution of a branch or
+  identities other than BLTZ/BGEZL/BGEZAL, COP0 branches, and execution of a branch or
   jump inside a delay slot;
 - CPU load/store identities other than the detailed aligned `Lw`/`Sw` and
   SP-IMEM-only `LBU`/`SB` surfaces, including unaligned merge operations,
@@ -707,19 +715,18 @@ execute. Current explicit absences include:
 - signed multiply, divide, trap, every COP0 instruction except bounded MTC0
   Cause/Count/Compare/TagLo/TagHi, ERET, and LL/SC execution;
 - CACHE operations other than primary I/D Index Store Tag, secondary cache,
-  functional primary D-cache data access, cache timing, parity, and cache-error
-  exceptions;
+  KSEG0 D-cache stores/writeback, cache timing, parity, and cache-error exceptions;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
-  PI DMA, authentic firmware-executed bootstrap handoff, and cartridge-entry
-  execution;
+  PI timing/general transfers, authentic firmware-executed bootstrap handoff,
+  and cartridge-entry execution;
 - authentic PIF firmware/revision validation, firmware execution, and
   coupled PAL/MPAL or other-family/NMI/DD handoff-state production;
 - authentic private-firmware-backed SP IMEM observations, RSP/COP2 execution,
-  SP DMA/semaphore behavior, and SP register behavior beyond exact generated
-  status/PC writes;
-- a broad bus or memory map, device/MMIO routing, DMA, and N64 scheduling or
-  timing;
+  SP DMA, and SP register behavior beyond exact generated status/PC/semaphore
+  writes;
+- a broad bus or memory map, generic device/MMIO routing, general DMA, and N64
+  scheduling or timing;
 - renderer, input, window, audio, ROM-path host, and platform event loop;
 - performance, broad hardware compatibility, and game compatibility evidence.
 
@@ -733,7 +740,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 174 cases cover:
+calls only public `Machine::step` for execution. Its 183 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -787,7 +794,10 @@ calls only public `Machine::step` for execution. Its 174 cases cover:
 - exact initial non-global RDRAM_MODE raw request/derived fields/provenance,
   aliases, exact-value rejection, AdES/delay-slot cadence, lifecycle, unchanged
   bytes/routes, and closed readback/physical-effect boundary;
-- 252,367-step generated x105 composition through the exact 8,000-iteration CPU
+- exact PI register programming, atomic one-MiB DMA, zero status reads,
+  completion-interrupt set/clear, KSEG0 D-cache fill/hit, KSEG1 bypass, and
+  explicit PI_RD_LEN rejection;
+- 7,477,828-step generated x105 composition through the exact 8,000-iteration CPU
   loop, both RI_MODE writes, both bounded CPU waits, the exact MI_INIT_MODE
   write, delay-word construction, RDRAM_DELAY and RDRAM_REF_ROW commits,
   DEVICE_ID-value LUI/store, fourteen CPU-local setup commits, MI_VERSION read,
@@ -800,8 +810,10 @@ calls only public `Machine::step` for execution. Its 174 cases cover:
   guest-detected 4 MiB size, frame teardown, zero TagLo/TagHi writes, exact
   512-line I-cache and 512-line D-cache invalidation loops, exact SP halt/PC/
   start control, 205-word public IPL3 relocation, JR to `0x80000004`, one
-  KSEG0 I-cache fill from relocated RDRAM, cached cartridge-header setup, and
-  the unexecuted PI_DRAM_ADDR store frontier;
+  KSEG0 I-cache fill from relocated RDRAM, exact PI DMA, 262,144-iteration
+  checksum, 65,536 D-cache fills, 196,608 D-cache hits, final device clears,
+  boot globals, 2,048-store SP teardown, and JR/Nop arrival at synthetic
+  `0x80001000` without executing its first word;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

@@ -696,6 +696,24 @@ product or reference lane requires a new explicit product decision.
   functional D-cache data flow, PI, authentic advancement, BOOT-3, and
   compatibility remain absent.
 
+## Era 37 — PI DMA, final IPL3 handoff, and synthetic entry (2026-07-21)
+
+- Product result: one concrete per-Machine `Pi` owner represents the generated
+  PI_DRAM_ADDR, PI_CART_ADDR, PI_WR_LEN, idle status, and last completed atomic
+  one-MiB cartridge-to-RDRAM transfer. `Mi` remains the interrupt owner.
+- Cache result: KSEG0 aligned `Lw` now fills or hits the CPU-owned 16-byte
+  direct-mapped D-cache for Machine-owned RDRAM. The generated checksum performs
+  65,536 fills and 196,608 hits without a dirty line or DMA snooping.
+- Synthetic composition: public bytes yield header and guest checksum words
+  `0xFAD40ECC / 0x1F137F19`; the generated path clears final MI/SP/SI/AI/DP/PI
+  state, writes boot globals, and overwrites all 2,048 SP words with
+  `0xA4002000` through ordinary stores.
+- Boundary: JR word `0x01200008` and its Nop slot land at synthetic entry
+  `0x80001000`, but entry word `0x24020042` is not executed. This earns
+  `GENERATED-IPL3-FINAL-HANDOFF-COMPLETE`, not authentic BOOT-3 or game
+  compatibility; PI timing, RSP execution, and authentic cartridge execution
+  remain absent.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
