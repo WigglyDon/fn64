@@ -16,14 +16,25 @@ use crate::cpu::{
     CpuLocalExecutedHelperExecutedInstruction, CpuLocalExecutedHelperInvocationError,
     CpuLocalExecutedHelperInvocationOutcome, CpuRegisterIndexError, MachineCop0TagWriteProvenance,
     MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,
-    MachinePrimaryInstructionCacheFillPlan, MachinePrimaryInstructionCacheLineState,
-    NON_BOOT_RESET_VECTOR_PC, PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES,
+    MachinePrimaryDataCacheFillPlan, MachinePrimaryInstructionCacheFillPlan,
+    MachinePrimaryInstructionCacheLineState, NON_BOOT_RESET_VECTOR_PC,
+    PRIMARY_DATA_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES,
 };
 use crate::mi::{
-    MachineMiInitModeState, MachineMiInitTransferState, MachineMiRdramRegisterModeState,
-    MachineMiVersionState, Mi, MI_CLEAR_RDRAM_REGISTER_MODE_WORD, MI_INIT_MODE_PHYSICAL_ADDRESS,
-    MI_INIT_MODE_X105_INIT_LENGTH, MI_INIT_MODE_X105_REPEATED_BYTE_COUNT,
-    MI_INIT_MODE_X105_WRITE_WORD, MI_SET_RDRAM_REGISTER_MODE_WORD, MI_VERSION_PHYSICAL_ADDRESS,
+    MachineMiCpuStoreProvenance, MachineMiInitModeState, MachineMiInitTransferState,
+    MachineMiInterruptSource, MachineMiInterruptState, MachineMiRdramRegisterModeState,
+    MachineMiVersionState, Mi, MI_CLEAR_DP_INTERRUPT_WORD, MI_CLEAR_RDRAM_REGISTER_MODE_WORD,
+    MI_INIT_MODE_PHYSICAL_ADDRESS, MI_INIT_MODE_X105_INIT_LENGTH,
+    MI_INIT_MODE_X105_REPEATED_BYTE_COUNT, MI_INIT_MODE_X105_WRITE_WORD,
+    MI_INTR_MASK_PHYSICAL_ADDRESS, MI_SET_RDRAM_REGISTER_MODE_WORD, MI_VERSION_PHYSICAL_ADDRESS,
+    MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD,
+};
+use crate::pi::{
+    MachinePiCompletedDmaState, MachinePiCpuStoreProvenance, MachinePiProgrammedRegisterState,
+    MachinePiStatusClearState, Pi, PI_CART_ADDR_PHYSICAL_ADDRESS, PI_DOMAIN_ONE_ADDRESS_TWO_BASE,
+    PI_DRAM_ADDR_PHYSICAL_ADDRESS, PI_RD_LEN_PHYSICAL_ADDRESS, PI_STATUS_CLEAR_INTERRUPT_WORD,
+    PI_STATUS_PHYSICAL_ADDRESS, PI_WR_LEN_PHYSICAL_ADDRESS, PI_X105_DMA_BYTE_COUNT,
+    PI_X105_WR_LEN_WORD,
 };
 use crate::pif_firmware::{
     MachinePifFirmwareState, PifFirmware, PifFirmwareValidationError, PifIpl2Profile,
@@ -55,11 +66,14 @@ use crate::ri::{
     RI_SELECT_PHYSICAL_ADDRESS, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 use crate::sp::{
-    MachineSpCpuStoreProvenance, MachineSpPcState, MachineSpStatusState, Sp,
-    SP_PC_PHYSICAL_ADDRESS, SP_PC_X105_RESET_WORD, SP_STATUS_PHYSICAL_ADDRESS,
+    MachineSpCpuStoreProvenance, MachineSpPcState, MachineSpSemaphoreState, MachineSpStatusState,
+    Sp, SP_PC_PHYSICAL_ADDRESS, SP_PC_X105_RESET_WORD, SP_SEMAPHORE_PHYSICAL_ADDRESS,
+    SP_SEMAPHORE_X105_CLEAR_WORD, SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_X105_FINAL_HALT_WORD,
     SP_STATUS_X105_HALT_CONFIGURE_WORD, SP_STATUS_X105_START_WORD,
 };
-use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
+use crate::sp_dmem::{
+    MachineSpDmemStoreWordProvenance, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
+};
 #[cfg(test)]
 use crate::sp_imem::SpImemByteProvenance;
 use crate::sp_imem::{
@@ -104,6 +118,8 @@ const COP0_TAG_HI_REGISTER_INDEX: u8 = 29;
 const COP0_MTC0_RESERVED_LOW_BITS_MASK: u32 = 0x0000_07ff;
 const SP_DMEM_PHYSICAL_BASE: u32 = 0x0400_0000;
 const SP_IMEM_PHYSICAL_BASE: u32 = 0x0400_1000;
+const AI_STATUS_PHYSICAL_ADDRESS: u32 = 0x0450_000c;
+const SI_STATUS_PHYSICAL_ADDRESS: u32 = 0x0480_0018;
 const UNAVAILABLE_PIF_ROM_RESET_PHYSICAL_ADDRESS: u32 = 0x1fc0_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,6 +192,7 @@ pub enum MachineLoadWordTarget {
     },
     RiRefresh,
     MiVersion,
+    PiStatus,
 }
 
 impl MachineLoadWordTarget {
@@ -189,7 +206,8 @@ impl MachineLoadWordTarget {
             | Self::RdramModuleRegister { .. }
             | Self::RdramCalibrationAbsent { .. }
             | Self::RiRefresh
-            | Self::MiVersion => None,
+            | Self::MiVersion
+            | Self::PiStatus => None,
         }
     }
 
@@ -203,7 +221,8 @@ impl MachineLoadWordTarget {
             | Self::RdramModuleRegister { .. }
             | Self::RdramCalibrationAbsent { .. }
             | Self::RiRefresh
-            | Self::MiVersion => None,
+            | Self::MiVersion
+            | Self::PiStatus => None,
         }
     }
 
@@ -217,7 +236,8 @@ impl MachineLoadWordTarget {
             | Self::RdramModuleRegister { .. }
             | Self::RdramCalibrationAbsent { .. }
             | Self::RiRefresh
-            | Self::MiVersion => None,
+            | Self::MiVersion
+            | Self::PiStatus => None,
         }
     }
 
@@ -231,7 +251,8 @@ impl MachineLoadWordTarget {
             | Self::RdramModuleRegister { .. }
             | Self::RdramCalibrationAbsent { .. }
             | Self::RiRefresh
-            | Self::MiVersion => None,
+            | Self::MiVersion
+            | Self::PiStatus => None,
         }
     }
 
@@ -245,7 +266,8 @@ impl MachineLoadWordTarget {
             | Self::RdramModuleRegister { .. }
             | Self::RdramCalibrationAbsent { .. }
             | Self::RiRefresh
-            | Self::MiVersion => None,
+            | Self::MiVersion
+            | Self::PiStatus => None,
         }
     }
 }
@@ -345,9 +367,18 @@ pub enum MachineStoreWordTarget {
     DirectRdram { offset: RdramOffset },
     RdramCalibrationAbsent { physical_address: u32 },
     SpImem { offset: u32 },
+    SpDmem { offset: SpDmemOffset },
     SpStatus,
     SpPc,
+    SpSemaphore,
     MiInitMode,
+    MiInterruptMask,
+    SiStatus,
+    AiStatus,
+    PiDramAddress,
+    PiCartridgeAddress,
+    PiWriteLength,
+    PiStatus,
     RdramBroadcastDeviceId,
     RdramBroadcastDelay,
     RdramBroadcastRefreshRow,
@@ -369,9 +400,18 @@ impl MachineStoreWordTarget {
             Self::SpImem { offset } => Some(offset),
             Self::DirectRdram { .. }
             | Self::RdramCalibrationAbsent { .. }
+            | Self::SpDmem { .. }
             | Self::SpStatus
             | Self::SpPc
+            | Self::SpSemaphore
             | Self::MiInitMode
+            | Self::MiInterruptMask
+            | Self::SiStatus
+            | Self::AiStatus
+            | Self::PiDramAddress
+            | Self::PiCartridgeAddress
+            | Self::PiWriteLength
+            | Self::PiStatus
             | Self::RdramBroadcastDeviceId
             | Self::RdramBroadcastDelay
             | Self::RdramBroadcastRefreshRow
@@ -393,6 +433,7 @@ impl MachineStoreWordTarget {
 pub enum MachineStoreWordUnsupportedTarget {
     DirectRdram { offset: RdramOffset },
     SpDmem { offset: SpDmemOffset },
+    PiReadLength,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -552,6 +593,29 @@ pub enum MachineStoreWordRejectionReason {
         transfer_word: u32,
     },
     SpPcValueUnsupported {
+        transfer_word: u32,
+    },
+    SpSemaphoreValueUnsupported {
+        transfer_word: u32,
+    },
+    MiInterruptMaskValueUnsupported {
+        transfer_word: u32,
+    },
+    PiDramAddressValueUnsupported {
+        transfer_word: u32,
+    },
+    PiCartridgeAddressValueUnsupported {
+        transfer_word: u32,
+    },
+    PiWriteLengthValueUnsupported {
+        transfer_word: u32,
+    },
+    PiDmaRegisterUnavailable {
+        physical_address: u32,
+    },
+    PiDmaCartridgeRangeUnsupported,
+    PiDmaRdramRangeUnsupported,
+    PiStatusValueUnsupported {
         transfer_word: u32,
     },
     SpImemWriteRejected,
@@ -2102,6 +2166,7 @@ pub(crate) struct MachineLoadWordCommitPlan {
     target: MachineLoadWordTarget,
     loaded_word: u32,
     result_value: u64,
+    data_cache_fill: Option<MachinePrimaryDataCacheFillPlan>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2206,6 +2271,11 @@ pub(crate) enum MachineStoreWordMutationPlan {
         stored_word: u32,
     },
     RdramCalibrationAbsent,
+    SpDmem {
+        offset: SpDmemOffset,
+        stored_word: u32,
+        provenance: MachineSpDmemStoreWordProvenance,
+    },
     SpImem {
         stored_bytes: [u8; 4],
         provenance: MachineSpImemStoreWordProvenance,
@@ -2220,6 +2290,29 @@ pub(crate) enum MachineStoreWordMutationPlan {
     },
     SpPc {
         state: MachineSpPcState,
+    },
+    SpSemaphore {
+        state: MachineSpSemaphoreState,
+    },
+    MiInterruptMask {
+        provenance: MachineMiCpuStoreProvenance,
+    },
+    MiClearPending {
+        source: MachineMiInterruptSource,
+        provenance: MachineMiCpuStoreProvenance,
+    },
+    PiDramAddress {
+        state: MachinePiProgrammedRegisterState,
+    },
+    PiCartridgeAddress {
+        state: MachinePiProgrammedRegisterState,
+    },
+    PiDma {
+        state: MachinePiCompletedDmaState,
+    },
+    PiStatusClear {
+        state: MachinePiStatusClearState,
+        mi_provenance: MachineMiCpuStoreProvenance,
     },
     RiConfig {
         state: MachineRiConfigState,
@@ -2503,6 +2596,7 @@ pub(crate) enum MachineOrdinaryControlFlowStepAction {
     Blezl(MachineOrdinaryControlFlowResult),
     Bltz(MachineOrdinaryControlFlowResult),
     Bgezl(MachineOrdinaryControlFlowResult),
+    Bgezal(MachineOrdinaryControlFlowResult),
     J(MachineOrdinaryControlFlowResult),
     Jal(MachineOrdinaryControlFlowResult),
     Jr(MachineOrdinaryControlFlowResult),
@@ -2519,6 +2613,7 @@ impl MachineOrdinaryControlFlowStepAction {
             | Self::Blezl(result)
             | Self::Bltz(result)
             | Self::Bgezl(result)
+            | Self::Bgezal(result)
             | Self::J(result)
             | Self::Jal(result)
             | Self::Jr(result)
@@ -2534,6 +2629,7 @@ impl MachineOrdinaryControlFlowStepAction {
             Self::Beq(_)
             | Self::Bne(_)
             | Self::Bltz(_)
+            | Self::Bgezal(_)
             | Self::J(_)
             | Self::Jal(_)
             | Self::Jr(_)
@@ -3117,6 +3213,13 @@ pub enum MachineRepresentedStepOutcome {
         stored_word: u32,
         cadence_plan: MachineStepCadencePlan,
     },
+    DeviceStoreWordCommitted {
+        effective_address: u64,
+        target: MachineStoreWordTarget,
+        source_gpr: u8,
+        stored_word: u32,
+        cadence_plan: MachineStepCadencePlan,
+    },
     RiConfigStoreCommitted {
         effective_address: u64,
         target: MachineStoreWordTarget,
@@ -3311,6 +3414,22 @@ impl MachineRepresentedStepOutcome {
                 | MachineStoreWordMutationPlan::RdramGlobalMode { .. }
                 | MachineStoreWordMutationPlan::RdramModuleRasInterval { .. } => {
                     Self::RdramStoreWordCommitted {
+                        effective_address: plan.effective_address,
+                        target: plan.target,
+                        source_gpr: plan.fields.rt(),
+                        stored_word: plan.known_stored_word(),
+                        cadence_plan,
+                    }
+                }
+                MachineStoreWordMutationPlan::SpDmem { .. }
+                | MachineStoreWordMutationPlan::SpSemaphore { .. }
+                | MachineStoreWordMutationPlan::MiInterruptMask { .. }
+                | MachineStoreWordMutationPlan::MiClearPending { .. }
+                | MachineStoreWordMutationPlan::PiDramAddress { .. }
+                | MachineStoreWordMutationPlan::PiCartridgeAddress { .. }
+                | MachineStoreWordMutationPlan::PiDma { .. }
+                | MachineStoreWordMutationPlan::PiStatusClear { .. } => {
+                    Self::DeviceStoreWordCommitted {
                         effective_address: plan.effective_address,
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
@@ -3572,6 +3691,7 @@ impl MachineRepresentedStepOutcome {
             | Self::SpStatusStoreCommitted { .. }
             | Self::SpPcStoreCommitted { .. }
             | Self::RdramStoreWordCommitted { .. }
+            | Self::DeviceStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -3606,6 +3726,7 @@ impl MachineRepresentedStepOutcome {
             | Self::SpStatusStoreCommitted { cadence_plan, .. }
             | Self::SpPcStoreCommitted { cadence_plan, .. }
             | Self::RdramStoreWordCommitted { cadence_plan, .. }
+            | Self::DeviceStoreWordCommitted { cadence_plan, .. }
             | Self::RiConfigStoreCommitted { cadence_plan, .. }
             | Self::RiCurrentLoadStoreCommitted { cadence_plan, .. }
             | Self::RiSelectStoreCommitted { cadence_plan, .. }
@@ -3641,6 +3762,7 @@ impl MachineRepresentedStepOutcome {
             | Self::SpStatusStoreCommitted { .. }
             | Self::SpPcStoreCommitted { .. }
             | Self::RdramStoreWordCommitted { .. }
+            | Self::DeviceStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -3675,6 +3797,7 @@ impl MachineRepresentedStepOutcome {
             | Self::SpStatusStoreCommitted { .. }
             | Self::SpPcStoreCommitted { .. }
             | Self::RdramStoreWordCommitted { .. }
+            | Self::DeviceStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -3709,6 +3832,7 @@ impl MachineRepresentedStepOutcome {
             | Self::SpStatusStoreCommitted { .. }
             | Self::SpPcStoreCommitted { .. }
             | Self::RdramStoreWordCommitted { .. }
+            | Self::DeviceStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -3743,6 +3867,7 @@ impl MachineRepresentedStepOutcome {
             | Self::SpStatusStoreCommitted { .. }
             | Self::SpPcStoreCommitted { .. }
             | Self::RdramStoreWordCommitted { .. }
+            | Self::DeviceStoreWordCommitted { .. }
             | Self::RiConfigStoreCommitted { .. }
             | Self::RiCurrentLoadStoreCommitted { .. }
             | Self::RiSelectStoreCommitted { .. }
@@ -4083,6 +4208,7 @@ pub struct Machine {
     sp: Sp,
     ri: Ri,
     mi: Mi,
+    pi: Pi,
     cpu_rdram_reservation: CpuRdramReservation,
     cartridge_bootstrap: Option<MachineCartridgeBootstrapState>,
     powered_on: bool,
@@ -4105,6 +4231,7 @@ impl Machine {
             sp: Sp::default(),
             ri: Ri::default(),
             mi: Mi::default(),
+            pi: Pi::default(),
             cpu_rdram_reservation: CpuRdramReservation::new(),
             cartridge_bootstrap: None,
             powered_on: true,
@@ -4119,6 +4246,7 @@ impl Machine {
         self.sp = Sp::default();
         self.ri = Ri::default();
         self.mi = Mi::default();
+        self.pi = Pi::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.cartridge_bootstrap = None;
         self.powered_on = true;
@@ -4158,6 +4286,38 @@ impl Machine {
 
     pub const fn mi_rdram_register_mode_state(&self) -> Option<MachineMiRdramRegisterModeState> {
         self.mi.rdram_register_mode_state()
+    }
+
+    pub const fn mi_interrupt_state(&self) -> MachineMiInterruptState {
+        self.mi.interrupt_state()
+    }
+
+    pub const fn pi_dram_address_state(&self) -> Option<MachinePiProgrammedRegisterState> {
+        self.pi.dram_address_state()
+    }
+
+    pub const fn pi_cartridge_address_state(&self) -> Option<MachinePiProgrammedRegisterState> {
+        self.pi.cartridge_address_state()
+    }
+
+    pub const fn pi_write_length_state(&self) -> Option<MachinePiProgrammedRegisterState> {
+        self.pi.write_length_state()
+    }
+
+    pub const fn pi_completed_dma_state(&self) -> Option<MachinePiCompletedDmaState> {
+        self.pi.completed_dma_state()
+    }
+
+    pub const fn pi_status_word(&self) -> u32 {
+        self.pi.status_word()
+    }
+
+    pub const fn pi_last_status_clear_state(&self) -> Option<MachinePiStatusClearState> {
+        self.pi.last_status_clear_state()
+    }
+
+    pub const fn sp_semaphore_state(&self) -> Option<MachineSpSemaphoreState> {
+        self.sp.semaphore_state()
     }
 
     pub const fn rdram_broadcast_delay_state(&self) -> Option<MachineRdramBroadcastDelayState> {
@@ -4548,6 +4708,39 @@ impl Machine {
                     link: None,
                 })
             }
+            CpuInstructionIdentity::RegimmBgezal => {
+                let source_value = self
+                    .cpu
+                    .gpr(usize::from(fields.rs()))
+                    .expect("decoded CPU register index is five bits");
+                let condition_taken = (source_value as i64) >= 0;
+                let target_pc = CpuAddress::new(conditional_branch_target(
+                    control_flow_snapshot.pc(),
+                    fields.immediate_u16(),
+                ));
+                let selected_next_pc = if condition_taken {
+                    target_pc
+                } else {
+                    CpuAddress::new(control_flow_snapshot.pc().wrapping_add(8))
+                };
+                MachineOrdinaryControlFlowStepAction::Bgezal(MachineOrdinaryControlFlowResult {
+                    fields,
+                    identity,
+                    instruction_pc,
+                    delay_slot_pc,
+                    source_a: Some(MachineOrdinaryControlFlowOperand::new(
+                        fields.rs(),
+                        source_value,
+                        self.ordinary_control_flow_gpr_source(fields.rs()),
+                    )),
+                    source_b: None,
+                    condition_taken: Some(condition_taken),
+                    target_pc,
+                    selected_next_pc,
+                    link: condition_taken
+                        .then_some(MachineOrdinaryControlFlowLink::new(31, link_value)),
+                })
+            }
             CpuInstructionIdentity::J | CpuInstructionIdentity::Jal => {
                 let target_pc = CpuAddress::new(jump_target(
                     control_flow_snapshot.pc(),
@@ -4828,20 +5021,56 @@ impl Machine {
             }
         }
 
+        let mut data_cache_fill = None;
         let loaded_word = match target {
             MachineLoadWordTarget::DirectRdram { offset } => {
-                let backing_word = self.rdram.read_u32_be(offset.as_usize()).map_err(|_| {
-                    MachineLoadWordRejection::new(
-                        fields,
-                        effective_address,
-                        cpu_address,
-                        Some(target),
-                        MachineLoadWordRejectionReason::DirectRdramReadRejected,
-                    )
-                })?;
-                self.rdram
-                    .calibration_read_word(offset.value(), Some(backing_word))
-                    .unwrap_or(backing_word)
+                let cpu_word = cpu_address.value();
+                if (0x8000_0000..=0x9fff_ffff).contains(&cpu_word) {
+                    let physical_address = offset.value();
+                    if let Some(cached) = self.cpu.lookup_primary_data_cache_word(physical_address)
+                    {
+                        cached
+                    } else {
+                        let physical_line_address =
+                            physical_address & !((PRIMARY_DATA_CACHE_LINE_SIZE_BYTES as u32) - 1);
+                        let mut data = [0_u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES];
+                        for (index, byte) in data.iter_mut().enumerate() {
+                            *byte = self
+                                .rdram
+                                .read_u8(physical_line_address as usize + index)
+                                .map_err(|_| {
+                                    MachineLoadWordRejection::new(
+                                        fields,
+                                        effective_address,
+                                        cpu_address,
+                                        Some(target),
+                                        MachineLoadWordRejectionReason::DirectRdramReadRejected,
+                                    )
+                                })?;
+                        }
+                        let fill = MachinePrimaryDataCacheFillPlan::new(
+                            cpu_address,
+                            physical_line_address,
+                            data,
+                        );
+                        let word = fill.requested_word(physical_address);
+                        data_cache_fill = Some(fill);
+                        word
+                    }
+                } else {
+                    let backing_word = self.rdram.read_u32_be(offset.as_usize()).map_err(|_| {
+                        MachineLoadWordRejection::new(
+                            fields,
+                            effective_address,
+                            cpu_address,
+                            Some(target),
+                            MachineLoadWordRejectionReason::DirectRdramReadRejected,
+                        )
+                    })?;
+                    self.rdram
+                        .calibration_read_word(offset.value(), Some(backing_word))
+                        .unwrap_or(backing_word)
+                }
             }
             MachineLoadWordTarget::SpDmem { offset, provenance } => {
                 if provenance == MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage {
@@ -4930,6 +5159,7 @@ impl Machine {
                 .expect("RI_REFRESH availability preflighted before the load plan")
                 .raw_word(),
             MachineLoadWordTarget::MiVersion => self.mi.version_state().word(),
+            MachineLoadWordTarget::PiStatus => self.pi.status_word(),
         };
         let result_value = sign_extend_loaded_word(loaded_word);
 
@@ -4941,6 +5171,7 @@ impl Machine {
                 target,
                 loaded_word,
                 result_value,
+                data_cache_fill,
             },
         ))
     }
@@ -4952,6 +5183,9 @@ impl Machine {
     ) -> Result<MachineLoadWordStepApplication, MachineLoadWordStepApplicationError> {
         match action {
             MachineLoadWordStepAction::Commit(plan) => {
+                if let Some(fill) = plan.data_cache_fill {
+                    self.cpu.apply_primary_data_cache_fill(fill);
+                }
                 self.cpu
                     .set_gpr(usize::from(plan.fields.rt()), plan.result_value)
                     .map_err(MachineLoadWordStepApplicationError::RegisterIndex)?;
@@ -5279,6 +5513,18 @@ impl Machine {
             MachineStoreWordTarget::RdramCalibrationAbsent { .. } => {
                 MachineStoreWordMutationPlan::RdramCalibrationAbsent
             }
+            MachineStoreWordTarget::SpDmem { offset } => MachineStoreWordMutationPlan::SpDmem {
+                offset,
+                stored_word,
+                provenance: MachineSpDmemStoreWordProvenance::new(
+                    execution_address,
+                    fields.rt(),
+                    source_lineage,
+                    effective_address,
+                    cpu_address,
+                    SP_DMEM_PHYSICAL_BASE + offset.value(),
+                ),
+            },
             MachineStoreWordTarget::SpImem { offset } => {
                 let stored_bytes = stored_word.to_be_bytes();
                 let provenance = MachineSpImemStoreWordProvenance::new(
@@ -5307,7 +5553,9 @@ impl Machine {
             MachineStoreWordTarget::SpStatus => {
                 if !matches!(
                     stored_word,
-                    SP_STATUS_X105_HALT_CONFIGURE_WORD | SP_STATUS_X105_START_WORD
+                    SP_STATUS_X105_HALT_CONFIGURE_WORD
+                        | SP_STATUS_X105_START_WORD
+                        | SP_STATUS_X105_FINAL_HALT_WORD
                 ) {
                     return Err(MachineStoreWordRejection::new(
                         fields,
@@ -5354,6 +5602,31 @@ impl Machine {
                         cpu_address,
                         SP_PC_PHYSICAL_ADDRESS,
                     )),
+                }
+            }
+            MachineStoreWordTarget::SpSemaphore => {
+                if stored_word != SP_SEMAPHORE_X105_CLEAR_WORD {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::SpSemaphoreValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                MachineStoreWordMutationPlan::SpSemaphore {
+                    state: MachineSpSemaphoreState::from_x105_clear(
+                        MachineSpCpuStoreProvenance::new(
+                            execution_address,
+                            fields.rt(),
+                            source_lineage,
+                            effective_address,
+                            cpu_address,
+                            SP_SEMAPHORE_PHYSICAL_ADDRESS,
+                        ),
+                    ),
                 }
             }
             MachineStoreWordTarget::RiConfig => {
@@ -5464,6 +5737,18 @@ impl Machine {
                             source_lineage,
                         ),
                     }
+                } else if stored_word == MI_CLEAR_DP_INTERRUPT_WORD {
+                    MachineStoreWordMutationPlan::MiClearPending {
+                        source: MachineMiInterruptSource::Dp,
+                        provenance: MachineMiCpuStoreProvenance::new(
+                            execution_address,
+                            fields.rt(),
+                            source_lineage,
+                            effective_address,
+                            cpu_address,
+                            MI_INIT_MODE_PHYSICAL_ADDRESS,
+                        ),
+                    }
                 } else {
                     return Err(MachineStoreWordRejection::new(
                         fields,
@@ -5474,6 +5759,246 @@ impl Machine {
                             transfer_word: stored_word,
                         },
                     ));
+                }
+            }
+            MachineStoreWordTarget::MiInterruptMask => {
+                if stored_word != MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::MiInterruptMaskValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                MachineStoreWordMutationPlan::MiInterruptMask {
+                    provenance: MachineMiCpuStoreProvenance::new(
+                        execution_address,
+                        fields.rt(),
+                        source_lineage,
+                        effective_address,
+                        cpu_address,
+                        MI_INTR_MASK_PHYSICAL_ADDRESS,
+                    ),
+                }
+            }
+            MachineStoreWordTarget::SiStatus | MachineStoreWordTarget::AiStatus => {
+                let (source, physical_address) = match target {
+                    MachineStoreWordTarget::SiStatus => {
+                        (MachineMiInterruptSource::Si, SI_STATUS_PHYSICAL_ADDRESS)
+                    }
+                    MachineStoreWordTarget::AiStatus => {
+                        (MachineMiInterruptSource::Ai, AI_STATUS_PHYSICAL_ADDRESS)
+                    }
+                    _ => unreachable!(),
+                };
+                MachineStoreWordMutationPlan::MiClearPending {
+                    source,
+                    provenance: MachineMiCpuStoreProvenance::new(
+                        execution_address,
+                        fields.rt(),
+                        source_lineage,
+                        effective_address,
+                        cpu_address,
+                        physical_address,
+                    ),
+                }
+            }
+            MachineStoreWordTarget::PiDramAddress => {
+                if stored_word & 0xff00_0000 != 0 || stored_word & 3 != 0 {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiDramAddressValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                MachineStoreWordMutationPlan::PiDramAddress {
+                    state: MachinePiProgrammedRegisterState::new(
+                        stored_word,
+                        MachinePiCpuStoreProvenance::new(
+                            execution_address,
+                            fields.rt(),
+                            source_lineage,
+                            effective_address,
+                            cpu_address,
+                            PI_DRAM_ADDR_PHYSICAL_ADDRESS,
+                        ),
+                    ),
+                }
+            }
+            MachineStoreWordTarget::PiCartridgeAddress => {
+                if stored_word & 0xf000_0000 != PI_DOMAIN_ONE_ADDRESS_TWO_BASE {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiCartridgeAddressValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                MachineStoreWordMutationPlan::PiCartridgeAddress {
+                    state: MachinePiProgrammedRegisterState::new(
+                        stored_word,
+                        MachinePiCpuStoreProvenance::new(
+                            execution_address,
+                            fields.rt(),
+                            source_lineage,
+                            effective_address,
+                            cpu_address,
+                            PI_CART_ADDR_PHYSICAL_ADDRESS,
+                        ),
+                    ),
+                }
+            }
+            MachineStoreWordTarget::PiWriteLength => {
+                if stored_word != PI_X105_WR_LEN_WORD {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiWriteLengthValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                let dram = self.pi.dram_address_state().ok_or_else(|| {
+                    MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiDmaRegisterUnavailable {
+                            physical_address: PI_DRAM_ADDR_PHYSICAL_ADDRESS,
+                        },
+                    )
+                })?;
+                let cartridge = self.pi.cartridge_address_state().ok_or_else(|| {
+                    MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiDmaRegisterUnavailable {
+                            physical_address: PI_CART_ADDR_PHYSICAL_ADDRESS,
+                        },
+                    )
+                })?;
+                let cartridge_offset = cartridge
+                    .raw_word()
+                    .checked_sub(PI_DOMAIN_ONE_ADDRESS_TWO_BASE)
+                    .ok_or_else(|| {
+                        MachineStoreWordRejection::new(
+                            fields,
+                            Some(effective_address),
+                            Some(cpu_address),
+                            Some(target),
+                            MachineStoreWordRejectionReason::PiDmaCartridgeRangeUnsupported,
+                        )
+                    })?;
+                let source_end = cartridge_offset
+                    .checked_add(PI_X105_DMA_BYTE_COUNT)
+                    .ok_or_else(|| {
+                        MachineStoreWordRejection::new(
+                            fields,
+                            Some(effective_address),
+                            Some(cpu_address),
+                            Some(target),
+                            MachineStoreWordRejectionReason::PiDmaCartridgeRangeUnsupported,
+                        )
+                    })?;
+                if source_end as usize > self.cartridge.size_bytes() {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiDmaCartridgeRangeUnsupported,
+                    ));
+                }
+                let destination_end = dram
+                    .raw_word()
+                    .checked_add(PI_X105_DMA_BYTE_COUNT)
+                    .ok_or_else(|| {
+                        MachineStoreWordRejection::new(
+                            fields,
+                            Some(effective_address),
+                            Some(cpu_address),
+                            Some(target),
+                            MachineStoreWordRejectionReason::PiDmaRdramRangeUnsupported,
+                        )
+                    })?;
+                if destination_end as usize > self.rdram.size_bytes() {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiDmaRdramRangeUnsupported,
+                    ));
+                }
+                let write_length = MachinePiProgrammedRegisterState::new(
+                    stored_word,
+                    MachinePiCpuStoreProvenance::new(
+                        execution_address,
+                        fields.rt(),
+                        source_lineage,
+                        effective_address,
+                        cpu_address,
+                        PI_WR_LEN_PHYSICAL_ADDRESS,
+                    ),
+                );
+                MachineStoreWordMutationPlan::PiDma {
+                    state: MachinePiCompletedDmaState::new(
+                        execution_address,
+                        dram,
+                        cartridge,
+                        write_length,
+                        cartridge.raw_word(),
+                        cartridge_offset,
+                        dram.raw_word(),
+                        PI_X105_DMA_BYTE_COUNT,
+                    ),
+                }
+            }
+            MachineStoreWordTarget::PiStatus => {
+                if stored_word != PI_STATUS_CLEAR_INTERRUPT_WORD {
+                    return Err(MachineStoreWordRejection::new(
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PiStatusValueUnsupported {
+                            transfer_word: stored_word,
+                        },
+                    ));
+                }
+                let pi_source = MachinePiCpuStoreProvenance::new(
+                    execution_address,
+                    fields.rt(),
+                    source_lineage,
+                    effective_address,
+                    cpu_address,
+                    PI_STATUS_PHYSICAL_ADDRESS,
+                );
+                MachineStoreWordMutationPlan::PiStatusClear {
+                    state: MachinePiStatusClearState::new(pi_source),
+                    mi_provenance: MachineMiCpuStoreProvenance::new(
+                        execution_address,
+                        fields.rt(),
+                        source_lineage,
+                        effective_address,
+                        cpu_address,
+                        PI_STATUS_PHYSICAL_ADDRESS,
+                    ),
                 }
             }
             MachineStoreWordTarget::RdramBroadcastDelay => {
@@ -5782,6 +6307,15 @@ impl Machine {
                             .invalidate_for_rdram_write(offset.value(), CPU_DATA_WORD_WIDTH);
                     }
                     MachineStoreWordMutationPlan::RdramCalibrationAbsent => {}
+                    MachineStoreWordMutationPlan::SpDmem {
+                        offset,
+                        stored_word,
+                        provenance,
+                    } => {
+                        self.sp_dmem
+                            .write_cpu_u32_be(offset, stored_word, provenance)
+                            .expect("SP DMEM store target was preflighted");
+                    }
                     MachineStoreWordMutationPlan::SpImem {
                         plan: sp_imem_plan, ..
                     } => self.sp_imem.apply_cpu_store_word(sp_imem_plan),
@@ -5789,9 +6323,62 @@ impl Machine {
                         plan: sp_imem_plan, ..
                     } => self.sp_imem.apply_cpu_store_opaque_word(sp_imem_plan),
                     MachineStoreWordMutationPlan::SpStatus { state } => {
-                        self.sp.apply_status_store(state)
+                        self.sp.apply_status_store(state);
+                        let source = state.source();
+                        self.mi.clear_pending_interrupt(
+                            MachineMiInterruptSource::Sp,
+                            MachineMiCpuStoreProvenance::new(
+                                source.instruction_pc(),
+                                source.source_gpr(),
+                                source.source_lineage(),
+                                source.effective_address(),
+                                source.cpu_address(),
+                                source.physical_address(),
+                            ),
+                        );
                     }
                     MachineStoreWordMutationPlan::SpPc { state } => self.sp.apply_pc_store(state),
+                    MachineStoreWordMutationPlan::SpSemaphore { state } => {
+                        self.sp.apply_semaphore_store(state)
+                    }
+                    MachineStoreWordMutationPlan::MiInterruptMask { provenance } => {
+                        self.mi.clear_all_interrupt_masks(provenance)
+                    }
+                    MachineStoreWordMutationPlan::MiClearPending { source, provenance } => {
+                        self.mi.clear_pending_interrupt(source, provenance)
+                    }
+                    MachineStoreWordMutationPlan::PiDramAddress { state } => {
+                        self.pi.apply_dram_address(state)
+                    }
+                    MachineStoreWordMutationPlan::PiCartridgeAddress { state } => {
+                        self.pi.apply_cartridge_address(state)
+                    }
+                    MachineStoreWordMutationPlan::PiDma { state } => {
+                        for index in 0..state.byte_count() {
+                            let byte = self
+                                .cartridge
+                                .read_u8(state.cartridge_byte_offset() + index)
+                                .expect("PI DMA cartridge range was preflighted");
+                            self.rdram.write_u8_at_checked_offset(
+                                (state.rdram_physical_address() + index) as usize,
+                                byte,
+                            );
+                        }
+                        self.cpu_rdram_reservation.invalidate_for_rdram_write(
+                            state.rdram_physical_address(),
+                            state.byte_count() as usize,
+                        );
+                        self.pi.apply_completed_dma(state);
+                        self.mi.set_pi_pending_from_dma();
+                    }
+                    MachineStoreWordMutationPlan::PiStatusClear {
+                        state,
+                        mi_provenance,
+                    } => {
+                        self.pi.apply_status_clear(state);
+                        self.mi
+                            .clear_pending_interrupt(MachineMiInterruptSource::Pi, mi_provenance);
+                    }
                     MachineStoreWordMutationPlan::RiConfig { state } => {
                         self.ri.apply_config_store(state)
                     }
@@ -7157,6 +7744,7 @@ const fn is_ordinary_control_flow_identity(identity: CpuInstructionIdentity) -> 
             | CpuInstructionIdentity::Blezl
             | CpuInstructionIdentity::RegimmBltz
             | CpuInstructionIdentity::RegimmBgezl
+            | CpuInstructionIdentity::RegimmBgezal
             | CpuInstructionIdentity::J
             | CpuInstructionIdentity::Jal
             | CpuInstructionIdentity::SpecialJr
@@ -7199,6 +7787,10 @@ fn classify_cpu_data_word_target(
 
     if physical_address == MI_VERSION_PHYSICAL_ADDRESS {
         return Ok(MachineLoadWordTarget::MiVersion);
+    }
+
+    if physical_address == PI_STATUS_PHYSICAL_ADDRESS {
+        return Ok(MachineLoadWordTarget::PiStatus);
     }
 
     if physical_address == RI_SELECT_PHYSICAL_ADDRESS {
@@ -7304,6 +7896,48 @@ fn classify_store_word_target(
         ));
     }
 
+    if physical_address == MI_INTR_MASK_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::MiInterruptMask,
+        ));
+    }
+
+    if physical_address == PI_DRAM_ADDR_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::PiDramAddress,
+        ));
+    }
+    if physical_address == PI_CART_ADDR_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::PiCartridgeAddress,
+        ));
+    }
+    if physical_address == PI_RD_LEN_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Unsupported(
+            MachineStoreWordUnsupportedTarget::PiReadLength,
+        ));
+    }
+    if physical_address == PI_WR_LEN_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::PiWriteLength,
+        ));
+    }
+    if physical_address == PI_STATUS_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::PiStatus,
+        ));
+    }
+    if physical_address == SI_STATUS_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::SiStatus,
+        ));
+    }
+    if physical_address == AI_STATUS_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::AiStatus,
+        ));
+    }
+
     if physical_address == RI_MODE_PHYSICAL_ADDRESS {
         return Ok(MachineStoreWordTargetSelection::Supported(
             MachineStoreWordTarget::RiMode,
@@ -7346,11 +7980,17 @@ fn classify_store_word_target(
         ));
     }
 
+    if physical_address == SP_SEMAPHORE_PHYSICAL_ADDRESS {
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::SpSemaphore,
+        ));
+    }
+
     if let Some(offset) =
         translate_cpu_physical_sp_dmem_data_word_address(physical_address, CPU_DATA_WORD_WIDTH)
     {
-        return Ok(MachineStoreWordTargetSelection::Unsupported(
-            MachineStoreWordUnsupportedTarget::SpDmem { offset },
+        return Ok(MachineStoreWordTargetSelection::Supported(
+            MachineStoreWordTarget::SpDmem { offset },
         ));
     }
 
@@ -18237,6 +18877,56 @@ mod tests {
         bytes
     }
 
+    const SYNTHETIC_X105_CARTRIDGE_SIZE: usize = 0x0010_1000;
+    const SYNTHETIC_X105_ENTRY_WORD: u32 = 0x2402_0042;
+    const SYNTHETIC_X105_CHECKSUM_ONE: u32 = 0xfad4_0ecc;
+    const SYNTHETIC_X105_CHECKSUM_TWO: u32 = 0x1f13_7f19;
+
+    fn x105_checksum_words(payload: &[u8], seed: u32, side_data: &[u8; 0x100]) -> (u32, u32) {
+        assert_eq!(payload.len(), 0x0010_0000);
+        let initial = seed.wrapping_mul(0x5d58_8b65).wrapping_add(1);
+        let mut a3 = initial;
+        let mut t2 = initial;
+        let mut t3 = initial;
+        let mut s0 = initial;
+        let mut a2 = initial;
+        let mut t4 = initial;
+        for (index, bytes) in payload.chunks_exact(4).enumerate() {
+            let word = u32::from_be_bytes(bytes.try_into().unwrap());
+            let sum = a3.wrapping_add(word);
+            if sum < a3 {
+                t2 = t2.wrapping_add(1);
+            }
+            let rotated = word.rotate_left(word & 0x1f);
+            a3 = sum;
+            t3 ^= word;
+            s0 = s0.wrapping_add(rotated);
+            if a2 < word {
+                a2 ^= a3 ^ word;
+            } else {
+                a2 ^= rotated;
+            }
+            let side_offset = (index * 4) & 0xff;
+            let side_word =
+                u32::from_be_bytes(side_data[side_offset..side_offset + 4].try_into().unwrap());
+            t4 = t4.wrapping_add(word ^ side_word);
+        }
+        (a3 ^ t2 ^ t3, s0 ^ a2 ^ t4)
+    }
+
+    fn make_public_x105_handoff_cartridge(first: u32, second: u32) -> Vec<u8> {
+        let mut bytes = make_generated_lw_bootstrap_cartridge(first, second);
+        bytes.resize(SYNTHETIC_X105_CARTRIDGE_SIZE, 0);
+        let payload = &mut bytes[0x1000..0x0010_1000];
+        for (index, word_bytes) in payload.chunks_exact_mut(4).enumerate() {
+            let index = index as u32;
+            let word = index.wrapping_mul(0x045d_9f3b).rotate_left(7) ^ 0x9e37_79b9;
+            word_bytes.copy_from_slice(&word.to_be_bytes());
+        }
+        payload[..4].copy_from_slice(&SYNTHETIC_X105_ENTRY_WORD.to_be_bytes());
+        bytes
+    }
+
     fn staged_lw_bootstrap_machine(first: u32, second: u32) -> Machine {
         let cartridge = load_cartridge(make_generated_lw_bootstrap_cartridge(first, second))
             .expect("generated cartridge should normalize");
@@ -18255,10 +18945,21 @@ mod tests {
         words: &[(usize, u32)],
         firmware: Vec<u8>,
     ) -> (Machine, u32) {
-        let mut cartridge_bytes =
-            make_generated_lw_bootstrap_cartridge(special_shift_word(0, 0, 0, 0, 0), 0);
+        let completes_final_handoff = words.iter().any(|(offset, _)| *offset == 0x7d0);
+        let mut cartridge_bytes = if completes_final_handoff {
+            make_public_x105_handoff_cartridge(special_shift_word(0, 0, 0, 0, 0), 0)
+        } else {
+            make_generated_lw_bootstrap_cartridge(special_shift_word(0, 0, 0, 0, 0), 0)
+        };
         for &(offset, word) in words {
             write_be_u32(&mut cartridge_bytes, offset, word);
+        }
+        if completes_final_handoff {
+            let side_data: [u8; 0x100] = cartridge_bytes[0x750..0x850].try_into().unwrap();
+            let (checksum_one, checksum_two) =
+                x105_checksum_words(&cartridge_bytes[0x1000..0x0010_1000], 0x91, &side_data);
+            write_be_u32(&mut cartridge_bytes, 0x10, checksum_one);
+            write_be_u32(&mut cartridge_bytes, 0x14, checksum_two);
         }
 
         let cartridge = load_cartridge(cartridge_bytes).expect("generated cartridge should load");
@@ -18287,6 +18988,20 @@ mod tests {
             words,
             generated_pif_firmware(pif_seed, PIF_BOOT_ROM_SIZE_BYTES),
         )
+    }
+
+    fn staged_public_pi_machine(words: &[(usize, u32)]) -> Machine {
+        let mut words = words.to_vec();
+        if !words.iter().any(|(offset, _)| *offset == 0x7d0) {
+            words.push((0x7d0, 0));
+        }
+        staged_generated_cold_x105_machine(&words, 0x81).0
+    }
+
+    fn commit_steps(machine: &mut Machine, count: usize) {
+        for _ in 0..count {
+            machine.step().expect("setup instruction should commit");
+        }
     }
 
     fn boxed_staged_generated_cold_x105_machine(
@@ -18392,10 +19107,12 @@ mod tests {
         data_cache: Vec<crate::cpu::MachinePrimaryDataCacheLineState>,
         rdram: Vec<u8>,
         sp_dmem: Vec<u8>,
+        sp_dmem_store_provenance: Vec<Option<MachineSpDmemStoreWordProvenance>>,
         sp_imem: Vec<crate::sp_imem::SpImemByteObservation>,
         sp_imem_opaque_words: Vec<MachineSpImemOpaqueWordState>,
         sp_status: Option<MachineSpStatusState>,
         sp_pc: Option<MachineSpPcState>,
+        sp_semaphore: Option<MachineSpSemaphoreState>,
         ri_select: Option<MachineRiSelectState>,
         ri_config: Option<MachineRiConfigState>,
         ri_current_load: Option<MachineRiCurrentLoadState>,
@@ -18404,7 +19121,14 @@ mod tests {
         mi_init_mode: Option<MachineMiInitModeState>,
         mi_init_transfer: Option<MachineMiInitTransferState>,
         mi_rdram_register_mode: Option<MachineMiRdramRegisterModeState>,
+        mi_interrupt: MachineMiInterruptState,
         mi_version: MachineMiVersionState,
+        pi_dram_address: Option<MachinePiProgrammedRegisterState>,
+        pi_cartridge_address: Option<MachinePiProgrammedRegisterState>,
+        pi_write_length: Option<MachinePiProgrammedRegisterState>,
+        pi_completed_dma: Option<MachinePiCompletedDmaState>,
+        pi_status_word: u32,
+        pi_last_status_clear: Option<MachinePiStatusClearState>,
         rdram_broadcast_delay: Option<MachineRdramBroadcastDelayState>,
         rdram_broadcast_device_id_request: Option<MachineRdramBroadcastDeviceIdRequestState>,
         rdram_first_responder_device_id_request:
@@ -18468,6 +19192,14 @@ mod tests {
                         .unwrap()
                 })
                 .collect(),
+            sp_dmem_store_provenance: (0..machine.sp_dmem().size_bytes() as u32)
+                .step_by(4)
+                .map(|offset| {
+                    machine
+                        .sp_dmem()
+                        .store_word_provenance(SpDmemOffset::new(offset))
+                })
+                .collect(),
             sp_imem: (0..machine.sp_imem.size_bytes())
                 .map(|offset| {
                     machine
@@ -18482,6 +19214,7 @@ mod tests {
                 .collect(),
             sp_status: machine.sp_status_state(),
             sp_pc: machine.sp_pc_state(),
+            sp_semaphore: machine.sp_semaphore_state(),
             ri_select: machine.ri_select_state(),
             ri_config: machine.ri_config_state(),
             ri_current_load: machine.ri_current_load_state(),
@@ -18490,7 +19223,14 @@ mod tests {
             mi_init_mode: machine.mi_init_mode_state(),
             mi_init_transfer: machine.mi_init_transfer_state(),
             mi_rdram_register_mode: machine.mi_rdram_register_mode_state(),
+            mi_interrupt: machine.mi_interrupt_state(),
             mi_version: machine.mi_version_state(),
+            pi_dram_address: machine.pi_dram_address_state(),
+            pi_cartridge_address: machine.pi_cartridge_address_state(),
+            pi_write_length: machine.pi_write_length_state(),
+            pi_completed_dma: machine.pi_completed_dma_state(),
+            pi_status_word: machine.pi_status_word(),
+            pi_last_status_clear: machine.pi_last_status_clear_state(),
             rdram_broadcast_delay: machine.rdram_broadcast_delay_state(),
             rdram_broadcast_device_id_request: machine.rdram_broadcast_device_id_request_state(),
             rdram_first_responder_device_id_request: machine
@@ -19325,16 +20065,16 @@ mod tests {
         );
         assert_eq!(
             classify_store_word_target(CpuAddress::new(0xa400_0040)),
-            Ok(MachineStoreWordTargetSelection::Unsupported(
-                MachineStoreWordUnsupportedTarget::SpDmem {
+            Ok(MachineStoreWordTargetSelection::Supported(
+                MachineStoreWordTarget::SpDmem {
                     offset: SpDmemOffset::new(0x40),
                 },
             ))
         );
         assert_eq!(
             classify_store_word_target(CpuAddress::new(0xa400_0ffc)),
-            Ok(MachineStoreWordTargetSelection::Unsupported(
-                MachineStoreWordUnsupportedTarget::SpDmem {
+            Ok(MachineStoreWordTargetSelection::Supported(
+                MachineStoreWordTarget::SpDmem {
                     offset: SpDmemOffset::new(0x0ffc),
                 },
             ))
@@ -22989,10 +23729,9 @@ mod tests {
             ),
             (
                 sw_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 7, 0),
-                MachineStoreWordRejectionReason::UnsupportedTarget {
-                    target: MachineStoreWordUnsupportedTarget::SpDmem {
-                        offset: SpDmemOffset::new(0x40),
-                    },
+                MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                    register_index: 7,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
                 },
             ),
             (
@@ -23856,7 +24595,7 @@ mod tests {
     }
 
     #[test]
-    fn opaque_sp_imem_source_knownness_permission_keeps_unknown_devices_sp_dmem_and_addresses_closed(
+    fn opaque_sp_imem_source_knownness_permission_keeps_unknown_devices_sp_dmem_sources_and_addresses_closed(
     ) {
         for (base_upper, immediate, expected_target) in [
             (0xa430, 0, MachineStoreWordTarget::MiInitMode),
@@ -23885,10 +24624,9 @@ mod tests {
         let closed_cases = [
             (
                 vec![(0x40, sw_word(MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, 2, 0))],
-                MachineStoreWordRejectionReason::UnsupportedTarget {
-                    target: MachineStoreWordUnsupportedTarget::SpDmem {
-                        offset: SpDmemOffset::new(0x40),
-                    },
+                MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                    register_index: 2,
+                    source: MachineBootstrapGprSource::UnknownPifProduced,
                 },
             ),
             (
@@ -24376,7 +25114,382 @@ mod tests {
     }
 
     #[test]
-    fn generated_x105_completes_cache_initialization_and_ipl3_relocation_at_pi_frontier() {
+    fn pi_x105_programming_atomic_dma_status_and_interrupt_truth_are_exact() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x1000)),
+            (0x48, sw_word(1, 9, 0x0000)),
+            (0x4c, immediate_word(0x0f, 0, 10, 0x1000)),
+            (0x50, immediate_word(0x0d, 10, 10, 0x1000)),
+            (0x54, sw_word(1, 10, 0x0004)),
+            (0x58, immediate_word(0x0f, 0, 11, 0x000f)),
+            (0x5c, immediate_word(0x0d, 11, 11, 0xffff)),
+            (0x60, sw_word(1, 11, 0x000c)),
+            (0x64, lw_word(1, 12, 0x0010)),
+            (0x68, immediate_word(0x09, 0, 13, 2)),
+            (0x6c, sw_word(1, 13, 0x0010)),
+        ];
+        let mut machine = staged_public_pi_machine(&words);
+        let cache_before = machine.cpu().primary_caches().clone();
+        commit_steps(&mut machine, 9);
+
+        let dram = machine.pi_dram_address_state().unwrap();
+        let cartridge = machine.pi_cartridge_address_state().unwrap();
+        let length = machine.pi_write_length_state().unwrap();
+        let completed = machine.pi_completed_dma_state().unwrap();
+        assert_eq!(dram.raw_word(), 0x0000_1000);
+        assert_eq!(dram.source().instruction_pc(), CpuAddress::new(0xa400_0048));
+        assert_eq!(dram.source().source_gpr(), 9);
+        assert_eq!(dram.source().cpu_address(), CpuAddress::new(0xa460_0000));
+        assert_eq!(cartridge.raw_word(), 0x1000_1000);
+        assert_eq!(
+            cartridge.source().instruction_pc(),
+            CpuAddress::new(0xa400_0054)
+        );
+        assert_eq!(length.raw_word(), PI_X105_WR_LEN_WORD);
+        assert_eq!(
+            length.source().instruction_pc(),
+            CpuAddress::new(0xa400_0060)
+        );
+        assert_eq!(
+            completed.trigger_instruction_pc(),
+            CpuAddress::new(0xa400_0060)
+        );
+        assert_eq!(completed.cartridge_bus_address(), 0x1000_1000);
+        assert_eq!(completed.cartridge_byte_offset(), 0x0000_1000);
+        assert_eq!(completed.rdram_physical_address(), 0x0000_1000);
+        assert_eq!(completed.byte_count(), 0x0010_0000);
+        assert_eq!(
+            completed.direction(),
+            crate::pi::MachinePiDmaDirection::CartridgeToRdram
+        );
+        assert_eq!(
+            completed.completion(),
+            crate::pi::MachinePiDmaCompletion::AtomicFunctional
+        );
+        assert_eq!(machine.pi_status_word(), 0);
+        assert!(machine
+            .mi_interrupt_state()
+            .pending(MachineMiInterruptSource::Pi));
+        assert_eq!(machine.cpu().primary_caches(), &cache_before);
+        assert!((0..PI_X105_DMA_BYTE_COUNT).all(|offset| {
+            machine.cartridge().read_u8(0x1000 + offset).unwrap()
+                == machine.rdram().read_u8((0x1000 + offset) as usize).unwrap()
+        }));
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::PiStatus,
+                loaded_word: 0,
+                result_value: 0,
+                destination_gpr: 12,
+                ..
+            }
+        ));
+        machine.step().unwrap();
+        machine.step().unwrap();
+        assert!(!machine
+            .mi_interrupt_state()
+            .pending(MachineMiInterruptSource::Pi));
+        let clear = machine.pi_last_status_clear_state().unwrap();
+        assert_eq!(clear.command_word(), PI_STATUS_CLEAR_INTERRUPT_WORD);
+        assert_eq!(
+            clear.source().instruction_pc(),
+            CpuAddress::new(0xa400_006c)
+        );
+        assert_eq!(machine.pi_completed_dma_state(), Some(completed));
+    }
+
+    #[test]
+    fn pi_programming_is_machine_local_and_reset_clears_only_the_selected_machine() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+            (0x44, immediate_word(0x0d, 0, 9, 0x1000)),
+            (0x48, sw_word(1, 9, 0)),
+        ];
+        let mut first = staged_public_pi_machine(&words);
+        let second = staged_public_pi_machine(&words);
+        commit_steps(&mut first, 3);
+        assert_eq!(first.pi_dram_address_state().unwrap().raw_word(), 0x1000);
+        assert_eq!(second.pi_dram_address_state(), None);
+
+        first.reset();
+        assert_eq!(first.pi_dram_address_state(), None);
+        assert_eq!(first.pi_completed_dma_state(), None);
+        assert_eq!(first.pi_status_word(), 0);
+        assert_eq!(second.pi_dram_address_state(), None);
+    }
+
+    #[test]
+    fn public_synthetic_cartridge_has_exact_payload_entry_and_independent_x105_checksums() {
+        let machine = staged_public_pi_machine(&[(0x40, 0)]);
+        assert_eq!(
+            machine.cartridge().size_bytes(),
+            SYNTHETIC_X105_CARTRIDGE_SIZE
+        );
+        assert_eq!(machine.cartridge().read_u32_be(0x08).unwrap(), 0x8000_1000);
+        let checksum_one = machine.cartridge().read_u32_be(0x10).unwrap();
+        let checksum_two = machine.cartridge().read_u32_be(0x14).unwrap();
+        assert_eq!(
+            machine.cartridge().read_u32_be(0x1000).unwrap(),
+            SYNTHETIC_X105_ENTRY_WORD
+        );
+        let payload = (0..0x0010_0000)
+            .map(|offset| machine.cartridge().read_u8(0x1000 + offset).unwrap())
+            .collect::<Vec<_>>();
+        let side_data = (0..0x100)
+            .map(|offset| machine.cartridge().read_u8(0x750 + offset).unwrap())
+            .collect::<Vec<_>>();
+        let side_data: [u8; 0x100] = side_data.try_into().unwrap();
+        assert_eq!(
+            x105_checksum_words(&payload, 0x91, &side_data),
+            (checksum_one, checksum_two)
+        );
+    }
+
+    #[test]
+    fn pi_dma_register_range_value_source_and_target_rejections_are_atomic() {
+        type RejectionCase = (Vec<(usize, u32)>, usize, MachineStoreWordRejectionReason);
+        let cases: Vec<RejectionCase> = vec![
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x0f, 0, 9, 0x0100)),
+                    (0x48, immediate_word(0x0d, 9, 9, 0x1000)),
+                    (0x4c, sw_word(1, 9, 0)),
+                ],
+                3,
+                MachineStoreWordRejectionReason::PiDramAddressValueUnsupported {
+                    transfer_word: 0x0100_1000,
+                },
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x0f, 0, 11, 0x000f)),
+                    (0x48, immediate_word(0x0d, 11, 11, 0xffff)),
+                    (0x4c, sw_word(1, 11, 0x000c)),
+                ],
+                3,
+                MachineStoreWordRejectionReason::PiDmaRegisterUnavailable {
+                    physical_address: PI_DRAM_ADDR_PHYSICAL_ADDRESS,
+                },
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x0d, 0, 9, 0x1000)),
+                    (0x48, sw_word(1, 9, 0)),
+                    (0x4c, immediate_word(0x0f, 0, 11, 0x000f)),
+                    (0x50, immediate_word(0x0d, 11, 11, 0xffff)),
+                    (0x54, sw_word(1, 11, 0x000c)),
+                ],
+                5,
+                MachineStoreWordRejectionReason::PiDmaRegisterUnavailable {
+                    physical_address: PI_CART_ADDR_PHYSICAL_ADDRESS,
+                },
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x0d, 0, 9, 0x1000)),
+                    (0x48, sw_word(1, 9, 0)),
+                    (0x4c, immediate_word(0x0f, 0, 10, 0x2000)),
+                    (0x50, immediate_word(0x0d, 10, 10, 0x1000)),
+                    (0x54, sw_word(1, 10, 4)),
+                ],
+                5,
+                MachineStoreWordRejectionReason::PiCartridgeAddressValueUnsupported {
+                    transfer_word: 0x2000_1000,
+                },
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x0d, 0, 9, 0x1000)),
+                    (0x48, sw_word(1, 9, 0)),
+                    (0x4c, immediate_word(0x0f, 0, 10, 0x1010)),
+                    (0x50, immediate_word(0x0d, 10, 10, 0x1000)),
+                    (0x54, sw_word(1, 10, 4)),
+                    (0x58, immediate_word(0x0f, 0, 11, 0x000f)),
+                    (0x5c, immediate_word(0x0d, 11, 11, 0xffff)),
+                    (0x60, sw_word(1, 11, 0x000c)),
+                ],
+                8,
+                MachineStoreWordRejectionReason::PiDmaCartridgeRangeUnsupported,
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x0f, 0, 9, 0x0038)),
+                    (0x48, sw_word(1, 9, 0)),
+                    (0x4c, immediate_word(0x0f, 0, 10, 0x1000)),
+                    (0x50, immediate_word(0x0d, 10, 10, 0x1000)),
+                    (0x54, sw_word(1, 10, 4)),
+                    (0x58, immediate_word(0x0f, 0, 11, 0x000f)),
+                    (0x5c, immediate_word(0x0d, 11, 11, 0xffff)),
+                    (0x60, sw_word(1, 11, 0x000c)),
+                ],
+                8,
+                MachineStoreWordRejectionReason::PiDmaRdramRangeUnsupported,
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x0d, 0, 11, 0xfffe)),
+                    (0x48, sw_word(1, 11, 0x000c)),
+                ],
+                2,
+                MachineStoreWordRejectionReason::PiWriteLengthValueUnsupported {
+                    transfer_word: 0x0000_fffe,
+                },
+            ),
+            (
+                vec![
+                    (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+                    (0x44, immediate_word(0x09, 0, 9, 1)),
+                    (0x48, sw_word(1, 9, 0x0010)),
+                ],
+                2,
+                MachineStoreWordRejectionReason::PiStatusValueUnsupported { transfer_word: 1 },
+            ),
+        ];
+
+        for (words, setup_steps, expected) in cases {
+            let mut machine = staged_public_pi_machine(&words);
+            commit_steps(&mut machine, setup_steps);
+            let before = lw_snapshot(&machine);
+            assert_eq!(
+                machine
+                    .step()
+                    .unwrap_err()
+                    .store_word_rejection()
+                    .unwrap()
+                    .reason(),
+                expected
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+        }
+
+        let mut unknown = staged_public_pi_machine(&[
+            (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+            (0x44, sw_word(1, 2, 0)),
+        ]);
+        unknown.step().unwrap();
+        let before = lw_snapshot(&unknown);
+        assert_eq!(
+            unknown
+                .step()
+                .unwrap_err()
+                .store_word_rejection()
+                .unwrap()
+                .reason(),
+            MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                register_index: 2,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&unknown), before);
+
+        let mut read_length = staged_public_pi_machine(&[
+            (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+            (0x44, sw_word(1, 0, 0x0008)),
+        ]);
+        read_length.step().unwrap();
+        let before = lw_snapshot(&read_length);
+        assert_eq!(
+            read_length
+                .step()
+                .unwrap_err()
+                .store_word_rejection()
+                .unwrap()
+                .reason(),
+            MachineStoreWordRejectionReason::UnsupportedTarget {
+                target: MachineStoreWordUnsupportedTarget::PiReadLength,
+            }
+        );
+        assert_eq!(lw_snapshot(&read_length), before);
+
+        let mut unaligned = staged_public_pi_machine(&[
+            (0x40, immediate_word(0x0f, 0, 1, 0xa460)),
+            (0x44, immediate_word(0x0d, 1, 1, 1)),
+            (0x48, sw_word(1, 0, 0)),
+        ]);
+        commit_steps(&mut unaligned, 2);
+        let outcome = unaligned.step().unwrap();
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Sw,
+                effective_address: 0xffff_ffff_a460_0001,
+                address_error,
+                cadence_plan,
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && address_error.bad_vaddr() == CpuAddress::new(0xa460_0001)
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(unaligned.cpu().cop0_bad_vaddr(), 0xa460_0001);
+        assert_eq!(unaligned.cpu().cop0_exception_code(), 5);
+        assert_eq!(unaligned.pi_dram_address_state(), None);
+    }
+
+    #[test]
+    fn kseg0_data_cache_lw_fills_hits_and_kseg1_bypasses_without_dirty_state() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 1, 0x8000)),
+            (0x44, immediate_word(0x0d, 1, 1, 0x1000)),
+            (0x48, lw_word(1, 2, 0)),
+            (0x4c, lw_word(1, 4, 0)),
+            (0x50, immediate_word(0x0f, 0, 3, 0xa000)),
+            (0x54, immediate_word(0x0d, 3, 3, 0x1000)),
+            (0x58, lw_word(3, 5, 0)),
+        ];
+        let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x82);
+        machine.write_rdram_u32_be(0x1000, 0x1122_3344).unwrap();
+        commit_steps(&mut machine, 3);
+        assert_eq!(machine.cpu().gpr(2), Some(0x0000_0000_1122_3344));
+        let line_index = crate::cpu::primary_data_cache_line_index(0x1000);
+        let filled = machine
+            .cpu()
+            .primary_caches()
+            .data_line(line_index)
+            .unwrap();
+        assert!(filled.is_valid_clean());
+        assert!(!filled.is_valid_dirty());
+        assert_eq!(
+            filled.fill_provenance().unwrap().requested_cpu_address(),
+            CpuAddress::new(0x8000_1000)
+        );
+        assert_eq!(
+            filled.fill_provenance().unwrap().physical_line_address(),
+            0x1000
+        );
+
+        machine.write_rdram_u32_be(0x1000, 0xaabb_ccdd).unwrap();
+        machine.step().unwrap();
+        assert_eq!(machine.cpu().gpr(4), Some(0x0000_0000_1122_3344));
+        commit_steps(&mut machine, 2);
+        machine.step().unwrap();
+        assert_eq!(machine.cpu().gpr(5), Some(0xffff_ffff_aabb_ccdd));
+        assert!(machine
+            .cpu()
+            .primary_caches()
+            .data_line(line_index)
+            .unwrap()
+            .is_valid_clean());
+        assert!(
+            (0..crate::cpu::PRIMARY_DATA_CACHE_LINE_COUNT).all(|index| !machine
+                .cpu()
+                .primary_caches()
+                .data_line(index)
+                .unwrap()
+                .is_valid_dirty())
+        );
+    }
+
+    #[test]
+    fn generated_x105_completes_pi_dma_checksum_finalization_and_reaches_synthetic_entry() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
         let compare_word = cop0_move_word(4, 0, COP0_COMPARE_REGISTER_INDEX);
@@ -28059,24 +29172,238 @@ mod tests {
                 source_gpr_b: None,
             })
         );
-        let before_pi_plan = lw_snapshot(&machine);
-        let pi_rejection = machine
-            .produce_store_word_step_action(CpuAddress::new(0x8000_001c), pi_frontier.fields())
-            .unwrap_err();
+        let mut finalization_attempts = 0_u32;
+        let mut checksum_iterations = 0_u32;
+        let mut data_cache_fills = 0_u32;
+        let mut data_cache_hits = 0_u32;
+        let mut pi_status_reads = Vec::new();
+        let mut guest_checksum_one = None;
+        let mut guest_checksum_two = None;
+        let mut sp_teardown_stores = 0_u32;
+        let mut final_jr_seen = false;
+        let mut final_jr_delay_slot_seen = false;
+        while machine.cpu().pc() != 0x8000_1000 {
+            assert!(
+                finalization_attempts < 25_000_000,
+                "bounded final handoff composition exhausted"
+            );
+            let pc = machine.cpu().pc();
+            if pc == 0x8000_0248 {
+                panic!("generated checksum entered its failure loop");
+            }
+            let word = machine
+                .inspect_current_cpu_instruction()
+                .map(|instruction| instruction.fields().raw().bits());
+            if pc == 0x8000_0114 {
+                checksum_iterations += 1;
+                let physical_address = machine.cpu().gpr(9).unwrap() as u32 & 0x1fff_ffff;
+                if machine
+                    .cpu
+                    .lookup_primary_data_cache_word(physical_address)
+                    .is_some()
+                {
+                    data_cache_hits += 1;
+                } else {
+                    data_cache_fills += 1;
+                }
+            }
+            if pc == 0x8000_022c {
+                guest_checksum_one = Some(machine.cpu().gpr(7).unwrap() as u32);
+            }
+            if pc == 0x8000_0238 {
+                guest_checksum_two = Some(machine.cpu().gpr(16).unwrap() as u32);
+            }
+            if pc == 0x8000_0270 {
+                sp_teardown_stores += 1;
+            }
+            if pc == 0x8000_027c {
+                assert_eq!(word, Ok(0x0120_0008));
+                assert_eq!(machine.cpu().gpr(9), Some(0xffff_ffff_8000_1000));
+                final_jr_seen = true;
+            }
+            if pc == 0x8000_0280 {
+                assert_eq!(word, Ok(0));
+                final_jr_delay_slot_seen = true;
+            }
+            let outcome = machine.step().unwrap_or_else(|error| {
+                panic!("generated final handoff rejected at pc=0x{pc:08X} word={word:?} count={} attempts={finalization_attempts}: {error:?}", machine.cpu().cop0_count())
+            });
+            if let MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::PiStatus,
+                loaded_word,
+                ..
+            } = outcome
+            {
+                pi_status_reads.push((pc, loaded_word));
+            }
+            finalization_attempts += 1;
+            total_committed_steps += 1;
+        }
+        assert_eq!(machine.cpu().next_pc(), 0x8000_1004);
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+        assert_eq!(finalization_attempts, 7_225_461);
+        assert_eq!(machine.cpu().cop0_count(), 7_477_812);
+        assert_eq!(total_committed_steps, 7_477_828);
+        assert_eq!(checksum_iterations, 262_144);
+        assert_eq!(data_cache_fills, 65_536);
+        assert_eq!(data_cache_hits, 196_608);
+        assert_eq!(guest_checksum_one, Some(SYNTHETIC_X105_CHECKSUM_ONE));
+        assert_eq!(guest_checksum_two, Some(SYNTHETIC_X105_CHECKSUM_TWO));
         assert_eq!(
-            pi_rejection.effective_address(),
-            Some(0xffff_ffff_a460_0000)
+            machine.cartridge().read_u32_be(0x10),
+            Ok(SYNTHETIC_X105_CHECKSUM_ONE)
         );
         assert_eq!(
-            pi_rejection.cpu_address(),
-            Some(CpuAddress::new(0xa460_0000))
+            machine.cartridge().read_u32_be(0x14),
+            Ok(SYNTHETIC_X105_CHECKSUM_TWO)
         );
-        assert_eq!(pi_rejection.target(), None);
+        assert_eq!(pi_status_reads, vec![(0x8000_0024, 0), (0x8000_009c, 0)]);
+        assert_eq!(sp_teardown_stores, 2_048);
+        assert!(final_jr_seen);
+        assert!(final_jr_delay_slot_seen);
+
+        let dma = machine.pi_completed_dma_state().unwrap();
         assert_eq!(
-            pi_rejection.reason(),
-            MachineStoreWordRejectionReason::DirectTargetMiss
+            machine.pi_dram_address_state().unwrap().raw_word(),
+            0x0000_1000
         );
-        assert_eq!(lw_snapshot(&machine), before_pi_plan);
+        assert_eq!(
+            machine.pi_cartridge_address_state().unwrap().raw_word(),
+            0x1000_1000
+        );
+        assert_eq!(
+            machine.pi_write_length_state().unwrap().raw_word(),
+            0x000f_ffff
+        );
+        assert_eq!(dma.trigger_instruction_pc(), CpuAddress::new(0x8000_0054));
+        assert_eq!(dma.cartridge_bus_address(), 0x1000_1000);
+        assert_eq!(dma.cartridge_byte_offset(), 0x1000);
+        assert_eq!(dma.rdram_physical_address(), 0x1000);
+        assert_eq!(dma.byte_count(), 0x0010_0000);
+        assert_eq!(machine.pi_status_word(), 0);
+        let pi_clear = machine.pi_last_status_clear_state().unwrap();
+        assert_eq!(pi_clear.command_word(), 2);
+        assert_eq!(
+            pi_clear.source().instruction_pc(),
+            CpuAddress::new(0x8000_01d4)
+        );
+        let interrupts = machine.mi_interrupt_state();
+        for source in [
+            MachineMiInterruptSource::Sp,
+            MachineMiInterruptSource::Si,
+            MachineMiInterruptSource::Ai,
+            MachineMiInterruptSource::Vi,
+            MachineMiInterruptSource::Pi,
+            MachineMiInterruptSource::Dp,
+        ] {
+            assert!(!interrupts.pending(source));
+            assert!(!interrupts.mask_enabled(source));
+        }
+        assert_eq!(
+            interrupts.mask_clear_provenance().unwrap().instruction_pc(),
+            CpuAddress::new(0x8000_01ac)
+        );
+        for (source, pc) in [
+            (MachineMiInterruptSource::Sp, 0x8000_01a0),
+            (MachineMiInterruptSource::Si, 0x8000_01b4),
+            (MachineMiInterruptSource::Ai, 0x8000_01bc),
+            (MachineMiInterruptSource::Dp, 0x8000_01c8),
+            (MachineMiInterruptSource::Pi, 0x8000_01d4),
+        ] {
+            assert_eq!(
+                interrupts
+                    .pending_clear_provenance(source)
+                    .unwrap()
+                    .instruction_pc(),
+                CpuAddress::new(pc)
+            );
+        }
+        assert!(
+            (0..crate::cpu::PRIMARY_DATA_CACHE_LINE_COUNT).all(|index| machine
+                .cpu()
+                .primary_caches()
+                .data_line(index)
+                .unwrap()
+                .is_valid_clean())
+        );
+        assert!(
+            (0..crate::cpu::PRIMARY_DATA_CACHE_LINE_COUNT).all(|index| !machine
+                .cpu()
+                .primary_caches()
+                .data_line(index)
+                .unwrap()
+                .is_valid_dirty())
+        );
+        assert_eq!(
+            machine.cartridge().size_bytes(),
+            SYNTHETIC_X105_CARTRIDGE_SIZE
+        );
+        assert_eq!(
+            machine.cartridge().read_u32_be(0x1000),
+            Ok(SYNTHETIC_X105_ENTRY_WORD)
+        );
+        assert_eq!(
+            machine.rdram().read_u32_be(0x1000),
+            Ok(SYNTHETIC_X105_ENTRY_WORD)
+        );
+        for index in 0..0x0010_0000_u32 {
+            assert_eq!(
+                machine.rdram().read_u8(0x1000 + index as usize).unwrap(),
+                machine.cartridge().read_u8(0x1000 + index).unwrap(),
+            );
+        }
+        assert_eq!(
+            [0x300, 0x304, 0x308, 0x30c, 0x310, 0x314, 0x318]
+                .map(|offset| machine.rdram().read_u32_be(offset).unwrap()),
+            [1, 0, 0xb000_0000, 0, 6105, 0, 0x0040_0000],
+        );
+        let final_status = machine.sp_status_state().unwrap();
+        assert_eq!(final_status.command_word(), SP_STATUS_X105_FINAL_HALT_WORD);
+        assert_eq!(
+            final_status.source().instruction_pc(),
+            CpuAddress::new(0x8000_01a0)
+        );
+        assert!(final_status.halt());
+        assert_eq!(final_status.signals(), [false; 8]);
+        let semaphore = machine.sp_semaphore_state().unwrap();
+        assert!(semaphore.clear());
+        assert_eq!(
+            semaphore.source().instruction_pc(),
+            CpuAddress::new(0x8000_00b0)
+        );
+        for offset in (0..SP_DMEM_SIZE_BYTES as u32).step_by(4) {
+            assert_eq!(
+                machine.sp_dmem().read_u32_be(SpDmemOffset::new(offset)),
+                Ok(0xa400_2000)
+            );
+            let provenance = machine
+                .sp_dmem()
+                .store_word_provenance(SpDmemOffset::new(offset))
+                .unwrap();
+            assert_eq!(provenance.instruction_pc(), CpuAddress::new(0x8000_0270));
+            assert_eq!(provenance.source_gpr(), 9);
+            assert_eq!(
+                provenance.physical_address(),
+                SP_DMEM_PHYSICAL_BASE + offset
+            );
+        }
+        for offset in (0..SP_IMEM_SIZE_BYTES as u32).step_by(4) {
+            assert_eq!(
+                machine
+                    .sp_imem
+                    .read_known_u32_be(SpImemOffset::new(offset))
+                    .unwrap()
+                    .value(),
+                0xa400_2000,
+            );
+            assert_eq!(machine.sp_imem_opaque_word_state(offset), None);
+        }
+        assert!(machine
+            .cpu()
+            .primary_caches()
+            .instruction_line(128)
+            .unwrap()
+            .is_invalid());
 
         let completed_profile = machine.rdram_profile();
         machine.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
@@ -28119,6 +29446,23 @@ mod tests {
         );
         assert_eq!(machine.sp_status_state(), None);
         assert_eq!(machine.sp_pc_state(), None);
+        assert_eq!(machine.sp_semaphore_state(), None);
+        assert_eq!(machine.pi_dram_address_state(), None);
+        assert_eq!(machine.pi_cartridge_address_state(), None);
+        assert_eq!(machine.pi_write_length_state(), None);
+        assert_eq!(machine.pi_completed_dma_state(), None);
+        assert_eq!(machine.pi_last_status_clear_state(), None);
+        assert_eq!(machine.pi_status_word(), 0);
+        assert_eq!(
+            machine.mi_interrupt_state(),
+            MachineMiInterruptState::default()
+        );
+        assert!((0..SP_DMEM_SIZE_BYTES as u32)
+            .step_by(4)
+            .all(|offset| machine
+                .sp_dmem()
+                .store_word_provenance(SpDmemOffset::new(offset))
+                .is_none()));
         for module in machine.rdram_modules() {
             assert_eq!(module.temporary_device_id_word(), None);
             assert_eq!(module.final_device_id_word(), None);
@@ -28156,6 +29500,17 @@ mod tests {
         );
         assert_eq!(machine.sp_status_state(), None);
         assert_eq!(machine.sp_pc_state(), None);
+        assert_eq!(machine.sp_semaphore_state(), None);
+        assert_eq!(machine.pi_dram_address_state(), None);
+        assert_eq!(machine.pi_cartridge_address_state(), None);
+        assert_eq!(machine.pi_write_length_state(), None);
+        assert_eq!(machine.pi_completed_dma_state(), None);
+        assert_eq!(machine.pi_last_status_clear_state(), None);
+        assert_eq!(machine.pi_status_word(), 0);
+        assert_eq!(
+            machine.mi_interrupt_state(),
+            MachineMiInterruptState::default()
+        );
     }
 
     #[test]
@@ -29838,7 +31193,6 @@ mod tests {
             (0x0c, CpuInstructionIdentity::RegimmTeqi),
             (0x0e, CpuInstructionIdentity::RegimmTnei),
             (0x10, CpuInstructionIdentity::RegimmBltzal),
-            (0x11, CpuInstructionIdentity::RegimmBgezal),
             (0x12, CpuInstructionIdentity::RegimmBltzall),
             (0x13, CpuInstructionIdentity::RegimmBgezall),
         ] {
@@ -29860,6 +31214,69 @@ mod tests {
             ));
             assert_eq!(lw_snapshot(&machine), before);
         }
+    }
+
+    #[test]
+    fn bgezal_generally_links_only_when_signed_source_is_nonnegative_and_uses_one_delay_slot() {
+        const PC: u32 = 0x8000_0000;
+        const TARGET: u32 = PC + 12;
+        let word = control_flow_branch_word(0x01, 4, 0x11, 2);
+        assert_eq!(
+            identify_cpu_instruction(instruction_fields(word)),
+            CpuInstructionIdentity::RegimmBgezal
+        );
+
+        let mut taken = Machine::from_cartridge(Cartridge::default());
+        seed_control_flow_word(&mut taken, PC, word);
+        seed_control_flow_word(&mut taken, PC + 4, immediate_word(0x09, 0, 6, 1));
+        taken.cpu.set_gpr(4, 0x7fff_ffff_ffff_ffff).unwrap();
+        taken.cpu.set_gpr(31, 0x1111_2222_3333_4444).unwrap();
+        taken.stage_cpu_pc(PC);
+        assert_control_flow_commit(taken.step().unwrap(), CpuInstructionIdentity::RegimmBgezal);
+        assert_eq!(taken.cpu().gpr(31), Some(0xffff_ffff_8000_0008));
+        assert_scheduled_delay_slot(&taken, PC, PC + 4, TARGET);
+        assert_eq!(taken.cpu().cop0_count(), 1);
+        taken.step().unwrap();
+        assert_eq!(taken.cpu().gpr(6), Some(1));
+        assert_eq!(taken.cpu().pc(), TARGET);
+        assert_eq!(taken.cpu().next_pc(), TARGET + 4);
+        assert_eq!(taken.cpu().cop0_count(), 2);
+        assert_eq!(taken.cpu_delay_slot_context(), None);
+
+        let mut not_taken = Machine::from_cartridge(Cartridge::default());
+        seed_control_flow_word(&mut not_taken, PC, word);
+        seed_control_flow_word(&mut not_taken, PC + 4, immediate_word(0x09, 0, 6, 1));
+        not_taken.cpu.set_gpr(4, u64::MAX).unwrap();
+        not_taken.cpu.set_gpr(31, 0x5555_6666_7777_8888).unwrap();
+        not_taken.stage_cpu_pc(PC);
+        assert_control_flow_commit(
+            not_taken.step().unwrap(),
+            CpuInstructionIdentity::RegimmBgezal,
+        );
+        assert_eq!(not_taken.cpu().gpr(31), Some(0x5555_6666_7777_8888));
+        assert_scheduled_delay_slot(&not_taken, PC, PC + 4, PC + 8);
+        not_taken.step().unwrap();
+        assert_eq!(not_taken.cpu().gpr(6), Some(1));
+        assert_eq!(not_taken.cpu().pc(), PC + 8);
+        assert_eq!(not_taken.cpu().next_pc(), PC + 12);
+        assert_eq!(not_taken.cpu().cop0_count(), 2);
+
+        let mut unknown =
+            staged_lw_bootstrap_machine(control_flow_branch_word(0x01, 2, 0x11, 2), 0);
+        let before = lw_snapshot(&unknown);
+        assert_eq!(
+            unknown
+                .step()
+                .unwrap_err()
+                .ordinary_control_flow_rejection()
+                .unwrap()
+                .reason(),
+            MachineOrdinaryControlFlowRejectionReason::BootstrapSourceUnavailable {
+                register_index: 2,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        );
+        assert_eq!(lw_snapshot(&unknown), before);
     }
 
     #[test]

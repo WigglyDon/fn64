@@ -4,6 +4,7 @@ pub mod cartridge;
 pub mod cpu;
 pub mod machine;
 mod mi;
+mod pi;
 mod pif_firmware;
 pub mod rdram;
 mod ri;
@@ -24,7 +25,7 @@ pub use cpu::{
     CpuDataWidth, CpuDelaySlotContext, CpuInstructionFields, CpuInstructionIdentity,
     CpuInstructionWord, CpuRegisterIndexError, MachineCop0TagState, MachineCop0TagWriteProvenance,
     MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,
-    MachinePrimaryCaches, MachinePrimaryDataCacheLineState,
+    MachinePrimaryCaches, MachinePrimaryDataCacheFillProvenance, MachinePrimaryDataCacheLineState,
     MachinePrimaryInstructionCacheFillProvenance, MachinePrimaryInstructionCacheLineState,
     CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC,
     PRIMARY_DATA_CACHE_LINE_COUNT, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
@@ -69,12 +70,21 @@ pub use machine::{
     MACHINE_PIF_IPL2_HANDOFF_X105_SEED,
 };
 pub use mi::{
-    MachineMiInitModeSource, MachineMiInitModeState, MachineMiInitTransferState,
+    MachineMiCpuStoreProvenance, MachineMiInitModeSource, MachineMiInitModeState,
+    MachineMiInitTransferState, MachineMiInterruptSource, MachineMiInterruptState,
     MachineMiRdramRegisterModeSource, MachineMiRdramRegisterModeState, MachineMiVersionState,
-    MI_CLEAR_RDRAM_REGISTER_MODE_WORD, MI_INIT_MODE_PHYSICAL_ADDRESS,
+    MI_CLEAR_DP_INTERRUPT_WORD, MI_CLEAR_RDRAM_REGISTER_MODE_WORD, MI_INIT_MODE_PHYSICAL_ADDRESS,
     MI_INIT_MODE_X105_INIT_LENGTH, MI_INIT_MODE_X105_REPEATED_BYTE_COUNT,
-    MI_INIT_MODE_X105_WRITE_WORD, MI_SET_RDRAM_REGISTER_MODE_WORD, MI_VERSION_PHYSICAL_ADDRESS,
-    MI_VERSION_STANDARD_RETAIL_NUS_WORD,
+    MI_INIT_MODE_X105_WRITE_WORD, MI_INTR_MASK_PHYSICAL_ADDRESS, MI_SET_RDRAM_REGISTER_MODE_WORD,
+    MI_VERSION_PHYSICAL_ADDRESS, MI_VERSION_STANDARD_RETAIL_NUS_WORD,
+    MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD,
+};
+pub use pi::{
+    MachinePiCompletedDmaState, MachinePiCpuStoreProvenance, MachinePiDmaCompletion,
+    MachinePiDmaDirection, MachinePiProgrammedRegisterState, MachinePiStatusClearState,
+    PI_CART_ADDR_PHYSICAL_ADDRESS, PI_DOMAIN_ONE_ADDRESS_TWO_BASE, PI_DRAM_ADDR_PHYSICAL_ADDRESS,
+    PI_RD_LEN_PHYSICAL_ADDRESS, PI_STATUS_CLEAR_INTERRUPT_WORD, PI_STATUS_PHYSICAL_ADDRESS,
+    PI_WR_LEN_PHYSICAL_ADDRESS, PI_X105_DMA_BYTE_COUNT, PI_X105_WR_LEN_WORD,
 };
 pub use pif_firmware::{
     MachinePifFirmwareState, PifFirmwareClassification, PifFirmwareValidationError,
@@ -117,8 +127,11 @@ pub use ri::{
     RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 pub use sp::{
-    MachineSpCpuStoreProvenance, MachineSpPcState, MachineSpStatusState, SP_PC_PHYSICAL_ADDRESS,
-    SP_PC_X105_RESET_WORD, SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_X105_HALT_CONFIGURE_WORD,
-    SP_STATUS_X105_START_WORD,
+    MachineSpCpuStoreProvenance, MachineSpPcState, MachineSpSemaphoreState, MachineSpStatusState,
+    SP_PC_PHYSICAL_ADDRESS, SP_PC_X105_RESET_WORD, SP_SEMAPHORE_PHYSICAL_ADDRESS,
+    SP_SEMAPHORE_X105_CLEAR_WORD, SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_X105_FINAL_HALT_WORD,
+    SP_STATUS_X105_HALT_CONFIGURE_WORD, SP_STATUS_X105_START_WORD,
 };
-pub use sp_dmem::{SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES};
+pub use sp_dmem::{
+    MachineSpDmemStoreWordProvenance, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
+};

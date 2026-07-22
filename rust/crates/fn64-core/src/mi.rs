@@ -9,6 +9,121 @@ pub const MI_VERSION_PHYSICAL_ADDRESS: u32 = 0x0430_0004;
 pub const MI_VERSION_STANDARD_RETAIL_NUS_WORD: u32 = 0x0202_0102;
 pub const MI_SET_RDRAM_REGISTER_MODE_WORD: u32 = 0x0000_2000;
 pub const MI_CLEAR_RDRAM_REGISTER_MODE_WORD: u32 = 0x0000_1000;
+pub const MI_INTR_MASK_PHYSICAL_ADDRESS: u32 = 0x0430_000c;
+pub const MI_CLEAR_DP_INTERRUPT_WORD: u32 = 0x0000_0800;
+pub const MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD: u32 = 0x0000_0555;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineMiCpuStoreProvenance {
+    instruction_pc: CpuAddress,
+    source_gpr: u8,
+    source_lineage: MachineBootstrapGprSource,
+    effective_address: u64,
+    cpu_address: CpuAddress,
+    physical_address: u32,
+}
+
+impl MachineMiCpuStoreProvenance {
+    pub(crate) const fn new(
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+    ) -> Self {
+        Self {
+            instruction_pc,
+            source_gpr,
+            source_lineage,
+            effective_address,
+            cpu_address,
+            physical_address,
+        }
+    }
+    pub const fn instruction_pc(self) -> CpuAddress {
+        self.instruction_pc
+    }
+    pub const fn source_gpr(self) -> u8 {
+        self.source_gpr
+    }
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        self.source_lineage
+    }
+    pub const fn effective_address(self) -> u64 {
+        self.effective_address
+    }
+    pub const fn cpu_address(self) -> CpuAddress {
+        self.cpu_address
+    }
+    pub const fn physical_address(self) -> u32 {
+        self.physical_address
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineMiInterruptSource {
+    Sp,
+    Si,
+    Ai,
+    Vi,
+    Pi,
+    Dp,
+}
+
+impl MachineMiInterruptSource {
+    const fn index(self) -> usize {
+        match self {
+            Self::Sp => 0,
+            Self::Si => 1,
+            Self::Ai => 2,
+            Self::Vi => 3,
+            Self::Pi => 4,
+            Self::Dp => 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MachineMiInterruptState {
+    pending: [bool; 6],
+    masks: [bool; 6],
+    pending_clear_provenance: [Option<MachineMiCpuStoreProvenance>; 6],
+    mask_clear_provenance: Option<MachineMiCpuStoreProvenance>,
+}
+
+impl MachineMiInterruptState {
+    pub const fn pending(self, source: MachineMiInterruptSource) -> bool {
+        self.pending[source.index()]
+    }
+    pub const fn mask_enabled(self, source: MachineMiInterruptSource) -> bool {
+        self.masks[source.index()]
+    }
+    pub const fn pending_clear_provenance(
+        self,
+        source: MachineMiInterruptSource,
+    ) -> Option<MachineMiCpuStoreProvenance> {
+        self.pending_clear_provenance[source.index()]
+    }
+    pub const fn mask_clear_provenance(self) -> Option<MachineMiCpuStoreProvenance> {
+        self.mask_clear_provenance
+    }
+    fn set_pending(&mut self, source: MachineMiInterruptSource) {
+        self.pending[source.index()] = true;
+    }
+    fn clear_pending(
+        &mut self,
+        source: MachineMiInterruptSource,
+        provenance: MachineMiCpuStoreProvenance,
+    ) {
+        self.pending[source.index()] = false;
+        self.pending_clear_provenance[source.index()] = Some(provenance);
+    }
+    fn clear_all_masks(&mut self, provenance: MachineMiCpuStoreProvenance) {
+        self.masks = [false; 6];
+        self.mask_clear_provenance = Some(provenance);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineMiVersionState {
@@ -226,6 +341,7 @@ pub(crate) struct Mi {
     init_mode: Option<MachineMiInitModeState>,
     init_transfer: Option<MachineMiInitTransferState>,
     rdram_register_mode: Option<MachineMiRdramRegisterModeState>,
+    interrupts: MachineMiInterruptState,
 }
 
 impl Default for Mi {
@@ -235,6 +351,7 @@ impl Default for Mi {
             init_mode: None,
             init_transfer: None,
             rdram_register_mode: None,
+            interrupts: MachineMiInterruptState::default(),
         }
     }
 }
@@ -263,6 +380,26 @@ impl Mi {
         }
     }
 
+    pub(crate) const fn interrupt_state(self) -> MachineMiInterruptState {
+        self.interrupts
+    }
+
+    pub(crate) fn set_pi_pending_from_dma(&mut self) {
+        self.interrupts.set_pending(MachineMiInterruptSource::Pi);
+    }
+
+    pub(crate) fn clear_pending_interrupt(
+        &mut self,
+        source: MachineMiInterruptSource,
+        provenance: MachineMiCpuStoreProvenance,
+    ) {
+        self.interrupts.clear_pending(source, provenance);
+    }
+
+    pub(crate) fn clear_all_interrupt_masks(&mut self, provenance: MachineMiCpuStoreProvenance) {
+        self.interrupts.clear_all_masks(provenance);
+    }
+
     pub(crate) fn apply_init_mode_store(&mut self, state: MachineMiInitModeState) {
         self.init_mode = Some(state);
         self.init_transfer = Some(MachineMiInitTransferState::from_exact_x105_init_mode(state));
@@ -285,6 +422,17 @@ impl Mi {
 mod tests {
     use super::*;
     use crate::cpu::CpuInstructionIdentity;
+
+    fn interrupt_source(pc: u32, physical_address: u32) -> MachineMiCpuStoreProvenance {
+        MachineMiCpuStoreProvenance::new(
+            CpuAddress::new(pc),
+            8,
+            MachineBootstrapGprSource::ArchitecturalZero,
+            u64::from(0xa000_0000 | physical_address),
+            CpuAddress::new(0xa000_0000 | physical_address),
+            physical_address,
+        )
+    }
 
     #[test]
     fn mi_init_mode_exact_x105_write_owns_result_state_and_lineage() {
@@ -388,5 +536,52 @@ mod tests {
         mi.apply_rdram_register_mode_store(clear);
         assert!(!mi.rdram_register_mode_enabled());
         assert_eq!(clear.command_word(), 0x0000_1000);
+    }
+
+    #[test]
+    fn interrupt_owner_records_pi_completion_and_exact_generated_clears_without_delivery() {
+        let mut mi = Mi::default();
+        let cold = mi.interrupt_state();
+        for source in [
+            MachineMiInterruptSource::Sp,
+            MachineMiInterruptSource::Si,
+            MachineMiInterruptSource::Ai,
+            MachineMiInterruptSource::Vi,
+            MachineMiInterruptSource::Pi,
+            MachineMiInterruptSource::Dp,
+        ] {
+            assert!(!cold.pending(source));
+            assert!(!cold.mask_enabled(source));
+            assert_eq!(cold.pending_clear_provenance(source), None);
+        }
+        assert_eq!(cold.mask_clear_provenance(), None);
+
+        mi.set_pi_pending_from_dma();
+        assert!(mi.interrupt_state().pending(MachineMiInterruptSource::Pi));
+        let pi_clear = interrupt_source(0x8000_01d4, 0x0460_0010);
+        mi.clear_pending_interrupt(MachineMiInterruptSource::Pi, pi_clear);
+        assert!(!mi.interrupt_state().pending(MachineMiInterruptSource::Pi));
+        assert_eq!(
+            mi.interrupt_state()
+                .pending_clear_provenance(MachineMiInterruptSource::Pi),
+            Some(pi_clear)
+        );
+
+        let mask_clear = interrupt_source(0x8000_01ac, MI_INTR_MASK_PHYSICAL_ADDRESS);
+        mi.clear_all_interrupt_masks(mask_clear);
+        assert_eq!(
+            mi.interrupt_state().mask_clear_provenance(),
+            Some(mask_clear)
+        );
+        for source in [
+            MachineMiInterruptSource::Sp,
+            MachineMiInterruptSource::Si,
+            MachineMiInterruptSource::Ai,
+            MachineMiInterruptSource::Vi,
+            MachineMiInterruptSource::Pi,
+            MachineMiInterruptSource::Dp,
+        ] {
+            assert!(!mi.interrupt_state().mask_enabled(source));
+        }
     }
 }

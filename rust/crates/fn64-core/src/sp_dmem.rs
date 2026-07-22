@@ -1,6 +1,58 @@
 use core::fmt;
 
+use crate::cpu::address::CpuAddress;
+use crate::machine::MachineBootstrapGprSource;
+
 pub const SP_DMEM_SIZE_BYTES: usize = 4 * 1024;
+const SP_DMEM_WORD_COUNT: usize = SP_DMEM_SIZE_BYTES / 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSpDmemStoreWordProvenance {
+    instruction_pc: CpuAddress,
+    source_gpr: u8,
+    source_lineage: MachineBootstrapGprSource,
+    effective_address: u64,
+    cpu_address: CpuAddress,
+    physical_address: u32,
+}
+
+impl MachineSpDmemStoreWordProvenance {
+    pub(crate) const fn new(
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+    ) -> Self {
+        Self {
+            instruction_pc,
+            source_gpr,
+            source_lineage,
+            effective_address,
+            cpu_address,
+            physical_address,
+        }
+    }
+    pub const fn instruction_pc(self) -> CpuAddress {
+        self.instruction_pc
+    }
+    pub const fn source_gpr(self) -> u8 {
+        self.source_gpr
+    }
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        self.source_lineage
+    }
+    pub const fn effective_address(self) -> u64 {
+        self.effective_address
+    }
+    pub const fn cpu_address(self) -> CpuAddress {
+        self.cpu_address
+    }
+    pub const fn physical_address(self) -> u32 {
+        self.physical_address
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpDmemOffset(u32);
@@ -66,6 +118,7 @@ impl SpDmemWriteError {
 
 pub struct SpDmem {
     bytes: [u8; SP_DMEM_SIZE_BYTES],
+    word_store_provenance: Box<[Option<MachineSpDmemStoreWordProvenance>; SP_DMEM_WORD_COUNT]>,
 }
 
 impl SpDmem {
@@ -87,6 +140,19 @@ impl SpDmem {
             | ((self.bytes[offset_usize + 1] as u32) << 16)
             | ((self.bytes[offset_usize + 2] as u32) << 8)
             | self.bytes[offset_usize + 3] as u32)
+    }
+
+    pub fn store_word_provenance(
+        &self,
+        offset: SpDmemOffset,
+    ) -> Option<MachineSpDmemStoreWordProvenance> {
+        if offset.value() & 3 != 0 {
+            return None;
+        }
+        self.word_store_provenance
+            .get(offset.as_usize() / 4)
+            .copied()
+            .flatten()
     }
 
     fn require_u32_be_offset(&self, offset: SpDmemOffset) -> Result<usize, SpDmemReadError> {
@@ -118,6 +184,31 @@ impl SpDmem {
         };
 
         destination.copy_from_slice(bytes);
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let first_word = offset_usize / 4;
+        let last_word = (end.saturating_sub(1)) / 4;
+        for word in first_word..=last_word {
+            self.word_store_provenance[word] = None;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn write_cpu_u32_be(
+        &mut self,
+        offset: SpDmemOffset,
+        value: u32,
+        provenance: MachineSpDmemStoreWordProvenance,
+    ) -> Result<(), SpDmemWriteError> {
+        let offset_usize = self
+            .require_u32_be_offset(offset)
+            .map_err(|_| SpDmemWriteError { offset, width: 4 })?;
+        if offset_usize & 3 != 0 {
+            return Err(SpDmemWriteError { offset, width: 4 });
+        }
+        self.bytes[offset_usize..offset_usize + 4].copy_from_slice(&value.to_be_bytes());
+        self.word_store_provenance[offset_usize / 4] = Some(provenance);
         Ok(())
     }
 
@@ -135,6 +226,7 @@ impl Default for SpDmem {
     fn default() -> Self {
         Self {
             bytes: [0; SP_DMEM_SIZE_BYTES],
+            word_store_provenance: Box::new([None; SP_DMEM_WORD_COUNT]),
         }
     }
 }
@@ -223,5 +315,35 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn cpu_word_store_records_one_provenance_and_bulk_replacement_clears_it() {
+        let mut sp_dmem = SpDmem::default();
+        let provenance = MachineSpDmemStoreWordProvenance::new(
+            CpuAddress::new(0x8000_0270),
+            14,
+            MachineBootstrapGprSource::ArchitecturalZero,
+            0xffff_ffff_a400_0020,
+            CpuAddress::new(0xa400_0020),
+            0x0400_0020,
+        );
+        sp_dmem
+            .write_cpu_u32_be(SpDmemOffset::new(0x20), 0xa400_2000, provenance)
+            .unwrap();
+        assert_eq!(
+            sp_dmem.read_u32_be(SpDmemOffset::new(0x20)),
+            Ok(0xa400_2000)
+        );
+        assert_eq!(
+            sp_dmem.store_word_provenance(SpDmemOffset::new(0x20)),
+            Some(provenance)
+        );
+        assert_eq!(sp_dmem.store_word_provenance(SpDmemOffset::new(0x21)), None);
+
+        sp_dmem
+            .write_bytes(SpDmemOffset::new(0x21), &[0x55])
+            .unwrap();
+        assert_eq!(sp_dmem.store_word_provenance(SpDmemOffset::new(0x20)), None);
     }
 }

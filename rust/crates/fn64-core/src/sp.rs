@@ -2,9 +2,12 @@ use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
+pub const SP_SEMAPHORE_PHYSICAL_ADDRESS: u32 = 0x0404_001c;
 pub const SP_PC_PHYSICAL_ADDRESS: u32 = 0x0408_0000;
 pub const SP_STATUS_X105_HALT_CONFIGURE_WORD: u32 = 0x0000_00ce;
 pub const SP_STATUS_X105_START_WORD: u32 = 0x0000_00ad;
+pub const SP_STATUS_X105_FINAL_HALT_WORD: u32 = 0x00aa_aaae;
+pub const SP_SEMAPHORE_X105_CLEAR_WORD: u32 = 0;
 pub const SP_PC_X105_RESET_WORD: u32 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +72,7 @@ pub struct MachineSpStatusState {
     interrupt_pending: bool,
     single_step: bool,
     interrupt_on_break: bool,
+    signals: [bool; 8],
     source: MachineSpCpuStoreProvenance,
 }
 
@@ -80,15 +84,17 @@ impl MachineSpStatusState {
         debug_assert!(
             command_word == SP_STATUS_X105_HALT_CONFIGURE_WORD
                 || command_word == SP_STATUS_X105_START_WORD
+                || command_word == SP_STATUS_X105_FINAL_HALT_WORD
         );
-        let halt = command_word == SP_STATUS_X105_HALT_CONFIGURE_WORD;
+        let halt = command_word != SP_STATUS_X105_START_WORD;
         Self {
             command_word,
             halt,
             broke: false,
             interrupt_pending: false,
-            single_step: halt,
+            single_step: command_word == SP_STATUS_X105_HALT_CONFIGURE_WORD,
             interrupt_on_break: false,
+            signals: [false; 8],
             source,
         }
     }
@@ -117,6 +123,31 @@ impl MachineSpStatusState {
         self.interrupt_on_break
     }
 
+    pub const fn signals(self) -> [bool; 8] {
+        self.signals
+    }
+
+    pub const fn source(self) -> MachineSpCpuStoreProvenance {
+        self.source
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSpSemaphoreState {
+    clear: bool,
+    source: MachineSpCpuStoreProvenance,
+}
+
+impl MachineSpSemaphoreState {
+    pub(crate) const fn from_x105_clear(source: MachineSpCpuStoreProvenance) -> Self {
+        Self {
+            clear: true,
+            source,
+        }
+    }
+    pub const fn clear(self) -> bool {
+        self.clear
+    }
     pub const fn source(self) -> MachineSpCpuStoreProvenance {
         self.source
     }
@@ -149,6 +180,7 @@ impl MachineSpPcState {
 pub(crate) struct Sp {
     status: Option<MachineSpStatusState>,
     pc: Option<MachineSpPcState>,
+    semaphore: Option<MachineSpSemaphoreState>,
 }
 
 impl Sp {
@@ -160,12 +192,20 @@ impl Sp {
         self.pc
     }
 
+    pub(crate) const fn semaphore_state(self) -> Option<MachineSpSemaphoreState> {
+        self.semaphore
+    }
+
     pub(crate) fn apply_status_store(&mut self, state: MachineSpStatusState) {
         self.status = Some(state);
     }
 
     pub(crate) fn apply_pc_store(&mut self, state: MachineSpPcState) {
         self.pc = Some(state);
+    }
+
+    pub(crate) fn apply_semaphore_store(&mut self, state: MachineSpSemaphoreState) {
+        self.semaphore = Some(state);
     }
 }
 
@@ -211,6 +251,18 @@ mod tests {
         assert!(!started.broke());
         assert!(!started.interrupt_pending());
         assert!(!started.interrupt_on_break());
+
+        let final_halt = MachineSpStatusState::from_x105_command(
+            SP_STATUS_X105_FINAL_HALT_WORD,
+            source(0x8000_01a0, SP_STATUS_PHYSICAL_ADDRESS),
+        );
+        assert_eq!(final_halt.command_word(), 0x00aa_aaae);
+        assert!(final_halt.halt());
+        assert!(!final_halt.single_step());
+        assert!(!final_halt.broke());
+        assert!(!final_halt.interrupt_pending());
+        assert!(!final_halt.interrupt_on_break());
+        assert_eq!(final_halt.signals(), [false; 8]);
     }
 
     #[test]
@@ -218,14 +270,23 @@ mod tests {
         let mut sp = Sp::default();
         assert_eq!(sp.status_state(), None);
         assert_eq!(sp.pc_state(), None);
+        assert_eq!(sp.semaphore_state(), None);
         let status = MachineSpStatusState::from_x105_command(
             SP_STATUS_X105_HALT_CONFIGURE_WORD,
             source(0xa400_0490, SP_STATUS_PHYSICAL_ADDRESS),
         );
         let pc = MachineSpPcState::from_x105_zero(source(0xa400_04cc, SP_PC_PHYSICAL_ADDRESS));
+        let semaphore = MachineSpSemaphoreState::from_x105_clear(source(
+            0x8000_00b0,
+            SP_SEMAPHORE_PHYSICAL_ADDRESS,
+        ));
         sp.apply_status_store(status);
         sp.apply_pc_store(pc);
+        sp.apply_semaphore_store(semaphore);
         assert_eq!(sp.status_state(), Some(status));
         assert_eq!(sp.pc_state(), Some(pc));
+        assert_eq!(sp.semaphore_state(), Some(semaphore));
+        assert!(semaphore.clear());
+        assert_eq!(semaphore.source().physical_address(), 0x0404_001c);
     }
 }

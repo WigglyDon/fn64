@@ -717,6 +717,7 @@ impl Machine {
         self.sp = crate::sp::Sp::default();
         self.ri = replacement_ri;
         self.mi = crate::mi::Mi::default();
+        self.pi = crate::pi::Pi::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.powered_on = true;
         self.cartridge_bootstrap = Some(state);
