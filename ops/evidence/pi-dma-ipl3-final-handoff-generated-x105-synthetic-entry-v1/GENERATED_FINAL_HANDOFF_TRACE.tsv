@@ -1,0 +1,19 @@
+pc	word	identity	repetitions	result
+0x8000001C	0xAC290000	Sw r9,0(r1)	1	PI_DRAM_ADDR=0x00001000
+0x80000024	0x8D080010	Lw r8,0x10(r8)	1	PI_STATUS=0
+0x80000044	0xAC280004	Sw r8,4(r1)	1	PI_CART_ADDR=0x10001000
+0x80000054	0xAC2A000C	Sw r10,0x0C(r1)	1	atomic 1MiB DMA complete
+0x8000009C	0x8D6B0010	Lw r11,0x10(r11)	1	PI_STATUS=0
+0x800000B0	0xAC20001C	Sw r0,0x1C(r1)	1	SP semaphore clear
+0x80000114	0x8D220000	Lw r2,0(r9)	262144	KSEG0 checksum data load
+0x800001A0	0xAC2B0010	Sw r11,0x10(r1)	1	SP final halt command
+0x800001AC	0xAC28000C	Sw r8,0x0C(r1)	1	MI masks clear
+0x800001B4	0xAC200018	Sw r0,0x18(r1)	1	SI pending clear
+0x800001BC	0xAC20000C	Sw r0,0x0C(r1)	1	AI pending clear
+0x800001C8	0xAC290000	Sw r9,0(r1)	1	DP pending clear
+0x800001D4	0xAC290010	Sw r9,0x10(r1)	1	PI pending clear
+0x80000240	0x04110003	Bgezal r0,+3	1	checksum success branch-and-link
+0x80000270	0xAD09FFFC	Sw r9,-4(r8)	2048	SP DMEM and IMEM teardown
+0x8000027C	0x01200008	Jr r9	1	target 0x80001000
+0x80000280	0x00000000	Nop	1	JR delay slot
+0x80001000	0x24020042	Addiu r2,r0,0x42	0	unexecuted synthetic entry boundary
