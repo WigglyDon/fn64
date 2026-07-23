@@ -206,6 +206,10 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: dcache-kseg0-fill ok\
 \ncase: dcache-kseg0-hit ok\
 \ncase: dcache-kseg1-bypass ok\
+\ncase: dcache-kseg0-store-dirty ok\
+\ncase: dcache-kseg0-byte-dirty ok\
+\ncase: dcache-dirty-writeback ok\
+\ncase: dcache-conflict-final-truth ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -363,6 +367,23 @@ fn probe_pi_dma_and_dcache_path() -> Result<(), StepProbeError> {
         (0x80, immediate_word(0x0f, 0, 15, 0xa000)),
         (0x84, immediate_word(0x0d, 15, 15, 0x1000)),
         (0x88, immediate_word(0x23, 15, 4, 0x0000)),
+        (0x8c, immediate_word(0x0f, 0, 5, 0x8010)),
+        (0x90, immediate_word(0x0f, 0, 6, 0x1122)),
+        (0x94, immediate_word(0x0d, 6, 6, 0x3344)),
+        (0x98, immediate_word(0x2b, 5, 6, 0x0000)),
+        (0x9c, immediate_word(0x23, 5, 7, 0x0000)),
+        (0xa0, immediate_word(0x0f, 0, 8, 0x8010)),
+        (0xa4, immediate_word(0x0d, 8, 8, 0x2000)),
+        (0xa8, immediate_word(0x0f, 0, 9, 0x5566)),
+        (0xac, immediate_word(0x0d, 9, 9, 0x7788)),
+        (0xb0, immediate_word(0x2b, 8, 9, 0x0000)),
+        (0xb4, immediate_word(0x23, 8, 10, 0x0000)),
+        (0xb8, immediate_word(0x23, 5, 11, 0x0000)),
+        (0xbc, immediate_word(0x09, 0, 12, 0x00aa)),
+        (0xc0, immediate_word(0x28, 5, 12, 0x0001)),
+        (0xc4, immediate_word(0x24, 5, 13, 0x0001)),
+        (0xc8, immediate_word(0x23, 5, 14, 0x0000)),
+        (0xcc, immediate_word(0x23, 8, 15, 0x0000)),
     ];
     let cartridge = generated_public_pi_cartridge(CASE, SENTINEL_WORD, &words)?;
     let (mut machine, _) = generated_cold_x105_machine_from_cartridge(CASE, cartridge)?;
@@ -561,6 +582,171 @@ fn probe_pi_dma_and_dcache_path() -> Result<(), StepProbeError> {
             .data_line((PAYLOAD_OFFSET / 16) % 512)
             == Some(data_line),
         "KSEG1 bypass retains the D-cache line",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RdramStoreWordCommitted {
+                stored_word: 0x1122_3344,
+                data_cache_hit: Some(false),
+                data_cache_writeback: false,
+                ..
+            }
+        ),
+        "KSEG0 Sw miss allocates one dirty A line",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                destination_gpr: 7,
+                loaded_word: 0x1122_3344,
+                data_cache_hit: Some(true),
+                ..
+            }
+        ),
+        "KSEG0 Lw reads dirty A from cache",
+    )?;
+
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Lui)?;
+    require_committed_identity(CASE, step(&mut machine, CASE)?, CpuInstructionIdentity::Ori)?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RdramStoreWordCommitted {
+                stored_word: 0x5566_7788,
+                data_cache_hit: Some(false),
+                data_cache_writeback: true,
+                ..
+            }
+        ),
+        "conflicting KSEG0 Sw writes back A and allocates dirty B",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                destination_gpr: 10,
+                loaded_word: 0x5566_7788,
+                data_cache_hit: Some(true),
+                ..
+            }
+        ),
+        "KSEG0 Lw reads dirty B from cache",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                destination_gpr: 11,
+                loaded_word: 0x1122_3344,
+                data_cache_hit: Some(false),
+                data_cache_writeback: true,
+                ..
+            }
+        ),
+        "conflicting KSEG0 Lw writes back B and refills A",
+    )?;
+
+    require_committed_identity(
+        CASE,
+        step(&mut machine, CASE)?,
+        CpuInstructionIdentity::Addiu,
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                identity: CpuInstructionIdentity::Sb,
+                physical_address: 0x0010_0001,
+                value: 0xaa,
+                data_cache_hit: Some(true),
+                data_cache_writeback: false,
+                ..
+            }
+        ),
+        "KSEG0 Sb patches one cached byte and marks A dirty",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                identity: CpuInstructionIdentity::Lbu,
+                physical_address: 0x0010_0001,
+                value: 0xaa,
+                data_cache_hit: Some(true),
+                ..
+            }
+        ) && machine.cpu().gpr(13) == Some(0xaa),
+        "KSEG0 Lbu observes the dirty cached byte",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                destination_gpr: 14,
+                loaded_word: 0x11aa_3344,
+                data_cache_hit: Some(true),
+                ..
+            }
+        ),
+        "KSEG0 Lw observes the patched dirty A word",
+    )?;
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                destination_gpr: 15,
+                loaded_word: 0x5566_7788,
+                data_cache_hit: Some(false),
+                data_cache_writeback: true,
+                ..
+            }
+        ),
+        "final conflict writes back patched A and refills B",
+    )?;
+
+    let writebacks = machine.rdram().primary_data_cache_writebacks();
+    require(
+        CASE,
+        writebacks.len() == 3
+            && writebacks[0].physical_line_address() == 0x0010_0000
+            && writebacks[1].physical_line_address() == 0x0010_2000
+            && writebacks[2].physical_line_address() == 0x0010_0000,
+        "three exact dirty victim writebacks",
+    )?;
+    require(
+        CASE,
+        machine.rdram().read_u32_be(0x0010_0000) == Ok(0x11aa_3344)
+            && machine.rdram().read_u32_be(0x0010_2000) == Ok(0x5566_7788),
+        "RDRAM backing contains both final writeback words",
+    )?;
+    let final_line = machine
+        .cpu()
+        .primary_caches()
+        .data_line(0)
+        .expect("fixed conflicting D-cache index is in bounds");
+    require(
+        CASE,
+        final_line.is_valid_clean()
+            && !final_line.is_valid_dirty()
+            && final_line.physical_tag() == Some(0x0010_2000),
+        "shared D-cache line ends as clean B truth",
     )
 }
 
@@ -2688,6 +2874,7 @@ fn probe_ri_select_write_routes_and_lifecycle() -> Result<(), StepProbeError> {
                 loaded_word: RI_SELECT_X105_ENABLE_TX_RX_WORD,
                 result_value: 0x14,
                 cadence_plan,
+                ..
             } if source == stored_select.source() && cadence_plan.advances_count()
         ),
         "read-after-write consumes stored RI_SELECT",
@@ -4226,6 +4413,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
                 loaded_word: 0,
                 result_value: 0,
                 cadence_plan,
+                ..
             } if cadence_plan.advances_count()
         ),
         "RI_SELECT cold read",
@@ -5296,6 +5484,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
                 loaded_word: MI_VERSION_STANDARD_RETAIL_NUS_WORD,
                 result_value: 0x0000_0000_0202_0102,
                 cadence_plan,
+                ..
             } if cadence_plan.advances_count()
         ),
         "MI_VERSION exact aligned Lw commit",
@@ -6464,6 +6653,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
                 loaded_word: 0xa400_0a24,
                 result_value: 0xffff_ffff_a400_0a24,
                 cadence_plan,
+                ..
             } if cadence_plan.advances_count()
         ),
         "WriteCC restores the exact known return address",

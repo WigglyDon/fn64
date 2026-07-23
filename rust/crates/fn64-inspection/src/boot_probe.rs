@@ -594,6 +594,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                 match outcome {
                     MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
                     | MachineRepresentedStepOutcome::SpImemByteCommitted { .. }
+                    | MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. }
                     | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
@@ -758,6 +759,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
         outcome,
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
             | MachineRepresentedStepOutcome::SpImemByteCommitted { .. }
+            | MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. }
             | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
@@ -796,6 +798,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
     match outcome {
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. } => "cpu-local-committed",
         MachineRepresentedStepOutcome::SpImemByteCommitted { .. } => "sp-imem-byte-committed",
+        MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. } => {
+            "direct-rdram-byte-committed"
+        }
         MachineRepresentedStepOutcome::LoadWordCommitted { .. } => "load-word-committed",
         MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. } => {
             "opaque-sp-imem-load-word-committed"
@@ -1017,6 +1022,9 @@ fn format_load_word_rejection_frontier(
         MachineLoadWordRejectionReason::DirectTargetMiss => "direct-target-miss".to_owned(),
         MachineLoadWordRejectionReason::DirectRdramReadRejected => {
             "direct-rdram-read-rejected".to_owned()
+        }
+        MachineLoadWordRejectionReason::PrimaryDataCacheStateUnavailable => {
+            "primary-data-cache-state-unavailable".to_owned()
         }
         MachineLoadWordRejectionReason::CartridgeReadRejected => {
             "cartridge-read-rejected".to_owned()
