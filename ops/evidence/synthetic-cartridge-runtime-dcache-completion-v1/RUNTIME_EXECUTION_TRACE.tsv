@@ -1,0 +1,12 @@
+phase	start_pc	end_pc	committed	result
+cold-public-x105	0xA4000040	0x80001000	7477039	runtime-v2 handoff reached
+runtime-program	0x80001000	0x80001124	77	all seven self-checks passed
+entry-sentinel	0x80001000	0x80001004	1	r2=0x42
+cached-word-a	0x8000103C	0x8000104C	4	A dirty and verified
+cached-word-b	0x8000105C	0x8000106C	4	B dirty and verified
+conflict-reload-a	0x8000107C	0x80001088	3	B written back; A verified
+byte-patch	0x80001094	0x800010A4	4	A byte 1 becomes 0xAA
+patched-word-a	0x800010B4	0x800010C4	4	A=0x11AA3344 verified
+conflict-reload-b	0x800010D4	0x800010E8	5	patched A written back; B verified
+success-mailbox	0x800010E8	0x8000111C	13	eight uncached words committed
+success-loop	0x80001124	0x80001124	4	two J/Nop iterations
