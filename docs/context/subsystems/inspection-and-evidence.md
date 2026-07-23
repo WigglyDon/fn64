@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 183 stable cases, including ordinary
+public `Machine::step` for 187 stable cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -50,7 +50,9 @@ TestCCValue/WriteCC calls, exact request commit, complete fixed-profile digital
 calibration, two-module discovery and final mapping, module/RAS/RI_REFRESH
 state, detected 4 MiB size, cache initialization/relocation, exact PI
 programming/DMA/status, KSEG0 D-cache fill/hit, MI interrupt transitions, and
-the final synthetic-entry boundary. The
+the final synthetic-entry boundary. Four new stable cases execute KSEG0
+word/byte cached stores, observe dirty bytes, force three exact writebacks, and
+verify the final conflicting clean line. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
@@ -141,6 +143,16 @@ observes but cannot create PI/cache/SP/cartridge truth, and it does not execute
 entry word `0x24020042`. This is synthetic CPU/device composition, not
 authentic cartridge boot, PI/cache timing, RSP execution, general MI
 programming, NMI, or compatibility evidence.
+
+The versioned runtime-v2 core proof preserves that v1 boundary and starts its
+authoritative run from the public cold bootstrap. It executes entry word
+`0x24020042`, 76 more guest instructions, seven successful comparisons, three
+dirty writebacks, eight uncached mailbox stores, and two complete success-loop
+iterations. Exact output records Count `7477100`, commit 7,477,116,
+PC/next-PC `0x80001124 / 0x80001128`, header/guest checksums
+`0x4077ADEF / 0x096B847A`, and zero failure-path executions. Inspection
+interprets only public Machine state; it does not stage GPRs, cache lines,
+memory, mailbox, or PC to force completion.
 
 Generic CPU-local/control-flow step-probe fixtures use the already represented
 uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and

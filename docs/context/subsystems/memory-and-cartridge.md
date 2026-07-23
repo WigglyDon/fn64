@@ -133,11 +133,21 @@ atomically transfers offsets `[0x1000,0x101000)` into the sole `Rdram` backing
 range `[0x1000,0x101000)`. CPU D-cache reads cached copies only; PI does not
 snoop cache state. Generated known stores overwrite all SP DMEM/IMEM words
 with `0xA4002000`, replacing opaque truth through existing owners. No general
-PI programming, RSP execution, PI/cache timing, NMI, dirty D-cache writeback,
-or generic MMIO route exists. It does not establish authentic SP IMEM,
-firmware/cartridge execution, PIF/BIOS boot, SP DMA, controller protocol, game
-compatibility, or a complete N64 memory system. Rollback/preflight exists only
-where the detailed ledger says it is sealed.
+PI programming, RSP execution, PI/cache timing, NMI, or generic MMIO route
+exists.
+
+The separate immutable public runtime-v2 fixture retains the same size and
+deterministic unused payload, overlays one original 92-word program, and
+recomputes x105 header checksums `0x4077ADEF / 0x096B847A`. Guest KSEG0 cached
+stores change only CPU cache bytes until a conflicting dirty replacement writes
+one complete 16-byte line to the sole Rdram backing owner. Three such
+writebacks create final words `0x11AA3344` at physical `0x00100000` and
+`0x55667788` at `0x00102000`. Eight KSEG1 stores bypass D-cache and create the
+success mailbox at `0x003FF000`; no separate mailbox owner exists. It does not
+establish authentic SP IMEM, user-provided or commercial cartridge execution,
+PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
+N64 memory system. Rollback/preflight exists only where the detailed ledger
+says it is sealed.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.

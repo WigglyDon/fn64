@@ -118,7 +118,9 @@ one MI-owned RDRAM-register mode; module reads reject while it is disabled.
 
 `MULTU` is the one newly represented multiply identity and uses unsigned
 low-32-bit operands with the architecturally defined HI/LO word results. `LBU`
-and `SB` are represented only over direct SP IMEM. Aligned opaque-word `Lw`
+and `SB` retain their direct SP-IMEM route and now also use CPU-owned KSEG0
+D-cache byte semantics over Machine-owned RDRAM; KSEG1 remains uncached.
+Aligned opaque-word `Lw`
 transports unavailable lineage using canonical zero backing during generated
 frame teardown; the backing never becomes known truth and later consumers
 still reject. These identities retain ordinary alias, zero-register,
@@ -176,8 +178,17 @@ cartridge-read instructions. PC/next-PC become
 one-MiB checksum through KSEG0 D-cache `Lw`. Exact device clears, boot globals,
 SP teardown, and JR/Nop reach `0x80001000 / 0x80001004`, Count `7477812`, total
 commits 7,477,828, without executing the synthetic entry. This is synthetic
-CPU/device composition, not authentic IPL2/cartridge or RSP execution, PI
-timing, dirty D-cache behavior, or analog/cache timing accuracy. Known unknowns
+CPU/device composition, not authentic IPL2/cartridge or RSP execution.
+
+A separate versioned public runtime-v2 composition continues through 77
+cartridge-program commits. KSEG0 `Sw` and `Sb` are write-allocate, `Lw` and
+`Lbu` observe clean or dirty cache bytes, and a conflicting dirty victim is
+atomically written to Rdram before replacement. Three writebacks produce final
+backing words `0x11AA3344` and `0x55667788`; seven BNE comparisons select
+success; eight KSEG1 stores write the mailbox; and two J/Nop loop iterations
+end at `0x80001124 / 0x80001128`. Source-knownness, read-before-write, AdEL/
+AdES, delay-slot, and Count ownership remain unchanged. This is not authentic
+cartridge or RSP execution, PI/cache timing, or analog/cache timing accuracy. Known unknowns
 include full ISA integration, real timing, unearned likely/REGIMM and broader
 COP0/CACHE identities, NMI, generic MMIO, unrelated load/store families, and
 performance.

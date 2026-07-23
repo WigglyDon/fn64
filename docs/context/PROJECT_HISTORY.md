@@ -714,6 +714,24 @@ product or reference lane requires a new explicit product decision.
   compatibility; PI timing, RSP execution, and authentic cartridge execution
   remain absent.
 
+## Era 38 — Synthetic runtime and functional D-cache writeback (2026-07-22)
+
+- Cache result: CPU-owned KSEG0 `Sw`, `Sb`, `Lw`, and `Lbu` now share one
+  direct-mapped write-back D-cache owner with valid-clean/valid-dirty state,
+  write allocation, and atomic 16-byte dirty replacement into the sole Rdram
+  backing owner. KSEG1 remains uncached.
+- Synthetic input: the accepted v1 fixture/proof remains exact. Separate
+  public runtime-v2 retains size `0x101000`, begins with `0x24020042`, embeds
+  one original 92-word self-checking program, and uses checksum words
+  `0x4077ADEF / 0x096B847A`.
+- Runtime result: 77 program commits pass all seven guest comparisons, perform
+  three dirty writebacks, write exact final A/B words and an eight-word success
+  mailbox, execute zero failure instructions, and complete two stable J/Nop
+  loop iterations at `0x80001124`.
+- Boundary: `SYNTHETIC-CARTRIDGE-RUNTIME-COMPLETE` is synthetic-only. BOOT-2
+  remains the authentic checkpoint; user-provided/commercial cartridge
+  execution and compatibility remain unearned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

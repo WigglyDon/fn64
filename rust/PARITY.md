@@ -32,11 +32,11 @@ history.
 
 | Owner | Represented truth | Explicit boundary |
 | --- | --- | --- |
-| `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or direct game-entry execution |
+| `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads | no filesystem path, broad CPU mapping, CIC policy, or authentic/user-provided game-entry claim |
 | `PifFirmware` | private immutable owned bytes for one structurally accepted raw-Boot-ROM-shaped input and the source bytes for explicit profiled copy materialization | no path, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, represented COP0 including raw TagLo/TagHi, and per-Machine direct-mapped primary I/D cache arrays with provenance and functional KSEG0 D-cache `Lw` | no host cadence, full ISA, CPU interrupt delivery, TLB/MMU, secondary cache, cache timing, KSEG0 cache stores, or dirty writeback |
-| `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one narrow delay-slot context, represented COP0 including raw TagLo/TagHi, and per-Machine direct-mapped primary I/D cache arrays with provenance; functional KSEG0 D-cache `Lw`, `Lbu`, `Sw`, `Sb`, valid-dirty state, and writeback planning | no host cadence, full ISA, CPU interrupt delivery, TLB/MMU, secondary cache, cache timing, write buffers, or generic coherence |
+| `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, private Machine-owned range staging, and known aligned CPU stores with provenance | no public mutable backdoor, DMA, RSP, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads, concrete/opaque CPU-store provenance, narrow opaque-word load transport preserving unavailable lineage, and atomic profiled-copy replacement | no public mutable access, opaque value exposure as known truth, SP instruction-fetch route, profile policy, DMA, or RSP execution |
 | `Sp` | exact x105 SP_STATUS, SP_PC, and cleared semaphore register/control truth with CPU-store provenance | no status/PC/semaphore reads, arbitrary command bank, DMA, RSP scalar/vector state, or RSP execution |
@@ -696,6 +696,21 @@ entry `0x80001000`. Total commits are 7,477,828 and Count is 7,477,812; entry
 word `0x24020042` is not executed. These tests prove synthetic fixed-profile
 CPU/device composition, not an authentic IPL2/cartridge run, PI/cache timing,
 RSP execution, NMI delivery, or game compatibility.
+
+The separate `synthetic-x105-cartridge-runtime-v2` fixture preserves that exact
+v1 result and extends a complete cold public composition through one original
+92-word self-checking program. The program commits 77 instructions, executes
+entry word `0x24020042` once, passes all seven guest comparisons, writes the
+exact eight-word KSEG1 success mailbox, executes zero failure instructions, and
+completes two success-loop J/Nop iterations at
+`0x80001124 / 0x80001128`. KSEG0 D-cache load hits/misses are `4/2`, store
+hits/misses are `2/1`, and three dirty replacements write physical lines
+`0x00100000`, `0x00102000`, and `0x00100000`. Final backing words are
+`0x11AA3344` and `0x55667788`; line index zero ends valid clean with tag
+`0x00102000`. Total commits are 7,477,116 and Count is 7,477,100. Fixture and
+guest checksum words match at `0x4077ADEF / 0x096B847A`. This earns
+`SYNTHETIC-CARTRIDGE-RUNTIME-COMPLETE`, not BOOT-3, authentic cartridge
+execution, or compatibility.
 One-word staging would be both incomplete and unauthorized: the observed x105
 prelude consumes eight words and mutates through offset `0x02b`.
 BOOT-3, authentic bootstrap handoff, and cartridge entry `0x80000400` are not
@@ -710,16 +725,16 @@ execute. Current explicit absences include:
   identities other than BLTZ/BGEZL/BGEZAL, COP0 branches, and execution of a branch or
   jump inside a delay slot;
 - CPU load/store identities other than the detailed aligned `Lw`/`Sw` and
-  SP-IMEM-only `LBU`/`SB` surfaces, including unaligned merge operations,
+  direct SP-IMEM or KSEG0-RDRAM `LBU`/`SB` surfaces, including unaligned merge operations,
   unclassified SP-DMEM access, and unearned device/register targets;
 - signed multiply, divide, trap, every COP0 instruction except bounded MTC0
   Cause/Count/Compare/TagLo/TagHi, ERET, and LL/SC execution;
 - CACHE operations other than primary I/D Index Store Tag, secondary cache,
-  KSEG0 D-cache stores/writeback, cache timing, parity, and cache-error exceptions;
+  cache timing, parity, and cache-error exceptions;
 - interrupt delivery, complete COP0 behavior, TLB, and MMU;
 - completed PIF emulation, proprietary PIF/BIOS execution, general CIC support,
   PI timing/general transfers, authentic firmware-executed bootstrap handoff,
-  and cartridge-entry execution;
+  and authentic/user-provided cartridge-entry execution;
 - authentic PIF firmware/revision validation, firmware execution, and
   coupled PAL/MPAL or other-family/NMI/DD handoff-state production;
 - authentic private-firmware-backed SP IMEM observations, RSP/COP2 execution,
@@ -814,6 +829,11 @@ calls only public `Machine::step` for execution. Its 183 cases cover:
   checksum, 65,536 D-cache fills, 196,608 D-cache hits, final device clears,
   boot globals, 2,048-store SP teardown, and JR/Nop arrival at synthetic
   `0x80001000` without executing its first word;
+- preserved v1 final-handoff truth plus a separate 7,477,116-step runtime-v2
+  cold composition whose 77 program commits execute the entry sentinel,
+  KSEG0 cached `Sw`/`Sb`/`Lw`/`Lbu`, three atomic dirty writebacks, seven
+  successful self-check branches, eight KSEG1 mailbox stores, and two complete
+  success-loop iterations with zero failure-path executions;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

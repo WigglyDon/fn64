@@ -66,8 +66,9 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `[0x000, 0x02c)`. External observability does not authorize embedding the
   values or make them current Machine truth.
 - `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
-  BOOT-3, authentic handoff, cartridge-entry/game execution, compatibility,
-  graphics, window, and audio are not claimed.
+  BOOT-3, authentic handoff, user-provided or commercial cartridge execution,
+  compatibility, graphics, window, and audio are not claimed. Public generated
+  runtime-v2 execution is synthetic proof only.
 - `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`,
   `J`, `JAL`, `JR`, and `JALR`
   execute through `Machine::step` with one CPU-owned delay-slot context.
@@ -303,6 +304,23 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   from public synthetic input. This proves deterministic PI/D-cache/final-IPL3
   composition, not PI timing, RSP execution, authentic IPL2 or cartridge
   execution, BOOT-3, or compatibility; BOOT-2 remains unchanged.
+- `RUNTIME_FACT`: the separate public
+  `synthetic-x105-cartridge-runtime-v2` fixture preserves that exact v1 proof
+  and adds one 92-word self-checking program. A complete cold public
+  composition executes 7,477,116 instructions and reaches Count `7477100`.
+  The cartridge program itself commits 77 instructions: entry word
+  `0x24020042` executes once; seven guest comparisons all select success;
+  failure code executes zero times; and two J/Nop iterations complete at
+  PC/next-PC `0x80001124 / 0x80001128`. CPU-owned KSEG0 D-cache `Sw`, `Sb`,
+  `Lw`, and `Lbu` produce load hits/misses `4/2`, store hits/misses `2/1`,
+  and three atomic dirty writebacks at physical lines
+  `0x00100000`, `0x00102000`, and `0x00100000`. Final backing words are
+  `0x11AA3344` and `0x55667788`; eight uncached KSEG1 stores write the exact
+  success mailbox at physical `0x003FF000`; shared D-cache index zero ends
+  valid clean with tag `0x00102000`. Runtime-v2 header and guest checksum words
+  match at `0x4077ADEF / 0x096B847A`. This earns synthetic milestone
+  `SYNTHETIC-CARTRIDGE-RUNTIME-COMPLETE`, not BOOT-3, authentic cartridge
+  execution, or compatibility.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -449,6 +467,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   cartridge, exact final device controls, genuine SP teardown stores, and the
   generated JR/delay slot reach but do not execute the synthetic cartridge
   entrypoint, without a Worker lane or queue entry.
+- `master-direct-synthetic-cartridge-runtime-dcache-completion-v1`: direct
+  Master coherent-runtime operation; CPU-owned valid-dirty D-cache state,
+  atomic Rdram writeback, a versioned public runtime-v2 fixture, guest-owned
+  self-checks/mailbox, and two stable success-loop iterations complete without
+  a Worker lane or queue entry.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -500,9 +523,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   then performs one atomic one-MiB cartridge-to-RDRAM copy, while MI owns its
   completion interrupt. Functional KSEG0 D-cache `Lw` executes the complete
   checksum; exact final control writes and 2,048 ordinary SP stores complete
-  IPL3 teardown. The final JR slot reaches synthetic entry `0x80001000` without
-  executing its first word. PI timing, dirty D-cache stores/writeback, RSP
-  execution, authentic cartridge execution, analog timing/accuracy,
+  IPL3 teardown. The preserved v1 proof stops before its entry word. The
+  separate runtime-v2 proof executes that word and its complete guest
+  self-check through three genuine dirty D-cache writebacks, an exact uncached
+  success mailbox, and two stable success-loop iterations. PI timing, RSP
+  execution, authentic or user-provided cartridge execution, analog timing/accuracy,
   host-selected profiles, arbitrary module topology, general device routing,
   broader COP0/CACHE, NMI, a generic bus/MMIO/map, BOOT-3, and compatibility
   remain absent.

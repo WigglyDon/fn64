@@ -131,6 +131,16 @@ mutable initialization state; failed bootstrap preserves the complete owner.
 There is no cartridge/host profile selection, analog claim, generic register
 array, bus, MMIO framework, or timing engine.
 
+The CPU remains sole owner of both primary caches. Its direct-mapped 512-line
+16-byte D-cache now distinguishes invalid, valid clean, and valid dirty lines.
+KSEG0 `Lw`, `Lbu`, `Sw`, and `Sb` use one immutable hit/miss/replacement plan;
+KSEG1 remains uncached. Dirty replacement writes exactly sixteen cached bytes
+to the sole `Rdram` backing owner before fill, and Rdram records the evicting
+instruction, physical line, cache index, bytes, and latest store cause. Failed
+fill or writeback planning mutates neither owner. No timing, write buffer,
+cache coherence, PI snooping, secondary cache, or generic memory router is
+introduced.
+
 The supported coupled handoff follows the same ownership rule. Machine first
 plans accepted bytes, explicit `NTSC_PINNED`, x105 family, cold reset,
 cartridge medium, PIF-version bit, all staged GPR values/sources, Status, and
@@ -140,7 +150,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 183-case step probe, the bounded BOOT-2
+construction/reset probe, the 187-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -198,8 +208,18 @@ executes the complete checksum with 65,536 fills and 196,608 hits; exact final
 control writes, boot-global stores, and 2,048 SP-memory stores follow. JR/Nop
 lands at `0x80001000 / 0x80001004`, Count `7477812`, commit 7,477,828, without
 executing entry word `0x24020042`. This does not prove PI timing, an authentic
-firmware/cartridge handoff, RSP execution, dirty D-cache behavior, BOOT-3, full
+firmware/cartridge handoff, RSP execution, BOOT-3, full
 ISA, game compatibility, renderer, audio, performance, or host integration.
+
+The separate public runtime-v2 fixture preserves that exact v1 stop and
+executes a complete self-checking program from the same cold bootstrap. Its 77
+commits execute `0x24020042` once, use KSEG0 cached `Sw`/`Sb`/`Lw`/`Lbu`,
+produce three exact dirty replacements, and write an eight-word KSEG1 mailbox.
+All seven guest comparisons pass; failure code executes zero times; two J/Nop
+success-loop iterations end at `0x80001124 / 0x80001128`. Total public commits
+are 7,477,116 and Count is 7,477,100. This earns
+`SYNTHETIC-CARTRIDGE-RUNTIME-COMPLETE`, while authentic BOOT-2 remains the
+highest cartridge checkpoint.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
