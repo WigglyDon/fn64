@@ -16,9 +16,11 @@ use crate::cpu::{
     CpuLocalExecutedHelperExecutedInstruction, CpuLocalExecutedHelperInvocationError,
     CpuLocalExecutedHelperInvocationOutcome, CpuRegisterIndexError, MachineCop0TagWriteProvenance,
     MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,
-    MachinePrimaryDataCacheFillPlan, MachinePrimaryInstructionCacheFillPlan,
-    MachinePrimaryInstructionCacheLineState, NON_BOOT_RESET_VECTOR_PC,
-    PRIMARY_DATA_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES,
+    MachinePrimaryDataCacheFillPlan, MachinePrimaryDataCacheStorePlan,
+    MachinePrimaryDataCacheStoreProvenance, MachinePrimaryDataCacheStoreWidth,
+    MachinePrimaryInstructionCacheFillPlan, MachinePrimaryInstructionCacheLineState,
+    NON_BOOT_RESET_VECTOR_PC, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+    PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES,
 };
 use crate::mi::{
     MachineMiCpuStoreProvenance, MachineMiInitModeState, MachineMiInitTransferState,
@@ -294,6 +296,7 @@ pub enum MachineLoadWordRejectionReason {
     RdramRegisterModeDisabled,
     RdramModuleRegisterUnavailable,
     RiRefreshUnavailable,
+    PrimaryDataCacheStateUnavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -619,6 +622,8 @@ pub enum MachineStoreWordRejectionReason {
         transfer_word: u32,
     },
     SpImemWriteRejected,
+    PrimaryDataCacheStateUnavailable,
+    PrimaryDataCacheBackingRejected,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2167,6 +2172,7 @@ pub(crate) struct MachineLoadWordCommitPlan {
     loaded_word: u32,
     result_value: u64,
     data_cache_fill: Option<MachinePrimaryDataCacheFillPlan>,
+    data_cache_hit: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2229,6 +2235,23 @@ pub(crate) enum MachineSpImemByteStepAction {
         value: u8,
         plan: SpImemStoreBytePlan,
     },
+    DirectRdramLoad {
+        fields: CpuInstructionFields,
+        execution_address: CpuAddress,
+        effective_address: u64,
+        physical_address: u32,
+        value: u8,
+        data_cache_fill: Option<MachinePrimaryDataCacheFillPlan>,
+        data_cache_hit: Option<bool>,
+    },
+    DirectRdramStore {
+        fields: CpuInstructionFields,
+        execution_address: CpuAddress,
+        effective_address: u64,
+        offset: RdramOffset,
+        value: u8,
+        data_cache_store: Option<MachinePrimaryDataCacheStorePlan>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2251,6 +2274,7 @@ impl std::error::Error for MachineLoadWordStepApplicationError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MachineStoreWordCommitPlan {
     fields: CpuInstructionFields,
+    execution_address: CpuAddress,
     effective_address: u64,
     target: MachineStoreWordTarget,
     stored_word: Option<u32>,
@@ -2269,6 +2293,11 @@ pub(crate) enum MachineStoreWordMutationPlan {
     DirectRdram {
         offset: RdramOffset,
         stored_word: u32,
+    },
+    CachedRdram {
+        offset: RdramOffset,
+        stored_word: u32,
+        cache_plan: MachinePrimaryDataCacheStorePlan,
     },
     RdramCalibrationAbsent,
     SpDmem {
@@ -3163,12 +3192,23 @@ pub enum MachineRepresentedStepOutcome {
         value: u8,
         cadence_plan: MachineStepCadencePlan,
     },
+    DirectRdramByteCommitted {
+        identity: CpuInstructionIdentity,
+        effective_address: u64,
+        physical_address: u32,
+        value: u8,
+        data_cache_hit: Option<bool>,
+        data_cache_writeback: bool,
+        cadence_plan: MachineStepCadencePlan,
+    },
     LoadWordCommitted {
         effective_address: u64,
         target: MachineLoadWordTarget,
         destination_gpr: u8,
         loaded_word: u32,
         result_value: u64,
+        data_cache_hit: Option<bool>,
+        data_cache_writeback: bool,
         cadence_plan: MachineStepCadencePlan,
     },
     OpaqueSpImemLoadWordCommitted {
@@ -3211,6 +3251,8 @@ pub enum MachineRepresentedStepOutcome {
         target: MachineStoreWordTarget,
         source_gpr: u8,
         stored_word: u32,
+        data_cache_hit: Option<bool>,
+        data_cache_writeback: bool,
         cadence_plan: MachineStepCadencePlan,
     },
     DeviceStoreWordCommitted {
@@ -3386,6 +3428,10 @@ impl MachineRepresentedStepOutcome {
                 destination_gpr: plan.fields.rt(),
                 loaded_word: plan.loaded_word,
                 result_value: plan.result_value,
+                data_cache_hit: plan.data_cache_hit,
+                data_cache_writeback: plan
+                    .data_cache_fill
+                    .is_some_and(|fill| fill.writeback().is_some()),
                 cadence_plan,
             },
             MachineClassifiedStepActionApplication::LoadWord(
@@ -3418,6 +3464,19 @@ impl MachineRepresentedStepOutcome {
                         target: plan.target,
                         source_gpr: plan.fields.rt(),
                         stored_word: plan.known_stored_word(),
+                        data_cache_hit: None,
+                        data_cache_writeback: false,
+                        cadence_plan,
+                    }
+                }
+                MachineStoreWordMutationPlan::CachedRdram { cache_plan, .. } => {
+                    Self::RdramStoreWordCommitted {
+                        effective_address: plan.effective_address,
+                        target: plan.target,
+                        source_gpr: plan.fields.rt(),
+                        stored_word: plan.known_stored_word(),
+                        data_cache_hit: Some(cache_plan.cache_hit()),
+                        data_cache_writeback: cache_plan.writeback().is_some(),
                         cadence_plan,
                     }
                 }
@@ -3596,31 +3655,64 @@ impl MachineRepresentedStepOutcome {
                 cadence_plan,
             },
             MachineClassifiedStepActionApplication::SpImemByte(application) => {
-                let (identity, effective_address, offset, value) = match application.action {
+                match application.action {
                     MachineSpImemByteStepAction::Load {
                         effective_address,
                         offset,
                         value,
                         ..
-                    } => (
-                        CpuInstructionIdentity::Lbu,
+                    } => Self::SpImemByteCommitted {
+                        identity: CpuInstructionIdentity::Lbu,
                         effective_address,
                         offset,
                         value,
-                    ),
+                        cadence_plan: application.cadence_plan,
+                    },
                     MachineSpImemByteStepAction::Store {
                         effective_address,
                         offset,
                         value,
                         ..
-                    } => (CpuInstructionIdentity::Sb, effective_address, offset, value),
-                };
-                Self::SpImemByteCommitted {
-                    identity,
-                    effective_address,
-                    offset,
-                    value,
-                    cadence_plan: application.cadence_plan,
+                    } => Self::SpImemByteCommitted {
+                        identity: CpuInstructionIdentity::Sb,
+                        effective_address,
+                        offset,
+                        value,
+                        cadence_plan: application.cadence_plan,
+                    },
+                    MachineSpImemByteStepAction::DirectRdramLoad {
+                        effective_address,
+                        physical_address,
+                        value,
+                        data_cache_fill,
+                        data_cache_hit,
+                        ..
+                    } => Self::DirectRdramByteCommitted {
+                        identity: CpuInstructionIdentity::Lbu,
+                        effective_address,
+                        physical_address,
+                        value,
+                        data_cache_hit,
+                        data_cache_writeback: data_cache_fill
+                            .is_some_and(|fill| fill.writeback().is_some()),
+                        cadence_plan: application.cadence_plan,
+                    },
+                    MachineSpImemByteStepAction::DirectRdramStore {
+                        effective_address,
+                        offset,
+                        value,
+                        data_cache_store,
+                        ..
+                    } => Self::DirectRdramByteCommitted {
+                        identity: CpuInstructionIdentity::Sb,
+                        effective_address,
+                        physical_address: offset.value(),
+                        value,
+                        data_cache_hit: data_cache_store.map(|plan| plan.cache_hit()),
+                        data_cache_writeback: data_cache_store
+                            .is_some_and(|plan| plan.writeback().is_some()),
+                        cadence_plan: application.cadence_plan,
+                    },
                 }
             }
             MachineClassifiedStepActionApplication::Mtc0(
@@ -3682,6 +3774,7 @@ impl MachineRepresentedStepOutcome {
         match self {
             Self::CpuLocalCommitted { identity, .. }
             | Self::SpImemByteCommitted { identity, .. }
+            | Self::DirectRdramByteCommitted { identity, .. }
             | Self::DataAddressError { identity, .. }
             | Self::ArithmeticOverflowException { identity } => Some(identity),
             Self::LoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lw),
@@ -3719,6 +3812,7 @@ impl MachineRepresentedStepOutcome {
         match self {
             Self::CpuLocalCommitted { cadence_plan, .. }
             | Self::SpImemByteCommitted { cadence_plan, .. }
+            | Self::DirectRdramByteCommitted { cadence_plan, .. }
             | Self::LoadWordCommitted { cadence_plan, .. }
             | Self::OpaqueSpImemLoadWordCommitted { cadence_plan, .. }
             | Self::StoreWordCommitted { cadence_plan, .. }
@@ -3755,6 +3849,7 @@ impl MachineRepresentedStepOutcome {
             Self::Stopped { instruction, .. } => Some(instruction),
             Self::CpuLocalCommitted { .. }
             | Self::SpImemByteCommitted { .. }
+            | Self::DirectRdramByteCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -3790,6 +3885,7 @@ impl MachineRepresentedStepOutcome {
             Self::Unsupported { instruction, .. } => Some(instruction),
             Self::CpuLocalCommitted { .. }
             | Self::SpImemByteCommitted { .. }
+            | Self::DirectRdramByteCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -3825,6 +3921,7 @@ impl MachineRepresentedStepOutcome {
             Self::NoEffectCommitted { instruction, .. } => Some(instruction),
             Self::CpuLocalCommitted { .. }
             | Self::SpImemByteCommitted { .. }
+            | Self::DirectRdramByteCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -3860,6 +3957,7 @@ impl MachineRepresentedStepOutcome {
             Self::InstructionFetchAddressError { plan, .. } => Some(plan),
             Self::CpuLocalCommitted { .. }
             | Self::SpImemByteCommitted { .. }
+            | Self::DirectRdramByteCommitted { .. }
             | Self::LoadWordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -5022,6 +5120,7 @@ impl Machine {
         }
 
         let mut data_cache_fill = None;
+        let mut data_cache_hit = None;
         let loaded_word = match target {
             MachineLoadWordTarget::DirectRdram { offset } => {
                 let cpu_word = cpu_address.value();
@@ -5029,8 +5128,38 @@ impl Machine {
                     let physical_address = offset.value();
                     if let Some(cached) = self.cpu.lookup_primary_data_cache_word(physical_address)
                     {
+                        data_cache_hit = Some(true);
                         cached
                     } else {
+                        let writeback = self
+                            .cpu
+                            .plan_primary_data_cache_replacement(physical_address)
+                            .map_err(|_| {
+                                MachineLoadWordRejection::new(
+                                    fields,
+                                    effective_address,
+                                    cpu_address,
+                                    Some(target),
+                                    MachineLoadWordRejectionReason::PrimaryDataCacheStateUnavailable,
+                                )
+                            })?;
+                        if let Some(writeback) = writeback {
+                            self.rdram
+                                .require_u8_offset(
+                                    writeback.physical_line_address() as usize
+                                        + PRIMARY_DATA_CACHE_LINE_SIZE_BYTES
+                                        - 1,
+                                )
+                                .map_err(|_| {
+                                    MachineLoadWordRejection::new(
+                                        fields,
+                                        effective_address,
+                                        cpu_address,
+                                        Some(target),
+                                        MachineLoadWordRejectionReason::DirectRdramReadRejected,
+                                    )
+                                })?;
+                        }
                         let physical_line_address =
                             physical_address & !((PRIMARY_DATA_CACHE_LINE_SIZE_BYTES as u32) - 1);
                         let mut data = [0_u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES];
@@ -5052,9 +5181,11 @@ impl Machine {
                             cpu_address,
                             physical_line_address,
                             data,
-                        );
+                        )
+                        .with_writeback(writeback);
                         let word = fill.requested_word(physical_address);
                         data_cache_fill = Some(fill);
+                        data_cache_hit = Some(false);
                         word
                     }
                 } else {
@@ -5172,6 +5303,7 @@ impl Machine {
                 loaded_word,
                 result_value,
                 data_cache_fill,
+                data_cache_hit,
             },
         ))
     }
@@ -5184,6 +5316,14 @@ impl Machine {
         match action {
             MachineLoadWordStepAction::Commit(plan) => {
                 if let Some(fill) = plan.data_cache_fill {
+                    if let Some(writeback) = fill.writeback() {
+                        self.rdram
+                            .apply_primary_data_cache_writeback(plan.execution_address, writeback);
+                        self.cpu_rdram_reservation.invalidate_for_rdram_write(
+                            writeback.physical_line_address(),
+                            PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+                        );
+                    }
                     self.cpu.apply_primary_data_cache_fill(fill);
                 }
                 self.cpu
@@ -5241,18 +5381,124 @@ impl Machine {
             base_value.wrapping_add_signed(i64::from(fields.immediate_u16() as i16));
         let cpu_address = CpuAddress::new(effective_address as u32);
         let physical_address = translate_direct_cpu_physical_address(cpu_address)?;
-        let offset = translate_cpu_physical_sp_imem_data_word_address(physical_address, 1)?;
+
+        if let Some(offset) = translate_cpu_physical_sp_imem_data_word_address(physical_address, 1)
+        {
+            return match identity {
+                CpuInstructionIdentity::Lbu => {
+                    let value = self.sp_imem.read_known_u8(SpImemOffset::new(offset)).ok()?;
+                    Some(MachineSpImemByteStepAction::Load {
+                        fields,
+                        execution_address,
+                        effective_address,
+                        offset,
+                        value,
+                    })
+                }
+                CpuInstructionIdentity::Sb => {
+                    let value = self
+                        .cpu
+                        .gpr(usize::from(fields.rt()))
+                        .expect("decoded CPU register index is five bits")
+                        as u8;
+                    let source_lineage = if fields.rs() == fields.rt() {
+                        self.store_word_gpr_source(fields.rs())
+                    } else {
+                        self.store_word_gpr_source(fields.rt())
+                    };
+                    let plan = self
+                        .sp_imem
+                        .plan_cpu_store_byte(
+                            SpImemOffset::new(offset),
+                            value,
+                            MachineSpImemStoreWordProvenance::new(
+                                execution_address,
+                                fields.rt(),
+                                source_lineage,
+                            ),
+                        )
+                        .ok()?;
+                    Some(MachineSpImemByteStepAction::Store {
+                        fields,
+                        effective_address,
+                        offset,
+                        value,
+                        plan,
+                    })
+                }
+                _ => None,
+            };
+        }
+
+        let CpuAddressTarget::DirectRdram(offset) = classify_direct_rdram_address(cpu_address, 1)
+        else {
+            return None;
+        };
+        let cached = (0x8000_0000..=0x9fff_ffff).contains(&cpu_address.value());
 
         match identity {
             CpuInstructionIdentity::Lbu => {
-                let value = self.sp_imem.read_known_u8(SpImemOffset::new(offset)).ok()?;
-                Some(MachineSpImemByteStepAction::Load {
-                    fields,
-                    execution_address,
-                    effective_address,
-                    offset,
-                    value,
-                })
+                if cached {
+                    if let Some(value) = self.cpu.lookup_primary_data_cache_byte(physical_address) {
+                        return Some(MachineSpImemByteStepAction::DirectRdramLoad {
+                            fields,
+                            execution_address,
+                            effective_address,
+                            physical_address,
+                            value,
+                            data_cache_fill: None,
+                            data_cache_hit: Some(true),
+                        });
+                    }
+                    let writeback = self
+                        .cpu
+                        .plan_primary_data_cache_replacement(physical_address)
+                        .ok()?;
+                    if let Some(writeback) = writeback {
+                        self.rdram
+                            .require_u8_offset(
+                                writeback.physical_line_address() as usize
+                                    + PRIMARY_DATA_CACHE_LINE_SIZE_BYTES
+                                    - 1,
+                            )
+                            .ok()?;
+                    }
+                    let physical_line_address =
+                        physical_address & !((PRIMARY_DATA_CACHE_LINE_SIZE_BYTES as u32) - 1);
+                    let mut data = [0_u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES];
+                    for (index, byte) in data.iter_mut().enumerate() {
+                        *byte = self
+                            .rdram
+                            .read_u8(physical_line_address as usize + index)
+                            .ok()?;
+                    }
+                    let fill = MachinePrimaryDataCacheFillPlan::new(
+                        cpu_address,
+                        physical_line_address,
+                        data,
+                    )
+                    .with_writeback(writeback);
+                    Some(MachineSpImemByteStepAction::DirectRdramLoad {
+                        fields,
+                        execution_address,
+                        effective_address,
+                        physical_address,
+                        value: fill.requested_byte(physical_address),
+                        data_cache_fill: Some(fill),
+                        data_cache_hit: Some(false),
+                    })
+                } else {
+                    let value = self.rdram.read_u8(offset.as_usize()).ok()?;
+                    Some(MachineSpImemByteStepAction::DirectRdramLoad {
+                        fields,
+                        execution_address,
+                        effective_address,
+                        physical_address,
+                        value,
+                        data_cache_fill: None,
+                        data_cache_hit: None,
+                    })
+                }
             }
             CpuInstructionIdentity::Sb => {
                 let value = self
@@ -5260,30 +5506,71 @@ impl Machine {
                     .gpr(usize::from(fields.rt()))
                     .expect("decoded CPU register index is five bits")
                     as u8;
-                let source_lineage = if fields.rs() == fields.rt() {
-                    self.store_word_gpr_source(fields.rs())
-                } else {
-                    self.store_word_gpr_source(fields.rt())
-                };
-                let plan = self
-                    .sp_imem
-                    .plan_cpu_store_byte(
-                        SpImemOffset::new(offset),
+                if cached {
+                    let physical_line_address =
+                        physical_address & !((PRIMARY_DATA_CACHE_LINE_SIZE_BYTES as u32) - 1);
+                    let mut data = [0_u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES];
+                    for (index, byte) in data.iter_mut().enumerate() {
+                        *byte = self
+                            .rdram
+                            .read_u8(physical_line_address as usize + index)
+                            .ok()?;
+                    }
+                    let source_lineage = if fields.rs() == fields.rt() {
+                        self.store_word_gpr_source(fields.rs())
+                    } else {
+                        self.store_word_gpr_source(fields.rt())
+                    };
+                    let cache_plan = self
+                        .cpu
+                        .plan_primary_data_cache_store_byte(
+                            cpu_address,
+                            physical_address,
+                            data,
+                            value,
+                            MachinePrimaryDataCacheStoreProvenance::new(
+                                execution_address,
+                                fields.raw().bits(),
+                                fields.rt(),
+                                source_lineage,
+                                effective_address,
+                                cpu_address,
+                                physical_address,
+                                MachinePrimaryDataCacheStoreWidth::Byte,
+                                self.cpu
+                                    .delay_slot_context()
+                                    .map(|context| CpuAddress::new(context.branch_or_jump_pc())),
+                            ),
+                        )
+                        .ok()?;
+                    if let Some(writeback) = cache_plan.writeback() {
+                        self.rdram
+                            .require_u8_offset(
+                                writeback.physical_line_address() as usize
+                                    + PRIMARY_DATA_CACHE_LINE_SIZE_BYTES
+                                    - 1,
+                            )
+                            .ok()?;
+                    }
+                    Some(MachineSpImemByteStepAction::DirectRdramStore {
+                        fields,
+                        execution_address,
+                        effective_address,
+                        offset,
                         value,
-                        MachineSpImemStoreWordProvenance::new(
-                            execution_address,
-                            fields.rt(),
-                            source_lineage,
-                        ),
-                    )
-                    .ok()?;
-                Some(MachineSpImemByteStepAction::Store {
-                    fields,
-                    effective_address,
-                    offset,
-                    value,
-                    plan,
-                })
+                        data_cache_store: Some(cache_plan),
+                    })
+                } else {
+                    self.rdram.require_u8_offset(offset.as_usize()).ok()?;
+                    Some(MachineSpImemByteStepAction::DirectRdramStore {
+                        fields,
+                        execution_address,
+                        effective_address,
+                        offset,
+                        value,
+                        data_cache_store: None,
+                    })
+                }
             }
             _ => None,
         }
@@ -5311,6 +5598,56 @@ impl Machine {
             }
             MachineSpImemByteStepAction::Store { plan, .. } => {
                 self.sp_imem.apply_cpu_store_byte(plan);
+            }
+            MachineSpImemByteStepAction::DirectRdramLoad {
+                fields,
+                execution_address,
+                value,
+                data_cache_fill,
+                ..
+            } => {
+                if let Some(fill) = data_cache_fill {
+                    if let Some(writeback) = fill.writeback() {
+                        self.rdram
+                            .apply_primary_data_cache_writeback(execution_address, writeback);
+                        self.cpu_rdram_reservation.invalidate_for_rdram_write(
+                            writeback.physical_line_address(),
+                            PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+                        );
+                    }
+                    self.cpu.apply_primary_data_cache_fill(fill);
+                }
+                self.cpu
+                    .set_gpr(usize::from(fields.rt()), u64::from(value))?;
+                self.record_known_bootstrap_gpr_destination(
+                    execution_address,
+                    fields,
+                    CpuInstructionIdentity::Lbu,
+                );
+            }
+            MachineSpImemByteStepAction::DirectRdramStore {
+                execution_address,
+                offset,
+                value,
+                data_cache_store,
+                ..
+            } => {
+                if let Some(cache_plan) = data_cache_store {
+                    if let Some(writeback) = cache_plan.writeback() {
+                        self.rdram
+                            .apply_primary_data_cache_writeback(execution_address, writeback);
+                        self.cpu_rdram_reservation.invalidate_for_rdram_write(
+                            writeback.physical_line_address(),
+                            PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+                        );
+                    }
+                    self.cpu.apply_primary_data_cache_store(cache_plan);
+                } else {
+                    self.rdram
+                        .write_u8_at_checked_offset(offset.as_usize(), value);
+                }
+                self.cpu_rdram_reservation
+                    .invalidate_for_rdram_write(offset.value(), 1);
             }
         }
         self.cpu
@@ -5460,6 +5797,7 @@ impl Machine {
                 return Ok(MachineStoreWordStepAction::Commit(
                     MachineStoreWordCommitPlan {
                         fields,
+                        execution_address,
                         effective_address,
                         target,
                         stored_word: None,
@@ -5505,9 +5843,82 @@ impl Machine {
         }
         let mutation = match target {
             MachineStoreWordTarget::DirectRdram { offset } => {
-                MachineStoreWordMutationPlan::DirectRdram {
-                    offset,
-                    stored_word,
+                if (0x8000_0000..=0x9fff_ffff).contains(&cpu_address.value()) {
+                    let physical_address = offset.value();
+                    let physical_line_address =
+                        physical_address & !((PRIMARY_DATA_CACHE_LINE_SIZE_BYTES as u32) - 1);
+                    let mut data = [0_u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES];
+                    for (index, byte) in data.iter_mut().enumerate() {
+                        *byte = self
+                            .rdram
+                            .read_u8(physical_line_address as usize + index)
+                            .map_err(|_| {
+                                MachineStoreWordRejection::new(
+                                    fields,
+                                    Some(effective_address),
+                                    Some(cpu_address),
+                                    Some(target),
+                                    MachineStoreWordRejectionReason::PrimaryDataCacheBackingRejected,
+                                )
+                            })?;
+                    }
+                    let cache_plan = self
+                        .cpu
+                        .plan_primary_data_cache_store_word(
+                            cpu_address,
+                            physical_address,
+                            data,
+                            stored_word,
+                            MachinePrimaryDataCacheStoreProvenance::new(
+                                execution_address,
+                                fields.raw().bits(),
+                                fields.rt(),
+                                source_lineage,
+                                effective_address,
+                                cpu_address,
+                                physical_address,
+                                MachinePrimaryDataCacheStoreWidth::Word,
+                                self.cpu
+                                    .delay_slot_context()
+                                    .map(|context| CpuAddress::new(context.branch_or_jump_pc())),
+                            ),
+                        )
+                        .map_err(|_| {
+                            MachineStoreWordRejection::new(
+                                fields,
+                                Some(effective_address),
+                                Some(cpu_address),
+                                Some(target),
+                                MachineStoreWordRejectionReason::PrimaryDataCacheStateUnavailable,
+                            )
+                        })?;
+                    if let Some(writeback) = cache_plan.writeback() {
+                        self.rdram
+                            .require_u8_offset(
+                                writeback.physical_line_address() as usize
+                                    + PRIMARY_DATA_CACHE_LINE_SIZE_BYTES
+                                    - 1,
+                            )
+                            .map_err(|_| {
+                                MachineStoreWordRejection::new(
+                                    fields,
+                                    Some(effective_address),
+                                    Some(cpu_address),
+                                    Some(target),
+                                    MachineStoreWordRejectionReason::PrimaryDataCacheBackingRejected,
+                                )
+                            })?;
+                    }
+                    MachineStoreWordMutationPlan::CachedRdram {
+                        offset,
+                        stored_word,
+                        cache_plan,
+                    }
+                } else {
+                    MachineStoreWordMutationPlan::DirectRdram {
+                        offset,
+                        stored_word,
+                    }
                 }
             }
             MachineStoreWordTarget::RdramCalibrationAbsent { .. } => {
@@ -6278,6 +6689,7 @@ impl Machine {
         Ok(MachineStoreWordStepAction::Commit(
             MachineStoreWordCommitPlan {
                 fields,
+                execution_address,
                 effective_address,
                 target,
                 stored_word: Some(stored_word),
@@ -6303,6 +6715,23 @@ impl Machine {
                             .expect("direct RDRAM store target was preflighted");
                         self.rdram
                             .write_u32_be_at_checked_offset(offset.as_usize(), stored_word);
+                        self.cpu_rdram_reservation
+                            .invalidate_for_rdram_write(offset.value(), CPU_DATA_WORD_WIDTH);
+                    }
+                    MachineStoreWordMutationPlan::CachedRdram {
+                        offset, cache_plan, ..
+                    } => {
+                        if let Some(writeback) = cache_plan.writeback() {
+                            self.rdram.apply_primary_data_cache_writeback(
+                                plan.execution_address,
+                                writeback,
+                            );
+                            self.cpu_rdram_reservation.invalidate_for_rdram_write(
+                                writeback.physical_line_address(),
+                                PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+                            );
+                        }
+                        self.cpu.apply_primary_data_cache_store(cache_plan);
                         self.cpu_rdram_reservation
                             .invalidate_for_rdram_write(offset.value(), CPU_DATA_WORD_WIDTH);
                     }
@@ -18855,6 +19284,14 @@ mod tests {
         (0x2b << 26) | ((base as u32) << 21) | ((rt as u32) << 16) | immediate as u32
     }
 
+    const fn lbu_word(base: u8, rt: u8, immediate: u16) -> u32 {
+        (0x24 << 26) | ((base as u32) << 21) | ((rt as u32) << 16) | immediate as u32
+    }
+
+    const fn sb_word(base: u8, rt: u8, immediate: u16) -> u32 {
+        (0x28 << 26) | ((base as u32) << 21) | ((rt as u32) << 16) | immediate as u32
+    }
+
     const fn special_add_word(rs: u8, rt: u8, rd: u8) -> u32 {
         ((rs as u32) << 21) | ((rt as u32) << 16) | ((rd as u32) << 11) | 0x20
     }
@@ -18881,6 +19318,10 @@ mod tests {
     const SYNTHETIC_X105_ENTRY_WORD: u32 = 0x2402_0042;
     const SYNTHETIC_X105_CHECKSUM_ONE: u32 = 0xfad4_0ecc;
     const SYNTHETIC_X105_CHECKSUM_TWO: u32 = 0x1f13_7f19;
+    const SYNTHETIC_X105_RUNTIME_V2_PROGRAM_PC: u32 = 0x8000_1000;
+    const SYNTHETIC_X105_RUNTIME_V2_MAILBOX_PHYSICAL: usize = 0x003f_f000;
+    const SYNTHETIC_X105_RUNTIME_V2_TEST_A_PHYSICAL: usize = 0x0010_0000;
+    const SYNTHETIC_X105_RUNTIME_V2_TEST_B_PHYSICAL: usize = 0x0010_2000;
 
     fn x105_checksum_words(payload: &[u8], seed: u32, side_data: &[u8; 0x100]) -> (u32, u32) {
         assert_eq!(payload.len(), 0x0010_0000);
@@ -18927,6 +19368,213 @@ mod tests {
         bytes
     }
 
+    fn synthetic_x105_runtime_v2_program_words() -> (Vec<u32>, u32, u32) {
+        const A: u8 = 8;
+        const B: u8 = 9;
+        const MAILBOX: u8 = 10;
+        const EXPECTED: u8 = 11;
+        const OBSERVED: u8 = 12;
+        const STAGE: u8 = 13;
+        const PASS_MASK: u8 = 14;
+        const TEMP: u8 = 15;
+        const STATUS: u8 = 16;
+        const MAGIC: u8 = 17;
+        const VERSION: u8 = 18;
+        const FINAL_A: u8 = 19;
+        const FINAL_B: u8 = 20;
+
+        let mut words = vec![
+            SYNTHETIC_X105_ENTRY_WORD,
+            immediate_word(0x0f, 0, A, 0x8010),
+            immediate_word(0x0f, 0, B, 0x8010),
+            immediate_word(0x0d, B, B, 0x2000),
+            immediate_word(0x0f, 0, MAILBOX, 0xa03f),
+            immediate_word(0x0d, MAILBOX, MAILBOX, 0xf000),
+            immediate_word(0x09, 0, STAGE, 1),
+            immediate_word(0x09, 0, PASS_MASK, 0),
+            immediate_word(0x09, 0, EXPECTED, 0x0042),
+            0,
+            0,
+            immediate_word(0x0d, PASS_MASK, PASS_MASK, 0x0001),
+            immediate_word(0x09, 0, STAGE, 2),
+            immediate_word(0x0f, 0, EXPECTED, 0x1122),
+            immediate_word(0x0d, EXPECTED, EXPECTED, 0x3344),
+            sw_word(A, EXPECTED, 0),
+            lw_word(A, OBSERVED, 0),
+            0,
+            0,
+            immediate_word(0x0d, PASS_MASK, PASS_MASK, 0x0002),
+            immediate_word(0x09, 0, STAGE, 3),
+            immediate_word(0x0f, 0, EXPECTED, 0x5566),
+            immediate_word(0x0d, EXPECTED, EXPECTED, 0x7788),
+            sw_word(B, EXPECTED, 0),
+            lw_word(B, OBSERVED, 0),
+            0,
+            0,
+            immediate_word(0x0d, PASS_MASK, PASS_MASK, 0x0004),
+            immediate_word(0x09, 0, STAGE, 4),
+            immediate_word(0x0f, 0, EXPECTED, 0x1122),
+            immediate_word(0x0d, EXPECTED, EXPECTED, 0x3344),
+            lw_word(A, OBSERVED, 0),
+            0,
+            0,
+            immediate_word(0x0d, PASS_MASK, PASS_MASK, 0x0008),
+            immediate_word(0x09, 0, STAGE, 5),
+            immediate_word(0x09, 0, TEMP, 0x00aa),
+            sb_word(A, TEMP, 1),
+            lbu_word(A, OBSERVED, 1),
+            0,
+            0,
+            immediate_word(0x0d, PASS_MASK, PASS_MASK, 0x0010),
+            immediate_word(0x09, 0, STAGE, 6),
+            immediate_word(0x0f, 0, EXPECTED, 0x11aa),
+            immediate_word(0x0d, EXPECTED, EXPECTED, 0x3344),
+            lw_word(A, OBSERVED, 0),
+            0,
+            0,
+            immediate_word(0x0d, PASS_MASK, PASS_MASK, 0x0020),
+            special_shift_word(OBSERVED, 0, FINAL_A, 0, 0x25),
+            immediate_word(0x09, 0, STAGE, 7),
+            immediate_word(0x0f, 0, EXPECTED, 0x5566),
+            immediate_word(0x0d, EXPECTED, EXPECTED, 0x7788),
+            lw_word(B, OBSERVED, 0),
+            0,
+            0,
+            immediate_word(0x0d, PASS_MASK, PASS_MASK, 0x0040),
+            special_shift_word(OBSERVED, 0, FINAL_B, 0, 0x25),
+            immediate_word(0x0f, 0, MAGIC, 0x464e),
+            immediate_word(0x0d, MAGIC, MAGIC, 0x3634),
+            sw_word(MAILBOX, MAGIC, 0x0000),
+            immediate_word(0x09, 0, VERSION, 2),
+            sw_word(MAILBOX, VERSION, 0x0004),
+            immediate_word(0x0f, 0, STATUS, 0x600d),
+            immediate_word(0x0d, STATUS, STATUS, 0x0001),
+            sw_word(MAILBOX, STATUS, 0x0008),
+            sw_word(MAILBOX, 0, 0x000c),
+            sw_word(MAILBOX, FINAL_A, 0x0010),
+            sw_word(MAILBOX, FINAL_B, 0x0014),
+            sw_word(MAILBOX, 2, 0x0018),
+            sw_word(MAILBOX, PASS_MASK, 0x001c),
+            0,
+            0,
+            0,
+            0,
+            immediate_word(0x0f, 0, MAGIC, 0x464e),
+            immediate_word(0x0d, MAGIC, MAGIC, 0x3634),
+            sw_word(MAILBOX, MAGIC, 0x0000),
+            immediate_word(0x09, 0, VERSION, 2),
+            sw_word(MAILBOX, VERSION, 0x0004),
+            immediate_word(0x0f, 0, STATUS, 0xbad0),
+            special_shift_word(STATUS, STAGE, STATUS, 0, 0x25),
+            sw_word(MAILBOX, STATUS, 0x0008),
+            sw_word(MAILBOX, STAGE, 0x000c),
+            sw_word(MAILBOX, 0, 0x0010),
+            sw_word(MAILBOX, 0, 0x0014),
+            sw_word(MAILBOX, 2, 0x0018),
+            sw_word(MAILBOX, PASS_MASK, 0x001c),
+            0,
+            0,
+            0,
+            0,
+        ];
+
+        let failure_index = 75_usize;
+        let success_loop_index = 73_usize;
+        let failure_loop_index = 90_usize;
+        for branch_index in [9_usize, 17, 25, 32, 39, 46, 54] {
+            let offset = failure_index as i32 - (branch_index as i32 + 1);
+            words[branch_index] = control_flow_branch_word(0x05, OBSERVED, EXPECTED, offset as i16);
+        }
+        words[9] = control_flow_branch_word(0x05, 2, EXPECTED, (failure_index as i32 - 10) as i16);
+        words[39] =
+            control_flow_branch_word(0x05, OBSERVED, TEMP, (failure_index as i32 - 40) as i16);
+        let pc_for = |index: usize| SYNTHETIC_X105_RUNTIME_V2_PROGRAM_PC + index as u32 * 4;
+        words[71] = control_flow_jump_word(0x02, pc_for(success_loop_index));
+        words[73] = control_flow_jump_word(0x02, pc_for(success_loop_index));
+        words[88] = control_flow_jump_word(0x02, pc_for(failure_loop_index));
+        words[90] = control_flow_jump_word(0x02, pc_for(failure_loop_index));
+
+        (
+            words,
+            pc_for(success_loop_index),
+            pc_for(failure_loop_index),
+        )
+    }
+
+    fn make_public_x105_runtime_v2_cartridge(first: u32, second: u32) -> Vec<u8> {
+        let mut bytes = make_public_x105_handoff_cartridge(first, second);
+        let (program, _, _) = synthetic_x105_runtime_v2_program_words();
+        let program_bytes = &mut bytes[0x1000..0x1000 + program.len() * 4];
+        for (word_bytes, word) in program_bytes.chunks_exact_mut(4).zip(program) {
+            word_bytes.copy_from_slice(&word.to_be_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn public_synthetic_runtime_v2_fixture_preserves_v1_and_encodes_one_bounded_program() {
+        let v1 = make_public_x105_handoff_cartridge(0, 0);
+        assert_eq!(v1.len(), SYNTHETIC_X105_CARTRIDGE_SIZE);
+        assert_eq!(
+            u32::from_be_bytes(v1[0x1000..0x1004].try_into().unwrap()),
+            SYNTHETIC_X105_ENTRY_WORD
+        );
+
+        let (program, success_loop_pc, failure_loop_pc) = synthetic_x105_runtime_v2_program_words();
+        assert_eq!(program.len(), 92);
+        assert_eq!(success_loop_pc, 0x8000_1124);
+        assert_eq!(failure_loop_pc, 0x8000_1168);
+        assert_eq!(program[0], SYNTHETIC_X105_ENTRY_WORD);
+        assert_eq!(
+            identify_cpu_instruction(instruction_fields(program[0])),
+            CpuInstructionIdentity::Addiu
+        );
+        assert_eq!(
+            identify_cpu_instruction(instruction_fields(program[37])),
+            CpuInstructionIdentity::Sb
+        );
+        assert_eq!(
+            identify_cpu_instruction(instruction_fields(program[38])),
+            CpuInstructionIdentity::Lbu
+        );
+        for index in [9_usize, 17, 25, 32, 39, 46, 54] {
+            assert_eq!(
+                identify_cpu_instruction(instruction_fields(program[index])),
+                CpuInstructionIdentity::Bne
+            );
+            assert_eq!(program[index + 1], 0);
+        }
+        for index in [71_usize, 73, 88, 90] {
+            assert_eq!(
+                identify_cpu_instruction(instruction_fields(program[index])),
+                CpuInstructionIdentity::J
+            );
+            assert_eq!(program[index + 1], 0);
+        }
+
+        let v2 = make_public_x105_runtime_v2_cartridge(0, 0);
+        assert_eq!(v2.len(), SYNTHETIC_X105_CARTRIDGE_SIZE);
+        assert_eq!(
+            &v2[0x1000..0x1000 + program.len() * 4],
+            program
+                .iter()
+                .flat_map(|word| word.to_be_bytes())
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+        assert_ne!(
+            &v2[0x1004..0x1000 + program.len() * 4],
+            &v1[0x1004..0x1000 + program.len() * 4]
+        );
+
+        let side_data: [u8; 0x100] = v2[0x750..0x850].try_into().unwrap();
+        let checksums = x105_checksum_words(&v2[0x1000..0x0010_1000], 0x91, &side_data);
+        assert_ne!(
+            checksums,
+            (SYNTHETIC_X105_CHECKSUM_ONE, SYNTHETIC_X105_CHECKSUM_TWO)
+        );
+    }
+
     fn staged_lw_bootstrap_machine(first: u32, second: u32) -> Machine {
         let cartridge = load_cartridge(make_generated_lw_bootstrap_cartridge(first, second))
             .expect("generated cartridge should normalize");
@@ -18946,11 +19594,24 @@ mod tests {
         firmware: Vec<u8>,
     ) -> (Machine, u32) {
         let completes_final_handoff = words.iter().any(|(offset, _)| *offset == 0x7d0);
-        let mut cartridge_bytes = if completes_final_handoff {
+        let cartridge_bytes = if completes_final_handoff {
             make_public_x105_handoff_cartridge(special_shift_word(0, 0, 0, 0, 0), 0)
         } else {
             make_generated_lw_bootstrap_cartridge(special_shift_word(0, 0, 0, 0, 0), 0)
         };
+        staged_generated_cold_x105_machine_with_firmware_and_cartridge(
+            words,
+            firmware,
+            cartridge_bytes,
+        )
+    }
+
+    fn staged_generated_cold_x105_machine_with_firmware_and_cartridge(
+        words: &[(usize, u32)],
+        firmware: Vec<u8>,
+        mut cartridge_bytes: Vec<u8>,
+    ) -> (Machine, u32) {
+        let completes_final_handoff = words.iter().any(|(offset, _)| *offset == 0x7d0);
         for &(offset, word) in words {
             write_be_u32(&mut cartridge_bytes, offset, word);
         }
@@ -19795,6 +20456,7 @@ mod tests {
                     loaded_word: 0,
                     result_value: 0,
                     cadence_plan,
+                    ..
                 }) if effective_address == sign_extend_cpu_address(
                     (u32::from(ri_base) << 16).wrapping_add(0x000c)
                 ) && cadence_plan.advances_count()
@@ -20955,6 +21617,7 @@ mod tests {
                 loaded_word: RI_SELECT_X105_ENABLE_TX_RX_WORD,
                 result_value: 0x14,
                 cadence_plan,
+                ..
             }) if source == stored_state.source() && cadence_plan.advances_count()
         ));
         assert_eq!(machine.cpu().gpr(10), Some(0x14));
@@ -25489,6 +26152,155 @@ mod tests {
     }
 
     #[test]
+    fn kseg0_sw_sb_lw_lbu_commit_dirty_conflicts_and_exact_writebacks() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x8010)),
+            (0x44, immediate_word(0x0f, 0, 9, 0x1122)),
+            (0x48, immediate_word(0x0d, 9, 9, 0x3344)),
+            (0x4c, sw_word(8, 9, 0)),
+            (0x50, lw_word(8, 10, 0)),
+            (0x54, immediate_word(0x0f, 0, 11, 0x8010)),
+            (0x58, immediate_word(0x0d, 11, 11, 0x2000)),
+            (0x5c, immediate_word(0x0f, 0, 12, 0x5566)),
+            (0x60, immediate_word(0x0d, 12, 12, 0x7788)),
+            (0x64, sw_word(11, 12, 0)),
+            (0x68, lw_word(8, 13, 0)),
+            (0x6c, immediate_word(0x09, 0, 14, 0x00aa)),
+            (0x70, sb_word(8, 14, 1)),
+            (0x74, lbu_word(8, 15, 1)),
+            (0x78, lw_word(8, 16, 0)),
+            (0x7c, lw_word(11, 17, 0)),
+        ];
+        let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x84);
+        let mut store_hits = 0;
+        let mut store_misses = 0;
+        let mut load_hits = 0;
+        let mut load_misses = 0;
+        let mut outcome_writebacks = 0;
+        for _ in 0..words.len() {
+            let outcome = machine.step().unwrap();
+            match outcome {
+                MachineRepresentedStepOutcome::RdramStoreWordCommitted {
+                    data_cache_hit: Some(true),
+                    ..
+                }
+                | MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                    identity: CpuInstructionIdentity::Sb,
+                    data_cache_hit: Some(true),
+                    ..
+                } => store_hits += 1,
+                MachineRepresentedStepOutcome::RdramStoreWordCommitted {
+                    data_cache_hit: Some(false),
+                    data_cache_writeback,
+                    ..
+                } => {
+                    store_misses += 1;
+                    outcome_writebacks += u32::from(data_cache_writeback);
+                }
+                MachineRepresentedStepOutcome::LoadWordCommitted {
+                    data_cache_hit: Some(true),
+                    ..
+                }
+                | MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                    identity: CpuInstructionIdentity::Lbu,
+                    data_cache_hit: Some(true),
+                    ..
+                } => load_hits += 1,
+                MachineRepresentedStepOutcome::LoadWordCommitted {
+                    data_cache_hit: Some(false),
+                    data_cache_writeback,
+                    ..
+                } => {
+                    load_misses += 1;
+                    outcome_writebacks += u32::from(data_cache_writeback);
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(store_hits, 1);
+        assert_eq!(store_misses, 2);
+        assert_eq!(load_hits, 3);
+        assert_eq!(load_misses, 2);
+        assert_eq!(outcome_writebacks, 3);
+        assert_eq!(machine.cpu().gpr(10), Some(0x1122_3344));
+        assert_eq!(machine.cpu().gpr(13), Some(0x1122_3344));
+        assert_eq!(machine.cpu().gpr(15), Some(0xaa));
+        assert_eq!(machine.cpu().gpr(16), Some(0x11aa_3344));
+        assert_eq!(machine.cpu().gpr(17), Some(0x5566_7788));
+        assert_eq!(machine.rdram().read_u32_be(0x0010_0000), Ok(0x11aa_3344));
+        assert_eq!(machine.rdram().read_u32_be(0x0010_2000), Ok(0x5566_7788));
+        let writebacks = machine.rdram().primary_data_cache_writebacks();
+        assert_eq!(writebacks.len(), 3);
+        assert_eq!(
+            writebacks
+                .iter()
+                .map(|state| state.physical_line_address())
+                .collect::<Vec<_>>(),
+            vec![0x0010_0000, 0x0010_2000, 0x0010_0000]
+        );
+        assert_eq!(
+            writebacks
+                .iter()
+                .map(|state| state.cache_line_index())
+                .collect::<Vec<_>>(),
+            vec![0, 0, 0]
+        );
+        let line = machine.cpu().primary_caches().data_line(0).unwrap();
+        assert!(line.is_valid_clean());
+        assert!(!line.is_valid_dirty());
+        assert_eq!(line.physical_tag(), Some(0x0010_2000));
+    }
+
+    #[test]
+    fn kseg1_sw_and_lw_bypass_primary_data_cache_and_preserve_backing_truth() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0xa010)),
+            (0x44, immediate_word(0x0f, 0, 9, 0xaabb)),
+            (0x48, immediate_word(0x0d, 9, 9, 0xccdd)),
+            (0x4c, sw_word(8, 9, 0)),
+            (0x50, lw_word(8, 10, 0)),
+        ];
+        let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x85);
+        commit_steps(&mut machine, words.len());
+
+        assert_eq!(machine.rdram().read_u32_be(0x0010_0000), Ok(0xaabb_ccdd));
+        assert_eq!(machine.cpu().gpr(10), Some(0xffff_ffff_aabb_ccdd));
+        assert!(machine.rdram().primary_data_cache_writebacks().is_empty());
+        assert!(
+            (0..crate::cpu::PRIMARY_DATA_CACHE_LINE_COUNT).all(|index| machine
+                .cpu()
+                .primary_caches()
+                .data_line(index)
+                .unwrap()
+                .is_unavailable())
+        );
+    }
+
+    #[test]
+    fn unknown_kseg0_sw_source_rejects_before_cache_or_backing_mutation() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x8010)),
+            (0x44, sw_word(8, 2, 0)),
+        ];
+        let (mut machine, _) = staged_generated_cold_x105_machine(&words, 0x86);
+        machine.step().unwrap();
+        let before = lw_snapshot(&machine);
+
+        let error = machine.step().unwrap_err();
+
+        assert!(matches!(
+            error.store_word_rejection().unwrap().reason(),
+            MachineStoreWordRejectionReason::ValueSourceUnavailable {
+                register_index: 2,
+                source: MachineBootstrapGprSource::UnknownPifProduced,
+            }
+        ));
+        assert_eq!(lw_snapshot(&machine), before);
+        assert!(machine.rdram().primary_data_cache_writebacks().is_empty());
+    }
+
+    #[test]
     fn generated_x105_completes_pi_dma_checksum_finalization_and_reaches_synthetic_entry() {
         const PIF_SEED: u8 = 0x81;
         const FIRST_PIF_WORD: u32 = 0x81ab_c000;
@@ -26269,6 +27081,7 @@ mod tests {
                 loaded_word: 0,
                 result_value: 0,
                 cadence_plan,
+                ..
             }) if cadence_plan.advances_count()
         ));
         assert_eq!(machine.cpu().gpr(9), Some(0));
@@ -27139,6 +27952,7 @@ mod tests {
                 loaded_word: 0x0202_0102,
                 result_value: 0x0000_0000_0202_0102,
                 cadence_plan,
+                ..
             } if cadence_plan.advances_count()
         ));
         total_committed_steps += 1;
@@ -28361,6 +29175,7 @@ mod tests {
                 loaded_word: 0xa400_0a24,
                 result_value: 0xffff_ffff_a400_0a24,
                 cadence_plan,
+                ..
             }) if cadence_plan.advances_count()
         ));
         total_committed_steps += 1;
@@ -29405,6 +30220,316 @@ mod tests {
             .unwrap()
             .is_invalid());
 
+        let mut runtime_firmware = generated_pif_firmware(PIF_SEED, PIF_BOOT_ROM_SIZE_BYTES);
+        write_be_u32(&mut runtime_firmware, source_start, FIRST_PIF_WORD);
+        let runtime_cartridge =
+            make_public_x105_runtime_v2_cartridge(special_shift_word(0, 0, 0, 0, 0), 0);
+        let (mut runtime, runtime_pif_word) =
+            staged_generated_cold_x105_machine_with_firmware_and_cartridge(
+                &words,
+                runtime_firmware,
+                runtime_cartridge,
+            );
+        assert_eq!(runtime_pif_word, FIRST_PIF_WORD);
+        let runtime_checksum_one = runtime.cartridge().read_u32_be(0x10).unwrap();
+        let runtime_checksum_two = runtime.cartridge().read_u32_be(0x14).unwrap();
+        assert_ne!(
+            (runtime_checksum_one, runtime_checksum_two),
+            (SYNTHETIC_X105_CHECKSUM_ONE, SYNTHETIC_X105_CHECKSUM_TWO)
+        );
+        let (runtime_program, success_loop_pc, failure_loop_pc) =
+            synthetic_x105_runtime_v2_program_words();
+        let failure_path_pc = SYNTHETIC_X105_RUNTIME_V2_PROGRAM_PC + 75 * 4;
+        let mut runtime_attempts = 0_u64;
+        let mut runtime_committed_steps = 0_u64;
+        let mut program_committed_steps = 0_u64;
+        let mut entry_instruction_executions = 0_u32;
+        let failure_path_executions = 0_u32;
+        let mut success_loop_iterations = 0_u32;
+        let mut program_started = false;
+        let mut program_start_count = 0_u32;
+        let mut program_start_commits = 0_u64;
+        let mut program_icache_fills = 0_u32;
+        let mut program_icache_hits = 0_u32;
+        let mut data_cache_load_hits = 0_u32;
+        let mut data_cache_load_misses = 0_u32;
+        let mut data_cache_store_hits = 0_u32;
+        let mut data_cache_store_misses = 0_u32;
+        let mut data_cache_dirty_writebacks = 0_u32;
+        let mut data_cache_clean_replacements = 0_u32;
+        let mut kseg1_bypass_accesses = 0_u32;
+        let mut guest_checksum_one = None;
+        let mut guest_checksum_two = None;
+        let mut writeback_count_at_entry = 0_usize;
+        while success_loop_iterations < 2 {
+            assert!(
+                runtime_attempts < 12_000_000,
+                "runtime-v2 cold composition exhausted at pc=0x{:08X}",
+                runtime.cpu().pc()
+            );
+            let pc = runtime.cpu().pc();
+            if pc == 0x8000_022c {
+                guest_checksum_one = Some(runtime.cpu().gpr(7).unwrap() as u32);
+            }
+            if pc == 0x8000_0238 {
+                guest_checksum_two = Some(runtime.cpu().gpr(16).unwrap() as u32);
+            }
+            if pc == SYNTHETIC_X105_RUNTIME_V2_PROGRAM_PC && !program_started {
+                program_started = true;
+                program_start_count = runtime.cpu().cop0_count();
+                program_start_commits = runtime_committed_steps;
+                writeback_count_at_entry = runtime.rdram().primary_data_cache_writebacks().len();
+            }
+            if program_started {
+                assert!(
+                    (SYNTHETIC_X105_RUNTIME_V2_PROGRAM_PC
+                        ..SYNTHETIC_X105_RUNTIME_V2_PROGRAM_PC + runtime_program.len() as u32 * 4)
+                        .contains(&pc),
+                    "runtime-v2 escaped its bounded program at pc=0x{pc:08X}"
+                );
+                if pc >= failure_path_pc {
+                    panic!(
+                        "runtime-v2 entered its failure path at pc=0x{pc:08X} stage={} expected=0x{:016X} observed=0x{:016X} sentinel=0x{:016X} pass_mask=0x{:016X} writebacks={}",
+                        runtime.cpu().gpr(13).unwrap(),
+                        runtime.cpu().gpr(11).unwrap(),
+                        runtime.cpu().gpr(12).unwrap(),
+                        runtime.cpu().gpr(2).unwrap(),
+                        runtime.cpu().gpr(14).unwrap(),
+                        runtime.rdram().primary_data_cache_writebacks().len()
+                    );
+                }
+                if pc == SYNTHETIC_X105_RUNTIME_V2_PROGRAM_PC {
+                    entry_instruction_executions += 1;
+                }
+                let physical_address = pc & 0x1fff_ffff;
+                if runtime
+                    .cpu()
+                    .lookup_primary_instruction_cache_word(physical_address)
+                    .is_some()
+                {
+                    program_icache_hits += 1;
+                } else {
+                    program_icache_fills += 1;
+                }
+            }
+
+            let outcome = runtime.step().unwrap_or_else(|error| {
+                panic!(
+                    "runtime-v2 rejected at pc=0x{pc:08X} count={} attempts={runtime_attempts}: {error:?}",
+                    runtime.cpu().cop0_count()
+                )
+            });
+            runtime_attempts += 1;
+            runtime_committed_steps += 1;
+            if program_started {
+                program_committed_steps += 1;
+                match outcome {
+                    MachineRepresentedStepOutcome::LoadWordCommitted {
+                        data_cache_hit: Some(true),
+                        ..
+                    }
+                    | MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                        identity: CpuInstructionIdentity::Lbu,
+                        data_cache_hit: Some(true),
+                        ..
+                    } => data_cache_load_hits += 1,
+                    MachineRepresentedStepOutcome::LoadWordCommitted {
+                        data_cache_hit: Some(false),
+                        data_cache_writeback,
+                        ..
+                    }
+                    | MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                        identity: CpuInstructionIdentity::Lbu,
+                        data_cache_hit: Some(false),
+                        data_cache_writeback,
+                        ..
+                    } => {
+                        data_cache_load_misses += 1;
+                        if data_cache_writeback {
+                            data_cache_dirty_writebacks += 1;
+                        } else {
+                            data_cache_clean_replacements += 1;
+                        }
+                    }
+                    MachineRepresentedStepOutcome::RdramStoreWordCommitted {
+                        data_cache_hit: Some(true),
+                        ..
+                    }
+                    | MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                        identity: CpuInstructionIdentity::Sb,
+                        data_cache_hit: Some(true),
+                        ..
+                    } => data_cache_store_hits += 1,
+                    MachineRepresentedStepOutcome::RdramStoreWordCommitted {
+                        data_cache_hit: Some(false),
+                        data_cache_writeback,
+                        ..
+                    }
+                    | MachineRepresentedStepOutcome::DirectRdramByteCommitted {
+                        identity: CpuInstructionIdentity::Sb,
+                        data_cache_hit: Some(false),
+                        data_cache_writeback,
+                        ..
+                    } => {
+                        data_cache_store_misses += 1;
+                        if data_cache_writeback {
+                            data_cache_dirty_writebacks += 1;
+                        } else {
+                            data_cache_clean_replacements += 1;
+                        }
+                    }
+                    MachineRepresentedStepOutcome::RdramStoreWordCommitted {
+                        target: MachineStoreWordTarget::DirectRdram { .. },
+                        data_cache_hit: None,
+                        ..
+                    } => kseg1_bypass_accesses += 1,
+                    _ => {}
+                }
+            }
+            if pc == success_loop_pc + 4 {
+                assert_eq!(runtime.cpu().pc(), success_loop_pc);
+                assert_eq!(runtime.cpu().next_pc(), success_loop_pc + 4);
+                success_loop_iterations += 1;
+            }
+        }
+
+        assert!(program_started);
+        assert_eq!(entry_instruction_executions, 1);
+        assert_eq!(failure_path_executions, 0);
+        assert_eq!(runtime.cpu().pc(), success_loop_pc);
+        assert_eq!(runtime.cpu().next_pc(), success_loop_pc + 4);
+        assert_eq!(runtime.cpu_delay_slot_context(), None);
+        assert_ne!(success_loop_pc, failure_loop_pc);
+        assert_eq!(success_loop_iterations, 2);
+        assert_eq!(guest_checksum_one, Some(runtime_checksum_one));
+        assert_eq!(guest_checksum_two, Some(runtime_checksum_two));
+        assert_eq!(
+            runtime.cartridge().read_u32_be(0x1000),
+            Ok(SYNTHETIC_X105_ENTRY_WORD)
+        );
+        assert_eq!(
+            runtime.rdram().read_u32_be(0x1000),
+            Ok(SYNTHETIC_X105_ENTRY_WORD)
+        );
+        for (index, expected_word) in runtime_program.iter().copied().enumerate() {
+            assert_eq!(
+                runtime.cartridge().read_u32_be(0x1000 + index as u32 * 4),
+                Ok(expected_word)
+            );
+            assert_eq!(
+                runtime.rdram().read_u32_be(0x1000 + index * 4),
+                Ok(expected_word)
+            );
+        }
+
+        let mailbox = [
+            0x464e_3634,
+            0x0000_0002,
+            0x600d_0001,
+            0x0000_0000,
+            0x11aa_3344,
+            0x5566_7788,
+            0x0000_0042,
+            0x0000_007f,
+        ];
+        assert_eq!(
+            core::array::from_fn::<_, 8, _>(|index| runtime
+                .rdram()
+                .read_u32_be(SYNTHETIC_X105_RUNTIME_V2_MAILBOX_PHYSICAL + index * 4)
+                .unwrap()),
+            mailbox
+        );
+        assert_eq!(
+            runtime
+                .rdram()
+                .read_u32_be(SYNTHETIC_X105_RUNTIME_V2_TEST_A_PHYSICAL),
+            Ok(0x11aa_3344)
+        );
+        assert_eq!(
+            runtime
+                .rdram()
+                .read_u32_be(SYNTHETIC_X105_RUNTIME_V2_TEST_B_PHYSICAL),
+            Ok(0x5566_7788)
+        );
+
+        let runtime_writebacks =
+            &runtime.rdram().primary_data_cache_writebacks()[writeback_count_at_entry..];
+        assert_eq!(runtime_writebacks.len(), 3);
+        assert_eq!(
+            runtime_writebacks
+                .iter()
+                .map(|state| state.physical_line_address())
+                .collect::<Vec<_>>(),
+            vec![0x0010_0000, 0x0010_2000, 0x0010_0000]
+        );
+        assert_eq!(data_cache_dirty_writebacks, 3);
+        assert_eq!(data_cache_load_hits, 4);
+        assert_eq!(data_cache_load_misses, 2);
+        assert_eq!(data_cache_store_hits, 2);
+        assert_eq!(data_cache_store_misses, 1);
+        assert_eq!(data_cache_clean_replacements, 0);
+        assert_eq!(kseg1_bypass_accesses, 8);
+        let shared_line_index = crate::cpu::primary_data_cache_line_index(
+            SYNTHETIC_X105_RUNTIME_V2_TEST_B_PHYSICAL as u32,
+        );
+        assert_eq!(
+            shared_line_index,
+            crate::cpu::primary_data_cache_line_index(
+                SYNTHETIC_X105_RUNTIME_V2_TEST_A_PHYSICAL as u32
+            )
+        );
+        assert!(matches!(
+            runtime.cpu().primary_caches().data_line(shared_line_index),
+            Some(crate::cpu::MachinePrimaryDataCacheLineState::ValidClean {
+                physical_tag: 0x0010_2000,
+                data,
+                ..
+            }) if u32::from_be_bytes(data[..4].try_into().unwrap()) == 0x5566_7788
+        ));
+        assert!(
+            (0..crate::cpu::PRIMARY_DATA_CACHE_LINE_COUNT).all(|index| !runtime
+                .cpu()
+                .primary_caches()
+                .data_line(index)
+                .unwrap()
+                .is_valid_dirty())
+        );
+        assert_eq!(runtime.pi_status_word(), 0);
+        assert!(runtime.pi_completed_dma_state().is_some());
+        for source in [
+            MachineMiInterruptSource::Sp,
+            MachineMiInterruptSource::Si,
+            MachineMiInterruptSource::Ai,
+            MachineMiInterruptSource::Vi,
+            MachineMiInterruptSource::Pi,
+            MachineMiInterruptSource::Dp,
+        ] {
+            assert!(!runtime.mi_interrupt_state().pending(source));
+            assert!(!runtime.mi_interrupt_state().mask_enabled(source));
+        }
+        assert_eq!(
+            runtime.sp_status_state().unwrap().command_word(),
+            SP_STATUS_X105_FINAL_HALT_WORD
+        );
+        assert_eq!(runtime.cpu().cop0_exception_code(), 0);
+        assert!(!runtime.cpu().cop0_exception_branch_delay());
+        assert_eq!(
+            runtime.cpu().cop0_count().wrapping_sub(program_start_count),
+            program_committed_steps as u32
+        );
+        assert_eq!(
+            runtime_committed_steps - program_start_commits,
+            program_committed_steps
+        );
+        assert_eq!(
+            runtime_committed_steps,
+            u64::from(runtime.cpu().cop0_count()) + 16
+        );
+        eprintln!(
+            "RUNTIME_V2_RESULT checksums={runtime_checksum_one:08x}/{runtime_checksum_two:08x} attempts={runtime_attempts} committed={runtime_committed_steps} program_steps={program_committed_steps} final_count={} final_commits={runtime_committed_steps} success_loop=0x{success_loop_pc:08x} icache_fills={program_icache_fills} icache_hits={program_icache_hits} dcache_lh={data_cache_load_hits} dcache_lm={data_cache_load_misses} dcache_sh={data_cache_store_hits} dcache_sm={data_cache_store_misses} writebacks={data_cache_dirty_writebacks} bypass={kseg1_bypass_accesses}",
+            runtime.cpu().cop0_count()
+        );
+
         let completed_profile = machine.rdram_profile();
         machine.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
         let before_failed_bootstrap = lw_snapshot(&machine);
@@ -29625,6 +30750,7 @@ mod tests {
                     loaded_word: observed,
                     result_value,
                     cadence_plan,
+                    ..
                 } if offset == RdramOffset::new(0x100)
                     && observed == loaded_word
                     && result_value == expected
@@ -29752,6 +30878,7 @@ mod tests {
                 loaded_word: 0x0202_0102,
                 result_value: 0x0000_0000_0202_0102,
                 cadence_plan,
+                ..
             } if cadence_plan.advances_count()
         ));
         assert_eq!(machine.cpu().gpr(2), Some(0x0000_0000_0202_0102));

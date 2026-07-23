@@ -1,6 +1,10 @@
 use core::fmt;
 
 use crate::cpu::address::CpuAddress;
+use crate::cpu::{
+    MachinePrimaryDataCacheStoreProvenance, MachinePrimaryDataCacheWritebackPlan,
+    PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+};
 use crate::machine::MachineBootstrapGprSource;
 use crate::mi::MachineMiInitTransferState;
 
@@ -913,6 +917,50 @@ impl fmt::Display for RdramAccessError {
 
 impl std::error::Error for RdramAccessError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRdramPrimaryDataCacheWritebackState {
+    evicting_instruction_pc: CpuAddress,
+    physical_line_address: u32,
+    cache_line_index: u16,
+    data: [u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES],
+    latest_dirty_store: MachinePrimaryDataCacheStoreProvenance,
+}
+
+impl MachineRdramPrimaryDataCacheWritebackState {
+    pub(crate) const fn from_plan(
+        evicting_instruction_pc: CpuAddress,
+        plan: MachinePrimaryDataCacheWritebackPlan,
+    ) -> Self {
+        Self {
+            evicting_instruction_pc,
+            physical_line_address: plan.physical_line_address(),
+            cache_line_index: plan.line_index() as u16,
+            data: plan.data(),
+            latest_dirty_store: plan.latest_store(),
+        }
+    }
+
+    pub const fn evicting_instruction_pc(self) -> CpuAddress {
+        self.evicting_instruction_pc
+    }
+
+    pub const fn physical_line_address(self) -> u32 {
+        self.physical_line_address
+    }
+
+    pub const fn cache_line_index(self) -> u16 {
+        self.cache_line_index
+    }
+
+    pub const fn data(self) -> [u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES] {
+        self.data
+    }
+
+    pub const fn latest_dirty_store(self) -> MachinePrimaryDataCacheStoreProvenance {
+        self.latest_dirty_store
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rdram {
     bytes: Vec<u8>,
@@ -926,6 +974,7 @@ pub struct Rdram {
     global_mode_request: Option<MachineRdramModeState>,
     finalization_started: bool,
     active_calibration: Option<MachineRdramCalibrationTarget>,
+    primary_data_cache_writebacks: Vec<MachineRdramPrimaryDataCacheWritebackState>,
 }
 
 impl Rdram {
@@ -946,6 +995,7 @@ impl Rdram {
             global_mode_request: None,
             finalization_started: false,
             active_calibration: None,
+            primary_data_cache_writebacks: Vec::new(),
         })
     }
 
@@ -959,6 +1009,23 @@ impl Rdram {
 
     pub(crate) fn module_states(&self) -> &[MachineRdramModuleState] {
         &self.modules
+    }
+
+    pub fn primary_data_cache_writebacks(&self) -> &[MachineRdramPrimaryDataCacheWritebackState] {
+        &self.primary_data_cache_writebacks
+    }
+
+    pub(crate) fn apply_primary_data_cache_writeback(
+        &mut self,
+        evicting_instruction_pc: CpuAddress,
+        plan: MachinePrimaryDataCacheWritebackPlan,
+    ) {
+        let state =
+            MachineRdramPrimaryDataCacheWritebackState::from_plan(evicting_instruction_pc, plan);
+        let offset = state.physical_line_address() as usize;
+        self.bytes[offset..offset + PRIMARY_DATA_CACHE_LINE_SIZE_BYTES]
+            .copy_from_slice(&state.data());
+        self.primary_data_cache_writebacks.push(state);
     }
 
     pub(crate) const fn global_mode_request_state(&self) -> Option<MachineRdramModeState> {

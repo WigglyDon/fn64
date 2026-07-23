@@ -14,12 +14,14 @@ pub use address::{
 };
 pub(crate) use cache::{
     primary_data_cache_line_index, primary_instruction_cache_line_index,
-    MachinePrimaryDataCacheFillPlan, MachinePrimaryInstructionCacheFillPlan,
+    MachinePrimaryDataCacheFillPlan, MachinePrimaryDataCacheStorePlan,
+    MachinePrimaryDataCacheWritebackPlan, MachinePrimaryInstructionCacheFillPlan,
 };
 pub use cache::{
     MachineCop0TagState, MachineCop0TagWriteProvenance, MachinePrimaryCacheIndexStoreTagTarget,
     MachinePrimaryCacheOperationProvenance, MachinePrimaryCaches,
     MachinePrimaryDataCacheFillProvenance, MachinePrimaryDataCacheLineState,
+    MachinePrimaryDataCacheStoreProvenance, MachinePrimaryDataCacheStoreWidth,
     MachinePrimaryInstructionCacheFillProvenance, MachinePrimaryInstructionCacheLineState,
     PRIMARY_DATA_CACHE_LINE_COUNT, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
     PRIMARY_DATA_CACHE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_COUNT,
