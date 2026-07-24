@@ -22,3 +22,7 @@ path = "src/bin/fn64_step_probe.rs"
 [[bin]]
 name = "fn64_boot_probe"
 path = "src/bin/fn64_boot_probe.rs"
+
+[[bin]]
+name = "fn64_user_cartridge_probe"
+path = "src/bin/fn64_user_cartridge_probe.rs"

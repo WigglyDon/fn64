@@ -2059,7 +2059,7 @@ fn probe_mtc0_delay_slot_and_rejections() -> Result<(), StepProbeError> {
 
     const DEST_CASE: &str = "mtc0-unsupported-destination-rejection";
     let (mut destination, _) =
-        generated_cold_x105_machine(DEST_CASE, &[(0x40, cop0_move_word(4, 0, 12))])?;
+        generated_cold_x105_machine(DEST_CASE, &[(0x40, cop0_move_word(4, 0, 15))])?;
     let before = (
         destination.cpu().pc(),
         destination.cpu().next_pc(),
@@ -2069,7 +2069,7 @@ fn probe_mtc0_delay_slot_and_rejections() -> Result<(), StepProbeError> {
         Err(MachineRepresentedStepError::Mtc0Rejected(rejection)) => require(
             DEST_CASE,
             rejection.reason()
-                == MachineMtc0RejectionReason::UnsupportedDestination { register_index: 12 },
+                == MachineMtc0RejectionReason::UnsupportedDestination { register_index: 15 },
             "unsupported destination rejection",
         )?,
         Err(source) => {

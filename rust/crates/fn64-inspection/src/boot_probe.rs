@@ -595,7 +595,11 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
                     | MachineRepresentedStepOutcome::SpImemByteCommitted { .. }
                     | MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. }
+                    | MachineRepresentedStepOutcome::DirectRdramHalfwordCommitted { .. }
+                    | MachineRepresentedStepOutcome::DirectRdramDoublewordCommitted { .. }
+                    | MachineRepresentedStepOutcome::LoadHalfwordCommitted { .. }
                     | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. }
                     | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
@@ -621,8 +625,17 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                         ..
                     }
                     | MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. }
+                    | MachineRepresentedStepOutcome::Mfc0Committed { .. }
                     | MachineRepresentedStepOutcome::Mtc0Committed { .. }
+                    | MachineRepresentedStepOutcome::Cop1ControlTransferCommitted { .. }
+                    | MachineRepresentedStepOutcome::CacheIndexInvalidateCommitted { .. }
+                    | MachineRepresentedStepOutcome::CacheIndexWritebackInvalidateCommitted {
+                        ..
+                    }
                     | MachineRepresentedStepOutcome::CacheIndexStoreTagCommitted { .. }
+                    | MachineRepresentedStepOutcome::CacheHitWritebackCommitted { .. }
+                    | MachineRepresentedStepOutcome::CacheHitInvalidateCommitted { .. }
+                    | MachineRepresentedStepOutcome::InterruptExceptionEntered { .. }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
                     MachineRepresentedStepOutcome::DataAddressError { .. } => {
                         first_frontier = Some(format_frontier(
@@ -760,7 +773,11 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
             | MachineRepresentedStepOutcome::SpImemByteCommitted { .. }
             | MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. }
+            | MachineRepresentedStepOutcome::DirectRdramHalfwordCommitted { .. }
+            | MachineRepresentedStepOutcome::DirectRdramDoublewordCommitted { .. }
+            | MachineRepresentedStepOutcome::LoadHalfwordCommitted { .. }
             | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
+            | MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. }
             | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::OpaqueSpImemStoreWordCommitted { .. }
@@ -778,8 +795,14 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::RdramInitialModeStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RdramBroadcastRefreshRowStoreCommitted { .. }
             | MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. }
+            | MachineRepresentedStepOutcome::Mfc0Committed { .. }
             | MachineRepresentedStepOutcome::Mtc0Committed { .. }
+            | MachineRepresentedStepOutcome::Cop1ControlTransferCommitted { .. }
+            | MachineRepresentedStepOutcome::CacheIndexInvalidateCommitted { .. }
+            | MachineRepresentedStepOutcome::CacheIndexWritebackInvalidateCommitted { .. }
             | MachineRepresentedStepOutcome::CacheIndexStoreTagCommitted { .. }
+            | MachineRepresentedStepOutcome::CacheHitWritebackCommitted { .. }
+            | MachineRepresentedStepOutcome::CacheHitInvalidateCommitted { .. }
             | MachineRepresentedStepOutcome::NoEffectCommitted { .. }
     )
 }
@@ -801,7 +824,17 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. } => {
             "direct-rdram-byte-committed"
         }
+        MachineRepresentedStepOutcome::DirectRdramHalfwordCommitted { .. } => {
+            "direct-rdram-halfword-committed"
+        }
+        MachineRepresentedStepOutcome::DirectRdramDoublewordCommitted { .. } => {
+            "direct-rdram-doubleword-committed"
+        }
+        MachineRepresentedStepOutcome::LoadHalfwordCommitted { .. } => "load-halfword-committed",
         MachineRepresentedStepOutcome::LoadWordCommitted { .. } => "load-word-committed",
+        MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. } => {
+            "load-doubleword-committed"
+        }
         MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. } => {
             "opaque-sp-imem-load-word-committed"
         }
@@ -847,9 +880,28 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         MachineRepresentedStepOutcome::RiRefreshStoreCommitted { .. } => {
             "ri-refresh-store-committed"
         }
+        MachineRepresentedStepOutcome::Mfc0Committed { .. } => "mfc0-committed",
         MachineRepresentedStepOutcome::Mtc0Committed { .. } => "mtc0-committed",
+        MachineRepresentedStepOutcome::Cop1ControlTransferCommitted { .. } => {
+            "cop1-control-transfer-committed"
+        }
+        MachineRepresentedStepOutcome::CacheIndexInvalidateCommitted { .. } => {
+            "cache-index-invalidate-committed"
+        }
+        MachineRepresentedStepOutcome::CacheIndexWritebackInvalidateCommitted { .. } => {
+            "cache-index-writeback-invalidate-committed"
+        }
         MachineRepresentedStepOutcome::CacheIndexStoreTagCommitted { .. } => {
             "cache-index-store-tag-committed"
+        }
+        MachineRepresentedStepOutcome::CacheHitWritebackCommitted { .. } => {
+            "cache-hit-writeback-committed"
+        }
+        MachineRepresentedStepOutcome::CacheHitInvalidateCommitted { .. } => {
+            "cache-hit-invalidate-committed"
+        }
+        MachineRepresentedStepOutcome::InterruptExceptionEntered { .. } => {
+            "interrupt-exception-entered"
         }
         MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
         MachineRepresentedStepOutcome::ArithmeticOverflowException { .. } => {
@@ -1012,9 +1064,29 @@ fn format_load_word_rejection_frontier(
         Some(MachineLoadWordTarget::RdramCalibrationAbsent { physical_address }) => {
             format!("rdram-calibration-absent physical_address=0x{physical_address:08X}")
         }
+        Some(MachineLoadWordTarget::RdramAbsentModuleMemory { physical_address }) => {
+            format!("rdram-absent-module-memory physical_address=0x{physical_address:08X}")
+        }
         Some(MachineLoadWordTarget::RiRefresh) => "ri-refresh".to_owned(),
         Some(MachineLoadWordTarget::MiVersion) => "mi-version".to_owned(),
+        Some(MachineLoadWordTarget::MiInterrupt) => "mi-interrupt".to_owned(),
+        Some(MachineLoadWordTarget::MiInterruptMask) => "mi-interrupt-mask".to_owned(),
+        Some(MachineLoadWordTarget::SpStatus) => "sp-status".to_owned(),
         Some(MachineLoadWordTarget::PiStatus) => "pi-status".to_owned(),
+        Some(MachineLoadWordTarget::ViCurrent) => "vi-current".to_owned(),
+        Some(MachineLoadWordTarget::PiDomainOneAddressOneAbsent { physical_address }) => {
+            format!("pi-domain-one-address-one-absent physical_address=0x{physical_address:08X}")
+        }
+        Some(MachineLoadWordTarget::PiDomainTiming { register }) => {
+            format!(
+                "pi-domain-timing physical_address=0x{:08X}",
+                register.physical_address()
+            )
+        }
+        Some(MachineLoadWordTarget::SiStatus) => "si-status".to_owned(),
+        Some(MachineLoadWordTarget::PifRam { offset }) => {
+            format!("pif-ram offset=0x{offset:02X}")
+        }
         None => "unclassified".to_owned(),
     };
     let reason = match rejection.reason() {
@@ -1049,6 +1121,10 @@ fn format_load_word_rejection_frontier(
             "rdram-module-register-unavailable".to_owned()
         }
         MachineLoadWordRejectionReason::RiRefreshUnavailable => "ri-refresh-unavailable".to_owned(),
+        MachineLoadWordRejectionReason::PiDomainTimingUnavailable { register } => format!(
+            "pi-domain-timing-unavailable physical_address=0x{:08X}",
+            register.physical_address()
+        ),
     };
 
     format!(
