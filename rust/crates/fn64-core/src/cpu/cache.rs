@@ -87,6 +87,178 @@ pub enum MachinePrimaryCacheIndexStoreTagTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachinePrimaryCacheHitInvalidateTarget {
+    Instruction,
+    Data,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachinePrimaryCacheIndexInvalidateProvenance {
+    instruction_pc: CpuAddress,
+    raw_instruction_word: u32,
+    target: MachinePrimaryCacheIndexStoreTagTarget,
+    base_gpr: u8,
+    base_lineage: MachineBootstrapGprSource,
+    effective_address: u64,
+    cpu_address: CpuAddress,
+    physical_address: u32,
+    line_index: u16,
+    delay_slot_owner: Option<CpuAddress>,
+}
+
+impl MachinePrimaryCacheIndexInvalidateProvenance {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn new(
+        instruction_pc: CpuAddress,
+        raw_instruction_word: u32,
+        target: MachinePrimaryCacheIndexStoreTagTarget,
+        base_gpr: u8,
+        base_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+        line_index: u16,
+        delay_slot_owner: Option<CpuAddress>,
+    ) -> Self {
+        Self {
+            instruction_pc,
+            raw_instruction_word,
+            target,
+            base_gpr,
+            base_lineage,
+            effective_address,
+            cpu_address,
+            physical_address,
+            line_index,
+            delay_slot_owner,
+        }
+    }
+
+    pub const fn instruction_pc(self) -> CpuAddress {
+        self.instruction_pc
+    }
+
+    pub const fn raw_instruction_word(self) -> u32 {
+        self.raw_instruction_word
+    }
+
+    pub const fn target(self) -> MachinePrimaryCacheIndexStoreTagTarget {
+        self.target
+    }
+
+    pub const fn base_gpr(self) -> u8 {
+        self.base_gpr
+    }
+
+    pub const fn base_lineage(self) -> MachineBootstrapGprSource {
+        self.base_lineage
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        self.effective_address
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        self.cpu_address
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        self.physical_address
+    }
+
+    pub const fn line_index(self) -> u16 {
+        self.line_index
+    }
+
+    pub const fn delay_slot_owner(self) -> Option<CpuAddress> {
+        self.delay_slot_owner
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachinePrimaryCacheHitInvalidateProvenance {
+    instruction_pc: CpuAddress,
+    raw_instruction_word: u32,
+    target: MachinePrimaryCacheHitInvalidateTarget,
+    base_gpr: u8,
+    base_lineage: MachineBootstrapGprSource,
+    effective_address: u64,
+    cpu_address: CpuAddress,
+    physical_address: u32,
+    line_index: u16,
+    delay_slot_owner: Option<CpuAddress>,
+}
+
+impl MachinePrimaryCacheHitInvalidateProvenance {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn new(
+        instruction_pc: CpuAddress,
+        raw_instruction_word: u32,
+        target: MachinePrimaryCacheHitInvalidateTarget,
+        base_gpr: u8,
+        base_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+        line_index: u16,
+        delay_slot_owner: Option<CpuAddress>,
+    ) -> Self {
+        Self {
+            instruction_pc,
+            raw_instruction_word,
+            target,
+            base_gpr,
+            base_lineage,
+            effective_address,
+            cpu_address,
+            physical_address,
+            line_index,
+            delay_slot_owner,
+        }
+    }
+
+    pub const fn instruction_pc(self) -> CpuAddress {
+        self.instruction_pc
+    }
+
+    pub const fn raw_instruction_word(self) -> u32 {
+        self.raw_instruction_word
+    }
+
+    pub const fn target(self) -> MachinePrimaryCacheHitInvalidateTarget {
+        self.target
+    }
+
+    pub const fn base_gpr(self) -> u8 {
+        self.base_gpr
+    }
+
+    pub const fn base_lineage(self) -> MachineBootstrapGprSource {
+        self.base_lineage
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        self.effective_address
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        self.cpu_address
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        self.physical_address
+    }
+
+    pub const fn line_index(self) -> u16 {
+        self.line_index
+    }
+
+    pub const fn delay_slot_owner(self) -> Option<CpuAddress> {
+        self.delay_slot_owner
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachinePrimaryCacheOperationProvenance {
     instruction_pc: CpuAddress,
     raw_instruction_word: u32,
@@ -191,7 +363,9 @@ pub struct MachinePrimaryDataCacheFillProvenance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachinePrimaryDataCacheStoreWidth {
     Byte,
+    Halfword,
     Word,
+    Doubleword,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +379,82 @@ pub struct MachinePrimaryDataCacheStoreProvenance {
     physical_address: u32,
     width: MachinePrimaryDataCacheStoreWidth,
     delay_slot_owner: Option<CpuAddress>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachinePrimaryDataCacheHitWritebackProvenance {
+    instruction_pc: CpuAddress,
+    raw_instruction_word: u32,
+    base_gpr: u8,
+    base_lineage: MachineBootstrapGprSource,
+    effective_address: u64,
+    cpu_address: CpuAddress,
+    physical_address: u32,
+    line_index: u16,
+    delay_slot_owner: Option<CpuAddress>,
+}
+
+impl MachinePrimaryDataCacheHitWritebackProvenance {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn new(
+        instruction_pc: CpuAddress,
+        raw_instruction_word: u32,
+        base_gpr: u8,
+        base_lineage: MachineBootstrapGprSource,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+        line_index: u16,
+        delay_slot_owner: Option<CpuAddress>,
+    ) -> Self {
+        Self {
+            instruction_pc,
+            raw_instruction_word,
+            base_gpr,
+            base_lineage,
+            effective_address,
+            cpu_address,
+            physical_address,
+            line_index,
+            delay_slot_owner,
+        }
+    }
+
+    pub const fn instruction_pc(self) -> CpuAddress {
+        self.instruction_pc
+    }
+
+    pub const fn raw_instruction_word(self) -> u32 {
+        self.raw_instruction_word
+    }
+
+    pub const fn base_gpr(self) -> u8 {
+        self.base_gpr
+    }
+
+    pub const fn base_lineage(self) -> MachineBootstrapGprSource {
+        self.base_lineage
+    }
+
+    pub const fn effective_address(self) -> u64 {
+        self.effective_address
+    }
+
+    pub const fn cpu_address(self) -> CpuAddress {
+        self.cpu_address
+    }
+
+    pub const fn physical_address(self) -> u32 {
+        self.physical_address
+    }
+
+    pub const fn line_index(self) -> u16 {
+        self.line_index
+    }
+
+    pub const fn delay_slot_owner(self) -> Option<CpuAddress> {
+        self.delay_slot_owner
+    }
 }
 
 impl MachinePrimaryDataCacheStoreProvenance {
@@ -310,6 +560,12 @@ pub enum MachinePrimaryInstructionCacheLineState {
     Invalid {
         provenance: MachinePrimaryCacheOperationProvenance,
     },
+    IndexInvalid {
+        provenance: MachinePrimaryCacheIndexInvalidateProvenance,
+    },
+    HitInvalid {
+        provenance: MachinePrimaryCacheHitInvalidateProvenance,
+    },
     ValidDataUnavailable {
         physical_tag: u32,
         provenance: MachinePrimaryCacheOperationProvenance,
@@ -327,7 +583,10 @@ impl MachinePrimaryInstructionCacheLineState {
     }
 
     pub const fn is_invalid(self) -> bool {
-        matches!(self, Self::Invalid { .. })
+        matches!(
+            self,
+            Self::Invalid { .. } | Self::IndexInvalid { .. } | Self::HitInvalid { .. }
+        )
     }
 
     pub const fn is_valid(self) -> bool {
@@ -339,7 +598,10 @@ impl MachinePrimaryInstructionCacheLineState {
             Self::ValidDataUnavailable { physical_tag, .. } | Self::Valid { physical_tag, .. } => {
                 Some(physical_tag)
             }
-            Self::Unavailable | Self::Invalid { .. } => None,
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. } => None,
         }
     }
 
@@ -348,21 +610,58 @@ impl MachinePrimaryInstructionCacheLineState {
             Self::Invalid { provenance } | Self::ValidDataUnavailable { provenance, .. } => {
                 Some(provenance)
             }
-            Self::Unavailable | Self::Valid { .. } => None,
+            Self::Unavailable
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. }
+            | Self::Valid { .. } => None,
+        }
+    }
+
+    pub const fn index_invalidation_provenance(
+        self,
+    ) -> Option<MachinePrimaryCacheIndexInvalidateProvenance> {
+        match self {
+            Self::IndexInvalid { provenance } => Some(provenance),
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::HitInvalid { .. }
+            | Self::ValidDataUnavailable { .. }
+            | Self::Valid { .. } => None,
+        }
+    }
+
+    pub const fn hit_invalidation_provenance(
+        self,
+    ) -> Option<MachinePrimaryCacheHitInvalidateProvenance> {
+        match self {
+            Self::HitInvalid { provenance } => Some(provenance),
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::ValidDataUnavailable { .. }
+            | Self::Valid { .. } => None,
         }
     }
 
     pub const fn fill_provenance(self) -> Option<MachinePrimaryInstructionCacheFillProvenance> {
         match self {
             Self::Valid { provenance, .. } => Some(provenance),
-            Self::Unavailable | Self::Invalid { .. } | Self::ValidDataUnavailable { .. } => None,
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. }
+            | Self::ValidDataUnavailable { .. } => None,
         }
     }
 
     pub const fn data(self) -> Option<[u8; PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES]> {
         match self {
             Self::Valid { data, .. } => Some(data),
-            Self::Unavailable | Self::Invalid { .. } | Self::ValidDataUnavailable { .. } => None,
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. }
+            | Self::ValidDataUnavailable { .. } => None,
         }
     }
 }
@@ -372,6 +671,12 @@ pub enum MachinePrimaryDataCacheLineState {
     Unavailable,
     Invalid {
         provenance: MachinePrimaryCacheOperationProvenance,
+    },
+    IndexInvalid {
+        provenance: MachinePrimaryCacheIndexInvalidateProvenance,
+    },
+    HitInvalid {
+        provenance: MachinePrimaryCacheHitInvalidateProvenance,
     },
     ValidCleanDataUnavailable {
         physical_tag: u32,
@@ -400,7 +705,10 @@ impl MachinePrimaryDataCacheLineState {
     }
 
     pub const fn is_invalid(self) -> bool {
-        matches!(self, Self::Invalid { .. })
+        matches!(
+            self,
+            Self::Invalid { .. } | Self::IndexInvalid { .. } | Self::HitInvalid { .. }
+        )
     }
 
     pub const fn is_valid_clean(self) -> bool {
@@ -423,7 +731,10 @@ impl MachinePrimaryDataCacheLineState {
             | Self::ValidDirtyDataUnavailable { physical_tag, .. }
             | Self::ValidClean { physical_tag, .. }
             | Self::ValidDirty { physical_tag, .. } => Some(physical_tag),
-            Self::Unavailable | Self::Invalid { .. } => None,
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. } => None,
         }
     }
 
@@ -432,7 +743,41 @@ impl MachinePrimaryDataCacheLineState {
             Self::Invalid { provenance }
             | Self::ValidCleanDataUnavailable { provenance, .. }
             | Self::ValidDirtyDataUnavailable { provenance, .. } => Some(provenance),
-            Self::Unavailable | Self::ValidClean { .. } | Self::ValidDirty { .. } => None,
+            Self::Unavailable
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. }
+            | Self::ValidClean { .. }
+            | Self::ValidDirty { .. } => None,
+        }
+    }
+
+    pub const fn index_invalidation_provenance(
+        self,
+    ) -> Option<MachinePrimaryCacheIndexInvalidateProvenance> {
+        match self {
+            Self::IndexInvalid { provenance } => Some(provenance),
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::HitInvalid { .. }
+            | Self::ValidCleanDataUnavailable { .. }
+            | Self::ValidDirtyDataUnavailable { .. }
+            | Self::ValidClean { .. }
+            | Self::ValidDirty { .. } => None,
+        }
+    }
+
+    pub const fn hit_invalidation_provenance(
+        self,
+    ) -> Option<MachinePrimaryCacheHitInvalidateProvenance> {
+        match self {
+            Self::HitInvalid { provenance } => Some(provenance),
+            Self::Unavailable
+            | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::ValidCleanDataUnavailable { .. }
+            | Self::ValidDirtyDataUnavailable { .. }
+            | Self::ValidClean { .. }
+            | Self::ValidDirty { .. } => None,
         }
     }
 
@@ -444,6 +789,8 @@ impl MachinePrimaryDataCacheLineState {
             } => Some(fill_provenance),
             Self::Unavailable
             | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. }
             | Self::ValidCleanDataUnavailable { .. }
             | Self::ValidDirtyDataUnavailable { .. } => None,
         }
@@ -454,6 +801,8 @@ impl MachinePrimaryDataCacheLineState {
             Self::ValidClean { data, .. } | Self::ValidDirty { data, .. } => Some(data),
             Self::Unavailable
             | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. }
             | Self::ValidCleanDataUnavailable { .. }
             | Self::ValidDirtyDataUnavailable { .. } => None,
         }
@@ -466,6 +815,8 @@ impl MachinePrimaryDataCacheLineState {
             } => Some(store_provenance),
             Self::Unavailable
             | Self::Invalid { .. }
+            | Self::IndexInvalid { .. }
+            | Self::HitInvalid { .. }
             | Self::ValidCleanDataUnavailable { .. }
             | Self::ValidDirtyDataUnavailable { .. }
             | Self::ValidClean { .. } => None,
@@ -544,6 +895,70 @@ impl MachinePrimaryCaches {
         }
     }
 
+    pub(crate) fn apply_index_invalidate(&mut self, plan: MachinePrimaryCacheIndexInvalidatePlan) {
+        match plan.provenance.target() {
+            MachinePrimaryCacheIndexStoreTagTarget::Instruction => {
+                self.instruction_lines[plan.line_index] =
+                    MachinePrimaryInstructionCacheLineState::IndexInvalid {
+                        provenance: plan.provenance,
+                    };
+            }
+            MachinePrimaryCacheIndexStoreTagTarget::Data => {
+                self.data_lines[plan.line_index] = MachinePrimaryDataCacheLineState::IndexInvalid {
+                    provenance: plan.provenance,
+                };
+            }
+        }
+    }
+
+    pub(crate) fn plan_data_index_writeback_invalidate(
+        &self,
+        provenance: MachinePrimaryCacheIndexInvalidateProvenance,
+    ) -> Result<
+        MachinePrimaryDataCacheIndexWritebackInvalidatePlan,
+        MachinePrimaryDataCacheAccessError,
+    > {
+        debug_assert_eq!(
+            provenance.target(),
+            MachinePrimaryCacheIndexStoreTagTarget::Data
+        );
+        let line_index = provenance.line_index() as usize;
+        let state = self.data_lines[line_index];
+        let writeback = match state {
+            MachinePrimaryDataCacheLineState::ValidDirty {
+                physical_tag,
+                data,
+                store_provenance,
+                ..
+            } => Some(MachinePrimaryDataCacheWritebackPlan::new(
+                line_index,
+                physical_tag,
+                data,
+                store_provenance,
+            )),
+            MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable { .. } => {
+                return Err(MachinePrimaryDataCacheAccessError { line_index, state });
+            }
+            MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
+            | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
+            | MachinePrimaryDataCacheLineState::ValidClean { .. } => None,
+        };
+        Ok(MachinePrimaryDataCacheIndexWritebackInvalidatePlan {
+            invalidate: MachinePrimaryCacheIndexInvalidatePlan::new(provenance),
+            writeback,
+        })
+    }
+
+    pub(crate) fn apply_data_index_writeback_invalidate(
+        &mut self,
+        plan: MachinePrimaryDataCacheIndexWritebackInvalidatePlan,
+    ) {
+        self.apply_index_invalidate(plan.invalidate);
+    }
+
     pub(crate) fn lookup_instruction_word(&self, physical_address: u32) -> Option<u32> {
         let line_index = primary_instruction_cache_line_index(physical_address);
         let expected_tag = primary_instruction_cache_physical_tag(physical_address);
@@ -598,6 +1013,8 @@ impl MachinePrimaryCaches {
             } => (physical_tag, data),
             MachinePrimaryDataCacheLineState::Unavailable
             | MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
             | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
             | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable { .. } => return None,
         };
@@ -612,6 +1029,63 @@ impl MachinePrimaryCaches {
         ))
     }
 
+    pub(crate) fn lookup_data_doubleword(&self, physical_address: u32) -> Option<u64> {
+        let line_index = primary_data_cache_line_index(physical_address);
+        let expected_tag = primary_data_cache_physical_tag(physical_address);
+        let (physical_tag, data) = match self.data_lines[line_index] {
+            MachinePrimaryDataCacheLineState::ValidClean {
+                physical_tag, data, ..
+            }
+            | MachinePrimaryDataCacheLineState::ValidDirty {
+                physical_tag, data, ..
+            } => (physical_tag, data),
+            MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
+            | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
+            | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable { .. } => return None,
+        };
+        if physical_tag != expected_tag {
+            return None;
+        }
+        let doubleword_offset =
+            (physical_address as usize) & (PRIMARY_DATA_CACHE_LINE_SIZE_BYTES - 1);
+        Some(u64::from_be_bytes(
+            data[doubleword_offset..doubleword_offset + 8]
+                .try_into()
+                .expect("aligned data doubleword fits inside one cache line"),
+        ))
+    }
+
+    pub(crate) fn lookup_data_halfword(&self, physical_address: u32) -> Option<u16> {
+        let line_index = primary_data_cache_line_index(physical_address);
+        let expected_tag = primary_data_cache_physical_tag(physical_address);
+        let (physical_tag, data) = match self.data_lines[line_index] {
+            MachinePrimaryDataCacheLineState::ValidClean {
+                physical_tag, data, ..
+            }
+            | MachinePrimaryDataCacheLineState::ValidDirty {
+                physical_tag, data, ..
+            } => (physical_tag, data),
+            MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
+            | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
+            | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable { .. } => return None,
+        };
+        if physical_tag != expected_tag {
+            return None;
+        }
+        let halfword_offset =
+            (physical_address as usize) & (PRIMARY_DATA_CACHE_LINE_SIZE_BYTES - 1);
+        Some(u16::from_be_bytes([
+            data[halfword_offset],
+            data[halfword_offset + 1],
+        ]))
+    }
+
     pub(crate) fn lookup_data_byte(&self, physical_address: u32) -> Option<u8> {
         let line_index = primary_data_cache_line_index(physical_address);
         let expected_tag = primary_data_cache_physical_tag(physical_address);
@@ -624,6 +1098,8 @@ impl MachinePrimaryCaches {
             } => (physical_tag, data),
             MachinePrimaryDataCacheLineState::Unavailable
             | MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
             | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
             | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable { .. } => return None,
         };
@@ -666,6 +1142,8 @@ impl MachinePrimaryCaches {
             }
             MachinePrimaryDataCacheLineState::Unavailable
             | MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
             | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
             | MachinePrimaryDataCacheLineState::ValidClean { .. }
             | MachinePrimaryDataCacheLineState::ValidDirty { .. } => Ok(None),
@@ -702,6 +1180,40 @@ impl MachinePrimaryCaches {
             physical_address,
             fill_data,
             MachinePrimaryDataCacheStoreValue::Byte(stored_byte),
+            provenance,
+        )
+    }
+
+    pub(crate) fn plan_data_store_halfword(
+        &self,
+        requested_cpu_address: CpuAddress,
+        physical_address: u32,
+        fill_data: [u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES],
+        stored_halfword: u16,
+        provenance: MachinePrimaryDataCacheStoreProvenance,
+    ) -> Result<MachinePrimaryDataCacheStorePlan, MachinePrimaryDataCacheAccessError> {
+        self.plan_data_store(
+            requested_cpu_address,
+            physical_address,
+            fill_data,
+            MachinePrimaryDataCacheStoreValue::Halfword(stored_halfword),
+            provenance,
+        )
+    }
+
+    pub(crate) fn plan_data_store_doubleword(
+        &self,
+        requested_cpu_address: CpuAddress,
+        physical_address: u32,
+        fill_data: [u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES],
+        stored_doubleword: u64,
+        provenance: MachinePrimaryDataCacheStoreProvenance,
+    ) -> Result<MachinePrimaryDataCacheStorePlan, MachinePrimaryDataCacheAccessError> {
+        self.plan_data_store(
+            requested_cpu_address,
+            physical_address,
+            fill_data,
+            MachinePrimaryDataCacheStoreValue::Doubleword(stored_doubleword),
             provenance,
         )
     }
@@ -763,6 +1275,8 @@ impl MachinePrimaryCaches {
             ),
             MachinePrimaryDataCacheLineState::Unavailable
             | MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
             | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
             | MachinePrimaryDataCacheLineState::ValidClean { .. } => (
                 fill_data,
@@ -778,8 +1292,14 @@ impl MachinePrimaryCaches {
         let byte_offset = (physical_address as usize) & (PRIMARY_DATA_CACHE_LINE_SIZE_BYTES - 1);
         match value {
             MachinePrimaryDataCacheStoreValue::Byte(value) => data[byte_offset] = value,
+            MachinePrimaryDataCacheStoreValue::Halfword(value) => {
+                data[byte_offset..byte_offset + 2].copy_from_slice(&value.to_be_bytes());
+            }
             MachinePrimaryDataCacheStoreValue::Word(value) => {
                 data[byte_offset..byte_offset + 4].copy_from_slice(&value.to_be_bytes());
+            }
+            MachinePrimaryDataCacheStoreValue::Doubleword(value) => {
+                data[byte_offset..byte_offset + 8].copy_from_slice(&value.to_be_bytes());
             }
         }
 
@@ -809,6 +1329,145 @@ impl MachinePrimaryCaches {
             fill_provenance: plan.fill_provenance,
             store_provenance: plan.store_provenance,
         };
+    }
+
+    pub(crate) fn plan_data_hit_writeback(
+        &self,
+        physical_address: u32,
+        provenance: MachinePrimaryDataCacheHitWritebackProvenance,
+    ) -> Result<MachinePrimaryDataCacheHitWritebackPlan, MachinePrimaryDataCacheAccessError> {
+        let line_index = primary_data_cache_line_index(physical_address);
+        let expected_tag = primary_data_cache_physical_tag(physical_address);
+        let state = self.data_lines[line_index];
+        let (cache_hit, writeback, cleaned_line) = match state {
+            MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable {
+                physical_tag, ..
+            } if physical_tag == expected_tag => {
+                return Err(MachinePrimaryDataCacheAccessError { line_index, state });
+            }
+            MachinePrimaryDataCacheLineState::ValidDirty {
+                physical_tag,
+                data,
+                fill_provenance,
+                store_provenance,
+            } if physical_tag == expected_tag => (
+                true,
+                Some(MachinePrimaryDataCacheWritebackPlan::new(
+                    line_index,
+                    physical_tag,
+                    data,
+                    store_provenance,
+                )),
+                Some(MachinePrimaryDataCacheLineState::ValidClean {
+                    physical_tag,
+                    data,
+                    provenance: fill_provenance,
+                }),
+            ),
+            MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable {
+                physical_tag, ..
+            }
+            | MachinePrimaryDataCacheLineState::ValidClean { physical_tag, .. }
+                if physical_tag == expected_tag =>
+            {
+                (true, None, None)
+            }
+            MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::Invalid { .. }
+            | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
+            | MachinePrimaryDataCacheLineState::HitInvalid { .. }
+            | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
+            | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable { .. }
+            | MachinePrimaryDataCacheLineState::ValidClean { .. }
+            | MachinePrimaryDataCacheLineState::ValidDirty { .. } => (false, None, None),
+        };
+        Ok(MachinePrimaryDataCacheHitWritebackPlan {
+            line_index,
+            cache_hit,
+            writeback,
+            cleaned_line,
+            provenance,
+        })
+    }
+
+    pub(crate) fn apply_data_hit_writeback(
+        &mut self,
+        plan: MachinePrimaryDataCacheHitWritebackPlan,
+    ) {
+        if let Some(cleaned_line) = plan.cleaned_line {
+            self.data_lines[plan.line_index] = cleaned_line;
+        }
+    }
+
+    pub(crate) fn plan_hit_invalidate(
+        &self,
+        physical_address: u32,
+        provenance: MachinePrimaryCacheHitInvalidateProvenance,
+    ) -> MachinePrimaryCacheHitInvalidatePlan {
+        let target = provenance.target();
+        let (line_index, cache_hit) = match target {
+            MachinePrimaryCacheHitInvalidateTarget::Instruction => {
+                let line_index = primary_instruction_cache_line_index(physical_address);
+                let expected_tag = primary_instruction_cache_physical_tag(physical_address);
+                let cache_hit = matches!(
+                    self.instruction_lines[line_index],
+                    MachinePrimaryInstructionCacheLineState::ValidDataUnavailable {
+                        physical_tag,
+                        ..
+                    } | MachinePrimaryInstructionCacheLineState::Valid {
+                        physical_tag,
+                        ..
+                    } if physical_tag == expected_tag
+                );
+                (line_index, cache_hit)
+            }
+            MachinePrimaryCacheHitInvalidateTarget::Data => {
+                let line_index = primary_data_cache_line_index(physical_address);
+                let expected_tag = primary_data_cache_physical_tag(physical_address);
+                let cache_hit = matches!(
+                    self.data_lines[line_index],
+                    MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable {
+                        physical_tag,
+                        ..
+                    } | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable {
+                        physical_tag,
+                        ..
+                    } | MachinePrimaryDataCacheLineState::ValidClean {
+                        physical_tag,
+                        ..
+                    } | MachinePrimaryDataCacheLineState::ValidDirty {
+                        physical_tag,
+                        ..
+                    } if physical_tag == expected_tag
+                );
+                (line_index, cache_hit)
+            }
+        };
+        MachinePrimaryCacheHitInvalidatePlan {
+            target,
+            line_index,
+            cache_hit,
+            provenance,
+        }
+    }
+
+    pub(crate) fn apply_hit_invalidate(&mut self, plan: MachinePrimaryCacheHitInvalidatePlan) {
+        if !plan.cache_hit {
+            return;
+        }
+        match plan.target {
+            MachinePrimaryCacheHitInvalidateTarget::Instruction => {
+                self.instruction_lines[plan.line_index] =
+                    MachinePrimaryInstructionCacheLineState::HitInvalid {
+                        provenance: plan.provenance,
+                    };
+            }
+            MachinePrimaryCacheHitInvalidateTarget::Data => {
+                self.data_lines[plan.line_index] = MachinePrimaryDataCacheLineState::HitInvalid {
+                    provenance: plan.provenance,
+                };
+            }
+        }
     }
 }
 
@@ -841,6 +1500,74 @@ pub(crate) struct MachinePrimaryDataCacheWritebackPlan {
     physical_line_address: u32,
     data: [u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES],
     latest_store: MachinePrimaryDataCacheStoreProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachinePrimaryDataCacheHitWritebackPlan {
+    line_index: usize,
+    cache_hit: bool,
+    writeback: Option<MachinePrimaryDataCacheWritebackPlan>,
+    cleaned_line: Option<MachinePrimaryDataCacheLineState>,
+    provenance: MachinePrimaryDataCacheHitWritebackProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachinePrimaryCacheHitInvalidatePlan {
+    target: MachinePrimaryCacheHitInvalidateTarget,
+    line_index: usize,
+    cache_hit: bool,
+    provenance: MachinePrimaryCacheHitInvalidateProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachinePrimaryCacheIndexInvalidatePlan {
+    line_index: usize,
+    provenance: MachinePrimaryCacheIndexInvalidateProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachinePrimaryDataCacheIndexWritebackInvalidatePlan {
+    invalidate: MachinePrimaryCacheIndexInvalidatePlan,
+    writeback: Option<MachinePrimaryDataCacheWritebackPlan>,
+}
+
+impl MachinePrimaryDataCacheIndexWritebackInvalidatePlan {
+    pub(crate) const fn writeback(self) -> Option<MachinePrimaryDataCacheWritebackPlan> {
+        self.writeback
+    }
+}
+
+impl MachinePrimaryCacheIndexInvalidatePlan {
+    pub(crate) const fn new(provenance: MachinePrimaryCacheIndexInvalidateProvenance) -> Self {
+        Self {
+            line_index: provenance.line_index() as usize,
+            provenance,
+        }
+    }
+}
+
+impl MachinePrimaryCacheHitInvalidatePlan {
+    pub(crate) const fn cache_hit(self) -> bool {
+        self.cache_hit
+    }
+
+    pub(crate) const fn provenance(self) -> MachinePrimaryCacheHitInvalidateProvenance {
+        self.provenance
+    }
+}
+
+impl MachinePrimaryDataCacheHitWritebackPlan {
+    pub(crate) const fn cache_hit(self) -> bool {
+        self.cache_hit
+    }
+
+    pub(crate) const fn writeback(self) -> Option<MachinePrimaryDataCacheWritebackPlan> {
+        self.writeback
+    }
+
+    pub(crate) const fn provenance(self) -> MachinePrimaryDataCacheHitWritebackProvenance {
+        self.provenance
+    }
 }
 
 impl MachinePrimaryDataCacheWritebackPlan {
@@ -879,7 +1606,9 @@ impl MachinePrimaryDataCacheWritebackPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MachinePrimaryDataCacheStoreValue {
     Byte(u8),
+    Halfword(u16),
     Word(u32),
+    Doubleword(u64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -943,9 +1672,30 @@ impl MachinePrimaryDataCacheFillPlan {
         ])
     }
 
+    pub(crate) const fn requested_doubleword(self, physical_address: u32) -> u64 {
+        let doubleword_offset =
+            (physical_address as usize) & (PRIMARY_DATA_CACHE_LINE_SIZE_BYTES - 1);
+        u64::from_be_bytes([
+            self.data[doubleword_offset],
+            self.data[doubleword_offset + 1],
+            self.data[doubleword_offset + 2],
+            self.data[doubleword_offset + 3],
+            self.data[doubleword_offset + 4],
+            self.data[doubleword_offset + 5],
+            self.data[doubleword_offset + 6],
+            self.data[doubleword_offset + 7],
+        ])
+    }
+
     pub(crate) const fn requested_byte(self, physical_address: u32) -> u8 {
         let byte_offset = (physical_address as usize) & (PRIMARY_DATA_CACHE_LINE_SIZE_BYTES - 1);
         self.data[byte_offset]
+    }
+
+    pub(crate) const fn requested_halfword(self, physical_address: u32) -> u16 {
+        let halfword_offset =
+            (physical_address as usize) & (PRIMARY_DATA_CACHE_LINE_SIZE_BYTES - 1);
+        u16::from_be_bytes([self.data[halfword_offset], self.data[halfword_offset + 1]])
     }
 }
 
@@ -1040,6 +1790,17 @@ impl Cpu {
         self.primary_caches.lookup_data_word(physical_address)
     }
 
+    pub(crate) fn lookup_primary_data_cache_doubleword(
+        &self,
+        physical_address: u32,
+    ) -> Option<u64> {
+        self.primary_caches.lookup_data_doubleword(physical_address)
+    }
+
+    pub(crate) fn lookup_primary_data_cache_halfword(&self, physical_address: u32) -> Option<u16> {
+        self.primary_caches.lookup_data_halfword(physical_address)
+    }
+
     pub(crate) fn lookup_primary_data_cache_byte(&self, physical_address: u32) -> Option<u8> {
         self.primary_caches.lookup_data_byte(physical_address)
     }
@@ -1086,6 +1847,40 @@ impl Cpu {
         )
     }
 
+    pub(crate) fn plan_primary_data_cache_store_halfword(
+        &self,
+        requested_cpu_address: CpuAddress,
+        physical_address: u32,
+        fill_data: [u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES],
+        stored_halfword: u16,
+        provenance: MachinePrimaryDataCacheStoreProvenance,
+    ) -> Result<MachinePrimaryDataCacheStorePlan, MachinePrimaryDataCacheAccessError> {
+        self.primary_caches.plan_data_store_halfword(
+            requested_cpu_address,
+            physical_address,
+            fill_data,
+            stored_halfword,
+            provenance,
+        )
+    }
+
+    pub(crate) fn plan_primary_data_cache_store_doubleword(
+        &self,
+        requested_cpu_address: CpuAddress,
+        physical_address: u32,
+        fill_data: [u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES],
+        stored_doubleword: u64,
+        provenance: MachinePrimaryDataCacheStoreProvenance,
+    ) -> Result<MachinePrimaryDataCacheStorePlan, MachinePrimaryDataCacheAccessError> {
+        self.primary_caches.plan_data_store_doubleword(
+            requested_cpu_address,
+            physical_address,
+            fill_data,
+            stored_doubleword,
+            provenance,
+        )
+    }
+
     pub(crate) fn apply_primary_data_cache_fill(&mut self, plan: MachinePrimaryDataCacheFillPlan) {
         self.primary_caches.apply_data_fill(plan);
     }
@@ -1095,6 +1890,64 @@ impl Cpu {
         plan: MachinePrimaryDataCacheStorePlan,
     ) {
         self.primary_caches.apply_data_store(plan);
+    }
+
+    pub(crate) fn plan_primary_data_cache_hit_writeback(
+        &self,
+        physical_address: u32,
+        provenance: MachinePrimaryDataCacheHitWritebackProvenance,
+    ) -> Result<MachinePrimaryDataCacheHitWritebackPlan, MachinePrimaryDataCacheAccessError> {
+        self.primary_caches
+            .plan_data_hit_writeback(physical_address, provenance)
+    }
+
+    pub(crate) fn apply_primary_data_cache_hit_writeback(
+        &mut self,
+        plan: MachinePrimaryDataCacheHitWritebackPlan,
+    ) {
+        self.primary_caches.apply_data_hit_writeback(plan);
+    }
+
+    pub(crate) fn plan_primary_cache_hit_invalidate(
+        &self,
+        physical_address: u32,
+        provenance: MachinePrimaryCacheHitInvalidateProvenance,
+    ) -> MachinePrimaryCacheHitInvalidatePlan {
+        self.primary_caches
+            .plan_hit_invalidate(physical_address, provenance)
+    }
+
+    pub(crate) fn apply_primary_cache_hit_invalidate(
+        &mut self,
+        plan: MachinePrimaryCacheHitInvalidatePlan,
+    ) {
+        self.primary_caches.apply_hit_invalidate(plan);
+    }
+
+    pub(crate) fn apply_primary_cache_index_invalidate(
+        &mut self,
+        plan: MachinePrimaryCacheIndexInvalidatePlan,
+    ) {
+        self.primary_caches.apply_index_invalidate(plan);
+    }
+
+    pub(crate) fn plan_primary_data_cache_index_writeback_invalidate(
+        &self,
+        provenance: MachinePrimaryCacheIndexInvalidateProvenance,
+    ) -> Result<
+        MachinePrimaryDataCacheIndexWritebackInvalidatePlan,
+        MachinePrimaryDataCacheAccessError,
+    > {
+        self.primary_caches
+            .plan_data_index_writeback_invalidate(provenance)
+    }
+
+    pub(crate) fn apply_primary_data_cache_index_writeback_invalidate(
+        &mut self,
+        plan: MachinePrimaryDataCacheIndexWritebackInvalidatePlan,
+    ) {
+        self.primary_caches
+            .apply_data_index_writeback_invalidate(plan);
     }
 }
 
@@ -1148,7 +2001,9 @@ mod tests {
             CpuAddress::new(instruction_pc),
             match width {
                 MachinePrimaryDataCacheStoreWidth::Byte => 0xa10a_0001,
+                MachinePrimaryDataCacheStoreWidth::Halfword => 0xa50a_0000,
                 MachinePrimaryDataCacheStoreWidth::Word => 0xad0a_0000,
+                MachinePrimaryDataCacheStoreWidth::Doubleword => 0xfd0a_0000,
             },
             10,
             MachineBootstrapGprSource::KnownInstructionResult {

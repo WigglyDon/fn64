@@ -9,6 +9,7 @@ use crate::machine::MachineBootstrapGprSource;
 use crate::mi::MachineMiInitTransferState;
 
 pub const RDRAM_SIZE_BYTES: usize = 4 * 1024 * 1024;
+pub const RDRAM_MEMORY_APERTURE_END_EXCLUSIVE: u32 = 0x03f0_0000;
 pub const RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS: u32 = 0x03f8_0004;
 pub const RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS: u32 = 0x03f8_0008;
 pub const RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS: u32 = 0x03f8_0014;
@@ -1275,6 +1276,26 @@ impl Rdram {
                 if physical_address >= probe_base
                     && physical_address.saturating_add(width as u32) <= probe_base + 8
         )
+    }
+
+    pub(crate) fn absent_module_memory_access_is_no_effect(
+        &self,
+        physical_address: u32,
+        width: usize,
+    ) -> bool {
+        let Ok(width) = u32::try_from(width) else {
+            return false;
+        };
+        let Some(end) = physical_address.checked_add(width) else {
+            return false;
+        };
+        let Ok(capacity_bytes) = u32::try_from(self.profile.capacity_bytes()) else {
+            return false;
+        };
+
+        self.initialization_complete()
+            && physical_address >= capacity_bytes
+            && end <= RDRAM_MEMORY_APERTURE_END_EXCLUSIVE
     }
 
     pub(crate) fn calibration_read_word(

@@ -6,12 +6,15 @@ pub const MI_INIT_MODE_X105_WRITE_WORD: u32 = 0x0000_010f;
 pub const MI_INIT_MODE_X105_INIT_LENGTH: u8 = 15;
 pub const MI_INIT_MODE_X105_REPEATED_BYTE_COUNT: u8 = 16;
 pub const MI_VERSION_PHYSICAL_ADDRESS: u32 = 0x0430_0004;
+pub const MI_INTR_PHYSICAL_ADDRESS: u32 = 0x0430_0008;
 pub const MI_VERSION_STANDARD_RETAIL_NUS_WORD: u32 = 0x0202_0102;
 pub const MI_SET_RDRAM_REGISTER_MODE_WORD: u32 = 0x0000_2000;
 pub const MI_CLEAR_RDRAM_REGISTER_MODE_WORD: u32 = 0x0000_1000;
 pub const MI_INTR_MASK_PHYSICAL_ADDRESS: u32 = 0x0430_000c;
 pub const MI_CLEAR_DP_INTERRUPT_WORD: u32 = 0x0000_0800;
 pub const MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD: u32 = 0x0000_0555;
+pub const MI_SET_ALL_INTERRUPT_MASKS_WORD: u32 = 0x0000_0aaa;
+pub const MI_INTERRUPT_MASK_COMMAND_DEFINED_MASK: u32 = 0x0000_0fff;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineMiCpuStoreProvenance {
@@ -71,6 +74,29 @@ pub enum MachineMiInterruptSource {
     Dp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineMiInterruptMaskCommandState {
+    raw_word: u32,
+    provenance: MachineMiCpuStoreProvenance,
+}
+
+impl MachineMiInterruptMaskCommandState {
+    pub(crate) const fn new(raw_word: u32, provenance: MachineMiCpuStoreProvenance) -> Self {
+        Self {
+            raw_word,
+            provenance,
+        }
+    }
+
+    pub const fn raw_word(self) -> u32 {
+        self.raw_word
+    }
+
+    pub const fn provenance(self) -> MachineMiCpuStoreProvenance {
+        self.provenance
+    }
+}
+
 impl MachineMiInterruptSource {
     const fn index(self) -> usize {
         match self {
@@ -90,6 +116,7 @@ pub struct MachineMiInterruptState {
     masks: [bool; 6],
     pending_clear_provenance: [Option<MachineMiCpuStoreProvenance>; 6],
     mask_clear_provenance: Option<MachineMiCpuStoreProvenance>,
+    last_mask_command: Option<MachineMiInterruptMaskCommandState>,
 }
 
 impl MachineMiInterruptState {
@@ -99,6 +126,30 @@ impl MachineMiInterruptState {
     pub const fn mask_enabled(self, source: MachineMiInterruptSource) -> bool {
         self.masks[source.index()]
     }
+    pub const fn mask_word(self) -> u32 {
+        (self.masks[MachineMiInterruptSource::Sp.index()] as u32)
+            | ((self.masks[MachineMiInterruptSource::Si.index()] as u32) << 1)
+            | ((self.masks[MachineMiInterruptSource::Ai.index()] as u32) << 2)
+            | ((self.masks[MachineMiInterruptSource::Vi.index()] as u32) << 3)
+            | ((self.masks[MachineMiInterruptSource::Pi.index()] as u32) << 4)
+            | ((self.masks[MachineMiInterruptSource::Dp.index()] as u32) << 5)
+    }
+    pub const fn pending_word(self) -> u32 {
+        (self.pending[MachineMiInterruptSource::Sp.index()] as u32)
+            | ((self.pending[MachineMiInterruptSource::Si.index()] as u32) << 1)
+            | ((self.pending[MachineMiInterruptSource::Ai.index()] as u32) << 2)
+            | ((self.pending[MachineMiInterruptSource::Vi.index()] as u32) << 3)
+            | ((self.pending[MachineMiInterruptSource::Pi.index()] as u32) << 4)
+            | ((self.pending[MachineMiInterruptSource::Dp.index()] as u32) << 5)
+    }
+    pub const fn masked_pending(self) -> bool {
+        (self.pending[0] && self.masks[0])
+            || (self.pending[1] && self.masks[1])
+            || (self.pending[2] && self.masks[2])
+            || (self.pending[3] && self.masks[3])
+            || (self.pending[4] && self.masks[4])
+            || (self.pending[5] && self.masks[5])
+    }
     pub const fn pending_clear_provenance(
         self,
         source: MachineMiInterruptSource,
@@ -107,6 +158,9 @@ impl MachineMiInterruptState {
     }
     pub const fn mask_clear_provenance(self) -> Option<MachineMiCpuStoreProvenance> {
         self.mask_clear_provenance
+    }
+    pub const fn last_mask_command(self) -> Option<MachineMiInterruptMaskCommandState> {
+        self.last_mask_command
     }
     fn set_pending(&mut self, source: MachineMiInterruptSource) {
         self.pending[source.index()] = true;
@@ -119,9 +173,28 @@ impl MachineMiInterruptState {
         self.pending[source.index()] = false;
         self.pending_clear_provenance[source.index()] = Some(provenance);
     }
-    fn clear_all_masks(&mut self, provenance: MachineMiCpuStoreProvenance) {
-        self.masks = [false; 6];
-        self.mask_clear_provenance = Some(provenance);
+    fn apply_mask_command(&mut self, state: MachineMiInterruptMaskCommandState) {
+        for source in [
+            MachineMiInterruptSource::Sp,
+            MachineMiInterruptSource::Si,
+            MachineMiInterruptSource::Ai,
+            MachineMiInterruptSource::Vi,
+            MachineMiInterruptSource::Pi,
+            MachineMiInterruptSource::Dp,
+        ] {
+            let clear_bit = 1_u32 << (source.index() * 2);
+            let set_bit = clear_bit << 1;
+            if state.raw_word() & clear_bit != 0 {
+                self.masks[source.index()] = false;
+            }
+            if state.raw_word() & set_bit != 0 {
+                self.masks[source.index()] = true;
+            }
+        }
+        if state.raw_word() == MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD {
+            self.mask_clear_provenance = Some(state.provenance());
+        }
+        self.last_mask_command = Some(state);
     }
 }
 
@@ -388,6 +461,10 @@ impl Mi {
         self.interrupts.set_pending(MachineMiInterruptSource::Pi);
     }
 
+    pub(crate) fn set_pending_interrupt(&mut self, source: MachineMiInterruptSource) {
+        self.interrupts.set_pending(source);
+    }
+
     pub(crate) fn clear_pending_interrupt(
         &mut self,
         source: MachineMiInterruptSource,
@@ -396,8 +473,11 @@ impl Mi {
         self.interrupts.clear_pending(source, provenance);
     }
 
-    pub(crate) fn clear_all_interrupt_masks(&mut self, provenance: MachineMiCpuStoreProvenance) {
-        self.interrupts.clear_all_masks(provenance);
+    pub(crate) fn apply_interrupt_mask_command(
+        &mut self,
+        state: MachineMiInterruptMaskCommandState,
+    ) {
+        self.interrupts.apply_mask_command(state);
     }
 
     pub(crate) fn apply_init_mode_store(&mut self, state: MachineMiInitModeState) {
@@ -568,7 +648,10 @@ mod tests {
         );
 
         let mask_clear = interrupt_source(0x8000_01ac, MI_INTR_MASK_PHYSICAL_ADDRESS);
-        mi.clear_all_interrupt_masks(mask_clear);
+        mi.apply_interrupt_mask_command(MachineMiInterruptMaskCommandState::new(
+            MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD,
+            mask_clear,
+        ));
         assert_eq!(
             mi.interrupt_state().mask_clear_provenance(),
             Some(mask_clear)

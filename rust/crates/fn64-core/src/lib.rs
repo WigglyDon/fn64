@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod ai;
 pub mod cartridge;
 pub mod cpu;
 pub mod machine;
@@ -8,10 +9,18 @@ mod pi;
 mod pif_firmware;
 pub mod rdram;
 mod ri;
+mod si;
 mod sp;
 pub mod sp_dmem;
 mod sp_imem;
+mod vi;
 
+pub use ai::{
+    MachineAiBitRateState, MachineAiControlState, MachineAiCpuStoreProvenance,
+    MachineAiDacRateState, AI_BIT_RATE_MASK, AI_BIT_RATE_PHYSICAL_ADDRESS,
+    AI_CONTROL_DMA_ENABLE_MASK, AI_CONTROL_PHYSICAL_ADDRESS, AI_DAC_RATE_MASK,
+    AI_DAC_RATE_PHYSICAL_ADDRESS, AI_STATUS_PHYSICAL_ADDRESS,
+};
 pub use cartridge::{
     inspect_cartridge_entry, load_cartridge, normalize_rom_image, rom_source_layout_name,
     Cartridge, CartridgeEntryInspection, CartridgeLoadError, CartridgeReadError,
@@ -24,14 +33,18 @@ pub use cpu::{
     CpuAddressErrorKind, CpuDataAccessKind, CpuDataAddressError, CpuDataAlignmentError,
     CpuDataWidth, CpuDelaySlotContext, CpuInstructionFields, CpuInstructionIdentity,
     CpuInstructionWord, CpuRegisterIndexError, MachineCop0TagState, MachineCop0TagWriteProvenance,
-    MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,
-    MachinePrimaryCaches, MachinePrimaryDataCacheFillProvenance, MachinePrimaryDataCacheLineState,
-    MachinePrimaryDataCacheStoreProvenance, MachinePrimaryDataCacheStoreWidth,
-    MachinePrimaryInstructionCacheFillProvenance, MachinePrimaryInstructionCacheLineState,
-    CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC,
-    PRIMARY_DATA_CACHE_LINE_COUNT, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
-    PRIMARY_DATA_CACHE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_COUNT,
-    PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
+    MachineCop1Fcr31Source, MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance,
+    MachinePrimaryCacheHitInvalidateProvenance, MachinePrimaryCacheHitInvalidateTarget,
+    MachinePrimaryCacheIndexInvalidateProvenance, MachinePrimaryCacheIndexStoreTagTarget,
+    MachinePrimaryCacheOperationProvenance, MachinePrimaryCaches,
+    MachinePrimaryDataCacheFillProvenance, MachinePrimaryDataCacheHitWritebackProvenance,
+    MachinePrimaryDataCacheLineState, MachinePrimaryDataCacheStoreProvenance,
+    MachinePrimaryDataCacheStoreWidth, MachinePrimaryInstructionCacheFillProvenance,
+    MachinePrimaryInstructionCacheLineState, COP1_FCR31_DEFINED_FIELDS_MASK, CPU_GPR_COUNT,
+    NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC, PRIMARY_DATA_CACHE_LINE_COUNT,
+    PRIMARY_DATA_CACHE_LINE_SIZE_BYTES, PRIMARY_DATA_CACHE_SIZE_BYTES,
+    PRIMARY_INSTRUCTION_CACHE_LINE_COUNT, PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES,
+    PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
 pub use machine::{
     select_cpu_instruction_fetch_address_error, DirectRdramAccessError, Machine,
@@ -39,28 +52,29 @@ pub use machine::{
     MachineBootstrapCop0StatusSource, MachineBootstrapCpuStateKind,
     MachineBootstrapCpuStateUnavailable, MachineBootstrapGprSource, MachineCacheOperationRejection,
     MachineCacheOperationRejectionReason, MachineCartridgeBootstrapError,
-    MachineCartridgeBootstrapState, MachineCpuInstructionFetchError,
-    MachineCpuInstructionFetchTarget, MachineCpuInstructionFetchTargetError,
-    MachineCpuInstructionInspection, MachineCpuInstructionSource,
-    MachineDirectRdramCpuDataAccessError, MachineDirectRdramCpuInstructionFetchError,
-    MachineInstructionFetchAddressErrorPlan, MachineInstructionFetchAddressErrorPlanError,
-    MachineInstructionFetchAddressErrorSource, MachineLoadWordRejection,
-    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachineMtc0Destination,
-    MachineMtc0Rejection, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejection,
-    MachineOrdinaryControlFlowRejectionReason, MachinePifIpl2HandoffBootMedium,
-    MachinePifIpl2HandoffInputKind, MachinePifIpl2HandoffInputs, MachinePifIpl2HandoffResetKind,
-    MachinePifIpl3Family, MachinePifVersionBit, MachineRepresentedStepError,
-    MachineRepresentedStepOutcome, MachineSpDmemCpuInstructionFetchError,
-    MachineSpDmemInstructionProvenance, MachineSpDmemLoadWordProvenance,
-    MachineSpImemOpaqueWordState, MachineSpImemStoreWordProvenance, MachineStepCadencePlan,
-    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
-    MachineStepCpuLocalInvocationRejection, MachineStepNoEffectExecutedInstruction,
-    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstruction,
-    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstruction,
-    MachineStepUnsupportedInstructionCategory, MachineStoreWordRejection,
-    MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
-    MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC, MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC,
-    MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
+    MachineCartridgeBootstrapState, MachineCop1ControlTransferKind,
+    MachineCop1ControlTransferRejection, MachineCop1ControlTransferRejectionReason,
+    MachineCpuInstructionFetchError, MachineCpuInstructionFetchTarget,
+    MachineCpuInstructionFetchTargetError, MachineCpuInstructionInspection,
+    MachineCpuInstructionSource, MachineDirectRdramCpuDataAccessError,
+    MachineDirectRdramCpuInstructionFetchError, MachineInstructionFetchAddressErrorPlan,
+    MachineInstructionFetchAddressErrorPlanError, MachineInstructionFetchAddressErrorSource,
+    MachineLoadWordRejection, MachineLoadWordRejectionReason, MachineLoadWordTarget,
+    MachineMtc0Destination, MachineMtc0Rejection, MachineMtc0RejectionReason,
+    MachineOrdinaryControlFlowRejection, MachineOrdinaryControlFlowRejectionReason,
+    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffInputKind, MachinePifIpl2HandoffInputs,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineSpDmemCpuInstructionFetchError, MachineSpDmemInstructionProvenance,
+    MachineSpDmemLoadWordProvenance, MachineSpImemOpaqueWordState,
+    MachineSpImemStoreWordProvenance, MachineStepCadencePlan, MachineStepCadenceSource,
+    MachineStepControlFlowAction, MachineStepCountAction, MachineStepCpuLocalInvocationRejection,
+    MachineStepNoEffectExecutedInstruction, MachineStepNoEffectExecutedInstructionCategory,
+    MachineStepStoppedInstruction, MachineStepStoppedInstructionCategory,
+    MachineStepUnsupportedInstruction, MachineStepUnsupportedInstructionCategory,
+    MachineStoreWordRejection, MachineStoreWordRejectionReason, MachineStoreWordTarget,
+    MachineStoreWordUnsupportedTarget, MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC,
+    MACHINE_CARTRIDGE_BOOTSTRAP_NEXT_PC, MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_END_OFFSET_EXCLUSIVE,
     MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET, MACHINE_PIF_IPL1_STATUS,
     MACHINE_PIF_IPL2_HANDOFF_NTSC_LINK_INSTRUCTION_ADDRESS, MACHINE_PIF_IPL2_HANDOFF_NTSC_RA_VALUE,
     MACHINE_PIF_IPL2_HANDOFF_RA_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_S3_GPR_INDEX,
@@ -72,25 +86,35 @@ pub use machine::{
 };
 pub use mi::{
     MachineMiCpuStoreProvenance, MachineMiInitModeSource, MachineMiInitModeState,
-    MachineMiInitTransferState, MachineMiInterruptSource, MachineMiInterruptState,
-    MachineMiRdramRegisterModeSource, MachineMiRdramRegisterModeState, MachineMiVersionState,
-    MI_CLEAR_DP_INTERRUPT_WORD, MI_CLEAR_RDRAM_REGISTER_MODE_WORD, MI_INIT_MODE_PHYSICAL_ADDRESS,
-    MI_INIT_MODE_X105_INIT_LENGTH, MI_INIT_MODE_X105_REPEATED_BYTE_COUNT,
-    MI_INIT_MODE_X105_WRITE_WORD, MI_INTR_MASK_PHYSICAL_ADDRESS, MI_SET_RDRAM_REGISTER_MODE_WORD,
+    MachineMiInitTransferState, MachineMiInterruptMaskCommandState, MachineMiInterruptSource,
+    MachineMiInterruptState, MachineMiRdramRegisterModeSource, MachineMiRdramRegisterModeState,
+    MachineMiVersionState, MI_CLEAR_DP_INTERRUPT_WORD, MI_CLEAR_RDRAM_REGISTER_MODE_WORD,
+    MI_INIT_MODE_PHYSICAL_ADDRESS, MI_INIT_MODE_X105_INIT_LENGTH,
+    MI_INIT_MODE_X105_REPEATED_BYTE_COUNT, MI_INIT_MODE_X105_WRITE_WORD,
+    MI_INTERRUPT_MASK_COMMAND_DEFINED_MASK, MI_INTR_MASK_PHYSICAL_ADDRESS,
+    MI_INTR_PHYSICAL_ADDRESS, MI_SET_ALL_INTERRUPT_MASKS_WORD, MI_SET_RDRAM_REGISTER_MODE_WORD,
     MI_VERSION_PHYSICAL_ADDRESS, MI_VERSION_STANDARD_RETAIL_NUS_WORD,
     MI_X105_CLEAR_ALL_INTERRUPT_MASKS_WORD,
 };
 pub use pi::{
     MachinePiCompletedDmaState, MachinePiCpuStoreProvenance, MachinePiDmaCompletion,
-    MachinePiDmaDirection, MachinePiProgrammedRegisterState, MachinePiStatusClearState,
-    PI_CART_ADDR_PHYSICAL_ADDRESS, PI_DOMAIN_ONE_ADDRESS_TWO_BASE, PI_DRAM_ADDR_PHYSICAL_ADDRESS,
-    PI_RD_LEN_PHYSICAL_ADDRESS, PI_STATUS_CLEAR_INTERRUPT_WORD, PI_STATUS_PHYSICAL_ADDRESS,
-    PI_WR_LEN_PHYSICAL_ADDRESS, PI_X105_DMA_BYTE_COUNT, PI_X105_WR_LEN_WORD,
+    MachinePiDmaDirection, MachinePiDomain, MachinePiDomainOneAddressOneProfile,
+    MachinePiDomainTimingField, MachinePiDomainTimingRegister, MachinePiDomainTimingRegisterState,
+    MachinePiDomainTimingSource, MachinePiProgrammedRegisterState, MachinePiStatusClearState,
+    PI_ABSENT_BULK_DEVICE_READ_WORD, PI_BSD_DOM1_LAT_PHYSICAL_ADDRESS,
+    PI_BSD_DOM1_PGS_PHYSICAL_ADDRESS, PI_BSD_DOM1_PWD_PHYSICAL_ADDRESS,
+    PI_BSD_DOM1_RLS_PHYSICAL_ADDRESS, PI_BSD_DOM2_LAT_PHYSICAL_ADDRESS,
+    PI_BSD_DOM2_PGS_PHYSICAL_ADDRESS, PI_BSD_DOM2_PWD_PHYSICAL_ADDRESS,
+    PI_BSD_DOM2_RLS_PHYSICAL_ADDRESS, PI_CART_ADDR_PHYSICAL_ADDRESS, PI_DMA_LENGTH_DEFINED_MASK,
+    PI_DOMAIN_ONE_ADDRESS_ONE_BASE, PI_DOMAIN_ONE_ADDRESS_ONE_END_EXCLUSIVE,
+    PI_DOMAIN_ONE_ADDRESS_TWO_BASE, PI_DRAM_ADDR_PHYSICAL_ADDRESS, PI_RD_LEN_PHYSICAL_ADDRESS,
+    PI_STATUS_CLEAR_INTERRUPT_WORD, PI_STATUS_PHYSICAL_ADDRESS, PI_WR_LEN_PHYSICAL_ADDRESS,
+    PI_X105_DMA_BYTE_COUNT, PI_X105_WR_LEN_WORD,
 };
 pub use pif_firmware::{
     MachinePifFirmwareState, PifFirmwareClassification, PifFirmwareValidationError,
     PifIpl2CopyLayout, PifIpl2Profile, PIF_BOOT_ROM_SIZE_BYTES,
-    PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+    PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES, PUBLIC_SYNTHETIC_COLD_X105_FIRST_IPL2_WORD,
 };
 pub use rdram::{
     MachineRdramBroadcastDelaySource, MachineRdramBroadcastDelayState,
@@ -127,12 +151,25 @@ pub use ri::{
     RI_REFRESH_PHYSICAL_ADDRESS, RI_REFRESH_X105_BASE_WORD, RI_SELECT_PHYSICAL_ADDRESS,
     RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
+pub use si::{
+    MachinePifRamState, MachineSiCpuStoreProvenance, MachineSiInputProfile, MachineSiStatusState,
+    PIF_RAM_PHYSICAL_START, PIF_RAM_SIZE_BYTES, SI_STATUS_DMA_BUSY, SI_STATUS_DMA_ERROR,
+    SI_STATUS_INTERRUPT, SI_STATUS_IO_READ_BUSY, SI_STATUS_PHYSICAL_ADDRESS,
+};
 pub use sp::{
-    MachineSpCpuStoreProvenance, MachineSpPcState, MachineSpSemaphoreState, MachineSpStatusState,
-    SP_PC_PHYSICAL_ADDRESS, SP_PC_X105_RESET_WORD, SP_SEMAPHORE_PHYSICAL_ADDRESS,
-    SP_SEMAPHORE_X105_CLEAR_WORD, SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_X105_FINAL_HALT_WORD,
-    SP_STATUS_X105_HALT_CONFIGURE_WORD, SP_STATUS_X105_START_WORD,
+    MachineSpCpuStoreProvenance, MachineSpDmaDirection, MachineSpDmaRecord,
+    MachineSpDramAddressState, MachineSpMemoryAddressState, MachineSpPcState,
+    MachineSpSemaphoreState, MachineSpStatusState, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS,
+    SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS, SP_PC_PHYSICAL_ADDRESS, SP_PC_X105_RESET_WORD,
+    SP_READ_LENGTH_PHYSICAL_ADDRESS, SP_SEMAPHORE_PHYSICAL_ADDRESS, SP_SEMAPHORE_X105_CLEAR_WORD,
+    SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_X105_FINAL_HALT_WORD, SP_STATUS_X105_HALT_CONFIGURE_WORD,
+    SP_STATUS_X105_START_WORD,
 };
 pub use sp_dmem::{
     MachineSpDmemStoreWordProvenance, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
+};
+pub use vi::{
+    MachineViCpuStoreProvenance, MachineViCurrentState, MachineViRegister, MachineViRegisterState,
+    VI_BASE_PHYSICAL_ADDRESS, VI_CURRENT_PHYSICAL_ADDRESS,
+    VI_HOSTLESS_COMMITTED_STEPS_PER_HALF_LINE, VI_NTSC_HALF_LINES_PER_FIELD,
 };

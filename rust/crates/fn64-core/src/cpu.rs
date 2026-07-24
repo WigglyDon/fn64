@@ -1,12 +1,15 @@
 pub mod address;
 mod cache;
 mod cop0;
+mod cop1;
 mod instruction;
 mod registers;
 mod scalars;
 
 use cop0::Cop0;
-pub(crate) use cop0::CpuArithmeticOverflowExceptionEntryError;
+pub(crate) use cop0::{CpuArithmeticOverflowExceptionEntryError, CpuCop0ExceptionReturnError};
+pub use cop0::{MachineCop0TlbEntry, MachineCop0TlbOperationError, COP0_TLB_ENTRY_COUNT};
+use cop1::Cop1;
 
 pub use address::{
     CpuAddressErrorExceptionEntryError, CpuAddressErrorKind, CpuDataAccessKind,
@@ -14,18 +17,26 @@ pub use address::{
 };
 pub(crate) use cache::{
     primary_data_cache_line_index, primary_instruction_cache_line_index,
-    MachinePrimaryDataCacheFillPlan, MachinePrimaryDataCacheStorePlan,
+    MachinePrimaryCacheHitInvalidatePlan, MachinePrimaryCacheIndexInvalidatePlan,
+    MachinePrimaryDataCacheFillPlan, MachinePrimaryDataCacheHitWritebackPlan,
+    MachinePrimaryDataCacheIndexWritebackInvalidatePlan, MachinePrimaryDataCacheStorePlan,
     MachinePrimaryDataCacheWritebackPlan, MachinePrimaryInstructionCacheFillPlan,
 };
 pub use cache::{
-    MachineCop0TagState, MachineCop0TagWriteProvenance, MachinePrimaryCacheIndexStoreTagTarget,
-    MachinePrimaryCacheOperationProvenance, MachinePrimaryCaches,
-    MachinePrimaryDataCacheFillProvenance, MachinePrimaryDataCacheLineState,
+    MachineCop0TagState, MachineCop0TagWriteProvenance, MachinePrimaryCacheHitInvalidateProvenance,
+    MachinePrimaryCacheHitInvalidateTarget, MachinePrimaryCacheIndexInvalidateProvenance,
+    MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,
+    MachinePrimaryCaches, MachinePrimaryDataCacheFillProvenance,
+    MachinePrimaryDataCacheHitWritebackProvenance, MachinePrimaryDataCacheLineState,
     MachinePrimaryDataCacheStoreProvenance, MachinePrimaryDataCacheStoreWidth,
     MachinePrimaryInstructionCacheFillProvenance, MachinePrimaryInstructionCacheLineState,
     PRIMARY_DATA_CACHE_LINE_COUNT, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
     PRIMARY_DATA_CACHE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_COUNT,
     PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
+};
+pub use cop1::{
+    MachineCop1Fcr31Source, MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance,
+    COP1_FCR31_DEFINED_FIELDS_MASK,
 };
 #[cfg(test)]
 pub(crate) use instruction::CpuLocalExecutedHelperFamily;
@@ -54,6 +65,7 @@ pub struct Cpu {
     lo: u64,
     gprs: [u64; CPU_GPR_COUNT],
     cop0: Cop0,
+    cop1: Cop1,
     primary_caches: Box<MachinePrimaryCaches>,
 }
 
@@ -68,6 +80,7 @@ impl Cpu {
             lo: 0,
             gprs: [0; CPU_GPR_COUNT],
             cop0: Cop0::new(),
+            cop1: Cop1::new(),
             primary_caches: Box::new(MachinePrimaryCaches::new()),
         }
     }

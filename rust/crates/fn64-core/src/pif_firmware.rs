@@ -10,6 +10,9 @@ const PIF_IPL2_COPY_SOURCE_START_OFFSET: u32 = 0x00d4;
 const PIF_IPL2_NTSC_COPY_SOURCE_END_OFFSET_EXCLUSIVE: u32 = 0x071c;
 const PIF_IPL2_PAL_MPAL_COPY_SOURCE_END_OFFSET_EXCLUSIVE: u32 = 0x0720;
 const PIF_IPL2_COPY_SP_IMEM_START_OFFSET: u32 = 0;
+const PUBLIC_SYNTHETIC_COLD_X105_SEED: u8 = 0x81;
+const PUBLIC_SYNTHETIC_COLD_X105_STRIDE: u8 = 37;
+pub const PUBLIC_SYNTHETIC_COLD_X105_FIRST_IPL2_WORD: u32 = 0x81ab_c000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PifIpl2Profile {
@@ -78,12 +81,14 @@ impl PifIpl2CopyLayout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PifFirmwareClassification {
     RawBootRom,
+    PublicSyntheticColdX105Bootstrap,
 }
 
 impl PifFirmwareClassification {
     pub const fn name(self) -> &'static str {
         match self {
             Self::RawBootRom => "raw-boot-rom",
+            Self::PublicSyntheticColdX105Bootstrap => "public-synthetic-cold-x105-bootstrap",
         }
     }
 }
@@ -182,6 +187,7 @@ impl std::error::Error for PifFirmwareValidationError {}
 #[derive(Debug)]
 pub(crate) struct PifFirmware {
     bytes: Box<[u8]>,
+    classification: PifFirmwareClassification,
 }
 
 impl PifFirmware {
@@ -191,6 +197,7 @@ impl PifFirmware {
         match owned_bytes.len() {
             PIF_BOOT_ROM_SIZE_BYTES => Ok(Self {
                 bytes: owned_bytes.into_boxed_slice(),
+                classification: PifFirmwareClassification::RawBootRom,
             }),
             PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES => Err(
                 PifFirmwareValidationError::UnsupportedFullAddressSpaceImage {
@@ -207,9 +214,26 @@ impl PifFirmware {
         }
     }
 
+    pub(crate) fn public_synthetic_cold_x105_bootstrap() -> Self {
+        let mut bytes: Vec<u8> = (0..PIF_BOOT_ROM_SIZE_BYTES)
+            .map(|index| {
+                PUBLIC_SYNTHETIC_COLD_X105_SEED
+                    .wrapping_add((index as u8).wrapping_mul(PUBLIC_SYNTHETIC_COLD_X105_STRIDE))
+            })
+            .collect();
+        bytes[PIF_IPL2_COPY_SOURCE_START_OFFSET as usize
+            ..PIF_IPL2_COPY_SOURCE_START_OFFSET as usize + 4]
+            .copy_from_slice(&PUBLIC_SYNTHETIC_COLD_X105_FIRST_IPL2_WORD.to_be_bytes());
+
+        Self {
+            bytes: bytes.into_boxed_slice(),
+            classification: PifFirmwareClassification::PublicSyntheticColdX105Bootstrap,
+        }
+    }
+
     pub(crate) fn state(&self) -> MachinePifFirmwareState {
         MachinePifFirmwareState::Accepted {
-            classification: PifFirmwareClassification::RawBootRom,
+            classification: self.classification,
             size_bytes: self.bytes.len(),
         }
     }
@@ -222,6 +246,7 @@ impl PifFirmware {
         PifIpl2Copy {
             profile,
             layout,
+            classification: self.classification,
             bytes: &self.bytes[source_start..source_end],
         }
     }
@@ -236,6 +261,7 @@ impl PifFirmware {
 pub(crate) struct PifIpl2Copy<'a> {
     profile: PifIpl2Profile,
     layout: PifIpl2CopyLayout,
+    classification: PifFirmwareClassification,
     bytes: &'a [u8],
 }
 
@@ -246,6 +272,10 @@ impl<'a> PifIpl2Copy<'a> {
 
     pub(crate) const fn layout(self) -> PifIpl2CopyLayout {
         self.layout
+    }
+
+    pub(crate) const fn classification(self) -> PifFirmwareClassification {
+        self.classification
     }
 
     pub(crate) const fn bytes(self) -> &'a [u8] {
@@ -275,6 +305,30 @@ mod tests {
                 classification: PifFirmwareClassification::RawBootRom,
                 size_bytes: PIF_BOOT_ROM_SIZE_BYTES,
             }
+        );
+    }
+
+    #[test]
+    fn public_synthetic_cold_x105_bootstrap_is_explicit_and_deterministic() {
+        let first = PifFirmware::public_synthetic_cold_x105_bootstrap();
+        let second = PifFirmware::public_synthetic_cold_x105_bootstrap();
+        let copy = first.ipl2_copy(PifIpl2Profile::NtscPinned);
+
+        assert_eq!(first.bytes(), second.bytes());
+        assert_eq!(
+            first.state(),
+            MachinePifFirmwareState::Accepted {
+                classification: PifFirmwareClassification::PublicSyntheticColdX105Bootstrap,
+                size_bytes: PIF_BOOT_ROM_SIZE_BYTES,
+            }
+        );
+        assert_eq!(
+            u32::from_be_bytes(copy.bytes()[..4].try_into().unwrap()),
+            PUBLIC_SYNTHETIC_COLD_X105_FIRST_IPL2_WORD
+        );
+        assert_eq!(
+            copy.classification(),
+            PifFirmwareClassification::PublicSyntheticColdX105Bootstrap
         );
     }
 
@@ -359,6 +413,7 @@ mod tests {
 
             assert_eq!(copy.profile(), profile);
             assert_eq!(copy.layout(), layout);
+            assert_eq!(copy.classification(), PifFirmwareClassification::RawBootRom);
             assert_eq!(copy.bytes().len(), layout.byte_count());
             assert_eq!(
                 copy.bytes(),

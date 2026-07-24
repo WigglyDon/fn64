@@ -119,6 +119,7 @@ impl SpDmemWriteError {
 pub struct SpDmem {
     bytes: [u8; SP_DMEM_SIZE_BYTES],
     word_store_provenance: Box<[Option<MachineSpDmemStoreWordProvenance>; SP_DMEM_WORD_COUNT]>,
+    dma_provenance: Box<[Option<u8>; SP_DMEM_SIZE_BYTES]>,
 }
 
 impl SpDmem {
@@ -151,6 +152,13 @@ impl SpDmem {
         }
         self.word_store_provenance
             .get(offset.as_usize() / 4)
+            .copied()
+            .flatten()
+    }
+
+    pub fn dma_record_index(&self, offset: SpDmemOffset) -> Option<u8> {
+        self.dma_provenance
+            .get(offset.as_usize())
             .copied()
             .flatten()
     }
@@ -192,6 +200,7 @@ impl SpDmem {
         for word in first_word..=last_word {
             self.word_store_provenance[word] = None;
         }
+        self.dma_provenance[offset_usize..end].fill(None);
         Ok(())
     }
 
@@ -209,7 +218,20 @@ impl SpDmem {
         }
         self.bytes[offset_usize..offset_usize + 4].copy_from_slice(&value.to_be_bytes());
         self.word_store_provenance[offset_usize / 4] = Some(provenance);
+        self.dma_provenance[offset_usize..offset_usize + 4].fill(None);
         Ok(())
+    }
+
+    pub(crate) fn apply_sp_dma_byte(
+        &mut self,
+        offset: SpDmemOffset,
+        value: u8,
+        dma_record_index: u8,
+    ) {
+        let offset = offset.as_usize();
+        self.bytes[offset] = value;
+        self.word_store_provenance[offset / 4] = None;
+        self.dma_provenance[offset] = Some(dma_record_index);
     }
 
     #[cfg(test)]
@@ -227,6 +249,7 @@ impl Default for SpDmem {
         Self {
             bytes: [0; SP_DMEM_SIZE_BYTES],
             word_store_provenance: Box::new([None; SP_DMEM_WORD_COUNT]),
+            dma_provenance: Box::new([None; SP_DMEM_SIZE_BYTES]),
         }
     }
 }

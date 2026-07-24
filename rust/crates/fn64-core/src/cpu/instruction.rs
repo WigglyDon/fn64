@@ -1,6 +1,8 @@
 use core::fmt;
 
-use super::{Cpu, CpuRegisterIndexError};
+use super::{
+    Cpu, CpuCop0ExceptionReturnError, CpuRegisterIndexError, MachineCop0TlbOperationError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpuInstructionWord(u32);
@@ -172,8 +174,14 @@ pub enum CpuInstructionIdentity {
     Cop0,
     Cop0Mfc0,
     Cop0Mtc0,
+    Cop0Tlbr,
+    Cop0Tlbwi,
+    Cop0Tlbwr,
+    Cop0Tlbp,
     Cop0Eret,
     Cop1,
+    Cop1Cfc1,
+    Cop1Ctc1,
     Cop2,
     Cop3,
     Beql,
@@ -223,6 +231,7 @@ pub(crate) enum CpuLocalExecutedHelperFamily {
     SpecialBitwiseLogical,
     SpecialHiLoTransfer,
     SpecialMultiply,
+    SpecialDivide,
     SpecialNonTrappingInteger,
     SpecialTrappingInteger,
     ImmediateTrappingInteger,
@@ -230,6 +239,8 @@ pub(crate) enum CpuLocalExecutedHelperFamily {
     ImmediateComparison,
     ImmediateBitwiseLogical,
     UpperImmediateLui,
+    Cop0Tlb,
+    Cop0ExceptionReturn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -341,16 +352,21 @@ pub const fn identify_cpu_instruction(instruction: CpuInstructionFields) -> CpuI
         0x10 => match instruction.rs() {
             0x00 => CpuInstructionIdentity::Cop0Mfc0,
             0x04 => CpuInstructionIdentity::Cop0Mtc0,
-            0x10 => {
-                if instruction.raw().bits() == 0x4200_0018 {
-                    CpuInstructionIdentity::Cop0Eret
-                } else {
-                    CpuInstructionIdentity::Cop0
-                }
-            }
+            0x10 => match instruction.raw().bits() {
+                0x4200_0001 => CpuInstructionIdentity::Cop0Tlbr,
+                0x4200_0002 => CpuInstructionIdentity::Cop0Tlbwi,
+                0x4200_0006 => CpuInstructionIdentity::Cop0Tlbwr,
+                0x4200_0008 => CpuInstructionIdentity::Cop0Tlbp,
+                0x4200_0018 => CpuInstructionIdentity::Cop0Eret,
+                _ => CpuInstructionIdentity::Cop0,
+            },
             _ => CpuInstructionIdentity::Cop0,
         },
-        0x11 => CpuInstructionIdentity::Cop1,
+        0x11 => match instruction.rs() {
+            0x02 => CpuInstructionIdentity::Cop1Cfc1,
+            0x06 => CpuInstructionIdentity::Cop1Ctc1,
+            _ => CpuInstructionIdentity::Cop1,
+        },
         0x12 => CpuInstructionIdentity::Cop2,
         0x13 => CpuInstructionIdentity::Cop3,
         0x14 => CpuInstructionIdentity::Beql,
@@ -428,7 +444,12 @@ pub(crate) const fn select_cpu_local_executed_helper(
         | CpuInstructionIdentity::SpecialMtlo => {
             Some(CpuLocalExecutedHelperFamily::SpecialHiLoTransfer)
         }
-        CpuInstructionIdentity::SpecialMultu => Some(CpuLocalExecutedHelperFamily::SpecialMultiply),
+        CpuInstructionIdentity::SpecialMultu | CpuInstructionIdentity::SpecialDmultu => {
+            Some(CpuLocalExecutedHelperFamily::SpecialMultiply)
+        }
+        CpuInstructionIdentity::SpecialDiv | CpuInstructionIdentity::SpecialDdivu => {
+            Some(CpuLocalExecutedHelperFamily::SpecialDivide)
+        }
         CpuInstructionIdentity::SpecialAddu
         | CpuInstructionIdentity::SpecialSubu
         | CpuInstructionIdentity::SpecialDaddu
@@ -458,6 +479,11 @@ pub(crate) const fn select_cpu_local_executed_helper(
             Some(CpuLocalExecutedHelperFamily::ImmediateBitwiseLogical)
         }
         CpuInstructionIdentity::Lui => Some(CpuLocalExecutedHelperFamily::UpperImmediateLui),
+        CpuInstructionIdentity::Cop0Tlbr
+        | CpuInstructionIdentity::Cop0Tlbwi
+        | CpuInstructionIdentity::Cop0Tlbwr
+        | CpuInstructionIdentity::Cop0Tlbp => Some(CpuLocalExecutedHelperFamily::Cop0Tlb),
+        CpuInstructionIdentity::Cop0Eret => Some(CpuLocalExecutedHelperFamily::Cop0ExceptionReturn),
         _ => None,
     };
 
@@ -589,6 +615,11 @@ impl CpuLocalExecutedHelperInvocationOutcome {
 pub(crate) enum CpuLocalExecutedHelperInvocationError {
     HelperRejectedSelection(CpuLocalExecutedHelperSelection),
     RegisterIndex(CpuRegisterIndexError),
+    Cop0Tlb {
+        identity: CpuInstructionIdentity,
+        error: MachineCop0TlbOperationError,
+    },
+    Cop0ExceptionReturn(CpuCop0ExceptionReturnError),
 }
 
 impl fmt::Display for CpuLocalExecutedHelperInvocationError {
@@ -603,6 +634,10 @@ impl fmt::Display for CpuLocalExecutedHelperInvocationError {
                 )
             }
             Self::RegisterIndex(error) => error.fmt(f),
+            Self::Cop0Tlb { identity, error } => {
+                write!(f, "CPU {identity:?} TLB operation rejected: {error:?}")
+            }
+            Self::Cop0ExceptionReturn(error) => error.fmt(f),
         }
     }
 }
@@ -1175,17 +1210,65 @@ impl Cpu {
                     ));
                 }
             }
-            CpuLocalExecutedHelperFamily::SpecialMultiply => {
-                if identity != CpuInstructionIdentity::SpecialMultu {
+            CpuLocalExecutedHelperFamily::SpecialMultiply => match identity {
+                CpuInstructionIdentity::SpecialMultu => {
+                    let product = u64::from(read_gpr_word(self, instruction.rs()))
+                        .wrapping_mul(u64::from(read_gpr_word(self, instruction.rt())));
+                    self.hi = sign_extend_u32_to_cpu_value((product >> 32) as u32);
+                    self.lo = sign_extend_u32_to_cpu_value(product as u32);
+                }
+                CpuInstructionIdentity::SpecialDmultu => {
+                    let product = u128::from(
+                        self.gpr(usize::from(instruction.rs()))
+                            .expect("decoded CPU register index is five bits"),
+                    ) * u128::from(
+                        self.gpr(usize::from(instruction.rt()))
+                            .expect("decoded CPU register index is five bits"),
+                    );
+                    self.hi = (product >> 64) as u64;
+                    self.lo = product as u64;
+                }
+                _ => {
                     return Err(
                         CpuLocalExecutedHelperInvocationError::HelperRejectedSelection(selection),
                     );
                 }
-                let product = u64::from(read_gpr_word(self, instruction.rs()))
-                    .wrapping_mul(u64::from(read_gpr_word(self, instruction.rt())));
-                self.hi = sign_extend_u32_to_cpu_value((product >> 32) as u32);
-                self.lo = sign_extend_u32_to_cpu_value(product as u32);
-            }
+            },
+            CpuLocalExecutedHelperFamily::SpecialDivide => match identity {
+                CpuInstructionIdentity::SpecialDiv => {
+                    let dividend = read_gpr_word(self, instruction.rs()) as i32;
+                    let divisor = read_gpr_word(self, instruction.rt()) as i32;
+                    let (quotient, remainder) = if divisor == 0 {
+                        (if dividend < 0 { 1 } else { -1 }, dividend)
+                    } else if dividend == i32::MIN && divisor == -1 {
+                        (i32::MIN, 0)
+                    } else {
+                        (dividend / divisor, dividend % divisor)
+                    };
+                    self.hi = sign_extend_u32_to_cpu_value(remainder as u32);
+                    self.lo = sign_extend_u32_to_cpu_value(quotient as u32);
+                }
+                CpuInstructionIdentity::SpecialDdivu => {
+                    let dividend = self
+                        .gpr(usize::from(instruction.rs()))
+                        .expect("decoded CPU register index is five bits");
+                    let divisor = self
+                        .gpr(usize::from(instruction.rt()))
+                        .expect("decoded CPU register index is five bits");
+                    if divisor == 0 {
+                        self.hi = dividend;
+                        self.lo = u64::MAX;
+                    } else {
+                        self.hi = dividend % divisor;
+                        self.lo = dividend / divisor;
+                    }
+                }
+                _ => {
+                    return Err(
+                        CpuLocalExecutedHelperInvocationError::HelperRejectedSelection(selection),
+                    );
+                }
+            },
             CpuLocalExecutedHelperFamily::SpecialNonTrappingInteger => {
                 if let Err(error) =
                     self.execute_special_non_trapping_integer_instruction(identity, instruction)
@@ -1259,6 +1342,40 @@ impl Cpu {
                 {
                     return Err(map_upper_immediate_invocation_error(error, selection));
                 }
+            }
+            CpuLocalExecutedHelperFamily::Cop0Tlb => match identity {
+                CpuInstructionIdentity::Cop0Tlbr => {
+                    self.execute_cop0_tlb_read().map_err(|error| {
+                        CpuLocalExecutedHelperInvocationError::Cop0Tlb { identity, error }
+                    })?;
+                }
+                CpuInstructionIdentity::Cop0Tlbwi => {
+                    self.execute_cop0_tlb_write_indexed().map_err(|error| {
+                        CpuLocalExecutedHelperInvocationError::Cop0Tlb { identity, error }
+                    })?;
+                }
+                CpuInstructionIdentity::Cop0Tlbwr => {
+                    self.execute_cop0_tlb_write_random().map_err(|error| {
+                        CpuLocalExecutedHelperInvocationError::Cop0Tlb { identity, error }
+                    })?;
+                }
+                CpuInstructionIdentity::Cop0Tlbp => {
+                    self.execute_cop0_tlb_probe();
+                }
+                _ => {
+                    return Err(
+                        CpuLocalExecutedHelperInvocationError::HelperRejectedSelection(selection),
+                    );
+                }
+            },
+            CpuLocalExecutedHelperFamily::Cop0ExceptionReturn => {
+                if identity != CpuInstructionIdentity::Cop0Eret {
+                    return Err(
+                        CpuLocalExecutedHelperInvocationError::HelperRejectedSelection(selection),
+                    );
+                }
+                self.execute_cop0_exception_return()
+                    .map_err(CpuLocalExecutedHelperInvocationError::Cop0ExceptionReturn)?;
             }
         }
 
@@ -2501,10 +2618,19 @@ mod tests {
             );
         }
 
-        assert_cpu_local_executed_helper_selection(
-            SpecialMultu,
-            CpuLocalExecutedHelperFamily::SpecialMultiply,
-        );
+        for identity in [SpecialMultu, SpecialDmultu] {
+            assert_cpu_local_executed_helper_selection(
+                identity,
+                CpuLocalExecutedHelperFamily::SpecialMultiply,
+            );
+        }
+
+        for identity in [SpecialDiv, SpecialDdivu] {
+            assert_cpu_local_executed_helper_selection(
+                identity,
+                CpuLocalExecutedHelperFamily::SpecialDivide,
+            );
+        }
 
         for identity in [
             SpecialAddu,
@@ -2584,12 +2710,9 @@ mod tests {
             SpecialSyscall,
             SpecialBreak,
             SpecialMult,
-            SpecialDiv,
             SpecialDivu,
             SpecialDmult,
-            SpecialDmultu,
             SpecialDdiv,
-            SpecialDdivu,
             SpecialTge,
             SpecialTgeu,
             SpecialTlt,
@@ -2619,7 +2742,6 @@ mod tests {
             Cop0,
             Cop0Mfc0,
             Cop0Mtc0,
-            Cop0Eret,
             Cop1,
             Cop2,
             Cop3,
@@ -3052,7 +3174,6 @@ mod tests {
             Sw,
             Cop0Mfc0,
             Cop0Mtc0,
-            Cop0Eret,
             Ll,
             Sc,
         ] {
@@ -3707,6 +3828,97 @@ mod tests {
             assert_eq!(cpu.gpr(4), Some(rs_value));
             assert_eq!(cpu.gpr(5), Some(rt_value));
             assert_eq!(cpu.gpr(0), Some(0));
+        }
+    }
+
+    #[test]
+    fn special_dmultu_multiplies_complete_unsigned_64_bit_sources() {
+        let mut cpu = Cpu::new();
+        cpu.set_gpr(4, u64::MAX).unwrap();
+        cpu.set_gpr(5, 2).unwrap();
+        let fields = decode(special_shift_word(4, 5, 0, 0, 0x1d));
+        let selection = select_cpu_local_executed_helper(CpuInstructionIdentity::SpecialDmultu)
+            .expect("DMULTU has one exact CPU-local helper");
+
+        let outcome = cpu
+            .invoke_cpu_local_executed_helper(fields, selection)
+            .expect("DMULTU should execute");
+
+        assert_executed_invocation(
+            outcome,
+            CpuInstructionIdentity::SpecialDmultu,
+            CpuLocalExecutedHelperFamily::SpecialMultiply,
+        );
+        assert_eq!(cpu.hi(), 1);
+        assert_eq!(cpu.lo(), 0xffff_ffff_ffff_fffe);
+        assert_eq!(cpu.gpr(4), Some(u64::MAX));
+        assert_eq!(cpu.gpr(5), Some(2));
+    }
+
+    #[test]
+    fn special_div_owns_signed_word_quotient_remainder_and_architectural_edges() {
+        let cases = [
+            (
+                (-7_i32) as u32 as u64,
+                3_u64,
+                u64::MAX,
+                0xffff_ffff_ffff_fffe,
+            ),
+            (7, 0, 7, u64::MAX),
+            (
+                i32::MIN as u32 as u64,
+                u32::MAX as u64,
+                0,
+                0xffff_ffff_8000_0000,
+            ),
+        ];
+
+        for (dividend, divisor, expected_hi, expected_lo) in cases {
+            let mut cpu = Cpu::new();
+            cpu.set_gpr(4, dividend).unwrap();
+            cpu.set_gpr(5, divisor).unwrap();
+            let fields = decode(special_shift_word(4, 5, 0, 0, 0x1a));
+            let selection = select_cpu_local_executed_helper(CpuInstructionIdentity::SpecialDiv)
+                .expect("DIV has one exact CPU-local helper");
+
+            let outcome = cpu
+                .invoke_cpu_local_executed_helper(fields, selection)
+                .expect("DIV should execute");
+
+            assert_executed_invocation(
+                outcome,
+                CpuInstructionIdentity::SpecialDiv,
+                CpuLocalExecutedHelperFamily::SpecialDivide,
+            );
+            assert_eq!(cpu.hi(), expected_hi);
+            assert_eq!(cpu.lo(), expected_lo);
+        }
+    }
+
+    #[test]
+    fn special_ddivu_owns_full_width_unsigned_division_and_zero_divisor() {
+        for (dividend, divisor, expected_hi, expected_lo) in [
+            (10, 3, 1, 3),
+            (0x1234_5678_9abc_def0, 0, 0x1234_5678_9abc_def0, u64::MAX),
+        ] {
+            let mut cpu = Cpu::new();
+            cpu.set_gpr(4, dividend).unwrap();
+            cpu.set_gpr(5, divisor).unwrap();
+            let fields = decode(special_shift_word(4, 5, 0, 0, 0x1f));
+            let selection = select_cpu_local_executed_helper(CpuInstructionIdentity::SpecialDdivu)
+                .expect("DDIVU has one exact CPU-local helper");
+
+            let outcome = cpu
+                .invoke_cpu_local_executed_helper(fields, selection)
+                .expect("DDIVU should execute");
+
+            assert_executed_invocation(
+                outcome,
+                CpuInstructionIdentity::SpecialDdivu,
+                CpuLocalExecutedHelperFamily::SpecialDivide,
+            );
+            assert_eq!(cpu.hi(), expected_hi);
+            assert_eq!(cpu.lo(), expected_lo);
         }
     }
 

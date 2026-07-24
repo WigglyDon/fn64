@@ -2,7 +2,7 @@ use core::fmt;
 use std::collections::BTreeMap;
 
 use crate::machine::{MachineSpImemOpaqueWordState, MachineSpImemStoreWordProvenance};
-use crate::pif_firmware::{PifIpl2Copy, PifIpl2Profile};
+use crate::pif_firmware::{PifFirmwareClassification, PifIpl2Copy, PifIpl2Profile};
 
 pub(crate) const SP_IMEM_SIZE_BYTES: usize = 4 * 1024;
 
@@ -30,11 +30,18 @@ pub(crate) enum SpImemByteProvenance {
         profile: PifIpl2Profile,
         source_offset: u32,
     },
+    PublicSyntheticColdX105Bootstrap {
+        profile: PifIpl2Profile,
+        source_offset: u32,
+    },
     CpuStoreWord {
         provenance: MachineSpImemStoreWordProvenance,
     },
     CpuStoreByte {
         provenance: MachineSpImemStoreWordProvenance,
+    },
+    SpDma {
+        record_index: u8,
     },
     OpaqueCpuStoreWord {
         aligned_offset: SpImemOffset,
@@ -316,9 +323,20 @@ impl SpImem {
         let mut sp_imem = Self::default();
         sp_imem.bytes[start..end].copy_from_slice(copy.bytes());
         for (index, provenance) in sp_imem.byte_provenance[start..end].iter_mut().enumerate() {
-            *provenance = SpImemByteProvenance::UserSuppliedPifFirmware {
-                profile: copy.profile(),
-                source_offset: layout.source_start_offset() + index as u32,
+            let source_offset = layout.source_start_offset() + index as u32;
+            *provenance = match copy.classification() {
+                PifFirmwareClassification::RawBootRom => {
+                    SpImemByteProvenance::UserSuppliedPifFirmware {
+                        profile: copy.profile(),
+                        source_offset,
+                    }
+                }
+                PifFirmwareClassification::PublicSyntheticColdX105Bootstrap => {
+                    SpImemByteProvenance::PublicSyntheticColdX105Bootstrap {
+                        profile: copy.profile(),
+                        source_offset,
+                    }
+                }
             };
         }
 
@@ -466,6 +484,13 @@ impl SpImem {
         self.byte_provenance[offset] = SpImemByteProvenance::CpuStoreByte {
             provenance: plan.provenance(),
         };
+    }
+
+    pub(crate) fn apply_sp_dma_byte(&mut self, offset: SpImemOffset, value: u8, record_index: u8) {
+        let offset_usize = offset.as_usize();
+        self.opaque_words.remove(&(offset.value() & !3));
+        self.bytes[offset_usize] = value;
+        self.byte_provenance[offset_usize] = SpImemByteProvenance::SpDma { record_index };
     }
 
     pub(crate) fn plan_cpu_store_opaque_word(

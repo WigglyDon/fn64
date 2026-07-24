@@ -11,7 +11,9 @@ use crate::cpu::{
     PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
 use crate::machine::{Machine, MachineCpuInstructionFetchError, MachineCpuInstructionFetchTarget};
-use crate::pif_firmware::{MachinePifFirmwareState, PifIpl2CopyLayout, PifIpl2Profile};
+use crate::pif_firmware::{
+    MachinePifFirmwareState, PifFirmwareClassification, PifIpl2CopyLayout, PifIpl2Profile,
+};
 use crate::rdram::Rdram;
 use crate::sp_dmem::{SpDmem, SpDmemOffset, SpDmemWriteError};
 use crate::sp_imem::{SpImem, SpImemPifIpl2CopyError};
@@ -641,6 +643,12 @@ impl Machine {
             }
             replacement_cpu.stage_cop0_status_for_bootstrap(plan.cop0_status);
         }
+        if self.pif_firmware_state().classification()
+            == Some(PifFirmwareClassification::PublicSyntheticColdX105Bootstrap)
+        {
+            replacement_cpu.stage_public_synthetic_cold_x105_page_mask();
+            replacement_cpu.stage_public_synthetic_cold_x105_fcr31();
+        }
         replacement_cpu.stage_pc(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
 
         let mut gpr_sources = [MachineBootstrapGprSource::UnknownPifProduced; CPU_GPR_COUNT];
@@ -709,6 +717,11 @@ impl Machine {
         } else {
             crate::ri::Ri::default()
         };
+        let replacement_pi = if handoff_plan.is_some() {
+            crate::pi::Pi::cold_cartridge_entry(self.cartridge.metadata().header_magic)
+        } else {
+            crate::pi::Pi::default()
+        };
 
         self.cpu = replacement_cpu;
         self.rdram = Rdram::default();
@@ -717,7 +730,8 @@ impl Machine {
         self.sp = crate::sp::Sp::default();
         self.ri = replacement_ri;
         self.mi = crate::mi::Mi::default();
-        self.pi = crate::pi::Pi::default();
+        self.pi = replacement_pi;
+        self.ai = crate::ai::Ai::default();
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.powered_on = true;
         self.cartridge_bootstrap = Some(state);
@@ -911,7 +925,7 @@ const fn bootstrap_gpr_access(
             source_b: None,
             destination: None,
         },
-        SpecialMultu => BootstrapGprAccess {
+        SpecialMultu | SpecialDmultu | SpecialDiv | SpecialDdivu => BootstrapGprAccess {
             source_a: Some(fields.rs()),
             source_b: Some(fields.rt()),
             destination: None,
@@ -936,12 +950,27 @@ const fn bootstrap_gpr_access(
             source_b: None,
             destination: Some(fields.rt()),
         },
-        Lw | Lbu => BootstrapGprAccess {
+        Lw | Lbu | Lhu | Ld => BootstrapGprAccess {
             source_a: Some(fields.rs()),
             source_b: None,
             destination: Some(fields.rt()),
         },
-        Sb => BootstrapGprAccess {
+        Cop0Mfc0 => BootstrapGprAccess {
+            source_a: None,
+            source_b: None,
+            destination: Some(fields.rt()),
+        },
+        Cop1Cfc1 => BootstrapGprAccess {
+            source_a: None,
+            source_b: None,
+            destination: Some(fields.rt()),
+        },
+        Cop1Ctc1 => BootstrapGprAccess {
+            source_a: Some(fields.rt()),
+            source_b: None,
+            destination: None,
+        },
+        Sb | Sh => BootstrapGprAccess {
             source_a: Some(fields.rs()),
             source_b: Some(fields.rt()),
             destination: None,
