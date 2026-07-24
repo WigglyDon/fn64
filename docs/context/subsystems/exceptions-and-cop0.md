@@ -59,14 +59,17 @@ BadVAddr, Cause, software/timer pending state, Config, and PRId receive no
 handoff-source claim. Missing or unsupported handoff input rejects before any
 COP0 or control-flow mutation.
 
-The same source-backed cold-x105 state is the only represented MTC0 access
-scope. Cause register 13 writes only IP1/IP0 (`0x00000300`) and makes that
-two-bit software-pending state known while preserving exception code, BD, and
-timer pending. Count register 9 installs its low word before committed cadence.
-Compare register 11 installs its low word and clears timer pending before
-committed cadence; the existing post-increment Count/Compare equality owner
-may relatch pending. This is pending-state representation only: no interrupt
-delivery, masking, or general CP0 register access is implied.
+The represented MTC0 surface began with the source-backed cold-x105
+Cause/Count/Compare path and now also covers the register destinations reached
+by the user-cartridge CPU runtime: Index, EntryLo0/1, Context, PageMask, Wired,
+EntryHi, Status, EPC, and the CPU-owned TagLo/TagHi pair. Matching reached MFC0
+reads are represented. Cause register 13 writes only IP1/IP0
+(`0x00000300`) while preserving exception code, BD, and timer pending. Count
+register 9 installs its low word before committed cadence. Compare register 11
+installs its low word and clears timer pending before committed cadence; the
+post-increment Count/Compare equality owner may relatch pending. Every transfer
+requires a known old GPR source or an available COP0 source and records ordinary
+instruction-result lineage.
 
 For the represented ordinary-control-flow family, CPU-owned delay-slot context
 names the owning branch/jump PC. Arithmetic overflow, instruction-fetch AdEL,
@@ -85,30 +88,40 @@ intrinsic represented exception. In addition to Cause/Count/Compare, the CPU
 now owns optional raw TagLo and TagHi words plus exact MTC0 provenance. The
 generated writes at `0xA4000400` and `0xA4000404` consume r0
 ArchitecturalZero and store raw zero before ordinary cadence. Index Store Tag
-then consumes these facts but owns no new exception path. Other COP0
-instructions, destinations, cache errors, parity, and interrupt delivery remain
-unrepresented.
+then consumes these facts but owns no new exception path.
 
-The separate `Mi` owner records generated SP/SI/AI/PI/DP pending-source clears
-and all-six mask clears. These are RCP register facts, not COP0 Cause delivery
-or CPU interrupt exceptions. The atomic PI model sets and clears PI pending
-without scheduling an interrupt or changing the sealed exception path.
+The separate `Mi` owner records SP/SI/AI/VI/PI/DP pending sources and masks.
+The CPU projects the represented masked RCP interrupt relationship into Cause
+IP2 and recognizes interrupts only between committed instructions. Entry uses
+the same sealed exception owner: EPC and BD remain exact, EXL is set, and the
+interrupted instruction has no normal cadence. ERET clears EXL and restores
+`pc` / `next_pc` from EPC through the existing control-flow owner. ERL and
+ErrorEPC return remain unavailable. The fixed Machine-owned VI cadence is a
+deterministic register model, not host or wall-clock timing.
+
+One private 32-entry TLB stores masked EntryHi, EntryLo0/1, and PageMask truth.
+TLBR, TLBWI, TLBWR, and TLBP apply their architectural register effects with
+Index/Random/Wired ownership; the observed user path executes TLBWI. No current
+instruction or data access consumes a TLB translation, so mapped-address
+translation and refill/invalid/modified exceptions remain unearned rather than
+inferred from the register array.
 
 Generated SP-DMEM-shaped delay-slot proof uses fault address `0xA4000085`,
 owner EPC `0xA4000040`, Cause.BD set, and zero Count delta for the faulting
 load. It reuses the existing exception entry and adds no COP0 field or policy.
 
-Forbidden authority includes full COP0 claims, TLB/MMU, generic all-future
-exception objects, host interruption, real timing, PIF boot, and inferred
-behavior from retired-source names. Numerical exception codes and bits are
-explicit in source; no serialization compatibility is promised.
+Forbidden authority includes full COP0 or MMU claims, translated TLB memory
+access, generic all-future exception objects, host interruption, real timing,
+PIF execution, NMI, and inferred behavior from retired-source names. Numerical
+exception codes and bits are explicit in source; no serialization
+compatibility is promised.
 
 Accepted proof is focused state-transition testing and the overflow/fetch-AdEL
 plus delay-slot-exception probe cases. Current observability is the public
-read-only CPU surface. Full interrupt delivery, ERET integration, nested
-exception completeness, and performance remain bounded by the detailed
-capability ledger and public step selection; do not infer them from readiness
-code.
+read-only CPU surface. Bounded MI/COP0 interrupt delivery and ERET integration
+are represented; nested exception completeness, NMI, translated TLB access,
+and performance remain bounded by the detailed capability ledger and public
+step selection.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

@@ -85,12 +85,16 @@ AdES delegates to COP0
 with zero faulting-instruction Count; unknown sources and unsupported targets
 restore the complete pre-step state.
 
-Bounded `Cop0Mtc0` is a closed Machine-owned action for Cause software
-pending, Count, and Compare only. It reads a known old source, transfers its
-low word, and requires the source-backed cold-x105 kernel access state. Cause
-updates only IP1/IP0; Count writes before normal cadence; Compare clears timer
-pending before normal cadence. Unsupported contexts, encodings, and
-destinations reject before mutation, and no general CP0 executor exists.
+`Cop0Mtc0` is a closed Machine-owned action for the exact represented
+destinations: Index, EntryLo0/1, Context, PageMask, Wired, EntryHi, Status,
+Cause, EPC, Count, Compare, and TagLo/TagHi. It reads a known old source and
+transfers its low word. Matching reached `Cop0Mfc0` sources use ordinary
+destination lineage. Cause updates only IP1/IP0; Count writes before normal
+cadence; Compare clears timer pending before normal cadence. A private 32-entry
+TLB supports TLBR/TLBWI/TLBWR/TLBP register effects, and ERET restores EPC
+through the existing `pc` / `next_pc` owner. Translated TLB memory access,
+ERL/ErrorEPC return, malformed encodings, and unrepresented destinations remain
+closed.
 
 The same complete cold-x105 plan creates optional Machine-owned RI_SELECT zero
 with `ColdX105Entry` provenance and clears optional RI_CONFIG,
@@ -116,9 +120,11 @@ atomically. There is no other MI `Lw`, other MI register, physical next-write
 replication or timing owner. Exact generated `0x2000`/`0x1000` commands toggle
 one MI-owned RDRAM-register mode; module reads reject while it is disabled.
 
-`MULTU` is the one newly represented multiply identity and uses unsigned
-low-32-bit operands with the architecturally defined HI/LO word results. `LBU`
-and `SB` retain their direct SP-IMEM route and now also use CPU-owned KSEG0
+The user-cartridge path adds general BLEZ/BGEZ control flow; signed word DIV;
+unsigned 64-bit DMULTU/DDIVU; aligned LB/LH/LHU/LD/SH/SD; and CFC1/CTC1 for
+the represented FCR31 control word. Existing multiply and scalar identities
+retain architectural HI/LO, sign-extension, alias, and zero-register behavior.
+`LBU` and `SB` retain their direct SP-IMEM route and also use CPU-owned KSEG0
 D-cache byte semantics over Machine-owned RDRAM; KSEG1 remains uncached.
 Aligned opaque-word `Lw`
 transports unavailable lineage using canonical zero backing during generated
@@ -192,5 +198,18 @@ cartridge or RSP execution, PI/cache timing, or analog/cache timing accuracy. Kn
 include full ISA integration, real timing, unearned likely/REGIMM and broader
 COP0/CACHE identities, NMI, generic MMIO, unrelated load/store families, and
 performance.
+
+One separately authorized local user-cartridge composition starts from the
+same public deterministic cold-x105 path and executes only through
+`Machine::step`. It commits the cartridge entry word once, then advances
+13,988,271 user-cartridge instructions through the represented scalar,
+COP0/TLB-register, FCR31, cache, interrupt, PI, SI, VI, AI, and SP CPU-side
+surface. Two atomic RDRAM-to-SP DMAs populate 64 DMEM bytes and 1,000 IMEM
+bytes. The first genuine SP_STATUS start request commits command
+`0x00000125`, clears halt, and leaves PC/next-PC
+`0x800CF97C / 0x800CF980` before any RSP instruction. This earns one
+user-cartridge CPU-side milestone, not BOOT-3, general cartridge compatibility,
+RSP execution, graphics, audio, or host presentation.
+
 Next authority must be earned by a bounded product packet, not a generic
 dispatcher.

@@ -154,6 +154,17 @@ PC/next-PC `0x80001124 / 0x80001128`, header/guest checksums
 interprets only public Machine state; it does not stage GPRs, cache lines,
 memory, mailbox, or PC to force completion.
 
+`fn64_user_cartridge_probe` is a separate optional local no-window instrument.
+It requires one explicit cartridge path, transfers owned bytes to the public
+Cartridge/Machine boundary, enforces a positive step ceiling, and executes only
+`Machine::step`. Its bounded output contains basename, layout/length,
+first-occurrence architectural frontier classes, aggregate counts, and the
+first SP task-start state. It never emits the parent path, hashes, titles,
+IDs, strings, cartridge bytes, code excerpts, bulk disassembly, or microcode.
+Standard CI and detached public validation never require this private input.
+The accepted local run reaches the first SP_STATUS command that clears halt
+after two represented SP DMAs, then stops before RSP execution.
+
 Generic CPU-local/control-flow step-probe fixtures use the already represented
 uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and
 must establish its I-cache state through public MTC0/CACHE/fill execution. The
@@ -161,7 +172,7 @@ exception-vector preservation fixture likewise invalidates its selected line
 through public steps before the KSEG0 vector fill; inspection owns no cache
 seeding API.
 
-Required validation: `./rust/verify-forward`; the boot probe and private-input
-digest/size are separate explicit evidence. Evidence manifests additionally use
+Required validation: `./rust/verify-forward`; private-input probes are separate
+explicit local evidence and never contribute hashes or payloads. Evidence manifests additionally use
 `tools/fleet/evidence-manifest check`. Graphical host and performance
 observations remain explicitly unavailable.

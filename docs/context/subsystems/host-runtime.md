@@ -42,12 +42,22 @@ game profile. The host neither defaults nor derives them; Machine owns the
 supported combination, complete plan, state production, lineage, and
 fail-closed behavior.
 
+`fn64_user_cartridge_probe` is a separate optional local runtime-proof shell.
+It accepts one explicit user cartridge path, reads the file, transfers owned
+bytes, prints a bounded redacted dashboard, and enforces a step ceiling.
+Cartridge normalization and every CPU/device transition remain Machine truth.
+The shell neither searches for inputs nor branches on filename, title, ID,
+region, checksum, digest, strings, observed PCs, or known code patterns. It
+does not provide presentation, audio, video, input, or host timing and is not
+part of standard CI.
+
 Allowed future direction is thin host → public Machine/inspection surface.
 Core → host, renderer → machine state, platform clock → stepping, and host-owned
 emulator policy remain forbidden. User-local commercial assets stay outside
 routine inspection and evidence.
 
-Host runtime, rollback, performance, window, audio, and input evidence are
-unavailable. Any future host needs an explicit product packet and separate
-runtime observation. Current required validation is only
+Presentation runtime, performance, window, audio, and input evidence are
+unavailable. The optional local user-cartridge proof is headless execution
+evidence only. Any future presentation host needs an explicit product packet
+and separate runtime observation. Current required public validation remains
 `./rust/verify-forward`.

@@ -16,8 +16,9 @@ endianness must remain explicit and range checked.
 
 Allowed direction is host bytes → cartridge normalization → Machine-owned
 storage/classification. Forbidden directions include core filesystem access,
-commercial/proprietary payloads, host pointers as machine policy, renderer
-decisions, and an unearned generic bus or memory-map framework.
+committed or bundled commercial/proprietary payloads, host pointers as machine
+policy, renderer decisions, and an unearned generic bus or memory-map
+framework.
 
 For an explicitly user-selected PIF firmware file, the host may own only the
 path, file read/failure, and owned-byte transfer. The Machine must own accepted
@@ -39,6 +40,14 @@ cartridge digest, PIF contents, host region, or expected trace. The only
 supported coupled path is `NTSC_PINNED` + x105 + cold + cartridge; PAL/MPAL
 continue to support their byte-copy layouts but their coupled CPU handoff
 requests fail closed.
+
+One separately authorized no-window shell may read an explicit user-supplied
+cartridge path and transfer owned bytes into the existing `Cartridge`
+normalizer. The selected basename has no product meaning: filename, title, ID,
+region, header checksums, digest, strings, and observed PCs cannot select
+Machine behavior. Cartridge bytes remain immutable and local; no byte, hash,
+header dump, string, or code excerpt enters source, public tests, evidence,
+patches, or artifacts.
 
 The named `Machine::stage_cartridge_bootstrap` creation point preflights the
 normalized cartridge span `[0x40, 0x1000)`, stages it into the same SP DMEM
@@ -82,13 +91,15 @@ never cartridge/host selected, and claims no analog or timing accuracy.
 Opaque SP-IMEM words retain cause/address truth without value bits. Known full
 overwrite replaces them. Aligned `Lw` may transport canonical zero backing only
 with the original unavailable lineage, so later consumers cannot treat it as
-known truth. Instruction fetch still has no SP-IMEM route. `LBU`/`SB` are
-narrowly represented over direct SP IMEM only. Unknown SP-DMEM/device writes,
-unearned registers, and generic routing remain closed.
+known truth. Instruction fetch still has no SP-IMEM route. The reached
+byte/halfword/word/doubleword load/store families also use the existing direct
+RDRAM and CPU-cache owners as detailed by the capability ledger. Unknown
+SP-DMEM/device writes, unearned registers, and generic routing remain closed.
 
 Lineage is `lawful bytes → normalized layout → named address domain → preflight → storage mutation/read → narrow observable result`. Failed writes must leave no
 ghost state. Synthetic instruction words and small generated fixtures are valid
-proof; user-local ROMs are outside routine inspection and evidence packaging.
+proof. A user-local ROM may be used only by the separately authorized explicit
+local probe and remains outside routine validation and evidence packaging.
 
 Current integration includes the prior cartridge/bootstrap/SP/RI/MI/global
 facts plus one capacity-derived fixed RDRAM profile, two module records,
@@ -133,8 +144,7 @@ atomically transfers offsets `[0x1000,0x101000)` into the sole `Rdram` backing
 range `[0x1000,0x101000)`. CPU D-cache reads cached copies only; PI does not
 snoop cache state. Generated known stores overwrite all SP DMEM/IMEM words
 with `0xA4002000`, replacing opaque truth through existing owners. No general
-PI programming, RSP execution, PI/cache timing, NMI, or generic MMIO route
-exists.
+PI timing, RSP execution, NMI, or generic MMIO route exists.
 
 The separate immutable public runtime-v2 fixture retains the same size and
 deterministic unused payload, overlays one original 92-word program, and
@@ -148,6 +158,16 @@ establish authentic SP IMEM, user-provided or commercial cartridge execution,
 PIF/BIOS boot, SP DMA, controller protocol, game compatibility, or a complete
 N64 memory system. Rollback/preflight exists only where the detailed ledger
 says it is sealed.
+
+The authorized user-cartridge path leaves the immutable local cartridge in its
+existing owner while general atomic PI transfers populate Rdram. Two
+preflighted RDRAM-to-SP transfers then copy physical
+`[0x0012BAC0,0x0012BB00)` into DMEM `[0x0FC0,0x1000)` and
+`[0x000060B0,0x00006498)` into IMEM `[0x0000,0x03E8)`. SP records transfer
+metadata; SpDmem and SpImem remain the sole destination byte owners. The first
+task-start command follows these genuine DMA effects and no RSP byte is
+executed. No local cartridge content is persisted outside Machine memory or
+the original user-owned input.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.

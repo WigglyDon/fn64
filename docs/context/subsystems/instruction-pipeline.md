@@ -11,7 +11,7 @@ Update triggers: fetch targets, decode/identity ownership, selection, or action 
 
 The source-clear path is:
 
-`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and bootstrap source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, represented load/store planning for direct RDRAM, SP IMEM, or exact RI/MI/global-RDRAM/generated-module targets, bounded-MTC0 planning, or one CPU-local helper selection → classified action`.
+`current pc/context → target/provenance classification → one instruction fetch → one raw-field decode → one identity classification → contextual and source-knownness gates → ordinary-control-flow planning, no-effect/stopped/unsupported, represented memory/device planning, represented COP0/cache planning, or one CPU-local helper selection → classified action`.
 
 Production does not apply machine mutation. Application does not refetch,
 decode, or identify. The instruction word and decoded fields are fixed-width;
@@ -97,15 +97,24 @@ the 92-word program, all seven comparison branches, its KSEG1 mailbox stores,
 and two success-loop J/Nop iterations. This proves neither PI/cache timing, RSP
 execution, authentic IPL2/user cartridge execution, nor generic device routing.
 
-The MTC0 producer accepts only zero low bits, Cause/Count/Compare/TagLo/TagHi, the
-source-backed cold-x105 access scope, and a known old source. Its immutable
-plan resolves all fallible facts before destination-specific COP0 mutation and
-existing cadence application. No numeric CP0 register map or generic writer is
-introduced.
+The authorized user-cartridge probe uses this same pipeline from cold
+construction through the first SP start request. It adds no inspection-owned
+execution: scalar, COP0/TLB-register, cache, interrupt, PI, SI, VI, AI, and SP
+frontiers are implemented as general Machine actions and then advanced by
+public stepping. The first SP_STATUS command that changes halt true to false
+commits before the probe stops; no RSP fetch or instruction application occurs.
+
+The MTC0 producer accepts a known old source and the exact represented
+destination set: Index, EntryLo0/1, Context, PageMask, Wired, EntryHi, Status,
+Cause, EPC, Count, Compare, and TagLo/TagHi. Its immutable plan resolves
+fallible facts before destination-specific COP0 mutation and cadence.
+Matching reached MFC0 sources, bounded TLB register operations, and ERET share
+Cpu ownership without creating a generic register writer or translated memory
+route.
 
 The `Sw` producer checks base knownness, computes address, selects AdES before
 source-value consumption, rejects every target except direct RDRAM/SP memories
-or the exact represented RI, MI, PI, SP-control, SI/AI-clear, global RDRAM, and
+or the exact represented RI, MI, PI, SP, SI, AI, VI, global RDRAM, and
 generated RCP-2 module targets,
 and only then captures source value/lineage and
 constructs a closed destination plan. RI_CONFIG planning rejects undefined
@@ -143,7 +152,7 @@ GPR source and does not inspect prior r31. JALR planning captures old `rs`
 before application and never treats unrelated prior `rd` as an input.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
-Known unknowns include future public-step integration categories, every other
-branch-likely/REGIMM family member, broader COP0 and CACHE execution, general
-RI/MI programming, NMI, generic MMIO, nested control flow, broad fetch mapping,
-analog device behavior, and instruction timing.
+Known unknowns include future public-step integration categories, unearned
+branch-likely/REGIMM members, COP0/CACHE operations beyond the detailed ledger,
+translated TLB access, NMI, generic MMIO, broad fetch mapping, analog device
+behavior, and instruction timing.

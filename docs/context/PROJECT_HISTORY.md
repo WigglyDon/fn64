@@ -732,6 +732,28 @@ product or reference lane requires a new explicit product decision.
   remains the authentic checkpoint; user-provided/commercial cartridge
   execution and compatibility remain unearned.
 
+## Era 39 — User cartridge CPU runtime to first RSP task (2026-07-23)
+
+- Input boundary: Don explicitly authorized one local user-owned cartridge.
+  Host code supplied only an explicit path and byte read; Cartridge normalized
+  and owned 33,554,432 big-endian bytes. No path, title, ID, digest, string, or
+  cartridge byte entered product policy, tests, evidence, commits, or
+  artifacts.
+- Architecture result: general CPU scalar/load/store identities, bounded
+  COP0/TLB register truth, ERET, instruction-boundary interrupt delivery,
+  primary-cache runtime operations, variable atomic PI DMA, concrete AI/VI/SI
+  register truth, and atomic RDRAM-to-SP DMA advanced the CPU-side runtime.
+  Public synthetic regression remained independent of the local input.
+- Runtime result: the first cartridge word `0x3C088000` at `0x80000400`
+  executed once. Two SP DMAs prepared 64 DMEM bytes and 1,000 IMEM bytes.
+  SP_STATUS `Sw` at `0x800D5A98` committed command `0x00000125`, changing halt
+  true to false. The proof stopped with PC/next-PC
+  `0x800CF97C/0x800CF980`, Count 21,382,107, after 21,382,123 commits and before
+  any RSP instruction.
+- Boundary: milestone `USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK` is earned.
+  BOOT-2 remains the checkpoint. RSP execution, graphics, audio, controller
+  presentation, BOOT-3, and compatibility remain unavailable.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

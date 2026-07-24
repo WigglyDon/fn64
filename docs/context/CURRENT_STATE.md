@@ -30,6 +30,16 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: the existing no-window `fn64_boot_probe` now accepts one
   optional literal `--pif-rom` path. It performs no search or fallback; the host
   reads that path and transfers owned bytes into Machine validation.
+- `USER_DECISION`: fn64 may use one explicit user-supplied cartridge path for a
+  separate local no-window proof. The host owns only parsing and file reading;
+  `Cartridge` owns normalized bytes and Machine owns all execution. No filename,
+  title, ID, region, checksum, digest, or observed PC may select product
+  behavior, and no ROM content may enter source, tests, evidence, patches, or
+  artifacts.
+- `LIVE_REPO_FACT`: `fn64_user_cartridge_probe` is the optional explicit-path
+  shell for that proof. It reports a bounded redacted dashboard and
+  first-occurrence architectural ledger, has a positive step ceiling, and is
+  not a standard CI input.
 
 ## Forward machine truth
 
@@ -66,23 +76,26 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `[0x000, 0x02c)`. External observability does not authorize embedding the
   values or make them current Machine truth.
 - `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
-  BOOT-3, authentic handoff, user-provided or commercial cartridge execution,
-  compatibility, graphics, window, and audio are not claimed. Public generated
-  runtime-v2 execution is synthetic proof only.
-- `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, non-linking/non-likely `BLTZ`,
-  `J`, `JAL`, `JR`, and `JALR`
+  One authorized user-provided cartridge now executes through CPU-side
+  initialization to its first genuine RSP task-start request. BOOT-3, a
+  proprietary PIF execution chain, commercial-cartridge generality,
+  compatibility, RSP execution, graphics, window, and audio are not claimed.
+  Public generated runtime-v2 execution remains synthetic proof only.
+- `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `BLEZ`, non-linking/non-likely
+  `BLTZ` and `BGEZ`, `J`, `JAL`, `JR`, and `JALR`
   execute through `Machine::step` with one CPU-owned delay-slot context.
   Taken and untaken branches both execute one slot; link, alias, Count,
   branch-in-delay-slot rejection, and delay-slot EPC/BD behavior are explicit.
   Prior r31 value or lineage is not a JAL input. JALR still consumes only its
   captured old `rs`, including when source and link destination alias; every
   genuine branch, jump-register, load, and store source-knownness gate remains.
-  BLTZ reuses the established full-GPR signed comparison used by SLT/SLTI;
-  every other REGIMM identity remains unrepresented. This is bounded ordinary
-  control flow, not complete MIPS control flow.
-- `LIVE_REPO_FACT`: `Cop0Mtc0` executes for Cause software-pending bits,
-  Count, Compare, and the exact CPU-owned primary-cache TagLo/TagHi
-  destinations while the source-backed cold-x105 kernel state is active.
+  BLTZ/BGEZ and BLEZ reuse full-GPR signed comparisons; other unearned REGIMM
+  identities remain explicit. This is bounded ordinary control flow, not a
+  complete MIPS control-flow claim.
+- `LIVE_REPO_FACT`: `Cop0Mtc0` executes for represented Index, EntryLo0/1,
+  Context, PageMask, Wired, EntryHi, Status, Cause, EPC, Count, Compare, and
+  CPU-owned primary-cache TagLo/TagHi destinations. Matching `Cop0Mfc0`
+  sources are available where directly reached.
   It transfers the known source GPR's low word, preserves the source, and
   rejects malformed encodings, other destinations, unavailable sources, or
   other access contexts before mutation. Cause writes only IP1/IP0 and does
@@ -90,7 +103,12 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   Compare clears timer pending before that cadence, whose post-increment
   equality check may relatch it. TagLo and TagHi each retain a raw low word and
   source provenance; the generated cold sequence writes zero from
-  ArchitecturalZero. Interrupt delivery and general COP0 access remain absent.
+  ArchitecturalZero. One private 32-entry TLB supports masked
+  TLBR/TLBWI/TLBWR/TLBP register truth; translated memory access was not
+  pressured. ERET clears EXL and returns through EPC; ERL/ErrorEPC remains
+  unavailable. MI/COP0 interrupt delivery occurs only at instruction
+  boundaries with exact EPC/BD/EXL ownership and zero faulting-instruction
+  cadence.
 - `LIVE_REPO_FACT`: Machine structurally accepts an explicitly supplied
   1,984-byte raw-Boot-ROM-shaped input, rejects the 2,048-byte full-map shape as
   unsupported, and classifies other lengths as malformed. Acceptance proves no
@@ -321,6 +339,37 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   match at `0x4077ADEF / 0x096B847A`. This earns synthetic milestone
   `SYNTHETIC-CARTRIDGE-RUNTIME-COMPLETE`, not BOOT-3, authentic cartridge
   execution, or compatibility.
+- `LIVE_REPO_FACT`: the CPU owner now additionally represents signed word
+  DIV, unsigned 64-bit DMULTU/DDIVU, aligned LB/LH/LHU/LD/SH/SD over the
+  earned direct RDRAM/cache paths, FCR31 CFC1/CTC1 control transfers, and
+  primary-cache Index Invalidate, D Index Writeback Invalidate, D Hit
+  Writeback, and I/D Hit Invalidate. Complete old-source capture, zero-register
+  behavior, alignment exceptions, delay ownership, and Count cadence remain
+  general rather than tied to observed cartridge PCs.
+- `LIVE_REPO_FACT`: concrete per-Machine `Ai`, `Si`, and `Vi` owners retain
+  only reached raw register, provenance, idle/neutral-input, and deterministic
+  cadence truth. `Vi` advances one half-line per 1,500 committed instructions
+  and may assert the MI-owned VI pending source only after VI_INTR is
+  programmed. No host audio/video/input, rendering, sampling, controller, or
+  wall-clock behavior exists.
+- `LIVE_REPO_FACT`: `Pi` supports fully preflighted atomic cart-to-RDRAM
+  transfers for reached variable lengths plus source-defined domain timing
+  register truth. `Sp` owns reached memory/DRAM address registers, general
+  status/PC command truth, and atomic RDRAM-to-DMEM/IMEM DMA records. Existing
+  Cartridge, Rdram, SpDmem, and SpImem owners retain all bytes; neither DMA
+  snoops CPU caches or creates timing/progress truth.
+- `RUNTIME_FACT`: an explicit local no-window run selected user-owned
+  `oot.z64`, detected big-endian `.z64` order, normalized 33,554,432 bytes into
+  one Machine-owned Cartridge, and executed its first word `0x3C088000` at
+  `0x80000400` once. Through public `Machine::step`, 21,382,817 attempts
+  produced 21,382,123 commits, including 13,988,271 user-cartridge commits.
+  Two atomic RDRAM-to-SP DMAs populated DMEM `[0x0FC0,0x1000)` with 64 bytes
+  and IMEM `[0x0000,0x03E8)` with 1,000 bytes. `Sw` word `0xADC40010` at
+  `0x800D5A98` committed SP_STATUS command `0x00000125`, changing halt from
+  true to false with SP PC zero. The proof stopped at CPU PC/next-PC
+  `0x800CF97C / 0x800CF980`, Count 21,382,107, before any RSP instruction.
+  This earns milestone `USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK`, not BOOT-3
+  or compatibility.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -472,6 +521,11 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   atomic Rdram writeback, a versioned public runtime-v2 fixture, guest-owned
   self-checks/mailbox, and two stable success-loop iterations complete without
   a Worker lane or queue entry.
+- `master-direct-user-oot-cpu-boot-to-first-rsp-task-v1`: direct Master
+  user-cartridge runtime operation; one explicit local cartridge input executes
+  through general CPU/COP0/cache/interrupt/device truth and stops after the
+  first genuine SP start request without executing RSP code, creating a Worker
+  lane, or adding title-specific policy.
 - `LIVE_REPO_FACT`: the accepted BLTZ report named the wrong branch while the
   preserved worktree was and remains registered to
   `master/direct-bltz-x105-branch-frontier-v1`. This is report-only
@@ -495,9 +549,9 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 ## Blockers and known unknowns
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
-- `UNKNOWN`: performance, broad hardware compatibility, BOOT-3 and later boot
-  behavior, game behavior after handoff, and host-runtime behavior remain
-  unmeasured or unavailable.
+- `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, RSP task
+  execution, behavior after first task submission, graphics/audio output, and
+  host-runtime presentation remain unmeasured or unavailable.
 - `LIVE_REPO_FACT`: fn64 has an explicit PIF-firmware input, structural
   validation, immutable Machine ownership, and reset/bootstrap persistence. It
   still has no authentic firmware classification or firmware execution.
@@ -526,11 +580,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   IPL3 teardown. The preserved v1 proof stops before its entry word. The
   separate runtime-v2 proof executes that word and its complete guest
   self-check through three genuine dirty D-cache writebacks, an exact uncached
-  success mailbox, and two stable success-loop iterations. PI timing, RSP
-  execution, authentic or user-provided cartridge execution, analog timing/accuracy,
-  host-selected profiles, arbitrary module topology, general device routing,
-  broader COP0/CACHE, NMI, a generic bus/MMIO/map, BOOT-3, and compatibility
-  remain absent.
+  success mailbox, and two stable success-loop iterations. One authorized local
+  cartridge now reaches the first SP start request through general
+  CPU/COP0/cache/interrupt/PI/SI/VI/AI/SP truth. PI/SP timing, RSP execution,
+  translated TLB memory access, analog timing/accuracy, host-selected profiles,
+  arbitrary module topology, generic device routing, NMI, a generic
+  bus/MMIO/map, BOOT-3, and compatibility remain absent.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any
   later pre-cartridge-entry state. Current evidence still does not prove that

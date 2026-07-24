@@ -13,6 +13,7 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, concrete PI,
+AI, SI, VI,
 minimal RI_MODE,
 RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, RI_REFRESH, immutable MI_VERSION
 identity, MI initialization-mode/RDRAM-register mode and interrupt state,
@@ -96,11 +97,15 @@ fallible operation: it mutates one selected owner, commits control flow once,
 and advances Count once. Rejection restores the captured snapshot; AdES
 delegates to existing sealed COP0 entry.
 
-Bounded `Cop0Mtc0` uses another closed plan/application path. The plan captures
-the cold-x105 access proof, exact Cause/Count/Compare destination, known old
-source, and low transfer word before mutation. Application performs the
-destination-specific COP0 write before the existing committed cadence. It is
-not a numeric CP0 map or a general register-write framework.
+`Cop0Mtc0` uses another closed plan/application path. The plan captures the
+exact represented destination, known old source, and low transfer word before
+mutation. Application performs destination-specific COP0 writes for the
+reached Index, EntryLo0/1, Context, PageMask, Wired, EntryHi, Status, Cause,
+EPC, Count, Compare, and TagLo/TagHi set before the existing cadence. Matching
+reached MFC0 reads, a private masked 32-entry TLB register owner, ERET, and
+instruction-boundary MI/COP0 interrupt entry stay within Cpu/COP0. This is not
+a general numeric register map, translated TLB memory route, or complete COP0
+framework.
 
 One private `Ri` owner stores optional RI_MODE, RI_SELECT, RI_CONFIG,
 RI_CURRENT_LOAD event, and RI_REFRESH state separately from bootstrap selectors.
@@ -110,11 +115,20 @@ its module mask and defined fields derive read-only. No refresh timing,
 current-control electrical behavior, NMI, generic MMIO, or bus is represented.
 
 One private `Mi` owner stores immutable MI_VERSION `0x02020102`, optional
-initialization state, one bounded pending transfer, and optional RDRAM-register
-access mode. Existing initialization and version semantics remain unchanged.
+initialization state, one bounded pending transfer, optional RDRAM-register
+access mode, and represented RCP interrupt pending/mask truth. Existing
+initialization and version semantics remain unchanged.
 Exact generated commands `0x2000` and `0x1000` enable and disable module-register
 reads; zero records a source-clear no-change command. This is not a command
 bank, readback surface, general next-write engine, or timing model.
+
+Concrete `Ai`, `Si`, and `Vi` owners retain only the register and provenance
+truth reached before the first RSP task. SI owns its 64-byte PIF RAM, idle
+status, and one fixed hostless no-controller profile; AI owns control, DAC-rate,
+and bit-rate requests; VI owns fourteen reached registers and a deterministic
+525-half-line cadence of 1,500 committed instructions per half-line. Device
+pending sources remain `Mi` truth. No owner renders, samples audio, connects a
+controller, consults host time, or creates a generic device registry.
 
 The existing `Rdram` remains the sole byte, fixed-profile, module, register,
 mapping, and calibration-response owner. Current 4 MiB backing selects two
@@ -221,6 +235,18 @@ are 7,477,116 and Count is 7,477,100. This earns
 `SYNTHETIC-CARTRIDGE-RUNTIME-COMPLETE`, while authentic BOOT-2 remains the
 highest cartridge checkpoint.
 
+One explicit local user-cartridge proof transfers normalized bytes to the
+existing immutable `Cartridge` owner and leaves path handling in the
+inspection shell. Public Machine stepping commits 13,988,271 cartridge
+instructions, including bounded CPU/COP0/cache and device programming. `Pi`
+retains atomic ranged cartridge-to-RDRAM DMA ownership; `Sp` adds reached
+MEM_ADDR/DRAM_ADDR, status/PC, and atomic RDRAM-to-SP DMA records while the
+existing Rdram/SpDmem/SpImem owners retain every byte. Two completed transfers
+populate 64 DMEM bytes and 1,000 IMEM bytes. The proof stops after SP_STATUS
+`0x00000125` clears halt, before RSP execution. This is the
+`USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK` milestone, not BOOT-3 or
+compatibility.
+
 Runtime integration is headless/no-window only. Rollback exists for represented
 unsupported/rejection paths. Observability is public read-only state plus probe
 artifacts. Performance/resource truth is `UNKNOWN` unless separately measured.
@@ -248,5 +274,5 @@ remain unsupported or unknown.
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-host integration, broader handoff state, and whether any later fact requires
-minimal firmware execution.
+translated TLB memory access, RSP execution, host presentation, broader
+handoff state, and whether any later fact requires minimal firmware execution.
