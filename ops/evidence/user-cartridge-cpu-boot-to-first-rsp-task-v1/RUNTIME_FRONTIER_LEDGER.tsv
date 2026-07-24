@@ -1,0 +1,36 @@
+class	pc	identity	owner	general_implementation	public_synthetic_proof	advanced
+cpu-branch	0x80002EFC	Blez	Cpu	full signed source comparison and ordinary delay slot	control-flow focused tests	yes
+cop0-status-read	0x80003430	Cop0Mfc0	Cpu.Cop0	general represented MFC0 source	existing and focused COP0 tests	yes
+cop0-status-write	0x80003420	Cop0Mtc0	Cpu.Cop0	general represented Status destination	focused interrupt and ERET tests	yes
+cop1-control-read	0x800057E0	Cop1Cfc1	Cpu.Cop1	FCR31 CFC1	focused CFC1 and CTC1 tests	yes
+cop1-control-write	0x800057E4	Cop1Ctc1	Cpu.Cop1	FCR31 masked raw state and provenance	focused CFC1 and CTC1 tests	yes
+si-pif-ram	0x80005B84	Sw	Si/PifRam	concrete PIF RAM word store with neutral input profile	focused SI ownership tests	yes
+dcache-hit-writeback	0x80003478	Cache	Cpu.primary_caches/Rdram	primary D-cache Hit Writeback	focused cache hit/writeback tests	yes
+cache-hit-invalidate	0x800041D8	Cache	Cpu.primary_caches	primary I/D Hit Invalidate	focused cache invalidation tests	yes
+tlb-entry-write	0x80004090	Cop0Tlbwi	Cpu.Cop0	indexed 32-entry TLB truth	focused TLBR/TLBWI/TLBWR/TLBP tests	yes
+cpu-regimm	0x800040A0	RegimmBgez	Cpu	general signed BGEZ with one delay slot	focused control-flow tests	yes
+cpu-load-doubleword	0x800022E8	Ld	Cpu/Rdram/KSEG0-Dcache	general aligned cached and uncached LD	focused LD/SD and atomicity tests	yes
+cpu-multiply-doubleword	0x800022F0	SpecialDmultu	Cpu	complete unsigned 64x64 HI/LO result	focused DMULTU edge tests	yes
+cpu-divide-doubleword	0x800021F0	SpecialDdivu	Cpu	complete unsigned 64-bit quotient/remainder	focused DDIVU edge tests	yes
+ai-control	0x800032E8	Sw	Ai	raw control word and provenance	focused AI register tests	yes
+ai-dac-rate	0x800032F4	Sw	Ai	raw 14-bit DAC-rate request and provenance	focused AI register tests	yes
+ai-bit-rate	0x80003300	Sw	Ai	raw 4-bit bitrate request and provenance	focused AI register tests	yes
+cpu-divide-word	0x80001ED8	SpecialDiv	Cpu	signed 32-bit quotient/remainder and edge behavior	focused DIV edge tests	yes
+pi-domain-timing	0x8000573C	Sw	Pi	concrete domain timing register truth	focused PI register tests	yes
+cpu-store-halfword	0x80003018	Sh	Cpu/Rdram/KSEG0-Dcache	big-endian cached and uncached SH	focused halfword and cache tests	yes
+cpu-load-halfword-unsigned	0x80005EE4	Lhu	Cpu/Rdram/KSEG0-Dcache	unsigned cached and uncached LHU	focused LH/LHU tests	yes
+cop0-epc-write	0x80002C7C	Cop0Mtc0	Cpu.Cop0	EPC destination and provenance	focused ERET tests	yes
+mi-mask-write	0x80002D08	Sw	Mi	all six interrupt-mask command pairs	focused MI interrupt tests	yes
+exception-return	0x80002D1C	Cop0Eret	Cpu.Cop0	EXL return to EPC through pc/next_pc	focused ERET tests	yes
+vi-registers	0x800052E8	Sw	Vi	14 concrete VI registers with source masks	focused VI register tests	yes
+cpu-store-doubleword	0x80002A64	Sd	Cpu/Rdram/KSEG0-Dcache	big-endian cached and uncached SD	focused LD/SD and AdES tests	yes
+interrupt-entry	0x80001938	instruction-boundary	Cpu.Cop0/Mi	instruction-boundary MI/COP0 interrupt exception	focused ordinary and delay-owner tests	yes
+cache-index-invalidate	0x800041FC	Cache	Cpu.primary_caches	primary I/D Index Invalidate	focused cache operation tests	yes
+dcache-index-writeback-invalidate	0x800042E4	Cache	Cpu.primary_caches/Rdram	atomic dirty writeback plus invalidate	focused cache atomicity tests	yes
+pi-dma-runtime	0x8000488C	Sw	Pi/Cartridge/Rdram/Mi	general bounded atomic cart-to-RDRAM write-length DMA	public variable-length DMA tests	yes
+cpu-load-byte-signed	0x80004E7C	Lb	Cpu/Rdram/KSEG0-Dcache	signed cached and uncached LB	focused byte-load tests	yes
+cpu-load-halfword-signed	0x80004E80	Lh	Cpu/Rdram/KSEG0-Dcache	signed cached and uncached LH	focused halfword-load tests	yes
+sp-memory-address	0x800D0600	Sw	Sp	concrete 13-bit SP local address request	focused SP DMA tests	yes
+sp-dram-address	0x800D0610	Sw	Sp	concrete 24-bit RDRAM address request	focused SP DMA tests	yes
+sp-rdram-to-local-dma	0x800D0640	Sw	Sp/Rdram/SpDmem/SpImem	atomic source-defined block transfer and typed record	focused SP DMA lifecycle and rejection tests	yes
+sp-task-start	0x800D5A98	Sw	Sp	general SP_STATUS command clears halt after prepared DMA state	local redacted endpoint proof	yes-stop
