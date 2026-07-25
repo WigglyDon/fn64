@@ -46,6 +46,16 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: `fn64-core` owns the represented machine and public
   `Machine::step`; `fn64-inspection` owns deterministic no-window proof
   plumbing only.
+- `LIVE_REPO_FACT`: `Sp` now owns one private nested RSP execution state while
+  retaining singular current-PC and control ownership. Scalar r0 is immutable
+  known zero; r1-r31 are unavailable until written; vector, accumulator, VCC,
+  VCO, and VCE truth remains explicitly unavailable. One private per-Machine
+  turn makes each public `Machine::step` select at most one CPU or RSP
+  instruction. Successful CPU/RSP commits alternate while halt is false;
+  selected rejection has no fallback. CPU Count, CPU committed-step count,
+  CPU interrupt recognition, and VI remain CPU-selected cadence only; RSP owns
+  a separate committed-instruction count. This cadence is deterministic,
+  host-independent, and explicitly not cycle-accurate.
 - `RUNTIME_FACT`: BOOT-2 is the highest earned cartridge checkpoint. One
   authentic private-ROM-derived `SpecialAdd` committed through `Machine::step`
   with complete represented value, provenance, `pc` / `next_pc`, and Count
@@ -77,10 +87,12 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   values or make them current Machine truth.
 - `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
   One authorized user-provided cartridge now executes through CPU-side
-  initialization to its first genuine RSP task-start request. BOOT-3, a
-  proprietary PIF execution chain, commercial-cartridge generality,
-  compatibility, RSP execution, graphics, window, and audio are not claimed.
-  Public generated runtime-v2 execution remains synthetic proof only.
+  initialization to its first genuine RSP task-start request. The earlier
+  public generated x105 path now commits exactly two scalar RSP `Mfc0`
+  instructions and rejects vector `Lqv` atomically. BOOT-3, a proprietary PIF
+  execution chain, commercial-cartridge generality, user-task RSP execution,
+  vector execution, compatibility, graphics, window, and audio are not
+  claimed. Public generated execution remains synthetic proof only.
 - `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `BLEZ`, non-linking/non-likely
   `BLTZ` and `BGEZ`, `J`, `JAL`, `JR`, and `JALR`
   execute through `Machine::step` with one CPU-owned delay-slot context.
@@ -370,6 +382,18 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `0x800CF97C / 0x800CF980`, Count 21,382,107, before any RSP instruction.
   This earns milestone `USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK`, not BOOT-3
   or compatibility.
+- `RUNTIME_FACT`: the public generated cold-x105 path reaches the earlier
+  general halt-to-run transition at CPU `0xA4000508`. Command `0x000000AD`
+  commits alone at Count 252,345 / CPU commit 252,361 and selects RSP. Public
+  words `0x40083800` and `0x400B0800` then commit as
+  `Mfc0 r8,SP_SEMAPHORE` and `Mfc0 r11,SP_DRAM_ADDR`, separated by the existing
+  CPU `Lui` and `Lw`. r8 and r11 become known zero, the semaphore becomes set,
+  SP PC/next-PC become `0x008/0x00C`, and RSP count becomes two while CPU Count
+  reaches 252,347 only through the two intervening CPU commits.
+  `MachineRspRunStartState` changes Pending to Consumed on the first MFC0 and
+  remains distinct from the later user-task fact. The selected RSP call at
+  local `0x008` identifies public `Lqv v12[0],0(r0)` and rejects without
+  mutation or CPU fallback. This is the current combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
@@ -582,9 +606,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   self-check through three genuine dirty D-cache writebacks, an exact uncached
   success mailbox, and two stable success-loop iterations. One authorized local
   cartridge now reaches the first SP start request through general
-  CPU/COP0/cache/interrupt/PI/SI/VI/AI/SP truth. PI/SP timing, RSP execution,
-  translated TLB memory access, analog timing/accuracy, host-selected profiles,
-  arbitrary module topology, generic device routing, NMI, a generic
+  CPU/COP0/cache/interrupt/PI/SI/VI/AI/SP truth. PI/SP timing, RSP vector or
+  user-task execution beyond the two public MFC0 commits, translated TLB memory
+  access, analog timing/accuracy, host-selected profiles, arbitrary module
+  topology, generic device routing, NMI, a generic
   bus/MMIO/map, BOOT-3, and compatibility remain absent.
 - `UNKNOWN`: source-qualified PAL/MPAL retained-link values for product use,
   unexamined PIF revisions, NMI and DD handoffs, other IPL3 families, and any

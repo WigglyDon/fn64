@@ -123,5 +123,12 @@ are represented; nested exception completeness, NMI, translated TLB access,
 and performance remain bounded by the detailed capability ledger and public
 step selection.
 
+Processor selection now precedes all CPU-only interrupt synchronization and
+recognition. An RSP-selected success or rejection does not touch COP0 Cause,
+Status, EPC, Count, Compare, interrupt-derived state, or CPU delay context.
+Any future RSP-produced MI source would become CPU-visible only at the next
+CPU-selected instruction boundary. The exact scalar RSP MFC0 sources in the
+current product are SP-owned control values, not CPU COP0 state.
+
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

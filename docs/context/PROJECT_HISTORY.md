@@ -754,6 +754,28 @@ product or reference lane requires a new explicit product decision.
   BOOT-2 remains the checkpoint. RSP execution, graphics, audio, controller
   presentation, BOOT-3, and compatibility remain unavailable.
 
+## Era 40 — Public x105 RSP foundation and scalar MFC0 (2026-07-25)
+
+- Ownership result: `Sp` gained one private nested RSP execution state while
+  remaining the singular SP current-PC/control owner. Scalar r0 is immutable
+  zero, r1-r31 begin unavailable, and vector/accumulator/flag truth remains
+  explicitly unavailable.
+- Cadence result: public `Machine::step` now selects at most one CPU or RSP
+  instruction through a private per-Machine token. Successful commits
+  alternate while halt is false; rejection has no fallback. CPU Count, CPU
+  committed-step count, interrupt recognition, and VI remain CPU-only. The
+  approximation is host-independent and not cycle-accurate.
+- Runtime result: the public x105 halt-clear creates a general Pending
+  `MachineRspRunStartState`. `Mfc0 r8,SP_SEMAPHORE` commits at local `0x000`,
+  atomically reads old clear and sets the semaphore, and consumes run-start.
+  After one CPU `Lui`, `Mfc0 r11,SP_DRAM_ADDR` commits at local `0x004` and
+  reads the singular cold-zero SP register. After one CPU `Lw`, vector
+  `Lqv v12[0],0(r0)` at local `0x008` rejects without mutation or fallback.
+- Boundary: scalar MFC0 supports only SP_SEMAPHORE and SP_DRAM_ADDR. Vector
+  execution, scalar J/Lw, MTC0, BREAK, task completion, RDP, BOOT-3, and
+  compatibility remain unavailable. The preserved scalar-J lane remains an
+  uncommitted read-only donor, not product history.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

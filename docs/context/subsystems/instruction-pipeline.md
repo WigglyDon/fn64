@@ -23,7 +23,7 @@ Forbidden dependencies include host paths, dynamic registries, probe policy,
 private producer calls from inspection, and a generic all-future dispatcher.
 
 Proof consists of source anchors, classification/fetch unit tests, focused step
-tests, the 187-case step probe, and the bounded BOOT-2 trace. Read-only
+tests, the 190-case step probe, and the bounded BOOT-2 trace. Read-only
 current-instruction inspection exposes address, fields, identity, and Machine
 source provenance without mutable state. Proof does not mean every recognized
 identity executes. `Lw` is represented as one Machine-owned rule over direct RDRAM,
@@ -151,8 +151,18 @@ CPU-owned slot context; it does not refetch or re-identify. JAL planning has no
 GPR source and does not inspect prior r31. JALR planning captures old `rs`
 before application and never treats unrelated prior `rd` as an input.
 
+RSP fetch is a separate selected-processor pipeline inside the same public
+`Machine::step`. It captures singular `Sp::pc`, requires aligned in-range
+known `SpImem` word truth, retains four-byte provenance, decodes only exact
+MFC0 sources, and plans all source effects before mutation. Unknown, opaque,
+malformed, unsupported, or vector-frontier words reject before application and
+receive no CPU fallback. Successful MFC0 advances singular current PC and
+nested next PC once, leaves RSP delay context unavailable, increments only the
+RSP count, records exact result/last-instruction provenance, and rotates the
+private turn to CPU.
+
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, unearned
 branch-likely/REGIMM members, COP0/CACHE operations beyond the detailed ledger,
-translated TLB access, NMI, generic MMIO, broad fetch mapping, analog device
-behavior, and instruction timing.
+translated TLB access, NMI, generic MMIO, broad CPU or RSP fetch mapping,
+vector LQV execution, analog device behavior, and instruction timing.

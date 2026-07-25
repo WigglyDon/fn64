@@ -164,7 +164,7 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 187-case step probe, the bounded BOOT-2
+construction/reset probe, the 190-case step probe, the bounded BOOT-2
 probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
 `SpecialAdd` commit only. The integrated partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
@@ -271,8 +271,25 @@ profile-qualified ra, s3-s7, Status, PC/next-PC, and cleared delay context.
 Other profiles, reset kinds, media, IPL3 families, and physical PIF revisions
 remain unsupported or unknown.
 
+`Sp` now owns a private nested RSP execution state while retaining singular
+current-PC and control ownership. Machine owns only one private CPU/RSP turn.
+Each public `Machine::step` selects at most one processor; selected rejection
+has no fallback. CPU Count, CPU committed-step accounting, interrupt
+recognition, and VI remain CPU-selected only. RSP state owns r0 known zero,
+r1-r31 unavailable, explicit vector/accumulator/flag unavailability, local
+next-PC/delay truth, provenance, and a separate committed count.
+
+The public generated x105 halt-clear creates general Pending run-start
+lineage, not a user-task fact. Scalar `Mfc0 r8,SP_SEMAPHORE` and
+`Mfc0 r11,SP_DRAM_ADDR` commit through known `SpImem` words and ordinary
+alternation. The first atomically reads old semaphore zero and sets it; the
+second reads the singular cold-zero SP DRAM address. Run-start becomes
+Consumed on the first commit. Vector `Lqv v12[0],0(r0)` at local `0x008` is
+identified but rejects without vector state, memory mutation, or CPU fallback.
+
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-translated TLB memory access, RSP execution, host presentation, broader
-handoff state, and whether any later fact requires minimal firmware execution.
+translated TLB memory access, RSP execution beyond the exact two scalar MFC0
+commits, host presentation, broader handoff state, and whether any later fact
+requires minimal firmware execution.

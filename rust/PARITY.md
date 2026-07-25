@@ -38,16 +38,53 @@ history.
 | `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, RSP fetch, or COP2 execution |
-| `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, CPU-side SP instruction fetch, or RSP execution |
-| `Sp` | general reached SP_STATUS commands/readback, SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, and atomic RDRAM-to-SP DMA records with CPU provenance | no DMA timing/queue, RSP scalar/vector state, RSP fetch, task completion, or RSP execution |
+| `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
+| `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP DMA records with CPU provenance, general run-start lineage, and one private nested RSP execution state with scalar availability and separate committed count | no DMA timing/queue, concrete vector/accumulator/flag state, scalar identity beyond exact MFC0, vector execution, task completion, or RSP interrupt completion |
 | `Ri` | optional RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD, and exact RI_REFRESH raw/provenance state with source-clear derived fields | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, refresh timing/electrical effect, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Mi` | immutable MI_VERSION `0x02020102`, initialization and RDRAM-register mode, one bounded transfer, and general reached SP/SI/AI/VI/PI/DP pending/mask command truth with CPU provenance | no unrelated MI bank, device timing, generic interrupt-controller framework, MMIO framework, or bus |
 | `Pi` | programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, source-defined domain timing registers, and fully preflighted atomic cart-to-RDRAM DMA records for reached lengths | no PI_RD_LEN, cartridge writes, timing/progress, FIFO, controller reset, generic PI bank, or byte ownership |
 | `Ai` | reached control, DAC-rate, and bitrate raw request words plus CPU provenance | no audio DMA, samples, clock, mixer, or host audio |
 | `Si` | 64-byte PIF RAM, cold-idle status, CPU provenance, and a fixed hostless no-controller profile | no SI DMA, controller protocol/UI, or private PIF execution |
 | `Vi` | reached raw register words/provenance plus deterministic half-line/current state and MI-owned interrupt assertion/clear relationship | no rendering, framebuffer presentation, scan timing accuracy, or host display |
-| `Machine` | Cartridge, optional accepted or public synthetic PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Ri, Mi, Pi, Ai, Si, Vi, bootstrap lineage, powered/reset state, represented fetch/data/device composition, and public step composition | no hidden global machine, platform clock, file path, renderer, audio/output, host input, or event loop |
-| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, and one optional explicit-path redacted user-cartridge probe over public core APIs | no emulated truth, title/digest policy, guest mutation, RSP execution, graphics, or compatibility authority |
+| `Machine` | Cartridge, optional accepted or public synthetic PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Ri, Mi, Pi, Ai, Si, Vi, bootstrap lineage, powered/reset state, represented fetch/data/device composition, one private CPU/RSP turn, and processor-tagged public step composition | no hidden global machine, platform clock, file path, renderer, audio/output, host input, event loop, public RSP-only step, or cycle-accuracy claim |
+| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV-frontier proof, and one optional explicit-path redacted user-cartridge probe over public core APIs | no emulated truth, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
+
+## RSP execution foundation
+
+`Machine::step` remains the sole public execution entrance and returns one
+processor-tagged outcome. Each call selects and attempts at most one CPU or RSP
+instruction. A private per-Machine token alternates successful CPU and RSP
+commits while represented SP halt is false; selected rejection has no fallback.
+This cadence is deterministic and host-independent, but is not a hardware
+frequency or cycle model.
+
+`Sp` owns one private `MachineRspExecutionState` while `Sp::pc` remains the
+singular current RSP PC. The nested state owns a 32-entry scalar availability
+array, local sequential `next_pc`, an independent optional delay context, a
+separate committed-instruction count, last-instruction provenance, and
+explicitly unavailable vector/accumulator/flag state. r0 is immutable known
+zero; r1-r31 begin unavailable. CPU SP-PC writes synchronize only current and
+next local PC and clear stale RSP delay context.
+
+`MachineRspRunStartState` records a general SP halt true-to-false cause as
+Pending, then records the first successfully committed RSP instruction as
+Consumed. It is causal evidence, not authorization, and is distinct from the
+accepted higher-level user-task submission fact.
+
+Selected RSP fetch requires an aligned local PC and one known big-endian
+`SpImem` word. Unknown, opaque, inconsistent, unavailable, or out-of-range
+truth rejects before decode. The represented scalar identity is exact RSP
+MFC0 for only SP_SEMAPHORE and SP_DRAM_ADDR. SP_SEMAPHORE returns the old bit
+and atomically sets it; SP_DRAM_ADDR returns the singular masked Sp-owned
+register without a source side effect. Destination r0 discards only the scalar
+write. Other control indices, MTC0, and other scalar identities remain closed.
+
+The public generated cold-x105 composition commits `Mfc0 r8,SP_SEMAPHORE` at
+local `0x000`, one CPU `Lui`, `Mfc0 r11,SP_DRAM_ADDR` at local `0x004`, and one
+CPU `Lw`. RSP count becomes two while CPU Count advances only on the CPU
+instructions. The next selected RSP word at local `0x008` is identified as
+`Lqv v12[0],0(r0)` and rejects atomically. Vector state is not created and LQV
+does not execute. BOOT-2 remains the highest cartridge checkpoint.
 
 ## Cartridge representation
 
@@ -767,7 +804,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 187 cases cover:
+calls only public `Machine::step` for execution. Its 190 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;
@@ -846,6 +883,9 @@ calls only public `Machine::step` for execution. Its 187 cases cover:
   KSEG0 cached `Sw`/`Sb`/`Lw`/`Lbu`, three atomic dirty writebacks, seven
   successful self-check branches, eight KSEG1 mailbox stores, and two complete
   success-loop iterations with zero failure-path executions;
+- scalar RSP MFC0 commit from SP_SEMAPHORE, scalar RSP MFC0 commit from
+  SP_DRAM_ADDR, and atomic selected-RSP rejection at the identified vector LQV
+  frontier;
 - taken and untaken ordinary branches with one slot;
 - JAL link behavior;
 - JALR source/destination alias behavior;

@@ -211,5 +211,14 @@ bytes. The first genuine SP_STATUS start request commits command
 user-cartridge CPU-side milestone, not BOOT-3, general cartridge compatibility,
 RSP execution, graphics, audio, or host presentation.
 
-Next authority must be earned by a bounded product packet, not a generic
-dispatcher.
+The sole public `Machine::step` now selects either one CPU or one RSP
+instruction through a private per-Machine token. RSP-selected calls bypass CPU
+interrupt recognition and advance neither COP0 Count, CPU committed-step
+count, nor VI. CPU-selected calls retain their prior path exactly. The
+generated x105 composition commits scalar RSP MFC0 at local `0x000` and
+`0x004`, with ordinary CPU `Lui` and `Lw` commits between them. CPU Count moves
+from 252,345 to 252,347 only on those CPU selections while the separate RSP
+count reaches two. The next RSP selection rejects vector LQV atomically.
+
+Next authority must be earned by a bounded vector-LQV product packet, not a
+generic dispatcher or cycle model.

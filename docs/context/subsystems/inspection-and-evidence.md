@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 187 stable cases, including ordinary
+public `Machine::step` for 190 stable cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -164,6 +164,15 @@ IDs, strings, cartridge bytes, code excerpts, bulk disassembly, or microcode.
 Standard CI and detached public validation never require this private input.
 The accepted local run reaches the first SP_STATUS command that clears halt
 after two represented SP DMAs, then stops before RSP execution.
+
+Three public synthetic step-probe cases now prove processor-tagged scalar RSP
+MFC0 from SP_SEMAPHORE, scalar RSP MFC0 from SP_DRAM_ADDR, and atomic LQV
+frontier rejection. The authoritative core composition starts from generated
+cold x105 state, reproduces the exact halt-clear at CPU `0xA4000508`, commits
+the two public RSP words with ordinary CPU interleave, and stops after the
+selected vector rejection. Inspection reads only public Machine state and
+never stages RSP registers, PC, turn, semaphore, or memory to force that
+result.
 
 Generic CPU-local/control-flow step-probe fixtures use the already represented
 uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and
