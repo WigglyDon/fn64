@@ -12,13 +12,14 @@ use fn64_core::{
     MachineRdramBroadcastDeviceIdAperture, MachineRdramBroadcastRefreshRowAperture,
     MachineRdramCalibrationStatus, MachineRdramFirstResponderDeviceIdAperture,
     MachineRdramInitialModeAperture, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineRiModeSource, MachineRiSelectSource, MachineSpDmemLoadWordProvenance,
-    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
-    MachineStepNoEffectExecutedInstructionCategory, MachineStepStoppedInstructionCategory,
-    MachineStepUnsupportedInstructionCategory, MachineStoreWordRejectionReason,
-    MachineStoreWordTarget, MachineStoreWordUnsupportedTarget, PifFirmwareValidationError,
-    PifIpl2Profile, RdramAccessError, SpDmemOffset, MI_INIT_MODE_X105_WRITE_WORD,
-    MI_VERSION_STANDARD_RETAIL_NUS_WORD, PIF_BOOT_ROM_SIZE_BYTES,
+    MachineRiModeSource, MachineRiSelectSource, MachineRspControlRegister, MachineRspStepOutcome,
+    MachineRspStepRejectionReason, MachineSpDmemLoadWordProvenance, MachineStepCadenceSource,
+    MachineStepControlFlowAction, MachineStepCountAction,
+    MachineStepNoEffectExecutedInstructionCategory, MachineStepProcessor,
+    MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
+    MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
+    PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
+    MI_INIT_MODE_X105_WRITE_WORD, MI_VERSION_STANDARD_RETAIL_NUS_WORD, PIF_BOOT_ROM_SIZE_BYTES,
     RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
     RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
     RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD, RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE,
@@ -210,6 +211,9 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: dcache-kseg0-byte-dirty ok\
 \ncase: dcache-dirty-writeback ok\
 \ncase: dcache-conflict-final-truth ok\
+\ncase: rsp-mfc0-semaphore-committed ok\
+\ncase: rsp-mfc0-dram-address-committed ok\
+\ncase: rsp-lqv-frontier-rejected ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -330,6 +334,7 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_mi_init_mode_routes_and_lifecycle()?;
     probe_generated_x105_post_mtc0_trio_frontier()?;
     probe_pi_dma_and_dcache_path()?;
+    probe_rsp_mfc0_and_lqv_frontier()?;
     probe_sp_dmem_lw_unknown_rejection()?;
     probe_sp_dmem_lw_delay_slot_adel()?;
     probe_beql_paths_and_rejections()?;
@@ -6853,6 +6858,211 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
             && cache_frontier.fields().raw().bits() == 0x4080_e000
             && cache_frontier.identity() == CpuInstructionIdentity::Cop0Mtc0,
         "unexecuted cache initialization MTC0 frontier",
+    )
+}
+
+fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
+    const CASE: &str = "rsp-mfc0-and-lqv-frontier";
+    const RSP_MFC0_SEMAPHORE: u32 = 0x4008_3800;
+    const RSP_MFC0_DRAM_ADDRESS: u32 = 0x400b_0800;
+    const RSP_LQV_FRONTIER: u32 = 0xc80c_2000;
+    let words = [
+        (0x40, immediate_word(0x0f, 0, 1, 0xa404)),
+        (0x44, immediate_word(0x0d, 0, 2, 0x00ce)),
+        (0x48, immediate_word(0x2b, 1, 2, 0x0010)),
+        (0x4c, immediate_word(0x0f, 0, 3, 0xa408)),
+        (0x50, immediate_word(0x2b, 3, 0, 0x0000)),
+        (0x54, immediate_word(0x0f, 0, 4, 0xa400)),
+        (0x58, immediate_word(0x0d, 4, 4, 0x1000)),
+        (
+            0x5c,
+            immediate_word(0x0f, 0, 5, (RSP_MFC0_SEMAPHORE >> 16) as u16),
+        ),
+        (0x60, immediate_word(0x0d, 5, 5, RSP_MFC0_SEMAPHORE as u16)),
+        (0x64, immediate_word(0x2b, 4, 5, 0x0000)),
+        (
+            0x68,
+            immediate_word(0x0f, 0, 5, (RSP_MFC0_DRAM_ADDRESS >> 16) as u16),
+        ),
+        (
+            0x6c,
+            immediate_word(0x0d, 5, 5, RSP_MFC0_DRAM_ADDRESS as u16),
+        ),
+        (0x70, immediate_word(0x2b, 4, 5, 0x0004)),
+        (
+            0x74,
+            immediate_word(0x0f, 0, 5, (RSP_LQV_FRONTIER >> 16) as u16),
+        ),
+        (0x78, immediate_word(0x0d, 5, 5, RSP_LQV_FRONTIER as u16)),
+        (0x7c, immediate_word(0x2b, 4, 5, 0x0008)),
+        (0x80, immediate_word(0x0d, 0, 2, 0x00ad)),
+        (0x84, immediate_word(0x2b, 1, 2, 0x0010)),
+        (0x88, 0),
+        (0x8c, 0),
+    ];
+    let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
+
+    for _ in 0..words.len() - 2 {
+        let outcome = step(&mut machine, CASE)?;
+        require(
+            CASE,
+            outcome.processor() == MachineStepProcessor::Cpu,
+            "setup calls select only CPU",
+        )?;
+    }
+    require(
+        CASE,
+        machine.cpu().pc() == 0xa400_0088
+            && machine.cpu().cop0_count() == 18
+            && machine.processor_turn() == MachineStepProcessor::Rsp
+            && machine
+                .sp_status_state()
+                .is_some_and(|state| !state.halt() && !state.single_step())
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0)
+            && machine.rsp_next_pc() == Some(4)
+            && machine.rsp_committed_instruction_count() == 0
+            && machine
+                .rsp_run_start_state()
+                .is_some_and(|state| state.is_pending()),
+        "halt-clear commits alone and selects the first RSP instruction",
+    )?;
+
+    let first = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            first,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 0,
+                    destination_gpr: 8,
+                    control_register: MachineRspControlRegister::SpSemaphore,
+                    result_value: 0,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(8)
+            .is_some_and(|state| state.value() == Some(0))
+            && machine
+                .sp_semaphore_state()
+                .is_some_and(|state| state.set())
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 4)
+            && machine.rsp_next_pc() == Some(8)
+            && machine.rsp_committed_instruction_count() == 1
+            && machine
+                .rsp_run_start_state()
+                .is_some_and(|state| state.is_consumed())
+            && machine.processor_turn() == MachineStepProcessor::Cpu
+            && machine.cpu().pc() == 0xa400_0088
+            && machine.cpu().cop0_count() == 18,
+        "Mfc0 SP_SEMAPHORE commits with old-zero read-and-set truth",
+    )?;
+
+    let first_cpu = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        first_cpu.processor() == MachineStepProcessor::Cpu
+            && first_cpu.identity() == Some(CpuInstructionIdentity::SpecialSll)
+            && machine.cpu().pc() == 0xa400_008c
+            && machine.cpu().cop0_count() == 19
+            && machine.processor_turn() == MachineStepProcessor::Rsp,
+        "one CPU Nop rotates the selected processor without RSP mutation",
+    )?;
+
+    let second = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            second,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 4,
+                    destination_gpr: 11,
+                    control_register: MachineRspControlRegister::SpDramAddress,
+                    result_value: 0,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(11)
+            .is_some_and(|state| state.value() == Some(0))
+            && machine
+                .sp_dram_address_state()
+                .is_some_and(|state| state.physical_address() == 0)
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 8)
+            && machine.rsp_next_pc() == Some(12)
+            && machine.rsp_committed_instruction_count() == 2
+            && machine.processor_turn() == MachineStepProcessor::Cpu
+            && machine.cpu().pc() == 0xa400_008c
+            && machine.cpu().cop0_count() == 19,
+        "Mfc0 SP_DRAM_ADDR commits the singular cold-zero source truth",
+    )?;
+
+    let second_cpu = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        second_cpu.processor() == MachineStepProcessor::Cpu
+            && second_cpu.identity() == Some(CpuInstructionIdentity::SpecialSll)
+            && machine.cpu().pc() == 0xa400_0090
+            && machine.cpu().cop0_count() == 20
+            && machine.processor_turn() == MachineStepProcessor::Rsp,
+        "second CPU Nop rotates to the Lqv frontier",
+    )?;
+
+    let before = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        machine.processor_turn(),
+        machine.sp_pc_state(),
+        machine.rsp_next_pc(),
+        machine.rsp_committed_instruction_count(),
+        machine.rsp_scalar_register(8),
+        machine.rsp_scalar_register(11),
+        machine.sp_semaphore_state(),
+        machine.sp_dram_address_state(),
+        machine.rsp_run_start_state(),
+    );
+    let error = machine.step().err().ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "Lqv must reject",
+    })?;
+    let frontier = match error.rsp_rejection().map(|rejection| rejection.reason()) {
+        Some(MachineRspStepRejectionReason::VectorLqvUnrepresented { frontier }) => frontier,
+        _ => {
+            return Err(StepProbeError::Assertion {
+                case: CASE,
+                check: "Lqv rejection identity",
+            });
+        }
+    };
+    require(
+        CASE,
+        frontier.base_gpr() == 0
+            && frontier.destination_vector() == 12
+            && frontier.element() == 0
+            && frontier.signed_offset() == 0
+            && before
+                == (
+                    machine.cpu().pc(),
+                    machine.cpu().next_pc(),
+                    machine.cpu().cop0_count(),
+                    machine.processor_turn(),
+                    machine.sp_pc_state(),
+                    machine.rsp_next_pc(),
+                    machine.rsp_committed_instruction_count(),
+                    machine.rsp_scalar_register(8),
+                    machine.rsp_scalar_register(11),
+                    machine.sp_semaphore_state(),
+                    machine.sp_dram_address_state(),
+                    machine.rsp_run_start_state(),
+                ),
+        "Lqv is identified and rejected atomically without CPU fallback",
     )
 }
 

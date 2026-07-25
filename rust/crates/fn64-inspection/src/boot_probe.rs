@@ -592,7 +592,8 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                 }
 
                 match outcome {
-                    MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
+                    MachineRepresentedStepOutcome::RspCommitted { .. }
+                    | MachineRepresentedStepOutcome::CpuLocalCommitted { .. }
                     | MachineRepresentedStepOutcome::SpImemByteCommitted { .. }
                     | MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. }
                     | MachineRepresentedStepOutcome::DirectRdramHalfwordCommitted { .. }
@@ -722,6 +723,14 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                 ));
                 break;
             }
+            Err(error @ MachineRepresentedStepError::RspRejected(_)) => {
+                last_represented_outcome = "rsp-rejected";
+                first_frontier = Some(format!(
+                    "rsp-rejected cpu_address=0x{:08X} detail={}",
+                    before.pc, error
+                ));
+                break;
+            }
             Err(source) => {
                 return Err(BootProbeError::MachineInvariant {
                     attempted_step: attempted_steps,
@@ -819,6 +828,7 @@ fn instruction_is_cartridge_derived(inspection: MachineCpuInstructionInspection)
 
 fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static str {
     match outcome {
+        MachineRepresentedStepOutcome::RspCommitted { .. } => "rsp-committed",
         MachineRepresentedStepOutcome::CpuLocalCommitted { .. } => "cpu-local-committed",
         MachineRepresentedStepOutcome::SpImemByteCommitted { .. } => "sp-imem-byte-committed",
         MachineRepresentedStepOutcome::DirectRdramByteCommitted { .. } => {
