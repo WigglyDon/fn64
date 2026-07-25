@@ -9,6 +9,7 @@ mod pi;
 mod pif_firmware;
 pub mod rdram;
 mod ri;
+mod rsp;
 mod si;
 mod sp;
 pub mod sp_dmem;
@@ -70,7 +71,7 @@ pub use machine::{
     MachineSpImemStoreWordProvenance, MachineStepCadencePlan, MachineStepCadenceSource,
     MachineStepControlFlowAction, MachineStepCountAction, MachineStepCpuLocalInvocationRejection,
     MachineStepNoEffectExecutedInstruction, MachineStepNoEffectExecutedInstructionCategory,
-    MachineStepStoppedInstruction, MachineStepStoppedInstructionCategory,
+    MachineStepProcessor, MachineStepStoppedInstruction, MachineStepStoppedInstructionCategory,
     MachineStepUnsupportedInstruction, MachineStepUnsupportedInstructionCategory,
     MachineStoreWordRejection, MachineStoreWordRejectionReason, MachineStoreWordTarget,
     MachineStoreWordUnsupportedTarget, MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC,
@@ -151,19 +152,32 @@ pub use ri::{
     RI_REFRESH_PHYSICAL_ADDRESS, RI_REFRESH_X105_BASE_WORD, RI_SELECT_PHYSICAL_ADDRESS,
     RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
+pub use rsp::{
+    MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDelaySlotContext,
+    MachineRspFetchRejection, MachineRspInstructionIdentity, MachineRspInstructionSource,
+    MachineRspLastInstructionState, MachineRspLqvFrontier, MachineRspMfc0ControlSource,
+    MachineRspMfc0ResultSource, MachineRspScalarRegisterSource, MachineRspScalarRegisterState,
+    MachineRspStepOutcome, MachineRspStepRejection, MachineRspStepRejectionReason,
+    MachineRspUnavailableSource, MachineRspUnrepresentedInstructionClass,
+    MachineRspVectorUnitState, RSP_COP0_MFC0_TRANSFER_SELECTOR, RSP_COP0_MTC0_TRANSFER_SELECTOR,
+    RSP_COP0_OPCODE, RSP_COP0_SP_DRAM_ADDRESS_INDEX, RSP_COP0_SP_SEMAPHORE_INDEX,
+    RSP_INSTRUCTION_ALIGNMENT_MASK, RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_REGISTER_COUNT,
+    RSP_VECTOR_LOAD_OPCODE, RSP_VECTOR_LQV_SUBOPCODE,
+};
 pub use si::{
     MachinePifRamState, MachineSiCpuStoreProvenance, MachineSiInputProfile, MachineSiStatusState,
     PIF_RAM_PHYSICAL_START, PIF_RAM_SIZE_BYTES, SI_STATUS_DMA_BUSY, SI_STATUS_DMA_ERROR,
     SI_STATUS_INTERRUPT, SI_STATUS_IO_READ_BUSY, SI_STATUS_PHYSICAL_ADDRESS,
 };
 pub use sp::{
-    MachineSpCpuStoreProvenance, MachineSpDmaDirection, MachineSpDmaRecord,
+    MachineRspRunStartProvenance, MachineRspRunStartState, MachineSpCpuStoreProvenance,
+    MachineSpDmaDirection, MachineSpDmaRecord, MachineSpDramAddressSource,
     MachineSpDramAddressState, MachineSpMemoryAddressState, MachineSpPcState,
-    MachineSpSemaphoreState, MachineSpStatusState, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS,
-    SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS, SP_PC_PHYSICAL_ADDRESS, SP_PC_X105_RESET_WORD,
-    SP_READ_LENGTH_PHYSICAL_ADDRESS, SP_SEMAPHORE_PHYSICAL_ADDRESS, SP_SEMAPHORE_X105_CLEAR_WORD,
-    SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_X105_FINAL_HALT_WORD, SP_STATUS_X105_HALT_CONFIGURE_WORD,
-    SP_STATUS_X105_START_WORD,
+    MachineSpSemaphorePriorSource, MachineSpSemaphoreSource, MachineSpSemaphoreState,
+    MachineSpStatusState, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS,
+    SP_PC_PHYSICAL_ADDRESS, SP_PC_X105_RESET_WORD, SP_READ_LENGTH_PHYSICAL_ADDRESS,
+    SP_SEMAPHORE_PHYSICAL_ADDRESS, SP_SEMAPHORE_X105_CLEAR_WORD, SP_STATUS_PHYSICAL_ADDRESS,
+    SP_STATUS_X105_FINAL_HALT_WORD, SP_STATUS_X105_HALT_CONFIGURE_WORD, SP_STATUS_X105_START_WORD,
 };
 pub use sp_dmem::{
     MachineSpDmemStoreWordProvenance, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,

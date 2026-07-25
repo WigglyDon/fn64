@@ -1,5 +1,11 @@
 use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
+use crate::rsp::{
+    MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDelaySlotContext,
+    MachineRspExecutionState, MachineRspInstructionIdentity, MachineRspInstructionSource,
+    MachineRspLastInstructionState, MachineRspMfc0ControlSource, MachineRspMfc0Plan,
+    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspVectorUnitState,
+};
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
 pub const SP_SEMAPHORE_PHYSICAL_ADDRESS: u32 = 0x0404_001c;
@@ -213,21 +219,88 @@ fn apply_command_pair(command_word: u32, clear_bit: u32, set_bit: u32, previous:
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineSpSemaphoreState {
-    clear: bool,
-    source: MachineSpCpuStoreProvenance,
+    set: bool,
+    source: MachineSpSemaphoreSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpSemaphorePriorSource {
+    SourceDefinedReset,
+    CpuStore(MachineSpCpuStoreProvenance),
+    RspMfc0ReadAndSet {
+        instruction_pc: u16,
+        instruction_source: MachineRspInstructionSource,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpSemaphoreSource {
+    SourceDefinedReset,
+    CpuStore(MachineSpCpuStoreProvenance),
+    RspMfc0ReadAndSet {
+        instruction_pc: u16,
+        instruction_source: MachineRspInstructionSource,
+        prior_source: MachineSpSemaphorePriorSource,
+        prior_set: bool,
+    },
 }
 
 impl MachineSpSemaphoreState {
-    pub(crate) const fn from_x105_clear(source: MachineSpCpuStoreProvenance) -> Self {
+    const fn source_defined_reset() -> Self {
         Self {
-            clear: true,
-            source,
+            set: false,
+            source: MachineSpSemaphoreSource::SourceDefinedReset,
         }
     }
-    pub const fn clear(self) -> bool {
-        self.clear
+
+    pub(crate) const fn from_x105_clear(source: MachineSpCpuStoreProvenance) -> Self {
+        Self {
+            set: false,
+            source: MachineSpSemaphoreSource::CpuStore(source),
+        }
     }
-    pub const fn source(self) -> MachineSpCpuStoreProvenance {
+
+    pub(crate) const fn from_rsp_mfc0_read_and_set(
+        previous: Self,
+        instruction_pc: u16,
+        instruction_source: MachineRspInstructionSource,
+    ) -> Self {
+        let prior_source = match previous.source {
+            MachineSpSemaphoreSource::SourceDefinedReset => {
+                MachineSpSemaphorePriorSource::SourceDefinedReset
+            }
+            MachineSpSemaphoreSource::CpuStore(source) => {
+                MachineSpSemaphorePriorSource::CpuStore(source)
+            }
+            MachineSpSemaphoreSource::RspMfc0ReadAndSet {
+                instruction_pc,
+                instruction_source,
+                ..
+            } => MachineSpSemaphorePriorSource::RspMfc0ReadAndSet {
+                instruction_pc,
+                instruction_source,
+            },
+        };
+        Self {
+            set: true,
+            source: MachineSpSemaphoreSource::RspMfc0ReadAndSet {
+                instruction_pc,
+                instruction_source,
+                prior_source,
+                prior_set: previous.set,
+            },
+        }
+    }
+
+    pub const fn clear(self) -> bool {
+        !self.set
+    }
+
+    pub const fn set(self) -> bool {
+        self.set
+    }
+
+    pub const fn source(self) -> MachineSpSemaphoreSource {
         self.source
     }
 }
@@ -236,6 +309,74 @@ impl MachineSpSemaphoreState {
 pub struct MachineSpPcState {
     raw_low_field: u32,
     source: MachineSpCpuStoreProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRspRunStartProvenance {
+    source: MachineSpCpuStoreProvenance,
+    status_command: u32,
+    start_pc: Option<u16>,
+}
+
+impl MachineRspRunStartProvenance {
+    pub const fn source(self) -> MachineSpCpuStoreProvenance {
+        self.source
+    }
+
+    pub const fn status_command(self) -> u32 {
+        self.status_command
+    }
+
+    pub const fn start_pc(self) -> Option<u16> {
+        self.start_pc
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRspRunStartState {
+    Pending {
+        provenance: MachineRspRunStartProvenance,
+    },
+    Consumed {
+        provenance: MachineRspRunStartProvenance,
+        first_rsp_instruction_pc: u16,
+        first_rsp_identity: MachineRspInstructionIdentity,
+    },
+}
+
+impl MachineRspRunStartState {
+    pub const fn provenance(self) -> MachineRspRunStartProvenance {
+        match self {
+            Self::Pending { provenance } | Self::Consumed { provenance, .. } => provenance,
+        }
+    }
+
+    pub const fn is_pending(self) -> bool {
+        matches!(self, Self::Pending { .. })
+    }
+
+    pub const fn is_consumed(self) -> bool {
+        matches!(self, Self::Consumed { .. })
+    }
+
+    pub const fn first_rsp_instruction_pc(self) -> Option<u16> {
+        match self {
+            Self::Consumed {
+                first_rsp_instruction_pc,
+                ..
+            } => Some(first_rsp_instruction_pc),
+            Self::Pending { .. } => None,
+        }
+    }
+
+    pub const fn first_rsp_identity(self) -> Option<MachineRspInstructionIdentity> {
+        match self {
+            Self::Consumed {
+                first_rsp_identity, ..
+            } => Some(first_rsp_identity),
+            Self::Pending { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,7 +415,17 @@ impl MachineSpMemoryAddressState {
 pub struct MachineSpDramAddressState {
     transfer_word: u32,
     physical_address: u32,
-    source: MachineSpCpuStoreProvenance,
+    source: MachineSpDramAddressSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDramAddressSource {
+    SourceDefinedReset,
+    CpuStore(MachineSpCpuStoreProvenance),
+    DmaAdvance {
+        record_index: u8,
+        trigger: MachineSpCpuStoreProvenance,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,6 +540,14 @@ impl MachineSpDmaRecord {
 }
 
 impl MachineSpDramAddressState {
+    const fn source_defined_reset() -> Self {
+        Self {
+            transfer_word: 0,
+            physical_address: 0,
+            source: MachineSpDramAddressSource::SourceDefinedReset,
+        }
+    }
+
     pub(crate) const fn from_cpu_word(
         transfer_word: u32,
         source: MachineSpCpuStoreProvenance,
@@ -396,7 +555,7 @@ impl MachineSpDramAddressState {
         Self {
             transfer_word,
             physical_address: transfer_word & 0x00ff_fff8,
-            source,
+            source: MachineSpDramAddressSource::CpuStore(source),
         }
     }
 
@@ -408,7 +567,7 @@ impl MachineSpDramAddressState {
         self.physical_address
     }
 
-    pub const fn source(self) -> MachineSpCpuStoreProvenance {
+    pub const fn source(self) -> MachineSpDramAddressSource {
         self.source
     }
 }
@@ -438,46 +597,55 @@ impl MachineSpPcState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MachineSpStatusTransition {
+    Unchanged,
+    RunStarted,
+    Halted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sp {
     status: Option<MachineSpStatusState>,
     pc: Option<MachineSpPcState>,
-    semaphore: Option<MachineSpSemaphoreState>,
+    semaphore: MachineSpSemaphoreState,
     memory_address: Option<MachineSpMemoryAddressState>,
-    dram_address: Option<MachineSpDramAddressState>,
+    dram_address: MachineSpDramAddressState,
     dma_records: [Option<MachineSpDmaRecord>; SP_DMA_RECORD_CAPACITY],
     dma_record_count: u8,
+    rsp: MachineRspExecutionState,
+    rsp_run_start: Option<MachineRspRunStartState>,
 }
 
 impl Sp {
-    pub(crate) const fn status_state(self) -> Option<MachineSpStatusState> {
+    pub(crate) const fn status_state(&self) -> Option<MachineSpStatusState> {
         self.status
     }
 
-    pub(crate) const fn status_word(self) -> u32 {
+    pub(crate) const fn status_word(&self) -> u32 {
         match self.status {
             Some(status) => status.read_word(),
             None => 1,
         }
     }
 
-    pub(crate) const fn pc_state(self) -> Option<MachineSpPcState> {
+    pub(crate) const fn pc_state(&self) -> Option<MachineSpPcState> {
         self.pc
     }
 
-    pub(crate) const fn semaphore_state(self) -> Option<MachineSpSemaphoreState> {
-        self.semaphore
+    pub(crate) const fn semaphore_state(&self) -> Option<MachineSpSemaphoreState> {
+        Some(self.semaphore)
     }
 
-    pub(crate) const fn memory_address_state(self) -> Option<MachineSpMemoryAddressState> {
+    pub(crate) const fn memory_address_state(&self) -> Option<MachineSpMemoryAddressState> {
         self.memory_address
     }
 
-    pub(crate) const fn dram_address_state(self) -> Option<MachineSpDramAddressState> {
-        self.dram_address
+    pub(crate) const fn dram_address_state(&self) -> Option<MachineSpDramAddressState> {
+        Some(self.dram_address)
     }
 
-    pub(crate) const fn last_dma(self) -> Option<MachineSpDmaRecord> {
+    pub(crate) const fn last_dma(&self) -> Option<MachineSpDmaRecord> {
         if self.dma_record_count == 0 {
             None
         } else {
@@ -485,11 +653,11 @@ impl Sp {
         }
     }
 
-    pub(crate) const fn dma_record_count(self) -> usize {
+    pub(crate) const fn dma_record_count(&self) -> usize {
         self.dma_record_count as usize
     }
 
-    pub(crate) const fn dma_record(self, index: usize) -> Option<MachineSpDmaRecord> {
+    pub(crate) const fn dma_record(&self, index: usize) -> Option<MachineSpDmaRecord> {
         if index < self.dma_record_count as usize {
             self.dma_records[index]
         } else {
@@ -497,20 +665,78 @@ impl Sp {
         }
     }
 
-    pub(crate) const fn can_record_dma(self) -> bool {
+    pub(crate) const fn can_record_dma(&self) -> bool {
         (self.dma_record_count as usize) < SP_DMA_RECORD_CAPACITY
     }
 
-    pub(crate) fn apply_status_store(&mut self, state: MachineSpStatusState) {
+    pub(crate) fn rsp_scalar_register(
+        &self,
+        index: usize,
+    ) -> Option<MachineRspScalarRegisterState> {
+        self.rsp.scalar_register(index)
+    }
+
+    pub(crate) const fn rsp_next_pc(&self) -> Option<u16> {
+        self.rsp.next_pc()
+    }
+
+    pub(crate) const fn rsp_delay_slot_context(&self) -> Option<MachineRspDelaySlotContext> {
+        self.rsp.delay_slot_context()
+    }
+
+    pub(crate) const fn rsp_committed_instruction_count(&self) -> u64 {
+        self.rsp.committed_instruction_count()
+    }
+
+    pub(crate) const fn rsp_last_instruction(&self) -> Option<MachineRspLastInstructionState> {
+        self.rsp.last_instruction()
+    }
+
+    pub(crate) const fn rsp_vector_unit(&self) -> MachineRspVectorUnitState {
+        self.rsp.vector_unit()
+    }
+
+    pub(crate) const fn rsp_accumulator_and_flags(&self) -> MachineRspAccumulatorAndFlagsState {
+        self.rsp.accumulator_and_flags()
+    }
+
+    pub(crate) const fn rsp_run_start_state(&self) -> Option<MachineRspRunStartState> {
+        self.rsp_run_start
+    }
+
+    pub(crate) fn rsp_execution(&self) -> &MachineRspExecutionState {
+        &self.rsp
+    }
+
+    pub(crate) fn apply_status_store(
+        &mut self,
+        state: MachineSpStatusState,
+    ) -> MachineSpStatusTransition {
+        let previous_halt = self.status.is_none_or(MachineSpStatusState::halt);
         self.status = Some(state);
+        if previous_halt && !state.halt() {
+            self.rsp_run_start = Some(MachineRspRunStartState::Pending {
+                provenance: MachineRspRunStartProvenance {
+                    source: state.source(),
+                    status_command: state.command_word(),
+                    start_pc: self.pc.map(|pc| pc.raw_low_field() as u16),
+                },
+            });
+            MachineSpStatusTransition::RunStarted
+        } else if !previous_halt && state.halt() {
+            MachineSpStatusTransition::Halted
+        } else {
+            MachineSpStatusTransition::Unchanged
+        }
     }
 
     pub(crate) fn apply_pc_store(&mut self, state: MachineSpPcState) {
         self.pc = Some(state);
+        self.rsp.synchronize_pc_write(state.raw_low_field() as u16);
     }
 
     pub(crate) fn apply_semaphore_store(&mut self, state: MachineSpSemaphoreState) {
-        self.semaphore = Some(state);
+        self.semaphore = state;
     }
 
     pub(crate) fn apply_memory_address_store(&mut self, state: MachineSpMemoryAddressState) {
@@ -518,7 +744,7 @@ impl Sp {
     }
 
     pub(crate) fn apply_dram_address_store(&mut self, state: MachineSpDramAddressState) {
-        self.dram_address = Some(state);
+        self.dram_address = state;
     }
 
     pub(crate) fn apply_dma(&mut self, record: MachineSpDmaRecord) {
@@ -530,9 +756,95 @@ impl Sp {
             state.local_address = record.final_local_address();
             self.memory_address = Some(state);
         }
-        if let Some(mut state) = self.dram_address {
-            state.physical_address = record.final_rdram_address() & 0x00ff_fff8;
-            self.dram_address = Some(state);
+        self.dram_address.transfer_word = record.final_rdram_address() & 0x00ff_fff8;
+        self.dram_address.physical_address = record.final_rdram_address() & 0x00ff_fff8;
+        self.dram_address.source = MachineSpDramAddressSource::DmaAdvance {
+            record_index: index as u8,
+            trigger: record.trigger(),
+        };
+    }
+
+    pub(crate) fn apply_rsp_mfc0(&mut self, plan: MachineRspMfc0Plan) -> MachineRspStepOutcome {
+        if let MachineRspMfc0ControlSource::SpSemaphore { .. } = plan.control_source() {
+            self.semaphore = MachineSpSemaphoreState::from_rsp_mfc0_read_and_set(
+                self.semaphore,
+                plan.instruction_pc(),
+                plan.instruction_source(),
+            );
+        }
+        let outcome = self.rsp.apply_mfc0(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Mfc0 plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(plan.old_next_pc());
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: plan.instruction_pc(),
+                first_rsp_identity: MachineRspInstructionIdentity::Mfc0,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) const fn mfc0_control_source(
+        &self,
+        control_register: MachineRspControlRegister,
+    ) -> MachineRspMfc0ControlSource {
+        match control_register {
+            MachineRspControlRegister::SpSemaphore => MachineRspMfc0ControlSource::SpSemaphore {
+                old_set: self.semaphore.set(),
+                source: self.semaphore.source(),
+            },
+            MachineRspControlRegister::SpDramAddress => {
+                MachineRspMfc0ControlSource::SpDramAddress {
+                    value: self.dram_address.physical_address(),
+                    source: self.dram_address.source(),
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clear_rsp_run_start_for_test(&mut self) {
+        self.rsp_run_start = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage_rsp_delay_for_test(&mut self, owner_pc: u16) {
+        self.rsp.stage_delay_for_test(owner_pc);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage_raw_pc_for_test(&mut self, raw_pc: u32) {
+        self.pc
+            .as_mut()
+            .expect("malformed-PC proof requires an existing SP PC state")
+            .raw_low_field = raw_pc;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage_broke_for_test(&mut self, broke: bool) {
+        self.status
+            .as_mut()
+            .expect("broke-gate proof requires an existing SP status state")
+            .broke = broke;
+    }
+}
+
+impl Default for Sp {
+    fn default() -> Self {
+        Self {
+            status: None,
+            pc: None,
+            semaphore: MachineSpSemaphoreState::source_defined_reset(),
+            memory_address: None,
+            dram_address: MachineSpDramAddressState::source_defined_reset(),
+            dma_records: [None; SP_DMA_RECORD_CAPACITY],
+            dma_record_count: 0,
+            rsp: MachineRspExecutionState::default(),
+            rsp_run_start: None,
         }
     }
 }
@@ -598,7 +910,15 @@ mod tests {
         let mut sp = Sp::default();
         assert_eq!(sp.status_state(), None);
         assert_eq!(sp.pc_state(), None);
-        assert_eq!(sp.semaphore_state(), None);
+        assert!(matches!(
+            sp.semaphore_state(),
+            Some(state)
+                if state.clear()
+                    && matches!(
+                        state.source(),
+                        MachineSpSemaphoreSource::SourceDefinedReset
+                    )
+        ));
         let status = MachineSpStatusState::from_x105_command(
             SP_STATUS_X105_HALT_CONFIGURE_WORD,
             source(0xa400_0490, SP_STATUS_PHYSICAL_ADDRESS),
@@ -615,7 +935,11 @@ mod tests {
         assert_eq!(sp.pc_state(), Some(pc));
         assert_eq!(sp.semaphore_state(), Some(semaphore));
         assert!(semaphore.clear());
-        assert_eq!(semaphore.source().physical_address(), 0x0404_001c);
+        assert!(matches!(
+            semaphore.source(),
+            MachineSpSemaphoreSource::CpuStore(source)
+                if source.physical_address() == 0x0404_001c
+        ));
     }
 
     #[test]

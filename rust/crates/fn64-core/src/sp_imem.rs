@@ -284,7 +284,6 @@ impl SpImemKnownWord {
         self.value
     }
 
-    #[cfg(test)]
     pub(crate) const fn byte_provenance(self) -> [SpImemByteProvenance; 4] {
         self.byte_provenance
     }
