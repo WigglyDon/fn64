@@ -8,4 +8,3 @@ It is not an R4300/RSP clock ratio, device-cycle model, hardware scheduler,
 wall-clock relationship, or timing-accuracy claim. CPU Count and VI remain on
 their accepted CPU-only cadence. RSP owns only its separate committed
 instruction count.
-

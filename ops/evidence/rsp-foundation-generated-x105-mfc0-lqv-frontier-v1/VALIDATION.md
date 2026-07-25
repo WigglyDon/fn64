@@ -18,4 +18,3 @@ Required closure includes:
 
 Final counts, SHAs, Context-SHA, and literal success markers are not asserted
 here before those gates complete.
-

@@ -14,4 +14,3 @@ firmware, mixed known, or test-only generated staging.
 Last-instruction truth records local PC, MFC0 identity, destination, control
 source, and the same IMEM provenance. No ROM path, digest, title, PC whitelist,
 or microcode signature enters provenance.
-

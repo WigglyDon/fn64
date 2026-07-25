@@ -14,4 +14,3 @@ Selected-RSP rejection is owned by
 `MachineRepresentedStepError::RspRejected` and also identifies the RSP
 processor. One call reports one selected processor and commits at most one
 instruction.
-

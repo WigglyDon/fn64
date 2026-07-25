@@ -18,4 +18,3 @@ clear-halt does not.
 The lineage is inspectable evidence, not execution authorization. General RSP
 execution remains controlled by represented halt truth and the Machine-owned
 processor turn.
-

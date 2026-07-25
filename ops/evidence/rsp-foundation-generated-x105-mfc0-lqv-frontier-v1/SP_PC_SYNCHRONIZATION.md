@@ -9,4 +9,3 @@ It preserves scalar and unavailable-unit state, RSP committed count,
 last-instruction provenance, run-start lineage, DMA state, and SP memory. It
 does not create a run-start. Failed planning/application changes none of these
 facts.
-

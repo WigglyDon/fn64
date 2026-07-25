@@ -16,4 +16,3 @@ Source and tests contain no:
 
 The public x105 words are independently public facts. No user-derived input was
 read, copied, hashed, committed, or packaged for this pass.
-

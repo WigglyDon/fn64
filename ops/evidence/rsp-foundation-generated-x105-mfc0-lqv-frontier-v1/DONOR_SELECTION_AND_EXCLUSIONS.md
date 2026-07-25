@@ -25,4 +25,3 @@ Explicit exclusions:
 
 The donor was not formatted, staged, committed, reset, cleaned, or copied
 wholesale.
-

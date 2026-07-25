@@ -14,4 +14,3 @@ A represented CPU SP-PC write atomically updates `Sp::pc`, synchronizes
 `rsp.next_pc`, and clears stale RSP delay context. It does not reset scalar or
 unit availability, reset the RSP committed count, create a run-start, or
 execute RSP code.
-

@@ -18,4 +18,3 @@ The represented RSP instructions are:
 The proof uses only independently generated public bytes. It uses no user
 cartridge, private PIF, proprietary microcode, title policy, digest policy, or
 inspection-side mutation. It earns neither BOOT-3 nor compatibility.
-

@@ -11,4 +11,3 @@
 no source-register side effect. The old scalar destination is not consumed;
 an r0 destination discards only the scalar write. No second DRAM-address
 register or general RSP COP0 bank was introduced.
-

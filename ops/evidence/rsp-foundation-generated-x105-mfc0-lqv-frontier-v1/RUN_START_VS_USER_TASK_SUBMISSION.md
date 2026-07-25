@@ -8,4 +8,3 @@ separate higher-level CPU/SP fact created after task data and microcode have
 been prepared through represented DMA. A later task halt-clear may coexist
 with general run-start lineage, but the two facts do not share ownership of
 halt, SP PC, RSP registers, or execution authorization.
-

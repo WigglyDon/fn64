@@ -17,4 +17,3 @@ all scalar/unit state, last instruction, semaphore, SP DRAM address, SP
 control/DMA/memory, MI, CPU/COP0/Count, VI, devices, RDRAM, cartridge,
 reservations, and host state. No selected-processor rejection falls back to
 the other processor.
-

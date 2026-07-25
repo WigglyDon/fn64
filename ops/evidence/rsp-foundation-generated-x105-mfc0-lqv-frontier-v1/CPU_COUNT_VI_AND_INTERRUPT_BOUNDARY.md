@@ -13,4 +13,3 @@ rejection advances neither COP0 Count, CPU committed-step count, nor VI.
 `Sp::rsp` owns a separate successful RSP instruction count. A future
 RSP-produced interrupt remains outside this pass and would be observed by the
 CPU only at a later CPU-selected boundary.
-

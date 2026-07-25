@@ -19,4 +19,3 @@ The public generated composition commits:
    committed count becomes 252,363, and turn becomes RSP.
 
 RSP-selected calls do not advance CPU Count, CPU committed count, or VI.
-

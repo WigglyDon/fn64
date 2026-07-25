@@ -13,4 +13,3 @@ The nested RSP owner contains exactly 32 scalar-register availability entries.
 Run-start preserves all scalar state. Construction, successful complete
 bootstrap replacement, and reset restore the policy. Independent Machines own
 independent scalar arrays.
-

@@ -14,4 +14,3 @@ When RSP is selected, the Machine:
 
 No IMEM copy, RSP I-cache, backing-zero inference, CPU fallback, or raw private
 word diagnostic exists.
-

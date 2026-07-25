@@ -21,4 +21,3 @@ Public synthetic tests cover:
 - complete public cold-x105 composition to the exact two-MFC0/LQV boundary.
 
 No committed test contains user-derived RSP words.
-

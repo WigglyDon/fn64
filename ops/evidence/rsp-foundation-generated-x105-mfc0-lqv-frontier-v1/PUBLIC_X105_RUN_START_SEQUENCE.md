@@ -18,4 +18,3 @@ After the CPU store commits alone, CPU PC/next-PC are
 `0x80000004/0x80000008`, Count is 252,345, CPU committed count is 252,361,
 halt and single-step are false, RSP next-PC is `0x004`, turn is RSP, and
 run-start is Pending.
-

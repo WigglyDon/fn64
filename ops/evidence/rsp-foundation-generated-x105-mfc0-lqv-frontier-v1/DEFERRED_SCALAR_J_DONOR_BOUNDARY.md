@@ -8,4 +8,3 @@ two scalar MFC0 instructions followed by vector LQV. J has therefore not been
 re-earned on the current execution spine. There is no J decode, target
 calculation, delay staging, scalar Lw, or user-task first-J gate in candidate
 product source.
-

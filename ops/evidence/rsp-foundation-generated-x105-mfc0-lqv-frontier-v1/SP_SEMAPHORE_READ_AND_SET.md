@@ -14,4 +14,3 @@ and reset establish clear/zero.
 
 A repeated read returns one and remains set. An r0 destination still performs
 the read-and-set. Any rejection preserves both the bit and its provenance.
-

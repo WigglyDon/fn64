@@ -14,4 +14,3 @@ Each Machine owns one private `MachineStepProcessor` turn.
 Selection precedes CPU interrupt synchronization, fetch, Count planning, and
 VI cadence. The 1:1 successful-commit alternation is deterministic and
 host-independent, not a hardware-frequency or cycle-accuracy claim.
-

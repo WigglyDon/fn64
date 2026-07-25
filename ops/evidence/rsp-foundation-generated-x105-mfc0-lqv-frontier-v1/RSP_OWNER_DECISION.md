@@ -15,4 +15,3 @@ Ownership remains singular:
 
 There is no `Machine::rsp`, duplicated PC/control fact, generic processor
 trait, device registry, or second execution entrance.
-

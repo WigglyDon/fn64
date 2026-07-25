@@ -14,4 +14,3 @@ Execution is not represented. The selected call returns the explicit
 next-PC `0x00C`, RSP count 2, r8/r11 zero, semaphore set, and run-start
 Consumed. CPU Count remains 252,347 and CPU committed count remains 252,363.
 No vector register or memory mutation occurs and no CPU fallback executes.
-

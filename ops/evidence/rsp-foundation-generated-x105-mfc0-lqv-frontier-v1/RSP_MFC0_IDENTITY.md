@@ -14,4 +14,3 @@ Another source index, MTC0, another scalar identity, and all other COP0/COP2
 transfers reject before mutation. The old destination is rollback state only,
 not an instruction input. Destination r0 discards the scalar write while
 preserving source side effects.
-

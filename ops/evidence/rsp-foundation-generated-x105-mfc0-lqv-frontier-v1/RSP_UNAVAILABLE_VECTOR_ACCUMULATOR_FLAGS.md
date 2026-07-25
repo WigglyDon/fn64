@@ -9,4 +9,3 @@ values, accumulator lanes, carry bits, compare bits, or clip bits.
 Scalar MFC0 neither consumes nor changes this boundary. LQV is decoded only
 far enough to name the next vector frontier; it creates no vector state and
 performs no load.
-

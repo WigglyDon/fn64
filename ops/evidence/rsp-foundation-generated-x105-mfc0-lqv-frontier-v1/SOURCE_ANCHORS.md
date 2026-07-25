@@ -21,4 +21,3 @@ Product anchors:
 - `rust/crates/fn64-core/src/sp_imem.rs`: word knownness and byte provenance.
 - `rust/crates/fn64-inspection/src/bin/fn64_step_probe.rs`: public generated
   stable MFC0/LQV proof markers.
-
