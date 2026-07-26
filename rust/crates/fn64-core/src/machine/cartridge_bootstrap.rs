@@ -264,19 +264,6 @@ impl MachineCartridgeBootstrapState {
         self.gpr_source(index)
             .map(MachineBootstrapGprSource::is_known)
     }
-
-    pub(super) fn contains_sp_dmem_word(self, offset: SpDmemOffset) -> bool {
-        let start = self.sp_dmem_start_offset;
-        let Some(end) = offset.value().checked_add(4) else {
-            return false;
-        };
-
-        offset.value() >= start && end <= self.sp_dmem_end_offset_exclusive
-    }
-
-    pub(super) fn cartridge_offset_for_sp_dmem(self, offset: SpDmemOffset) -> u32 {
-        self.cartridge_start_offset + (offset.value() - self.sp_dmem_start_offset)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -443,6 +430,7 @@ struct ColdX105CoupledHandoffPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineSpDmemInstructionProvenance {
     CartridgeBootstrap { cartridge_offset: u32 },
+    AvailableMachineStorage,
     UnclassifiedMachineStorage,
 }
 
@@ -599,9 +587,10 @@ impl Machine {
 
         let mut replacement_sp_dmem = SpDmem::default();
         replacement_sp_dmem
-            .write_bytes(
+            .write_cartridge_bootstrap_bytes(
                 SpDmemOffset::new(MACHINE_CARTRIDGE_BOOTSTRAP_SP_DMEM_START_OFFSET),
                 &bootstrap_bytes,
+                CARTRIDGE_CANDIDATE_IPL3_START_OFFSET,
             )
             .map_err(map_sp_dmem_write_error)?;
         let (replacement_sp_imem, pif_ipl2_copy_layout) =
@@ -867,15 +856,16 @@ impl Machine {
                 }
             }
             MachineCpuInstructionFetchTarget::SpDmem { offset } => {
-                let provenance = match self.cartridge_bootstrap {
-                    Some(state) if state.contains_sp_dmem_word(offset) => {
-                        MachineSpDmemInstructionProvenance::CartridgeBootstrap {
-                            cartridge_offset: state.cartridge_offset_for_sp_dmem(offset),
-                        }
+                let provenance = match self.sp_dmem_load_word_provenance(offset) {
+                    super::MachineSpDmemLoadWordProvenance::CartridgeBootstrap {
+                        cartridge_offset,
+                    } => {
+                        MachineSpDmemInstructionProvenance::CartridgeBootstrap { cartridge_offset }
                     }
-                    Some(_) | None => {
+                    super::MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage => {
                         MachineSpDmemInstructionProvenance::UnclassifiedMachineStorage
                     }
+                    _ => MachineSpDmemInstructionProvenance::AvailableMachineStorage,
                 };
                 MachineCpuInstructionSource::SpDmem { offset, provenance }
             }
@@ -2247,6 +2237,12 @@ mod tests {
             machine.sp_dmem().read_u32_be(SpDmemOffset::new(0x40)),
             Ok(0)
         );
+        assert_eq!(
+            machine.sp_dmem().observe_byte(SpDmemOffset::new(0x40)),
+            Ok(crate::sp_dmem::MachineSpDmemByteKnowledge::Unavailable {
+                source: crate::sp_dmem::MachineSpDmemUnavailableSource::ConstructionOrReset,
+            })
+        );
         let sp_imem_word_zero = machine
             .sp_imem
             .read_known_u32_be(SpImemOffset::new(0))
@@ -2256,14 +2252,19 @@ mod tests {
             Some(SpImemOffset::new(0))
         );
         machine.stage_cpu_pc(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC);
-        let inspection = machine.inspect_current_cpu_instruction().unwrap();
-        assert_eq!(inspection.identity(), CpuInstructionIdentity::SpecialSll);
+        let error = machine.inspect_current_cpu_instruction().unwrap_err();
         assert_eq!(
-            inspection.source(),
-            MachineCpuInstructionSource::SpDmem {
-                offset: SpDmemOffset::new(0x40),
-                provenance: MachineSpDmemInstructionProvenance::UnclassifiedMachineStorage,
-            }
+            error.cpu_address(),
+            CpuAddress::new(MACHINE_CARTRIDGE_BOOTSTRAP_EXECUTION_PC)
+        );
+        assert_eq!(error.sp_dmem_offset(), Some(SpDmemOffset::new(0x40)));
+        assert_eq!(
+            error.sp_dmem_error(),
+            Some(
+                crate::machine::MachineSpDmemCpuInstructionFetchError::Unavailable {
+                    first_unavailable_offset: SpDmemOffset::new(0x40),
+                }
+            )
         );
     }
 

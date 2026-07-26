@@ -3,8 +3,9 @@ use crate::machine::MachineBootstrapGprSource;
 use crate::rsp::{
     MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDelaySlotContext,
     MachineRspExecutionState, MachineRspInstructionIdentity, MachineRspInstructionSource,
-    MachineRspLastInstructionState, MachineRspMfc0ControlSource, MachineRspMfc0Plan,
-    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspVectorUnitState,
+    MachineRspLastInstructionState, MachineRspLqvPlan, MachineRspMfc0ControlSource,
+    MachineRspMfc0Plan, MachineRspScalarRegisterState, MachineRspStepOutcome,
+    MachineRspVectorRegisterState, MachineRspVectorUnitState,
 };
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
@@ -692,8 +693,15 @@ impl Sp {
         self.rsp.last_instruction()
     }
 
-    pub(crate) const fn rsp_vector_unit(&self) -> MachineRspVectorUnitState {
+    pub(crate) const fn rsp_vector_unit(&self) -> &MachineRspVectorUnitState {
         self.rsp.vector_unit()
+    }
+
+    pub(crate) fn rsp_vector_register(
+        &self,
+        index: usize,
+    ) -> Option<&MachineRspVectorRegisterState> {
+        self.rsp.vector_register(index)
     }
 
     pub(crate) const fn rsp_accumulator_and_flags(&self) -> MachineRspAccumulatorAndFlagsState {
@@ -783,6 +791,25 @@ impl Sp {
                 provenance,
                 first_rsp_instruction_pc: plan.instruction_pc(),
                 first_rsp_identity: MachineRspInstructionIdentity::Mfc0,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_lqv(&mut self, plan: MachineRspLqvPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_lqv(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Lqv plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Lqv,
             });
         }
         outcome

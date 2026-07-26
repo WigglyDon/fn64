@@ -4,7 +4,6 @@ use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
 
 pub const SP_DMEM_SIZE_BYTES: usize = 4 * 1024;
-const SP_DMEM_WORD_COUNT: usize = SP_DMEM_SIZE_BYTES / 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineSpDmemStoreWordProvenance {
@@ -51,6 +50,115 @@ impl MachineSpDmemStoreWordProvenance {
     }
     pub const fn physical_address(self) -> u32 {
         self.physical_address
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDmemUnavailableSource {
+    ConstructionOrReset,
+    BootstrapUncovered,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDmemByteSource {
+    CartridgeBootstrap {
+        cartridge_offset: u32,
+    },
+    CpuStoreWord {
+        provenance: MachineSpDmemStoreWordProvenance,
+    },
+    SpDma {
+        record_index: u8,
+    },
+    #[cfg(test)]
+    GeneratedMachineTestStaging,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MachineSpDmemStoredByteKnowledge {
+    Available {
+        source: MachineSpDmemByteSource,
+    },
+    Unavailable {
+        source: MachineSpDmemUnavailableSource,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDmemByteKnowledge {
+    Available {
+        value: u8,
+        source: MachineSpDmemByteSource,
+    },
+    Unavailable {
+        source: MachineSpDmemUnavailableSource,
+    },
+}
+
+impl MachineSpDmemByteKnowledge {
+    pub const fn value(self) -> Option<u8> {
+        match self {
+            Self::Available { value, .. } => Some(value),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn source(self) -> MachineSpDmemByteKnowledgeSource {
+        match self {
+            Self::Available { source, .. } => {
+                MachineSpDmemByteKnowledgeSource::Available { source }
+            }
+            Self::Unavailable { source } => {
+                MachineSpDmemByteKnowledgeSource::Unavailable { source }
+            }
+        }
+    }
+
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDmemByteKnowledgeSource {
+    Available {
+        source: MachineSpDmemByteSource,
+    },
+    Unavailable {
+        source: MachineSpDmemUnavailableSource,
+    },
+}
+
+impl MachineSpDmemByteKnowledgeSource {
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSpDmemByteKnowledgeDescriptor {
+    offset: SpDmemOffset,
+    source: MachineSpDmemByteKnowledgeSource,
+}
+
+impl MachineSpDmemByteKnowledgeDescriptor {
+    pub(crate) const fn new(
+        offset: SpDmemOffset,
+        source: MachineSpDmemByteKnowledgeSource,
+    ) -> Self {
+        Self { offset, source }
+    }
+
+    pub const fn offset(self) -> SpDmemOffset {
+        self.offset
+    }
+
+    pub const fn source(self) -> MachineSpDmemByteKnowledgeSource {
+        self.source
+    }
+
+    pub const fn is_available(self) -> bool {
+        self.source.is_available()
     }
 }
 
@@ -118,8 +226,7 @@ impl SpDmemWriteError {
 
 pub struct SpDmem {
     bytes: [u8; SP_DMEM_SIZE_BYTES],
-    word_store_provenance: Box<[Option<MachineSpDmemStoreWordProvenance>; SP_DMEM_WORD_COUNT]>,
-    dma_provenance: Box<[Option<u8>; SP_DMEM_SIZE_BYTES]>,
+    byte_knowledge: Box<[MachineSpDmemStoredByteKnowledge; SP_DMEM_SIZE_BYTES]>,
 }
 
 impl SpDmem {
@@ -127,6 +234,8 @@ impl SpDmem {
         self.bytes.len()
     }
 
+    /// Returns private backing storage, which is not value truth unless the
+    /// corresponding byte knowledge is available.
     pub fn read_u8(&self, offset: SpDmemOffset) -> Result<u8, SpDmemReadError> {
         self.bytes
             .get(offset.as_usize())
@@ -134,6 +243,8 @@ impl SpDmem {
             .ok_or(SpDmemReadError { offset, width: 1 })
     }
 
+    /// Returns private backing storage, which is not value truth unless the
+    /// corresponding byte knowledge is available.
     pub fn read_u32_be(&self, offset: SpDmemOffset) -> Result<u32, SpDmemReadError> {
         let offset_usize = self.require_u32_be_offset(offset)?;
 
@@ -143,6 +254,71 @@ impl SpDmem {
             | self.bytes[offset_usize + 3] as u32)
     }
 
+    pub fn observe_byte(
+        &self,
+        offset: SpDmemOffset,
+    ) -> Result<MachineSpDmemByteKnowledge, SpDmemReadError> {
+        let index = offset.as_usize();
+        let stored = self
+            .byte_knowledge
+            .get(index)
+            .copied()
+            .ok_or(SpDmemReadError { offset, width: 1 })?;
+        Ok(match stored {
+            MachineSpDmemStoredByteKnowledge::Available { source } => {
+                MachineSpDmemByteKnowledge::Available {
+                    value: self.bytes[index],
+                    source,
+                }
+            }
+            MachineSpDmemStoredByteKnowledge::Unavailable { source } => {
+                MachineSpDmemByteKnowledge::Unavailable { source }
+            }
+        })
+    }
+
+    pub fn observe_range<const N: usize>(
+        &self,
+        offset: SpDmemOffset,
+    ) -> Result<[MachineSpDmemByteKnowledge; N], SpDmemReadError> {
+        let start = offset.as_usize();
+        let Some(end) = start.checked_add(N) else {
+            return Err(SpDmemReadError { offset, width: N });
+        };
+        if end > self.bytes.len() {
+            return Err(SpDmemReadError { offset, width: N });
+        }
+        let mut result = [MachineSpDmemByteKnowledge::Unavailable {
+            source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+        }; N];
+        for (index, entry) in result.iter_mut().enumerate() {
+            *entry = self
+                .observe_byte(SpDmemOffset::new(offset.value() + index as u32))
+                .expect("preflighted SP DMEM byte range remains in bounds");
+        }
+        Ok(result)
+    }
+
+    pub fn describe_range<const N: usize>(
+        &self,
+        offset: SpDmemOffset,
+    ) -> Result<[MachineSpDmemByteKnowledgeDescriptor; N], SpDmemReadError> {
+        let observations = self.observe_range::<N>(offset)?;
+        let mut result = [MachineSpDmemByteKnowledgeDescriptor::new(
+            offset,
+            MachineSpDmemByteKnowledgeSource::Unavailable {
+                source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+            },
+        ); N];
+        for (index, entry) in result.iter_mut().enumerate() {
+            *entry = MachineSpDmemByteKnowledgeDescriptor::new(
+                SpDmemOffset::new(offset.value() + index as u32),
+                observations[index].source(),
+            );
+        }
+        Ok(result)
+    }
+
     pub fn store_word_provenance(
         &self,
         offset: SpDmemOffset,
@@ -150,17 +326,36 @@ impl SpDmem {
         if offset.value() & 3 != 0 {
             return None;
         }
-        self.word_store_provenance
-            .get(offset.as_usize() / 4)
-            .copied()
-            .flatten()
+        let observations = self.observe_range::<4>(offset).ok()?;
+        let first = match observations[0] {
+            MachineSpDmemByteKnowledge::Available {
+                source: MachineSpDmemByteSource::CpuStoreWord { provenance },
+                ..
+            } => provenance,
+            _ => return None,
+        };
+        observations
+            .iter()
+            .all(|observation| {
+                matches!(
+                    observation,
+                    MachineSpDmemByteKnowledge::Available {
+                        source: MachineSpDmemByteSource::CpuStoreWord { provenance },
+                        ..
+                    } if *provenance == first
+                )
+            })
+            .then_some(first)
     }
 
     pub fn dma_record_index(&self, offset: SpDmemOffset) -> Option<u8> {
-        self.dma_provenance
-            .get(offset.as_usize())
-            .copied()
-            .flatten()
+        match self.observe_byte(offset).ok()? {
+            MachineSpDmemByteKnowledge::Available {
+                source: MachineSpDmemByteSource::SpDma { record_index },
+                ..
+            } => Some(record_index),
+            _ => None,
+        }
     }
 
     fn require_u32_be_offset(&self, offset: SpDmemOffset) -> Result<usize, SpDmemReadError> {
@@ -172,6 +367,7 @@ impl SpDmem {
         Ok(offset_usize)
     }
 
+    #[cfg(test)]
     pub(crate) fn write_bytes(
         &mut self,
         offset: SpDmemOffset,
@@ -192,15 +388,55 @@ impl SpDmem {
         };
 
         destination.copy_from_slice(bytes);
-        if bytes.is_empty() {
-            return Ok(());
+        self.byte_knowledge[offset_usize..end].fill(MachineSpDmemStoredByteKnowledge::Available {
+            source: MachineSpDmemByteSource::GeneratedMachineTestStaging,
+        });
+        Ok(())
+    }
+
+    pub(crate) fn write_cartridge_bootstrap_bytes(
+        &mut self,
+        offset: SpDmemOffset,
+        bytes: &[u8],
+        cartridge_offset: u32,
+    ) -> Result<(), SpDmemWriteError> {
+        let offset_usize = offset.as_usize();
+        let Some(end) = offset_usize.checked_add(bytes.len()) else {
+            return Err(SpDmemWriteError {
+                offset,
+                width: bytes.len(),
+            });
+        };
+        let Some(destination) = self.bytes.get_mut(offset_usize..end) else {
+            return Err(SpDmemWriteError {
+                offset,
+                width: bytes.len(),
+            });
+        };
+
+        for knowledge in self.byte_knowledge.iter_mut() {
+            if matches!(
+                knowledge,
+                MachineSpDmemStoredByteKnowledge::Unavailable {
+                    source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+                }
+            ) {
+                *knowledge = MachineSpDmemStoredByteKnowledge::Unavailable {
+                    source: MachineSpDmemUnavailableSource::BootstrapUncovered,
+                };
+            }
         }
-        let first_word = offset_usize / 4;
-        let last_word = (end.saturating_sub(1)) / 4;
-        for word in first_word..=last_word {
-            self.word_store_provenance[word] = None;
+        destination.copy_from_slice(bytes);
+        for (index, knowledge) in self.byte_knowledge[offset_usize..end]
+            .iter_mut()
+            .enumerate()
+        {
+            *knowledge = MachineSpDmemStoredByteKnowledge::Available {
+                source: MachineSpDmemByteSource::CartridgeBootstrap {
+                    cartridge_offset: cartridge_offset + index as u32,
+                },
+            };
         }
-        self.dma_provenance[offset_usize..end].fill(None);
         Ok(())
     }
 
@@ -217,8 +453,11 @@ impl SpDmem {
             return Err(SpDmemWriteError { offset, width: 4 });
         }
         self.bytes[offset_usize..offset_usize + 4].copy_from_slice(&value.to_be_bytes());
-        self.word_store_provenance[offset_usize / 4] = Some(provenance);
-        self.dma_provenance[offset_usize..offset_usize + 4].fill(None);
+        self.byte_knowledge[offset_usize..offset_usize + 4].fill(
+            MachineSpDmemStoredByteKnowledge::Available {
+                source: MachineSpDmemByteSource::CpuStoreWord { provenance },
+            },
+        );
         Ok(())
     }
 
@@ -230,17 +469,17 @@ impl SpDmem {
     ) {
         let offset = offset.as_usize();
         self.bytes[offset] = value;
-        self.word_store_provenance[offset / 4] = None;
-        self.dma_provenance[offset] = Some(dma_record_index);
+        self.byte_knowledge[offset] = MachineSpDmemStoredByteKnowledge::Available {
+            source: MachineSpDmemByteSource::SpDma {
+                record_index: dma_record_index,
+            },
+        };
     }
 
     #[cfg(test)]
     pub(crate) fn write_u32_be_for_test(&mut self, offset: SpDmemOffset, value: u32) {
-        let offset_usize = self.require_u32_be_offset(offset).unwrap();
-        self.bytes[offset_usize] = ((value >> 24) & 0xff) as u8;
-        self.bytes[offset_usize + 1] = ((value >> 16) & 0xff) as u8;
-        self.bytes[offset_usize + 2] = ((value >> 8) & 0xff) as u8;
-        self.bytes[offset_usize + 3] = (value & 0xff) as u8;
+        self.write_bytes(offset, &value.to_be_bytes())
+            .expect("test word staging remains inside SP DMEM");
     }
 }
 
@@ -248,8 +487,11 @@ impl Default for SpDmem {
     fn default() -> Self {
         Self {
             bytes: [0; SP_DMEM_SIZE_BYTES],
-            word_store_provenance: Box::new([None; SP_DMEM_WORD_COUNT]),
-            dma_provenance: Box::new([None; SP_DMEM_SIZE_BYTES]),
+            byte_knowledge: Box::new(
+                [MachineSpDmemStoredByteKnowledge::Unavailable {
+                    source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+                }; SP_DMEM_SIZE_BYTES],
+            ),
         }
     }
 }
@@ -275,6 +517,17 @@ mod tests {
         assert_eq!(
             sp_dmem.read_u8(SpDmemOffset::new((SP_DMEM_SIZE_BYTES - 1) as u32)),
             Ok(0)
+        );
+        assert_eq!(
+            sp_dmem.observe_byte(SpDmemOffset::new(0)),
+            Ok(MachineSpDmemByteKnowledge::Unavailable {
+                source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+            })
+        );
+        assert_eq!(
+            sp_dmem.observe_byte(SpDmemOffset::new(0)).unwrap().value(),
+            None,
+            "private backing zero is not Machine value truth"
         );
     }
 
@@ -368,5 +621,118 @@ mod tests {
             .write_bytes(SpDmemOffset::new(0x21), &[0x55])
             .unwrap();
         assert_eq!(sp_dmem.store_word_provenance(SpDmemOffset::new(0x20)), None);
+    }
+
+    #[test]
+    fn sp_dmem_knowledge_bootstrap_covered_and_uncovered_ranges_are_exact() {
+        let mut sp_dmem = SpDmem::default();
+        let bytes = [0x91, 0x72, 0x53, 0x34, 0x15];
+
+        sp_dmem
+            .write_cartridge_bootstrap_bytes(SpDmemOffset::new(0x40), &bytes, 0x1040)
+            .unwrap();
+
+        for offset in [0, 0x0f, 0x3f, 0x45, 0xfff] {
+            assert_eq!(
+                sp_dmem.observe_byte(SpDmemOffset::new(offset)),
+                Ok(MachineSpDmemByteKnowledge::Unavailable {
+                    source: MachineSpDmemUnavailableSource::BootstrapUncovered,
+                })
+            );
+        }
+        for (index, value) in bytes.into_iter().enumerate() {
+            assert_eq!(
+                sp_dmem.observe_byte(SpDmemOffset::new(0x40 + index as u32)),
+                Ok(MachineSpDmemByteKnowledge::Available {
+                    value,
+                    source: MachineSpDmemByteSource::CartridgeBootstrap {
+                        cartridge_offset: 0x1040 + index as u32,
+                    },
+                })
+            );
+        }
+        let descriptions = sp_dmem
+            .describe_range::<5>(SpDmemOffset::new(0x40))
+            .unwrap();
+        assert!(descriptions.iter().enumerate().all(|(index, descriptor)| {
+            descriptor.offset() == SpDmemOffset::new(0x40 + index as u32)
+                && matches!(
+                    descriptor.source(),
+                    MachineSpDmemByteKnowledgeSource::Available {
+                        source: MachineSpDmemByteSource::CartridgeBootstrap {
+                            cartridge_offset,
+                        },
+                    } if cartridge_offset == 0x1040 + index as u32
+                )
+        }));
+    }
+
+    #[test]
+    fn sp_dmem_knowledge_cpu_store_and_dma_replace_only_exact_bytes() {
+        let mut sp_dmem = SpDmem::default();
+        let provenance = MachineSpDmemStoreWordProvenance::new(
+            CpuAddress::new(0x8000_0040),
+            7,
+            MachineBootstrapGprSource::ArchitecturalZero,
+            0xffff_ffff_a400_0020,
+            CpuAddress::new(0xa400_0020),
+            0x0400_0020,
+        );
+
+        sp_dmem
+            .write_cpu_u32_be(SpDmemOffset::new(0x20), 0x1020_3040, provenance)
+            .unwrap();
+        for (index, value) in [0x10, 0x20, 0x30, 0x40].into_iter().enumerate() {
+            assert_eq!(
+                sp_dmem.observe_byte(SpDmemOffset::new(0x20 + index as u32)),
+                Ok(MachineSpDmemByteKnowledge::Available {
+                    value,
+                    source: MachineSpDmemByteSource::CpuStoreWord { provenance },
+                })
+            );
+        }
+        assert_eq!(
+            sp_dmem.observe_byte(SpDmemOffset::new(0x24)),
+            Ok(MachineSpDmemByteKnowledge::Unavailable {
+                source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+            })
+        );
+
+        sp_dmem.apply_sp_dma_byte(SpDmemOffset::new(0x22), 0xa5, 3);
+        assert_eq!(
+            sp_dmem.observe_byte(SpDmemOffset::new(0x22)),
+            Ok(MachineSpDmemByteKnowledge::Available {
+                value: 0xa5,
+                source: MachineSpDmemByteSource::SpDma { record_index: 3 },
+            })
+        );
+        assert_eq!(sp_dmem.dma_record_index(SpDmemOffset::new(0x22)), Some(3));
+        assert_eq!(sp_dmem.store_word_provenance(SpDmemOffset::new(0x20)), None);
+    }
+
+    #[test]
+    fn sp_dmem_knowledge_range_preflight_and_machine_instances_are_independent() {
+        let mut first = SpDmem::default();
+        let second = SpDmem::default();
+        first
+            .write_bytes(SpDmemOffset::new(0xff0), &[0x5a; 16])
+            .unwrap();
+
+        assert!(first
+            .observe_range::<16>(SpDmemOffset::new(0xff0))
+            .unwrap()
+            .iter()
+            .all(|knowledge| knowledge.is_available()));
+        let error = first
+            .observe_range::<16>(SpDmemOffset::new(0xff1))
+            .unwrap_err();
+        assert_eq!(error.offset(), SpDmemOffset::new(0xff1));
+        assert_eq!(error.width(), 16);
+        assert_eq!(
+            second.observe_byte(SpDmemOffset::new(0xff0)),
+            Ok(MachineSpDmemByteKnowledge::Unavailable {
+                source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+            })
+        );
     }
 }

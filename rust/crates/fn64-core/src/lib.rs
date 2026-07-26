@@ -155,14 +155,16 @@ pub use ri::{
 pub use rsp::{
     MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDelaySlotContext,
     MachineRspFetchRejection, MachineRspInstructionIdentity, MachineRspInstructionSource,
-    MachineRspLastInstructionState, MachineRspLqvFrontier, MachineRspMfc0ControlSource,
-    MachineRspMfc0ResultSource, MachineRspScalarRegisterSource, MachineRspScalarRegisterState,
-    MachineRspStepOutcome, MachineRspStepRejection, MachineRspStepRejectionReason,
-    MachineRspUnavailableSource, MachineRspUnrepresentedInstructionClass,
-    MachineRspVectorUnitState, RSP_COP0_MFC0_TRANSFER_SELECTOR, RSP_COP0_MTC0_TRANSFER_SELECTOR,
-    RSP_COP0_OPCODE, RSP_COP0_SP_DRAM_ADDRESS_INDEX, RSP_COP0_SP_SEMAPHORE_INDEX,
-    RSP_INSTRUCTION_ALIGNMENT_MASK, RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_REGISTER_COUNT,
-    RSP_VECTOR_LOAD_OPCODE, RSP_VECTOR_LQV_SUBOPCODE,
+    MachineRspLastInstructionState, MachineRspLqvSource, MachineRspMfc0ControlSource,
+    MachineRspMfc0ResultSource, MachineRspScalarLwFrontier, MachineRspScalarRegisterSource,
+    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspStepRejection,
+    MachineRspStepRejectionReason, MachineRspUnavailableSource,
+    MachineRspUnrepresentedInstructionClass, MachineRspVectorRegisterSource,
+    MachineRspVectorRegisterState, MachineRspVectorUnavailableSource, MachineRspVectorUnitState,
+    RSP_COP0_MFC0_TRANSFER_SELECTOR, RSP_COP0_MTC0_TRANSFER_SELECTOR, RSP_COP0_OPCODE,
+    RSP_COP0_SP_DRAM_ADDRESS_INDEX, RSP_COP0_SP_SEMAPHORE_INDEX, RSP_INSTRUCTION_ALIGNMENT_MASK,
+    RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_REGISTER_COUNT, RSP_VECTOR_LOAD_OPCODE,
+    RSP_VECTOR_LQV_SUBOPCODE, RSP_VECTOR_REGISTER_BYTE_COUNT, RSP_VECTOR_REGISTER_COUNT,
 };
 pub use si::{
     MachinePifRamState, MachineSiCpuStoreProvenance, MachineSiInputProfile, MachineSiStatusState,
@@ -180,7 +182,9 @@ pub use sp::{
     SP_STATUS_X105_FINAL_HALT_WORD, SP_STATUS_X105_HALT_CONFIGURE_WORD, SP_STATUS_X105_START_WORD,
 };
 pub use sp_dmem::{
-    MachineSpDmemStoreWordProvenance, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
+    MachineSpDmemByteKnowledge, MachineSpDmemByteKnowledgeDescriptor,
+    MachineSpDmemByteKnowledgeSource, MachineSpDmemByteSource, MachineSpDmemStoreWordProvenance,
+    MachineSpDmemUnavailableSource, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
 };
 pub use vi::{
     MachineViCpuStoreProvenance, MachineViCurrentState, MachineViRegister, MachineViRegisterState,

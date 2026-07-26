@@ -1,9 +1,15 @@
 use core::fmt;
 
 use crate::sp::{MachineSpDramAddressSource, MachineSpSemaphoreSource};
+use crate::sp_dmem::{
+    MachineSpDmemByteKnowledge, MachineSpDmemByteKnowledgeDescriptor,
+    MachineSpDmemByteKnowledgeSource, SpDmemOffset,
+};
 use crate::sp_imem::SpImemByteProvenance;
 
 pub const RSP_SCALAR_REGISTER_COUNT: usize = 32;
+pub const RSP_VECTOR_REGISTER_COUNT: usize = 32;
+pub const RSP_VECTOR_REGISTER_BYTE_COUNT: usize = 16;
 pub const RSP_LOCAL_ADDRESS_MASK: u16 = 0x0fff;
 pub const RSP_INSTRUCTION_ALIGNMENT_MASK: u16 = 0x0003;
 pub const RSP_COP0_OPCODE: u8 = 0x10;
@@ -128,8 +134,125 @@ impl MachineRspScalarRegisterState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MachineRspVectorUnitState {
-    Unavailable { source: MachineRspUnavailableSource },
+pub struct MachineRspLqvSource {
+    instruction_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    base_gpr: u8,
+    base_value: u32,
+    base_source: MachineRspScalarRegisterSource,
+    element: u8,
+    signed_offset: i8,
+    local_dmem_address: u16,
+    dmem_knowledge: [MachineSpDmemByteKnowledgeDescriptor; RSP_VECTOR_REGISTER_BYTE_COUNT],
+}
+
+impl MachineRspLqvSource {
+    pub const fn instruction_pc(self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub fn instruction_source(self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    pub const fn base_gpr(self) -> u8 {
+        self.base_gpr
+    }
+
+    pub const fn base_value(self) -> u32 {
+        self.base_value
+    }
+
+    pub const fn base_source(self) -> MachineRspScalarRegisterSource {
+        self.base_source
+    }
+
+    pub const fn element(self) -> u8 {
+        self.element
+    }
+
+    pub const fn signed_offset(self) -> i8 {
+        self.signed_offset
+    }
+
+    pub const fn local_dmem_address(self) -> u16 {
+        self.local_dmem_address
+    }
+
+    pub const fn dmem_knowledge(
+        self,
+    ) -> [MachineSpDmemByteKnowledgeDescriptor; RSP_VECTOR_REGISTER_BYTE_COUNT] {
+        self.dmem_knowledge
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn instruction_provenance(self) -> [SpImemByteProvenance; 4] {
+        self.instruction_provenance
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspVectorRegisterSource {
+    Lqv(Box<MachineRspLqvSource>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspVectorUnavailableSource {
+    ConstructionOrReset,
+    Lqv(Box<MachineRspLqvSource>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspVectorRegisterState {
+    Available {
+        bytes: [u8; RSP_VECTOR_REGISTER_BYTE_COUNT],
+        source: MachineRspVectorRegisterSource,
+    },
+    Unavailable {
+        source: MachineRspVectorUnavailableSource,
+    },
+}
+
+impl MachineRspVectorRegisterState {
+    pub const fn bytes(&self) -> Option<&[u8; RSP_VECTOR_REGISTER_BYTE_COUNT]> {
+        match self {
+            Self::Available { bytes, .. } => Some(bytes),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn available_source(&self) -> Option<&MachineRspVectorRegisterSource> {
+        match self {
+            Self::Available { source, .. } => Some(source),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn unavailable_source(&self) -> Option<&MachineRspVectorUnavailableSource> {
+        match self {
+            Self::Available { .. } => None,
+            Self::Unavailable { source } => Some(source),
+        }
+    }
+
+    pub const fn is_available(&self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspVectorUnitState {
+    registers: [MachineRspVectorRegisterState; RSP_VECTOR_REGISTER_COUNT],
+}
+
+impl MachineRspVectorUnitState {
+    pub const fn register_count(&self) -> usize {
+        self.registers.len()
+    }
+
+    pub fn register(&self, index: usize) -> Option<&MachineRspVectorRegisterState> {
+        self.registers.get(index)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,11 +297,21 @@ pub enum MachineRspInstructionSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MachineRspLastInstructionDestination {
+    ScalarMfc0 {
+        destination_gpr: u8,
+        control_register: MachineRspControlRegister,
+    },
+    VectorLqv {
+        destination_vector: u8,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineRspLastInstructionState {
     instruction_pc: u16,
     identity: MachineRspInstructionIdentity,
-    destination_gpr: u8,
-    control_register: MachineRspControlRegister,
+    destination: MachineRspLastInstructionDestination,
     byte_provenance: [SpImemByteProvenance; 4],
 }
 
@@ -191,12 +324,31 @@ impl MachineRspLastInstructionState {
         self.identity
     }
 
-    pub const fn destination_gpr(self) -> u8 {
-        self.destination_gpr
+    pub const fn destination_gpr(self) -> Option<u8> {
+        match self.destination {
+            MachineRspLastInstructionDestination::ScalarMfc0 {
+                destination_gpr, ..
+            } => Some(destination_gpr),
+            MachineRspLastInstructionDestination::VectorLqv { .. } => None,
+        }
     }
 
-    pub const fn control_register(self) -> MachineRspControlRegister {
-        self.control_register
+    pub const fn control_register(self) -> Option<MachineRspControlRegister> {
+        match self.destination {
+            MachineRspLastInstructionDestination::ScalarMfc0 {
+                control_register, ..
+            } => Some(control_register),
+            MachineRspLastInstructionDestination::VectorLqv { .. } => None,
+        }
+    }
+
+    pub const fn destination_vector(self) -> Option<u8> {
+        match self.destination {
+            MachineRspLastInstructionDestination::ScalarMfc0 { .. } => None,
+            MachineRspLastInstructionDestination::VectorLqv { destination_vector } => {
+                Some(destination_vector)
+            }
+        }
     }
 
     pub fn source(self) -> MachineRspInstructionSource {
@@ -217,40 +369,78 @@ pub enum MachineRspStepOutcome {
         control_register: MachineRspControlRegister,
         result_value: u32,
     },
+    VectorLqvCommitted {
+        instruction_pc: u16,
+        destination_vector: u8,
+        local_dmem_address: u16,
+        result_available: bool,
+    },
 }
 
 impl MachineRspStepOutcome {
     pub const fn identity(self) -> MachineRspInstructionIdentity {
         match self {
             Self::ScalarMfc0Committed { .. } => MachineRspInstructionIdentity::Mfc0,
+            Self::VectorLqvCommitted { .. } => MachineRspInstructionIdentity::Lqv,
         }
     }
 
     pub const fn instruction_pc(self) -> u16 {
         match self {
-            Self::ScalarMfc0Committed { instruction_pc, .. } => instruction_pc,
+            Self::ScalarMfc0Committed { instruction_pc, .. }
+            | Self::VectorLqvCommitted { instruction_pc, .. } => instruction_pc,
         }
     }
 
-    pub const fn destination_gpr(self) -> u8 {
+    pub const fn destination_gpr(self) -> Option<u8> {
         match self {
             Self::ScalarMfc0Committed {
                 destination_gpr, ..
-            } => destination_gpr,
+            } => Some(destination_gpr),
+            Self::VectorLqvCommitted { .. } => None,
         }
     }
 
-    pub const fn control_register(self) -> MachineRspControlRegister {
+    pub const fn control_register(self) -> Option<MachineRspControlRegister> {
         match self {
             Self::ScalarMfc0Committed {
                 control_register, ..
-            } => control_register,
+            } => Some(control_register),
+            Self::VectorLqvCommitted { .. } => None,
         }
     }
 
-    pub const fn result_value(self) -> u32 {
+    pub const fn result_value(self) -> Option<u32> {
         match self {
-            Self::ScalarMfc0Committed { result_value, .. } => result_value,
+            Self::ScalarMfc0Committed { result_value, .. } => Some(result_value),
+            Self::VectorLqvCommitted { .. } => None,
+        }
+    }
+
+    pub const fn destination_vector(self) -> Option<u8> {
+        match self {
+            Self::ScalarMfc0Committed { .. } => None,
+            Self::VectorLqvCommitted {
+                destination_vector, ..
+            } => Some(destination_vector),
+        }
+    }
+
+    pub const fn local_dmem_address(self) -> Option<u16> {
+        match self {
+            Self::ScalarMfc0Committed { .. } => None,
+            Self::VectorLqvCommitted {
+                local_dmem_address, ..
+            } => Some(local_dmem_address),
+        }
+    }
+
+    pub const fn vector_result_available(self) -> Option<bool> {
+        match self {
+            Self::ScalarMfc0Committed { .. } => None,
+            Self::VectorLqvCommitted {
+                result_available, ..
+            } => Some(result_available),
         }
     }
 }
@@ -273,42 +463,22 @@ pub enum MachineRspUnrepresentedInstructionClass {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MachineRspLqvFrontier {
+pub struct MachineRspScalarLwFrontier {
     base_gpr: u8,
-    destination_vector: u8,
-    element: u8,
-    signed_offset: i8,
+    destination_gpr: u8,
+    signed_offset: i16,
 }
 
-impl MachineRspLqvFrontier {
-    #[cfg(test)]
-    pub(crate) const fn new(
-        base_gpr: u8,
-        destination_vector: u8,
-        element: u8,
-        signed_offset: i8,
-    ) -> Self {
-        Self {
-            base_gpr,
-            destination_vector,
-            element,
-            signed_offset,
-        }
-    }
-
+impl MachineRspScalarLwFrontier {
     pub const fn base_gpr(self) -> u8 {
         self.base_gpr
     }
 
-    pub const fn destination_vector(self) -> u8 {
-        self.destination_vector
+    pub const fn destination_gpr(self) -> u8 {
+        self.destination_gpr
     }
 
-    pub const fn element(self) -> u8 {
-        self.element
-    }
-
-    pub const fn signed_offset(self) -> i8 {
+    pub const fn signed_offset(self) -> i16 {
         self.signed_offset
     }
 }
@@ -322,8 +492,24 @@ pub enum MachineRspStepRejectionReason {
         register_index: u8,
     },
     Mtc0Unsupported,
-    VectorLqvUnrepresented {
-        frontier: MachineRspLqvFrontier,
+    LqvScalarBaseUnavailable {
+        base_gpr: u8,
+    },
+    LqvElementUnsupported {
+        element: u8,
+    },
+    LqvAddressMisaligned {
+        local_dmem_address: u16,
+    },
+    LqvDmemKnowledgeMalformed {
+        local_dmem_address: u16,
+    },
+    VectorLoadUnsupported {
+        subopcode: u8,
+    },
+    VectorStoreUnsupported,
+    ScalarLwUnrepresented {
+        frontier: MachineRspScalarLwFrontier,
     },
     UnrepresentedInstruction {
         class: MachineRspUnrepresentedInstructionClass,
@@ -388,8 +574,35 @@ impl fmt::Display for MachineRspStepRejection {
             MachineRspStepRejectionReason::Mtc0Unsupported => {
                 write!(f, "RSP Mtc0 is not represented")
             }
-            MachineRspStepRejectionReason::VectorLqvUnrepresented { .. } => {
-                write!(f, "RSP vector Lqv is identified but not represented")
+            MachineRspStepRejectionReason::LqvScalarBaseUnavailable { base_gpr } => write!(
+                f,
+                "RSP Lqv scalar base r{base_gpr} is unavailable"
+            ),
+            MachineRspStepRejectionReason::LqvElementUnsupported { element } => write!(
+                f,
+                "RSP Lqv byte element {element} is outside the element-zero boundary"
+            ),
+            MachineRspStepRejectionReason::LqvAddressMisaligned {
+                local_dmem_address,
+            } => write!(
+                f,
+                "RSP Lqv local DMEM address 0x{local_dmem_address:03x} is outside the aligned full-register boundary"
+            ),
+            MachineRspStepRejectionReason::LqvDmemKnowledgeMalformed {
+                local_dmem_address,
+            } => write!(
+                f,
+                "RSP Lqv DMEM knowledge is malformed at local address 0x{local_dmem_address:03x}"
+            ),
+            MachineRspStepRejectionReason::VectorLoadUnsupported { subopcode } => write!(
+                f,
+                "RSP vector-load sub-operation {subopcode} is not represented"
+            ),
+            MachineRspStepRejectionReason::VectorStoreUnsupported => {
+                write!(f, "RSP vector stores are not represented")
+            }
+            MachineRspStepRejectionReason::ScalarLwUnrepresented { .. } => {
+                write!(f, "RSP scalar Lw is identified but not represented")
             }
             MachineRspStepRejectionReason::UnrepresentedInstruction { class } => {
                 write!(f, "RSP {class:?} instruction identity is not represented")
@@ -428,10 +641,52 @@ impl MachineRspMfc0Plan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineRspLqvAddressPlan {
+    instruction_pc: u16,
+    old_next_pc: u16,
+    destination_vector: u8,
+    element: u8,
+    signed_offset: i8,
+    base_gpr: u8,
+    base_value: u32,
+    base_source: MachineRspScalarRegisterSource,
+    local_dmem_address: u16,
+}
+
+impl MachineRspLqvAddressPlan {
+    pub(crate) const fn local_dmem_address(self) -> u16 {
+        self.local_dmem_address
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MachineRspLqvPlan {
+    address: MachineRspLqvAddressPlan,
+    byte_provenance: [SpImemByteProvenance; 4],
+    destination_state: MachineRspVectorRegisterState,
+}
+
+impl MachineRspLqvPlan {
+    pub(crate) const fn instruction_pc(&self) -> u16 {
+        self.address.instruction_pc
+    }
+
+    pub(crate) const fn old_next_pc(&self) -> u16 {
+        self.address.old_next_pc
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MachineRspDecodedInstruction {
     Mfc0 {
         destination_gpr: u8,
         control_register: MachineRspControlRegister,
+    },
+    Lqv {
+        base_gpr: u8,
+        destination_vector: u8,
+        element: u8,
+        signed_offset: i8,
     },
 }
 
@@ -467,8 +722,12 @@ impl MachineRspExecutionState {
         self.last_instruction
     }
 
-    pub(crate) const fn vector_unit(&self) -> MachineRspVectorUnitState {
-        self.vector_unit
+    pub(crate) const fn vector_unit(&self) -> &MachineRspVectorUnitState {
+        &self.vector_unit
+    }
+
+    pub(crate) fn vector_register(&self, index: usize) -> Option<&MachineRspVectorRegisterState> {
+        self.vector_unit.register(index)
     }
 
     pub(crate) const fn accumulator_and_flags(&self) -> MachineRspAccumulatorAndFlagsState {
@@ -519,23 +778,39 @@ impl MachineRspExecutionState {
                 control_register,
             });
         }
-        if opcode == RSP_VECTOR_LOAD_OPCODE
-            && ((raw_word >> 11) & 0x1f) as u8 == RSP_VECTOR_LQV_SUBOPCODE
-        {
+        if opcode == RSP_VECTOR_LOAD_OPCODE {
+            let subopcode = ((raw_word >> 11) & 0x1f) as u8;
+            if subopcode != RSP_VECTOR_LQV_SUBOPCODE {
+                return Err(MachineRspStepRejection::new(
+                    MachineRspStepRejectionReason::VectorLoadUnsupported { subopcode },
+                ));
+            }
             let raw_offset = (raw_word & 0x7f) as u8;
             let signed_offset = ((raw_offset << 1) as i8) >> 1;
+            return Ok(MachineRspDecodedInstruction::Lqv {
+                base_gpr: ((raw_word >> 21) & 0x1f) as u8,
+                destination_vector: ((raw_word >> 16) & 0x1f) as u8,
+                element: ((raw_word >> 7) & 0x0f) as u8,
+                signed_offset,
+            });
+        }
+        if opcode == 0x3a {
             return Err(MachineRspStepRejection::new(
-                MachineRspStepRejectionReason::VectorLqvUnrepresented {
-                    frontier: MachineRspLqvFrontier {
+                MachineRspStepRejectionReason::VectorStoreUnsupported,
+            ));
+        }
+        if opcode == 0x23 {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::ScalarLwUnrepresented {
+                    frontier: MachineRspScalarLwFrontier {
                         base_gpr: ((raw_word >> 21) & 0x1f) as u8,
-                        destination_vector: ((raw_word >> 16) & 0x1f) as u8,
-                        element: ((raw_word >> 7) & 0x0f) as u8,
-                        signed_offset,
+                        destination_gpr: ((raw_word >> 16) & 0x1f) as u8,
+                        signed_offset: raw_word as u16 as i16,
                     },
                 },
             ));
         }
-        let class = if opcode == RSP_VECTOR_LOAD_OPCODE {
+        let class = if opcode == 0x12 {
             MachineRspUnrepresentedInstructionClass::Vector
         } else {
             MachineRspUnrepresentedInstructionClass::Scalar
@@ -555,7 +830,10 @@ impl MachineRspExecutionState {
         let MachineRspDecodedInstruction::Mfc0 {
             destination_gpr,
             control_register,
-        } = decoded;
+        } = decoded
+        else {
+            unreachable!("Mfc0 planner receives only decoded Mfc0")
+        };
         debug_assert_eq!(control_register, control_source.register());
         MachineRspMfc0Plan {
             instruction_pc,
@@ -587,8 +865,10 @@ impl MachineRspExecutionState {
         self.last_instruction = Some(MachineRspLastInstructionState {
             instruction_pc: plan.instruction_pc,
             identity: MachineRspInstructionIdentity::Mfc0,
-            destination_gpr: plan.destination_gpr,
-            control_register: plan.control_source.register(),
+            destination: MachineRspLastInstructionDestination::ScalarMfc0 {
+                destination_gpr: plan.destination_gpr,
+                control_register: plan.control_source.register(),
+            },
             byte_provenance: plan.byte_provenance,
         });
         MachineRspStepOutcome::ScalarMfc0Committed {
@@ -596,6 +876,142 @@ impl MachineRspExecutionState {
             destination_gpr: plan.destination_gpr,
             control_register: plan.control_source.register(),
             result_value,
+        }
+    }
+
+    pub(crate) fn plan_lqv_address(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+    ) -> Result<MachineRspLqvAddressPlan, MachineRspStepRejection> {
+        let MachineRspDecodedInstruction::Lqv {
+            base_gpr,
+            destination_vector,
+            element,
+            signed_offset,
+        } = decoded
+        else {
+            unreachable!("Lqv address planner receives only decoded Lqv")
+        };
+        let base_state = self.scalar_registers[usize::from(base_gpr)];
+        let MachineRspScalarRegisterState::Available {
+            value: base_value,
+            source: base_source,
+        } = base_state
+        else {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::LqvScalarBaseUnavailable { base_gpr },
+            ));
+        };
+        if element != 0 {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::LqvElementUnsupported { element },
+            ));
+        }
+        let scaled_offset = i32::from(signed_offset) << 4;
+        let local_dmem_address = ((base_value & u32::from(RSP_LOCAL_ADDRESS_MASK))
+            .wrapping_add_signed(scaled_offset)) as u16
+            & RSP_LOCAL_ADDRESS_MASK;
+        if local_dmem_address & 0x0f != 0 {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::LqvAddressMisaligned { local_dmem_address },
+            ));
+        }
+        Ok(MachineRspLqvAddressPlan {
+            instruction_pc,
+            old_next_pc: self
+                .next_pc
+                .unwrap_or_else(|| sequential_local_pc(instruction_pc)),
+            destination_vector,
+            element,
+            signed_offset,
+            base_gpr,
+            base_value,
+            base_source,
+            local_dmem_address,
+        })
+    }
+
+    pub(crate) fn plan_lqv(
+        &self,
+        address: MachineRspLqvAddressPlan,
+        byte_provenance: [SpImemByteProvenance; 4],
+        observations: [MachineSpDmemByteKnowledge; RSP_VECTOR_REGISTER_BYTE_COUNT],
+    ) -> Result<MachineRspLqvPlan, MachineRspStepRejection> {
+        let local_dmem_address = address.local_dmem_address;
+        let mut descriptors = [MachineSpDmemByteKnowledgeDescriptor::new(
+            SpDmemOffset::new(0),
+            MachineSpDmemByteKnowledgeSource::Unavailable {
+                source: crate::sp_dmem::MachineSpDmemUnavailableSource::ConstructionOrReset,
+            },
+        ); RSP_VECTOR_REGISTER_BYTE_COUNT];
+        let mut bytes = [0_u8; RSP_VECTOR_REGISTER_BYTE_COUNT];
+        let mut all_available = true;
+        for index in 0..RSP_VECTOR_REGISTER_BYTE_COUNT {
+            descriptors[index] = MachineSpDmemByteKnowledgeDescriptor::new(
+                SpDmemOffset::new(u32::from(local_dmem_address) + index as u32),
+                observations[index].source(),
+            );
+            match observations[index] {
+                MachineSpDmemByteKnowledge::Available { value, .. } => bytes[index] = value,
+                MachineSpDmemByteKnowledge::Unavailable { .. } => all_available = false,
+            }
+        }
+        if descriptors.iter().enumerate().any(|(index, descriptor)| {
+            descriptor.offset().value() != u32::from(local_dmem_address) + index as u32
+        }) {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::LqvDmemKnowledgeMalformed { local_dmem_address },
+            ));
+        }
+        let source = MachineRspLqvSource {
+            instruction_pc: address.instruction_pc,
+            instruction_provenance: byte_provenance,
+            base_gpr: address.base_gpr,
+            base_value: address.base_value,
+            base_source: address.base_source,
+            element: address.element,
+            signed_offset: address.signed_offset,
+            local_dmem_address,
+            dmem_knowledge: descriptors,
+        };
+        let destination_state = if all_available {
+            MachineRspVectorRegisterState::Available {
+                bytes,
+                source: MachineRspVectorRegisterSource::Lqv(Box::new(source)),
+            }
+        } else {
+            MachineRspVectorRegisterState::Unavailable {
+                source: MachineRspVectorUnavailableSource::Lqv(Box::new(source)),
+            }
+        };
+        Ok(MachineRspLqvPlan {
+            address,
+            byte_provenance,
+            destination_state,
+        })
+    }
+
+    pub(crate) fn apply_lqv(&mut self, plan: MachineRspLqvPlan) -> MachineRspStepOutcome {
+        let result_available = plan.destination_state.is_available();
+        self.vector_unit.registers[usize::from(plan.address.destination_vector)] =
+            plan.destination_state;
+        self.next_pc = Some(sequential_local_pc(plan.address.old_next_pc));
+        self.delay_slot_context = None;
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc: plan.address.instruction_pc,
+            identity: MachineRspInstructionIdentity::Lqv,
+            destination: MachineRspLastInstructionDestination::VectorLqv {
+                destination_vector: plan.address.destination_vector,
+            },
+            byte_provenance: plan.byte_provenance,
+        });
+        MachineRspStepOutcome::VectorLqvCommitted {
+            instruction_pc: plan.address.instruction_pc,
+            destination_vector: plan.address.destination_vector,
+            local_dmem_address: plan.address.local_dmem_address,
+            result_available,
         }
     }
 
@@ -621,8 +1037,10 @@ impl Default for MachineRspExecutionState {
             delay_slot_context: None,
             committed_instruction_count: 0,
             last_instruction: None,
-            vector_unit: MachineRspVectorUnitState::Unavailable {
-                source: MachineRspUnavailableSource::ConstructionOrReset,
+            vector_unit: MachineRspVectorUnitState {
+                registers: core::array::from_fn(|_| MachineRspVectorRegisterState::Unavailable {
+                    source: MachineRspVectorUnavailableSource::ConstructionOrReset,
+                }),
             },
             accumulator_and_flags: MachineRspAccumulatorAndFlagsState::Unavailable {
                 source: MachineRspUnavailableSource::ConstructionOrReset,
@@ -668,8 +1086,50 @@ fn classify_instruction_source(
 mod tests {
     use super::*;
 
+    const TEST_INSTRUCTION_PROVENANCE: [SpImemByteProvenance; 4] =
+        [SpImemByteProvenance::GeneratedMachineTestStaging; 4];
+
+    const fn lqv_word(base_gpr: u8, destination_vector: u8, element: u8, signed_offset: i8) -> u32 {
+        ((RSP_VECTOR_LOAD_OPCODE as u32) << 26)
+            | ((base_gpr as u32) << 21)
+            | ((destination_vector as u32) << 16)
+            | ((RSP_VECTOR_LQV_SUBOPCODE as u32) << 11)
+            | ((element as u32) << 7)
+            | ((signed_offset as u8 & 0x7f) as u32)
+    }
+
+    fn stage_available_scalar(rsp: &mut MachineRspExecutionState, index: usize, value: u32) {
+        rsp.scalar_registers[index] = MachineRspScalarRegisterState::Available {
+            value,
+            source: MachineRspScalarRegisterSource::Mfc0(MachineRspMfc0ResultSource {
+                instruction_pc: 0x0f0,
+                control_source: MachineRspMfc0ControlSource::SpDramAddress {
+                    value,
+                    source: MachineSpDramAddressSource::SourceDefinedReset,
+                },
+                byte_provenance: TEST_INSTRUCTION_PROVENANCE,
+            }),
+        };
+    }
+
+    fn available_dmem_observations(
+        bytes: [u8; RSP_VECTOR_REGISTER_BYTE_COUNT],
+    ) -> [MachineSpDmemByteKnowledge; RSP_VECTOR_REGISTER_BYTE_COUNT] {
+        bytes.map(|value| MachineSpDmemByteKnowledge::Available {
+            value,
+            source: crate::sp_dmem::MachineSpDmemByteSource::GeneratedMachineTestStaging,
+        })
+    }
+
+    fn unavailable_dmem_observations(
+    ) -> [MachineSpDmemByteKnowledge; RSP_VECTOR_REGISTER_BYTE_COUNT] {
+        [MachineSpDmemByteKnowledge::Unavailable {
+            source: crate::sp_dmem::MachineSpDmemUnavailableSource::ConstructionOrReset,
+        }; RSP_VECTOR_REGISTER_BYTE_COUNT]
+    }
+
     #[test]
-    fn rsp_foundation_starts_with_only_scalar_zero_available() {
+    fn rsp_foundation_rsp_vector_register_slots_start_with_only_scalar_zero_available() {
         let rsp = MachineRspExecutionState::default();
         assert_eq!(
             rsp.scalar_register(0),
@@ -690,10 +1150,18 @@ mod tests {
         assert_eq!(rsp.delay_slot_context(), None);
         assert_eq!(rsp.committed_instruction_count(), 0);
         assert_eq!(rsp.last_instruction(), None);
-        assert!(matches!(
-            rsp.vector_unit(),
-            MachineRspVectorUnitState::Unavailable { .. }
-        ));
+        assert_eq!(
+            rsp.vector_unit().register_count(),
+            RSP_VECTOR_REGISTER_COUNT
+        );
+        for index in 0..RSP_VECTOR_REGISTER_COUNT {
+            assert!(matches!(
+                rsp.vector_register(index),
+                Some(MachineRspVectorRegisterState::Unavailable {
+                    source: MachineRspVectorUnavailableSource::ConstructionOrReset,
+                })
+            ));
+        }
         assert!(matches!(
             rsp.accumulator_and_flags(),
             MachineRspAccumulatorAndFlagsState::Unavailable { .. }
@@ -718,13 +1186,240 @@ mod tests {
             })
         );
         assert_eq!(
-            rsp.decode(0xc80c_2000).unwrap_err().reason(),
-            MachineRspStepRejectionReason::VectorLqvUnrepresented {
-                frontier: MachineRspLqvFrontier {
+            rsp.decode(0xc80c_2000),
+            Ok(MachineRspDecodedInstruction::Lqv {
+                base_gpr: 0,
+                destination_vector: 12,
+                element: 0,
+                signed_offset: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn rsp_vector_lqv_address_uses_low_twelve_signed_scaled_wrapping_truth() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0);
+
+        let positive = rsp
+            .plan_lqv_address(0, rsp.decode(lqv_word(0, 12, 0, 1)).unwrap())
+            .unwrap();
+        assert_eq!(positive.local_dmem_address(), 0x010);
+
+        let negative = rsp
+            .plan_lqv_address(0, rsp.decode(lqv_word(0, 12, 0, -1)).unwrap())
+            .unwrap();
+        assert_eq!(negative.local_dmem_address(), 0xff0);
+
+        stage_available_scalar(&mut rsp, 3, 0xabcd_f020);
+        let low_twelve = rsp
+            .plan_lqv_address(0, rsp.decode(lqv_word(3, 12, 0, 0)).unwrap())
+            .unwrap();
+        assert_eq!(low_twelve.local_dmem_address(), 0x020);
+
+        assert_eq!(
+            rsp.plan_lqv_address(0, rsp.decode(lqv_word(1, 12, 0, 0)).unwrap())
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::LqvScalarBaseUnavailable { base_gpr: 1 }
+        );
+        assert_eq!(
+            rsp.plan_lqv_address(0, rsp.decode(lqv_word(0, 12, 1, 0)).unwrap())
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::LqvElementUnsupported { element: 1 }
+        );
+        stage_available_scalar(&mut rsp, 4, 0x1234_5008);
+        assert_eq!(
+            rsp.plan_lqv_address(0, rsp.decode(lqv_word(4, 12, 0, 0)).unwrap())
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::LqvAddressMisaligned {
+                local_dmem_address: 8,
+            }
+        );
+    }
+
+    #[test]
+    fn rsp_vector_lqv_concrete_source_maps_exact_byte_order_and_commit_cadence() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0);
+        let scalar_before = rsp.scalar_registers;
+        let accumulator_before = rsp.accumulator_and_flags;
+        let bytes = core::array::from_fn(|index| (index as u8).wrapping_mul(17).wrapping_add(3));
+        let address = rsp
+            .plan_lqv_address(0, rsp.decode(lqv_word(0, 12, 0, 0)).unwrap())
+            .unwrap();
+        let plan = rsp
+            .plan_lqv(
+                address,
+                TEST_INSTRUCTION_PROVENANCE,
+                available_dmem_observations(bytes),
+            )
+            .unwrap();
+        let source = match &plan.destination_state {
+            MachineRspVectorRegisterState::Available {
+                bytes: planned,
+                source: MachineRspVectorRegisterSource::Lqv(source),
+            } => {
+                assert_eq!(*planned, bytes);
+                **source
+            }
+            other => panic!("concrete Lqv did not plan an Available vector: {other:?}"),
+        };
+        assert_eq!(source.instruction_pc(), 0);
+        assert_eq!(source.base_gpr(), 0);
+        assert_eq!(source.base_value(), 0);
+        assert_eq!(
+            source.base_source(),
+            MachineRspScalarRegisterSource::ArchitecturalZero
+        );
+        assert_eq!(source.element(), 0);
+        assert_eq!(source.signed_offset(), 0);
+        assert_eq!(source.local_dmem_address(), 0);
+        assert!(source
+            .dmem_knowledge()
+            .iter()
+            .enumerate()
+            .all(|(index, descriptor)| {
+                descriptor.offset() == SpDmemOffset::new(index as u32)
+                    && matches!(
+                        descriptor.source(),
+                        MachineSpDmemByteKnowledgeSource::Available {
+                            source: crate::sp_dmem::MachineSpDmemByteSource::GeneratedMachineTestStaging,
+                        }
+                    )
+            }));
+
+        let outcome = rsp.apply_lqv(plan);
+        assert!(matches!(
+            outcome,
+            MachineRspStepOutcome::VectorLqvCommitted {
+                instruction_pc: 0,
+                destination_vector: 12,
+                local_dmem_address: 0,
+                result_available: true,
+            }
+        ));
+        assert_eq!(rsp.vector_register(12).unwrap().bytes(), Some(&bytes));
+        assert!((0..RSP_VECTOR_REGISTER_COUNT)
+            .filter(|index| *index != 12)
+            .all(|index| matches!(
+                rsp.vector_register(index),
+                Some(MachineRspVectorRegisterState::Unavailable {
+                    source: MachineRspVectorUnavailableSource::ConstructionOrReset,
+                })
+            )));
+        assert_eq!(rsp.scalar_registers, scalar_before);
+        assert_eq!(rsp.accumulator_and_flags, accumulator_before);
+        assert_eq!(rsp.next_pc(), Some(8));
+        assert_eq!(rsp.delay_slot_context(), None);
+        assert_eq!(rsp.committed_instruction_count(), 1);
+        assert_eq!(
+            rsp.last_instruction().unwrap().identity(),
+            MachineRspInstructionIdentity::Lqv
+        );
+        assert_eq!(
+            rsp.last_instruction().unwrap().destination_vector(),
+            Some(12)
+        );
+    }
+
+    #[test]
+    fn rsp_vector_lqv_unavailable_and_mixed_sources_replace_whole_register_only() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0);
+        let decoded = rsp.decode(lqv_word(0, 12, 0, 0)).unwrap();
+        let unavailable_plan = rsp
+            .plan_lqv(
+                rsp.plan_lqv_address(0, decoded).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+                unavailable_dmem_observations(),
+            )
+            .unwrap();
+        rsp.apply_lqv(unavailable_plan);
+        let unavailable = rsp.vector_register(12).unwrap();
+        assert_eq!(unavailable.bytes(), None);
+        let unavailable_source = match unavailable.unavailable_source() {
+            Some(MachineRspVectorUnavailableSource::Lqv(source)) => source,
+            other => panic!("missing whole-register unavailable cause: {other:?}"),
+        };
+        assert!(unavailable_source
+            .dmem_knowledge()
+            .iter()
+            .all(|descriptor| !descriptor.is_available()));
+
+        let concrete_bytes = core::array::from_fn(|index| 0xf0_u8.wrapping_sub(index as u8 * 7));
+        let concrete_plan = rsp
+            .plan_lqv(
+                rsp.plan_lqv_address(4, decoded).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+                available_dmem_observations(concrete_bytes),
+            )
+            .unwrap();
+        rsp.apply_lqv(concrete_plan);
+        assert_eq!(
+            rsp.vector_register(12).unwrap().bytes(),
+            Some(&concrete_bytes),
+            "a complete concrete load replaces an unavailable destination"
+        );
+
+        let mut mixed = unavailable_dmem_observations();
+        mixed[0] = MachineSpDmemByteKnowledge::Available {
+            value: 0x5a,
+            source: crate::sp_dmem::MachineSpDmemByteSource::GeneratedMachineTestStaging,
+        };
+        let mixed_plan = rsp
+            .plan_lqv(
+                rsp.plan_lqv_address(8, decoded).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+                mixed,
+            )
+            .unwrap();
+        rsp.apply_lqv(mixed_plan);
+        let mixed_result = rsp.vector_register(12).unwrap();
+        assert_eq!(
+            mixed_result.bytes(),
+            None,
+            "mixed knowledge stores no partial vector payload"
+        );
+        let mixed_source = match mixed_result.unavailable_source() {
+            Some(MachineRspVectorUnavailableSource::Lqv(source)) => source,
+            other => panic!("mixed Lqv lacks exact unavailable cause: {other:?}"),
+        };
+        assert!(mixed_source.dmem_knowledge()[0].is_available());
+        assert!(mixed_source.dmem_knowledge()[1..]
+            .iter()
+            .all(|descriptor| !descriptor.is_available()));
+        assert_eq!(rsp.committed_instruction_count(), 3);
+        assert_eq!(rsp.next_pc(), Some(16));
+    }
+
+    #[test]
+    fn rsp_vector_load_store_consumer_and_scalar_lw_frontiers_remain_closed() {
+        let rsp = MachineRspExecutionState::default();
+        let other_vector_load = ((RSP_VECTOR_LOAD_OPCODE as u32) << 26) | (3 << 11);
+        assert_eq!(
+            rsp.decode(other_vector_load).unwrap_err().reason(),
+            MachineRspStepRejectionReason::VectorLoadUnsupported { subopcode: 3 }
+        );
+        assert_eq!(
+            rsp.decode(0xe800_0000).unwrap_err().reason(),
+            MachineRspStepRejectionReason::VectorStoreUnsupported
+        );
+        assert_eq!(
+            rsp.decode(0x4a00_0000).unwrap_err().reason(),
+            MachineRspStepRejectionReason::UnrepresentedInstruction {
+                class: MachineRspUnrepresentedInstructionClass::Vector,
+            }
+        );
+        assert_eq!(
+            rsp.decode(0x8c04_0040).unwrap_err().reason(),
+            MachineRspStepRejectionReason::ScalarLwUnrepresented {
+                frontier: MachineRspScalarLwFrontier {
                     base_gpr: 0,
-                    destination_vector: 12,
-                    element: 0,
-                    signed_offset: 0,
+                    destination_gpr: 4,
+                    signed_offset: 0x40,
                 },
             }
         );
