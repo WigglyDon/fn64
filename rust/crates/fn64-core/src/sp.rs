@@ -4,8 +4,8 @@ use crate::rsp::{
     MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDelaySlotContext,
     MachineRspExecutionState, MachineRspInstructionIdentity, MachineRspInstructionSource,
     MachineRspLastInstructionState, MachineRspLqvPlan, MachineRspMfc0ControlSource,
-    MachineRspMfc0Plan, MachineRspScalarRegisterState, MachineRspStepOutcome,
-    MachineRspVectorRegisterState, MachineRspVectorUnitState,
+    MachineRspMfc0Plan, MachineRspNopPlan, MachineRspScalarLwPlan, MachineRspScalarRegisterState,
+    MachineRspStepOutcome, MachineRspVectorRegisterState, MachineRspVectorUnitState,
 };
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
@@ -810,6 +810,44 @@ impl Sp {
                 provenance,
                 first_rsp_instruction_pc: instruction_pc,
                 first_rsp_identity: MachineRspInstructionIdentity::Lqv,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_lw(&mut self, plan: MachineRspScalarLwPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_lw(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP scalar Lw plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Lw,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_nop(&mut self, plan: MachineRspNopPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_nop(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Nop plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Nop,
             });
         }
         outcome

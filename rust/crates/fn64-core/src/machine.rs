@@ -84,10 +84,11 @@ use crate::ri::{
 };
 use crate::rsp::{
     MachineRspAccumulatorAndFlagsState, MachineRspDecodedInstruction, MachineRspDelaySlotContext,
-    MachineRspFetchRejection, MachineRspLastInstructionState, MachineRspScalarRegisterState,
-    MachineRspStepOutcome, MachineRspStepRejection, MachineRspStepRejectionReason,
-    MachineRspVectorRegisterState, MachineRspVectorUnitState, RSP_INSTRUCTION_ALIGNMENT_MASK,
-    RSP_LOCAL_ADDRESS_MASK, RSP_VECTOR_REGISTER_BYTE_COUNT,
+    MachineRspFetchRejection, MachineRspLastInstructionState, MachineRspScalarLwDmemObservation,
+    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspStepRejection,
+    MachineRspStepRejectionReason, MachineRspVectorRegisterState, MachineRspVectorUnitState,
+    RSP_INSTRUCTION_ALIGNMENT_MASK, RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_LW_BYTE_COUNT,
+    RSP_VECTOR_REGISTER_BYTE_COUNT,
 };
 use crate::si::{
     MachinePifRamState, MachineSiCpuStoreProvenance, MachineSiInputProfile, MachineSiStatusState,
@@ -6105,6 +6106,44 @@ impl Machine {
                     .plan_lqv(address, fetched.byte_provenance(), observations)
                     .map_err(MachineRepresentedStepError::RspRejected)?;
                 self.sp.apply_rsp_lqv(plan)
+            }
+            MachineRspDecodedInstruction::Lw { .. } => {
+                let address = self
+                    .sp
+                    .rsp_execution()
+                    .plan_lw_address(pc, decoded)
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                let knowledge = self
+                    .sp_dmem
+                    .observe_range::<RSP_SCALAR_LW_BYTE_COUNT>(SpDmemOffset::new(u32::from(
+                        address.local_dmem_address(),
+                    )))
+                    .map_err(|_| {
+                        MachineRepresentedStepError::RspRejected(MachineRspStepRejection::new(
+                            MachineRspStepRejectionReason::ScalarLwDmemKnowledgeMalformed {
+                                local_dmem_address: address.local_dmem_address(),
+                            },
+                        ))
+                    })?;
+                let observations = core::array::from_fn(|index| {
+                    MachineRspScalarLwDmemObservation::from_knowledge(
+                        SpDmemOffset::new(u32::from(address.local_dmem_address()) + index as u32),
+                        knowledge[index],
+                    )
+                });
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_lw(address, fetched.byte_provenance(), observations)
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                self.sp.apply_rsp_lw(plan)
+            }
+            MachineRspDecodedInstruction::Nop => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_nop(pc, decoded, fetched.byte_provenance());
+                self.sp.apply_rsp_nop(plan)
             }
         };
         self.processor_turn = MachineStepProcessor::Cpu;
@@ -24320,7 +24359,7 @@ mod tests {
     }
 
     #[test]
-    fn rsp_vector_unavailable_consumer_store_misalignment_and_scalar_lw_reject_atomically() {
+    fn rsp_vector_and_scalar_lw_unsupported_boundaries_reject_atomically() {
         let mut unavailable = staged_rsp_running_machine(
             &[
                 (0, rsp_lqv_word(0, 12, 0, 0)),
@@ -24395,22 +24434,137 @@ mod tests {
         );
         assert_eq!(lw_snapshot(&misaligned), before_misaligned);
 
-        let mut scalar_lw = staged_rsp_running_machine(&[(0, 0x8c04_0040)], true);
-        let before_scalar_lw = lw_snapshot(&scalar_lw);
+        for (mut scalar_lw, expected) in [
+            (
+                staged_rsp_running_machine(&[(0, 0x8c04_0040)], true),
+                MachineRspStepRejectionReason::ScalarLwDmemByteUnavailable {
+                    local_dmem_address: 0x040,
+                    first_unavailable_offset: 0x040,
+                },
+            ),
+            (
+                staged_rsp_running_machine(&[(0, 0x8c24_0000)], true),
+                MachineRspStepRejectionReason::ScalarLwBaseUnavailable { base_gpr: 1 },
+            ),
+            (
+                staged_rsp_running_machine(&[(0, 0x8c04_0002)], true),
+                MachineRspStepRejectionReason::ScalarLwAddressMisaligned {
+                    local_dmem_address: 2,
+                },
+            ),
+        ] {
+            let before_scalar_lw = lw_snapshot(&scalar_lw);
+            assert_eq!(
+                scalar_lw
+                    .step()
+                    .unwrap_err()
+                    .rsp_rejection()
+                    .unwrap()
+                    .reason(),
+                expected
+            );
+            assert_eq!(lw_snapshot(&scalar_lw), before_scalar_lw);
+            assert_eq!(scalar_lw.processor_turn(), MachineStepProcessor::Rsp);
+        }
+    }
+
+    #[test]
+    fn rsp_scalar_lw_machine_commit_r0_lifecycle_and_independence_are_exact() {
+        let mut first = staged_rsp_running_machine(&[(0, 0x8c04_0040)], true);
+        first
+            .sp_dmem
+            .write_u32_be_for_test(SpDmemOffset::new(0x040), 0x1357_9bdf);
+        let second = Machine::from_cartridge(Cartridge::default());
+        let cpu_before = (
+            first.cpu().pc(),
+            first.cpu().next_pc(),
+            first.cpu().cop0_count(),
+            first.cpu_delay_slot_context(),
+        );
+        let vi_before = first.vi_current_state();
+        let dmem_before = (0..4)
+            .map(|index| {
+                first
+                    .sp_dmem()
+                    .observe_byte(SpDmemOffset::new(0x040 + index))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            first.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLwCommitted {
+                    instruction_pc: 0,
+                    destination_gpr: 4,
+                    local_dmem_address: 0x040,
+                    result_value: 0x1357_9bdf,
+                },
+            }
+        );
+        assert_eq!(
+            first.rsp_scalar_register(4).unwrap().value(),
+            Some(0x1357_9bdf)
+        );
+        assert_eq!(
+            first.rsp_last_instruction().unwrap().identity(),
+            crate::rsp::MachineRspInstructionIdentity::Lw
+        );
+        assert_eq!(first.sp_pc_state().unwrap().raw_low_field(), 4);
+        assert_eq!(first.rsp_next_pc(), Some(8));
+        assert_eq!(first.rsp_committed_instruction_count(), 1);
+        assert_eq!(first.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            (
+                first.cpu().pc(),
+                first.cpu().next_pc(),
+                first.cpu().cop0_count(),
+                first.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert_eq!(first.vi_current_state(), vi_before);
+        assert_eq!(
+            (0..4)
+                .map(|index| {
+                    first
+                        .sp_dmem()
+                        .observe_byte(SpDmemOffset::new(0x040 + index))
+                        .unwrap()
+                })
+                .collect::<Vec<_>>(),
+            dmem_before
+        );
+        assert!(!second.rsp_scalar_register(4).unwrap().is_available());
+
+        first.processor_turn = MachineStepProcessor::Rsp;
+        first
+            .stage_generated_sp_imem_word_for_test(4, 0x8c00_0040)
+            .unwrap();
+        let r0_before = first.rsp_scalar_register(0).unwrap();
         assert!(matches!(
-            scalar_lw
-                .step()
-                .unwrap_err()
-                .rsp_rejection()
-                .unwrap()
-                .reason(),
-            MachineRspStepRejectionReason::ScalarLwUnrepresented { frontier }
-                if frontier.base_gpr() == 0
-                    && frontier.destination_gpr() == 4
-                    && frontier.signed_offset() == 0x40
+            first.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLwCommitted {
+                    instruction_pc: 4,
+                    destination_gpr: 0,
+                    local_dmem_address: 0x040,
+                    result_value: 0x1357_9bdf,
+                },
+            }
         ));
-        assert_eq!(lw_snapshot(&scalar_lw), before_scalar_lw);
-        assert_eq!(scalar_lw.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(first.rsp_scalar_register(0).unwrap(), r0_before);
+        assert_eq!(first.rsp_committed_instruction_count(), 2);
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
+        let before_failed_bootstrap = lw_snapshot(&first);
+        assert!(first.stage_cartridge_bootstrap().is_err());
+        assert_eq!(lw_snapshot(&first), before_failed_bootstrap);
+
+        first.reset();
+        assert!(!first.rsp_scalar_register(4).unwrap().is_available());
+        assert_eq!(first.rsp_scalar_register(0).unwrap().value(), Some(0));
+        assert_eq!(first.rsp_committed_instruction_count(), 0);
+        assert_eq!(first.processor_turn(), MachineStepProcessor::Cpu);
     }
 
     #[test]
@@ -32258,7 +32412,7 @@ mod tests {
     }
 
     #[test]
-    fn public_x105_unavailable_v12_and_scalar_lw_frontier_are_exact_with_donor_exclusions() {
+    fn public_x105_scalar_lw_two_nops_and_mtc0_frontier_are_exact_with_donor_exclusions() {
         const PIF_SEED: u8 = 0x81;
         const PUBLIC_X105_RSP_DATA_OFFSET: u16 = 0x0794;
         const FIRST_PIF_WORD: u32 = 0;
@@ -32848,11 +33002,27 @@ mod tests {
             (0xa40, 0x0000e025),
         ];
         words.extend_from_slice(GENERATED_X105_CACHE_SP_AND_RELOCATION_WORDS);
-        const PUBLIC_X105_RSP_WORDS: [u32; 4] =
-            [0x4008_3800, 0x400b_0800, 0xc80c_2000, 0x8c04_0040];
+        const PUBLIC_X105_RSP_WORDS: [u32; 7] = [
+            0x4008_3800,
+            0x400b_0800,
+            0xc80c_2000,
+            0x8c04_0040,
+            0x0000_0000,
+            0x0000_0000,
+            0x4080_0000,
+        ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
         assert_eq!(observed_pif_word, FIRST_PIF_WORD);
+        for (offset, word) in [
+            (0x010, PUBLIC_X105_RSP_WORDS[4]),
+            (0x014, PUBLIC_X105_RSP_WORDS[5]),
+            (0x018, PUBLIC_X105_RSP_WORDS[6]),
+        ] {
+            machine
+                .stage_generated_sp_imem_word_for_test(offset, word)
+                .unwrap();
+        }
 
         let expected_identities = [
             CpuInstructionIdentity::SpecialAdd,
@@ -36464,26 +36634,337 @@ mod tests {
                 MachineSpDmemByteKnowledge::Available { value: 0x20, .. },
             ]
         ));
-        let before_lw = lw_snapshot(&machine);
-        let lw_error = machine.step().unwrap_err();
-        assert_eq!(lw_error.processor(), MachineStepProcessor::Rsp);
-        let frontier = match lw_error.rsp_rejection().unwrap().reason() {
-            MachineRspStepRejectionReason::ScalarLwUnrepresented { frontier } => frontier,
-            other => panic!("expected scalar Lw frontier, got {other:?}"),
+        let cpu_before_lw = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let vi_before_lw = machine.vi_current_state();
+        let lw = machine.step().unwrap();
+        assert_eq!(
+            lw,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLwCommitted {
+                    instruction_pc: 0x00c,
+                    destination_gpr: 4,
+                    local_dmem_address: 0x040,
+                    result_value: 0x03a0_4820,
+                },
+            }
+        );
+        let r4 = machine.rsp_scalar_register(4).unwrap();
+        assert_eq!(r4.value(), Some(0x03a0_4820));
+        let r4_source = match r4.source() {
+            Some(crate::rsp::MachineRspScalarRegisterSource::Lw(source)) => source,
+            other => panic!("public x105 r4 lacks exact scalar-Lw provenance: {other:?}"),
         };
-        assert_eq!(frontier.base_gpr(), 0);
-        assert_eq!(frontier.destination_gpr(), 4);
-        assert_eq!(frontier.signed_offset(), 0x40);
-        assert_eq!(lw_snapshot(&machine), before_lw);
-        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
-        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x00c);
-        assert_eq!(machine.rsp_next_pc(), Some(0x010));
-        assert_eq!(machine.rsp_committed_instruction_count(), 3);
+        assert_eq!(r4_source.instruction_pc(), 0x00c);
+        assert_eq!(
+            r4_source.instruction_source(),
+            crate::rsp::MachineRspInstructionSource::CpuStoreWord
+        );
+        assert!(r4_source
+            .instruction_provenance()
+            .iter()
+            .all(|provenance| matches!(
+                provenance,
+                SpImemByteProvenance::CpuStoreWord { provenance }
+                    if *provenance == expected_slot_provenance
+            )));
+        assert_eq!(r4_source.base_gpr(), 0);
+        assert_eq!(r4_source.base_value(), 0);
+        assert_eq!(
+            r4_source.base_source(),
+            crate::rsp::MachineRspScalarRegisterSource::ArchitecturalZero
+        );
+        assert_eq!(r4_source.signed_offset(), 0x40);
+        assert_eq!(r4_source.local_dmem_address(), 0x040);
+        assert!(r4_source
+            .dmem_knowledge()
+            .iter()
+            .enumerate()
+            .all(|(index, descriptor)| {
+                descriptor.offset() == SpDmemOffset::new(0x040 + index as u32)
+                    && matches!(
+                        descriptor.source(),
+                        crate::sp_dmem::MachineSpDmemByteKnowledgeSource::Available {
+                            source: crate::sp_dmem::MachineSpDmemByteSource::CartridgeBootstrap {
+                                cartridge_offset,
+                            },
+                        } if cartridge_offset == 0x040 + index as u32
+                    )
+            }));
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x010);
+        assert_eq!(machine.rsp_next_pc(), Some(0x014));
+        assert_eq!(machine.rsp_committed_instruction_count(), 4);
         assert_eq!(machine.rsp_vector_register(12), Some(&v12));
-        assert_eq!(machine.cpu().pc(), 0x8000_0010);
-        assert_eq!(machine.cpu().next_pc(), 0x8000_0014);
-        assert_eq!(machine.cpu().cop0_count(), 252_348);
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before_lw
+        );
+        assert_eq!(machine.vi_current_state(), vi_before_lw);
         assert_eq!(total_committed_steps, 252_364);
+
+        let first_cpu_inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(
+            first_cpu_inspection.cpu_address(),
+            CpuAddress::new(0x8000_0010)
+        );
+        assert_eq!(first_cpu_inspection.fields().raw().bits(), 0x354a_ffff);
+        assert_eq!(first_cpu_inspection.identity(), CpuInstructionIdentity::Ori);
+        let rsp_before_first_cpu = (
+            machine.rsp_scalar_register(4),
+            machine.rsp_vector_unit_state().clone(),
+            machine.rsp_committed_instruction_count(),
+            machine.rsp_last_instruction(),
+        );
+        let first_cpu = machine.step().unwrap();
+        assert_eq!(first_cpu.processor(), MachineStepProcessor::Cpu);
+        assert_eq!(first_cpu.identity(), Some(CpuInstructionIdentity::Ori));
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0x8000_0014);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0018);
+        assert_eq!(machine.cpu().cop0_count(), 252_349);
+        assert_eq!(total_committed_steps, 252_365);
+        assert_eq!(machine.cpu().gpr(10), Some(0x1fff_ffff));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(10),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0x8000_0010),
+                identity: CpuInstructionIdentity::Ori,
+                source_gpr_a: Some(10),
+                source_gpr_b: None,
+            })
+        );
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            (
+                machine.rsp_scalar_register(4),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_committed_instruction_count(),
+                machine.rsp_last_instruction(),
+            ),
+            rsp_before_first_cpu
+        );
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x010))
+                .unwrap()
+                .value(),
+            PUBLIC_X105_RSP_WORDS[4]
+        );
+        let cpu_before_first_nop = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+        );
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::NopCommitted {
+                    instruction_pc: 0x010,
+                },
+            }
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x014);
+        assert_eq!(machine.rsp_next_pc(), Some(0x018));
+        assert_eq!(machine.rsp_committed_instruction_count(), 5);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            machine.rsp_scalar_register(4).unwrap().value(),
+            Some(0x03a0_4820)
+        );
+        assert_eq!(machine.rsp_vector_register(12), Some(&v12));
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+            ),
+            cpu_before_first_nop
+        );
+
+        let second_cpu_inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(
+            second_cpu_inspection.cpu_address(),
+            CpuAddress::new(0x8000_0014)
+        );
+        assert_eq!(second_cpu_inspection.fields().raw().bits(), 0x3c01_a460);
+        assert_eq!(
+            second_cpu_inspection.identity(),
+            CpuInstructionIdentity::Lui
+        );
+        let rsp_before_second_cpu = (
+            machine.rsp_scalar_register(4),
+            machine.rsp_vector_unit_state().clone(),
+            machine.rsp_committed_instruction_count(),
+            machine.rsp_last_instruction(),
+        );
+        let second_cpu = machine.step().unwrap();
+        assert_eq!(second_cpu.processor(), MachineStepProcessor::Cpu);
+        assert_eq!(second_cpu.identity(), Some(CpuInstructionIdentity::Lui));
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0x8000_0018);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_001c);
+        assert_eq!(machine.cpu().cop0_count(), 252_350);
+        assert_eq!(total_committed_steps, 252_366);
+        assert_eq!(machine.cpu().gpr(1), Some(0xffff_ffff_a460_0000));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(1),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0x8000_0014),
+                identity: CpuInstructionIdentity::Lui,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            })
+        );
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            (
+                machine.rsp_scalar_register(4),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_committed_instruction_count(),
+                machine.rsp_last_instruction(),
+            ),
+            rsp_before_second_cpu
+        );
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x014))
+                .unwrap()
+                .value(),
+            PUBLIC_X105_RSP_WORDS[5]
+        );
+        let cpu_before_second_nop = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+        );
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::NopCommitted {
+                    instruction_pc: 0x014,
+                },
+            }
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x018);
+        assert_eq!(machine.rsp_next_pc(), Some(0x01c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 6);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            machine.rsp_scalar_register(4).unwrap().value(),
+            Some(0x03a0_4820)
+        );
+        assert_eq!(machine.rsp_vector_register(12), Some(&v12));
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+            ),
+            cpu_before_second_nop
+        );
+
+        let third_cpu_inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(
+            third_cpu_inspection.cpu_address(),
+            CpuAddress::new(0x8000_0018)
+        );
+        assert_eq!(third_cpu_inspection.fields().raw().bits(), 0x012a_4824);
+        assert_eq!(
+            third_cpu_inspection.identity(),
+            CpuInstructionIdentity::SpecialAnd
+        );
+        assert_eq!(third_cpu_inspection.fields().rs(), 9);
+        assert_eq!(third_cpu_inspection.fields().rt(), 10);
+        assert_eq!(third_cpu_inspection.fields().rd(), 9);
+        let r9_before = machine.cpu().gpr(9).unwrap();
+        let r10_before = machine.cpu().gpr(10).unwrap();
+        assert_eq!(r9_before, 0xffff_ffff_8000_1000);
+        assert_eq!(r10_before, 0x1fff_ffff);
+        let rsp_before_third_cpu = (
+            machine.rsp_scalar_register(4),
+            machine.rsp_vector_unit_state().clone(),
+            machine.rsp_committed_instruction_count(),
+            machine.rsp_last_instruction(),
+        );
+        let third_cpu = machine.step().unwrap();
+        assert_eq!(third_cpu.processor(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            third_cpu.identity(),
+            Some(CpuInstructionIdentity::SpecialAnd)
+        );
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0x8000_001c);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0020);
+        assert_eq!(machine.cpu().cop0_count(), 252_351);
+        assert_eq!(total_committed_steps, 252_367);
+        assert_eq!(machine.cpu().gpr(9), Some(r9_before & r10_before));
+        assert_eq!(machine.cpu().gpr(9), Some(0x0000_1000));
+        assert_eq!(
+            machine.cartridge_bootstrap_state().unwrap().gpr_source(9),
+            Some(MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0x8000_0018),
+                identity: CpuInstructionIdentity::SpecialAnd,
+                source_gpr_a: Some(9),
+                source_gpr_b: Some(10),
+            })
+        );
+        assert_eq!(machine.cpu_delay_slot_context(), None);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            (
+                machine.rsp_scalar_register(4),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_committed_instruction_count(),
+                machine.rsp_last_instruction(),
+            ),
+            rsp_before_third_cpu
+        );
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x018))
+                .unwrap()
+                .value(),
+            PUBLIC_X105_RSP_WORDS[6]
+        );
+        let before_mtc0 = lw_snapshot(&machine);
+        let mtc0_error = machine.step().unwrap_err();
+        assert_eq!(mtc0_error.processor(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            mtc0_error.rsp_rejection().unwrap().reason(),
+            MachineRspStepRejectionReason::Mtc0Unsupported
+        );
+        assert_eq!(lw_snapshot(&machine), before_mtc0);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x018);
+        assert_eq!(machine.rsp_next_pc(), Some(0x01c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 6);
+        assert_eq!(
+            machine.rsp_scalar_register(4).unwrap().value(),
+            Some(0x03a0_4820)
+        );
+        assert_eq!(machine.rsp_vector_register(12), Some(&v12));
+        assert_eq!(machine.cpu().pc(), 0x8000_001c);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0020);
+        assert_eq!(machine.cpu().cop0_count(), 252_351);
+        assert_eq!(total_committed_steps, 252_367);
     }
 
     #[test]
