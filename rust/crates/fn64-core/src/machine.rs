@@ -24626,7 +24626,7 @@ mod tests {
             MachineRspStepRejectionReason::Mtc0Unsupported,
         ));
         cases.push((
-            staged_rsp_running_machine(&[(0, 0)], true),
+            staged_rsp_running_machine(&[(0, 0x2421_0001)], true),
             MachineRspStepRejectionReason::UnrepresentedInstruction {
                 class: crate::rsp::MachineRspUnrepresentedInstructionClass::Scalar,
             },

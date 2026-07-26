@@ -2005,7 +2005,7 @@ mod tests {
     }
 
     #[test]
-    fn rsp_raw_zero_nops_commit_independently_without_data_effects() {
+    fn rsp_nop_raw_zero_words_commit_independently_without_data_effects() {
         let mut rsp = MachineRspExecutionState::default();
         rsp.synchronize_pc_write(0x010);
         stage_available_scalar(&mut rsp, 4, 0x03a0_4820);
