@@ -218,7 +218,10 @@ count, nor VI. CPU-selected calls retain their prior path exactly. The
 generated x105 composition commits scalar RSP MFC0 at local `0x000` and
 `0x004`, with ordinary CPU `Lui` and `Lw` commits between them. CPU Count moves
 from 252,345 to 252,347 only on those CPU selections while the separate RSP
-count reaches two. The next RSP selection rejects vector LQV atomically.
+count reaches two. The next RSP selection commits aligned element-zero LQV at
+local `0x008`, leaves CPU Count unchanged, and selects CPU. One represented
+CPU `Lui` advances CPU Count to 252,348 and rotates the turn; selected scalar
+RSP `Lw` at local `0x00C` then rejects atomically with no CPU fallback.
 
-Next authority must be earned by a bounded vector-LQV product packet, not a
-generic dispatcher or cycle model.
+Next authority must be earned by a bounded scalar-RSP-LW packet, not a generic
+dispatcher or cycle model.

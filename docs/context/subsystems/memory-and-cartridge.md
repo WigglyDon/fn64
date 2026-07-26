@@ -172,11 +172,16 @@ the original user-owned input.
 The new public generated RSP path does not change byte ownership. `SpImem`
 remains the sole instruction-byte and knowledge owner; selected RSP fetch reads
 one known big-endian word and retains its four provenance records.
-`SpDmem` remains the sole local data owner. The two scalar MFC0 instructions
-read only Sp-owned control truth and mutate no memory. The identified LQV
-frontier resolves public local DMEM address zero but rejects before any DMEM
-read or vector write. No RSP cache, shadow memory, DMA behavior, or generalized
-memory router was added.
+`SpDmem` remains the sole local-data backing, per-byte knowledge, and
+provenance owner. Construction/reset backing is unavailable value truth;
+complete cartridge bootstrap leaves `[0x000,0x040)` unavailable and makes
+`[0x040,0x1000)` available with exact cartridge-source offsets. CPU stores and
+represented SP DMA make only their destination bytes available. The two scalar
+MFC0 instructions mutate no memory. Aligned full-register LQV observes sixteen
+knowledge entries without copying DMEM ownership: all-available input produces
+an available vector while any unavailable byte produces a whole-register
+unavailable result. No RSP cache, shadow memory, new DMA behavior, or
+generalized memory router was added.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.

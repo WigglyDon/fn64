@@ -48,7 +48,9 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   plumbing only.
 - `LIVE_REPO_FACT`: `Sp` now owns one private nested RSP execution state while
   retaining singular current-PC and control ownership. Scalar r0 is immutable
-  known zero; r1-r31 are unavailable until written; vector, accumulator, VCC,
+  known zero; r1-r31 are unavailable until written. The nested state owns 32
+  individually available-or-unavailable vector-register slots; every slot
+  begins unavailable and exposes no fabricated reset bytes. Accumulator, VCC,
   VCO, and VCE truth remains explicitly unavailable. One private per-Machine
   turn makes each public `Machine::step` select at most one CPU or RSP
   instruction. Successful CPU/RSP commits alternate while halt is false;
@@ -65,8 +67,11 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   CPU-data route for the represented physical range. Complete aligned `Lw`
   semantics cover direct RDRAM, known SP IMEM, and cartridge-bootstrap-staged
   SP DMEM, including sign extension, alias/zero-register behavior, data AdEL,
-  source lineage, cadence, and rollback. Concrete SP-DMEM backing outside the
-  staged cartridge span remains explicitly unclassified and unreadable.
+  source lineage, cadence, and rollback. `SpDmem` now owns explicit
+  available-or-unavailable knowledge and source provenance for every byte.
+  Construction/reset backing is not value truth without available knowledge;
+  complete cartridge bootstrap leaves `[0x000,0x040)` unavailable and makes
+  `[0x040,0x1000)` available with exact source offsets.
 - `LIVE_REPO_FACT`: aligned `Sw` now executes through one Machine-owned plan
   and applicator for direct KSEG0/KSEG1 aliases of SP IMEM, exact RI_MODE,
   exact RI_CONFIG, exact RI_CURRENT_LOAD, or exact RI_SELECT. SP IMEM stores old `rt` low 32 bits as four known
@@ -89,10 +94,12 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   One authorized user-provided cartridge now executes through CPU-side
   initialization to its first genuine RSP task-start request. The earlier
   public generated x105 path now commits exactly two scalar RSP `Mfc0`
-  instructions and rejects vector `Lqv` atomically. BOOT-3, a proprietary PIF
-  execution chain, commercial-cartridge generality, user-task RSP execution,
-  vector execution, compatibility, graphics, window, and audio are not
-  claimed. Public generated execution remains synthetic proof only.
+  instructions and one aligned element-zero full-register vector `Lqv`.
+  Scalar RSP `Lw` rejects atomically as the next frontier. BOOT-3, a
+  proprietary PIF execution chain, commercial-cartridge generality, user-task
+  RSP execution, vector arithmetic, compatibility, graphics, window, and
+  audio are not claimed. Public generated execution remains synthetic proof
+  only.
 - `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `BLEZ`, non-linking/non-likely
   `BLTZ` and `BGEZ`, `J`, `JAL`, `JR`, and `JALR`
   execute through `Machine::step` with one CPU-owned delay-slot context.
@@ -392,8 +399,13 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   reaches 252,347 only through the two intervening CPU commits.
   `MachineRspRunStartState` changes Pending to Consumed on the first MFC0 and
   remains distinct from the later user-task fact. The selected RSP call at
-  local `0x008` identifies public `Lqv v12[0],0(r0)` and rejects without
-  mutation or CPU fallback. This is the current combined Machine frontier.
+  local `0x008` commits public `Lqv v12[0],0(r0)`: all sixteen low-DMEM source
+  bytes are value-unavailable, so `v12` becomes whole-register unavailable
+  with exact LQV and DMEM-knowledge cause and no byte array. SP PC/next-PC
+  become `0x00C/0x010`, RSP count becomes three, and CPU Count is unchanged.
+  One CPU `Lui` rotates the turn; selected scalar `Lw r4,0x40(r0)` at local
+  `0x00C` then rejects without mutation or CPU fallback. This is the current
+  combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`

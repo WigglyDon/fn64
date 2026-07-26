@@ -276,8 +276,10 @@ current-PC and control ownership. Machine owns only one private CPU/RSP turn.
 Each public `Machine::step` selects at most one processor; selected rejection
 has no fallback. CPU Count, CPU committed-step accounting, interrupt
 recognition, and VI remain CPU-selected only. RSP state owns r0 known zero,
-r1-r31 unavailable, explicit vector/accumulator/flag unavailability, local
-next-PC/delay truth, provenance, and a separate committed count.
+r1-r31 unavailable, 32 individually available-or-unavailable vector slots,
+explicit accumulator/flag unavailability, local next-PC/delay truth,
+provenance, and a separate committed count. Every vector slot begins
+unavailable and contains no reset bytes.
 
 The public generated x105 halt-clear creates general Pending run-start
 lineage, not a user-task fact. Scalar `Mfc0 r8,SP_SEMAPHORE` and
@@ -285,11 +287,17 @@ lineage, not a user-task fact. Scalar `Mfc0 r8,SP_SEMAPHORE` and
 alternation. The first atomically reads old semaphore zero and sets it; the
 second reads the singular cold-zero SP DRAM address. Run-start becomes
 Consumed on the first commit. Vector `Lqv v12[0],0(r0)` at local `0x008` is
-identified but rejects without vector state, memory mutation, or CPU fallback.
+represented only for element zero and a sixteen-byte-aligned complete-register
+load. All-available DMEM produces an available vector; any unavailable byte
+produces a whole-register cause-known unavailable vector with no byte array.
+The public low-DMEM source is unavailable, so LQV commits unavailable `v12`,
+advances RSP count to three, and selects CPU. After one CPU `Lui`, scalar RSP
+`Lw r4,0x40(r0)` at local `0x00C` rejects without mutation or fallback.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-translated TLB memory access, RSP execution beyond the exact two scalar MFC0
-commits, host presentation, broader handoff state, and whether any later fact
-requires minimal firmware execution.
+translated TLB memory access, RSP execution beyond the exact scalar MFC0 and
+aligned full-register LQV subset, vector consumers/arithmetic, host
+presentation, broader handoff state, and whether any later fact requires
+minimal firmware execution.

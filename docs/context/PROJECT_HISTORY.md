@@ -776,6 +776,27 @@ product or reference lane requires a new explicit product decision.
   compatibility remain unavailable. The preserved scalar-J lane remains an
   uncommitted read-only donor, not product history.
 
+## Era 41 — Explicit DMEM knowledge and aligned full-register LQV (2026-07-26)
+
+- Ownership result: `SpDmem` retained singular backing/provenance ownership
+  and gained explicit per-byte available/unavailable knowledge. Backing zero
+  without available knowledge is not Machine value truth. `Sp::rsp` gained 32
+  individually available-or-unavailable vector slots; every slot begins
+  unavailable with no fabricated bytes.
+- Semantic result: exact element-zero, sixteen-byte-aligned full-register LQV
+  uses the scalar base low 12 bits plus a signed seven-bit offset shifted left
+  four. All-available input produces an available vector. Any unavailable
+  source produces a whole-register cause-known unavailable vector containing
+  no byte array and no unavailable backing values.
+- Runtime result: public `Lqv v12[0],0(r0)` at local `0x008` commits once from
+  unavailable low DMEM, advances SP PC/next-PC to `0x00C/0x010`, makes `v12`
+  unavailable with exact cause, and advances only RSP count to three. After
+  one CPU `Lui`, scalar `Lw r4,0x40(r0)` at local `0x00C` rejects atomically.
+- Boundary: scalar RSP LW, partial/misaligned or nonzero-element LQV, other
+  vector memory, vector arithmetic, accumulator/flags, load-delay cycle
+  modeling, scalar J, BREAK, task completion, RDP, BOOT-3, and compatibility
+  remain unavailable.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
