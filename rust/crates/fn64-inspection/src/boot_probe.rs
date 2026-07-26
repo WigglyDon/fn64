@@ -1052,6 +1052,22 @@ fn format_load_word_rejection_frontier(
                 "sp-dmem offset=0x{:08X} cartridge_offset=0x{cartridge_offset:08X}",
                 offset.value()
             ),
+            MachineSpDmemLoadWordProvenance::CpuStoreWord { .. } => {
+                format!(
+                    "sp-dmem offset=0x{:08X} source=cpu-store-word",
+                    offset.value()
+                )
+            }
+            MachineSpDmemLoadWordProvenance::SpDma { record_index } => format!(
+                "sp-dmem offset=0x{:08X} source=sp-dma record={record_index}",
+                offset.value()
+            ),
+            MachineSpDmemLoadWordProvenance::MixedAvailable => {
+                format!(
+                    "sp-dmem offset=0x{:08X} source=mixed-available",
+                    offset.value()
+                )
+            }
             MachineSpDmemLoadWordProvenance::UnclassifiedMachineStorage => {
                 format!(
                     "sp-dmem offset=0x{:08X} source=unclassified",
@@ -1255,6 +1271,10 @@ fn format_instruction_source(source: MachineCpuInstructionSource) -> String {
             cartridge_offset,
             offset.value()
         ),
+        MachineCpuInstructionSource::SpDmem {
+            offset,
+            provenance: MachineSpDmemInstructionProvenance::AvailableMachineStorage,
+        } => format!("available-sp-dmem offset=0x{:08X}", offset.value()),
         MachineCpuInstructionSource::SpDmem {
             offset,
             provenance: MachineSpDmemInstructionProvenance::UnclassifiedMachineStorage,

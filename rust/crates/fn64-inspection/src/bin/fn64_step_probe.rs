@@ -213,7 +213,8 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: dcache-conflict-final-truth ok\
 \ncase: rsp-mfc0-semaphore-committed ok\
 \ncase: rsp-mfc0-dram-address-committed ok\
-\ncase: rsp-lqv-frontier-rejected ok\
+\ncase: rsp-lqv-unavailable-v12-committed ok\
+\ncase: rsp-scalar-lw-frontier-rejected ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -6862,10 +6863,11 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
 }
 
 fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "rsp-mfc0-and-lqv-frontier";
+    const CASE: &str = "rsp-mfc0-unavailable-lqv-and-scalar-lw-frontier";
     const RSP_MFC0_SEMAPHORE: u32 = 0x4008_3800;
     const RSP_MFC0_DRAM_ADDRESS: u32 = 0x400b_0800;
-    const RSP_LQV_FRONTIER: u32 = 0xc80c_2000;
+    const RSP_LQV: u32 = 0xc80c_2000;
+    const RSP_SCALAR_LW_FRONTIER: u32 = 0x8c04_0040;
     let words = [
         (0x40, immediate_word(0x0f, 0, 1, 0xa404)),
         (0x44, immediate_word(0x0d, 0, 2, 0x00ce)),
@@ -6889,20 +6891,27 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
             immediate_word(0x0d, 5, 5, RSP_MFC0_DRAM_ADDRESS as u16),
         ),
         (0x70, immediate_word(0x2b, 4, 5, 0x0004)),
-        (
-            0x74,
-            immediate_word(0x0f, 0, 5, (RSP_LQV_FRONTIER >> 16) as u16),
-        ),
-        (0x78, immediate_word(0x0d, 5, 5, RSP_LQV_FRONTIER as u16)),
+        (0x74, immediate_word(0x0f, 0, 5, (RSP_LQV >> 16) as u16)),
+        (0x78, immediate_word(0x0d, 5, 5, RSP_LQV as u16)),
         (0x7c, immediate_word(0x2b, 4, 5, 0x0008)),
-        (0x80, immediate_word(0x0d, 0, 2, 0x00ad)),
-        (0x84, immediate_word(0x2b, 1, 2, 0x0010)),
-        (0x88, 0),
-        (0x8c, 0),
+        (
+            0x80,
+            immediate_word(0x0f, 0, 5, (RSP_SCALAR_LW_FRONTIER >> 16) as u16),
+        ),
+        (
+            0x84,
+            immediate_word(0x0d, 5, 5, RSP_SCALAR_LW_FRONTIER as u16),
+        ),
+        (0x88, immediate_word(0x2b, 4, 5, 0x000c)),
+        (0x8c, immediate_word(0x0d, 0, 2, 0x00ad)),
+        (0x90, immediate_word(0x2b, 1, 2, 0x0010)),
+        (0x94, 0),
+        (0x98, 0),
+        (0x9c, 0),
     ];
     let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
 
-    for _ in 0..words.len() - 2 {
+    for _ in 0..words.len() - 3 {
         let outcome = step(&mut machine, CASE)?;
         require(
             CASE,
@@ -6912,8 +6921,8 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
     }
     require(
         CASE,
-        machine.cpu().pc() == 0xa400_0088
-            && machine.cpu().cop0_count() == 18
+        machine.cpu().pc() == 0xa400_0094
+            && machine.cpu().cop0_count() == 21
             && machine.processor_turn() == MachineStepProcessor::Rsp
             && machine
                 .sp_status_state()
@@ -6957,8 +6966,8 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
                 .rsp_run_start_state()
                 .is_some_and(|state| state.is_consumed())
             && machine.processor_turn() == MachineStepProcessor::Cpu
-            && machine.cpu().pc() == 0xa400_0088
-            && machine.cpu().cop0_count() == 18,
+            && machine.cpu().pc() == 0xa400_0094
+            && machine.cpu().cop0_count() == 21,
         "Mfc0 SP_SEMAPHORE commits with old-zero read-and-set truth",
     )?;
 
@@ -6967,8 +6976,8 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         CASE,
         first_cpu.processor() == MachineStepProcessor::Cpu
             && first_cpu.identity() == Some(CpuInstructionIdentity::SpecialSll)
-            && machine.cpu().pc() == 0xa400_008c
-            && machine.cpu().cop0_count() == 19
+            && machine.cpu().pc() == 0xa400_0098
+            && machine.cpu().cop0_count() == 22
             && machine.processor_turn() == MachineStepProcessor::Rsp,
         "one CPU Nop rotates the selected processor without RSP mutation",
     )?;
@@ -6998,8 +7007,8 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
             && machine.rsp_next_pc() == Some(12)
             && machine.rsp_committed_instruction_count() == 2
             && machine.processor_turn() == MachineStepProcessor::Cpu
-            && machine.cpu().pc() == 0xa400_008c
-            && machine.cpu().cop0_count() == 19,
+            && machine.cpu().pc() == 0xa400_0098
+            && machine.cpu().cop0_count() == 22,
         "Mfc0 SP_DRAM_ADDR commits the singular cold-zero source truth",
     )?;
 
@@ -7008,10 +7017,66 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         CASE,
         second_cpu.processor() == MachineStepProcessor::Cpu
             && second_cpu.identity() == Some(CpuInstructionIdentity::SpecialSll)
-            && machine.cpu().pc() == 0xa400_0090
-            && machine.cpu().cop0_count() == 20
+            && machine.cpu().pc() == 0xa400_009c
+            && machine.cpu().cop0_count() == 23
             && machine.processor_turn() == MachineStepProcessor::Rsp,
         "second CPU Nop rotates to the Lqv frontier",
+    )?;
+
+    let cpu_before = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+    );
+    let lqv = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            lqv,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::VectorLqvCommitted {
+                    instruction_pc: 8,
+                    destination_vector: 12,
+                    local_dmem_address: 0,
+                    result_available: false,
+                },
+            }
+        ) && machine
+            .rsp_vector_register(12)
+            .is_some_and(|state| !state.is_available() && state.bytes().is_none())
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 12)
+            && machine.rsp_next_pc() == Some(16)
+            && machine.rsp_committed_instruction_count() == 3
+            && machine.processor_turn() == MachineStepProcessor::Cpu
+            && cpu_before
+                == (
+                    machine.cpu().pc(),
+                    machine.cpu().next_pc(),
+                    machine.cpu().cop0_count(),
+                ),
+        "Lqv commits one cause-known value-unavailable v12 without exposing backing bytes",
+    )?;
+
+    let v12 = machine
+        .rsp_vector_register(12)
+        .cloned()
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "unavailable v12 exists before CPU rotation",
+        })?;
+    let cpu = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        cpu.processor() == MachineStepProcessor::Cpu
+            && cpu.identity() == Some(CpuInstructionIdentity::SpecialSll)
+            && machine.cpu().pc() == 0xa400_00a0
+            && machine.cpu().cop0_count() == 24
+            && machine.processor_turn() == MachineStepProcessor::Rsp
+            && machine.rsp_vector_register(12) == Some(&v12)
+            && machine.rsp_committed_instruction_count() == 3,
+        "one CPU Nop rotates to scalar Lw without changing RSP truth",
     )?;
 
     let before = (
@@ -7022,31 +7087,28 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         machine.sp_pc_state(),
         machine.rsp_next_pc(),
         machine.rsp_committed_instruction_count(),
-        machine.rsp_scalar_register(8),
-        machine.rsp_scalar_register(11),
-        machine.sp_semaphore_state(),
-        machine.sp_dram_address_state(),
+        machine.rsp_scalar_register(4),
+        machine.rsp_vector_register(12).cloned(),
         machine.rsp_run_start_state(),
     );
     let error = machine.step().err().ok_or(StepProbeError::Assertion {
         case: CASE,
-        check: "Lqv must reject",
+        check: "scalar Lw frontier must reject",
     })?;
     let frontier = match error.rsp_rejection().map(|rejection| rejection.reason()) {
-        Some(MachineRspStepRejectionReason::VectorLqvUnrepresented { frontier }) => frontier,
+        Some(MachineRspStepRejectionReason::ScalarLwUnrepresented { frontier }) => frontier,
         _ => {
             return Err(StepProbeError::Assertion {
                 case: CASE,
-                check: "Lqv rejection identity",
+                check: "scalar Lw rejection identity",
             });
         }
     };
     require(
         CASE,
         frontier.base_gpr() == 0
-            && frontier.destination_vector() == 12
-            && frontier.element() == 0
-            && frontier.signed_offset() == 0
+            && frontier.destination_gpr() == 4
+            && frontier.signed_offset() == 0x40
             && before
                 == (
                     machine.cpu().pc(),
@@ -7056,13 +7118,11 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
                     machine.sp_pc_state(),
                     machine.rsp_next_pc(),
                     machine.rsp_committed_instruction_count(),
-                    machine.rsp_scalar_register(8),
-                    machine.rsp_scalar_register(11),
-                    machine.sp_semaphore_state(),
-                    machine.sp_dram_address_state(),
+                    machine.rsp_scalar_register(4),
+                    machine.rsp_vector_register(12).cloned(),
                     machine.rsp_run_start_state(),
                 ),
-        "Lqv is identified and rejected atomically without CPU fallback",
+        "scalar Lw rejects atomically without CPU fallback or unavailable-v12 mutation",
     )
 }
 
