@@ -797,6 +797,27 @@ product or reference lane requires a new explicit product decision.
   modeling, scalar J, BREAK, task completion, RDP, BOOT-3, and compatibility
   remain unavailable.
 
+## Era 42 — Aligned scalar RSP LW, exact NOP, and MTC0 frontier (2026-07-26)
+
+- Ownership result: `Sp::rsp` remains the sole scalar-register owner;
+  `SpDmem` remains the sole DMEM value/knowledge/provenance owner. Scalar LW
+  provenance records exact instruction, base, signed offset, local address,
+  and four Available DMEM knowledge descriptors without duplicating memory or
+  result ownership.
+- Semantic result: exact opcode-`0x23` LW requires an Available base,
+  four-byte alignment, and four Available coherent DMEM bytes. It uses the
+  sign-extended 16-bit offset and low-12-bit local addressing, constructs a
+  big-endian u32, and overwrites the destination without consuming old state.
+  Raw zero alone commits as NOP; general SLL remains closed.
+- Runtime result: public `Lw r4,0x40(r0)` at local `0x00C` commits
+  `r4 = 0x03A04820`. The distinct zero words at `0x010` and `0x014` commit
+  separately with ordinary CPU interleave. RSP count reaches six; CPU
+  Count/committed count reaches `252351/252367` only through CPU selections.
+  `Mtc0 r0,SP_MEM_ADDR` at local `0x018` rejects atomically.
+- Boundary: unavailable/misaligned/other scalar loads, scalar stores, nonzero
+  SLL, MTC0, SP DMA execution, scalar J, vector arithmetic, BREAK, task
+  completion, RDP, BOOT-3, and compatibility remain unavailable.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

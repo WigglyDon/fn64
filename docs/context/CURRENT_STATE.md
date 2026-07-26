@@ -94,8 +94,9 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   One authorized user-provided cartridge now executes through CPU-side
   initialization to its first genuine RSP task-start request. The earlier
   public generated x105 path now commits exactly two scalar RSP `Mfc0`
-  instructions and one aligned element-zero full-register vector `Lqv`.
-  Scalar RSP `Lw` rejects atomically as the next frontier. BOOT-3, a
+  instructions, one aligned element-zero full-register vector `Lqv`, one
+  aligned scalar `Lw`, and two exact raw-zero `Nop` instructions. RSP
+  `Mtc0 r0,SP_MEM_ADDR` rejects atomically as the next frontier. BOOT-3, a
   proprietary PIF execution chain, commercial-cartridge generality, user-task
   RSP execution, vector arithmetic, compatibility, graphics, window, and
   audio are not claimed. Public generated execution remains synthetic proof
@@ -403,9 +404,18 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   bytes are value-unavailable, so `v12` becomes whole-register unavailable
   with exact LQV and DMEM-knowledge cause and no byte array. SP PC/next-PC
   become `0x00C/0x010`, RSP count becomes three, and CPU Count is unchanged.
-  One CPU `Lui` rotates the turn; selected scalar `Lw r4,0x40(r0)` at local
-  `0x00C` then rejects without mutation or CPU fallback. This is the current
-  combined Machine frontier.
+  One CPU `Lui` rotates the turn. Selected scalar `Lw r4,0x40(r0)` at local
+  `0x00C` consumes Available bootstrap DMEM bytes `03 A0 48 20`, commits
+  Available `r4 = 0x03A04820` with exact fetch/base/DMEM provenance, advances
+  SP PC/next-PC to `0x010/0x014`, and advances RSP count to four without
+  changing CPU Count. The public raw-zero words at local `0x010` and `0x014`
+  then commit independently as exact RSP NOPs, separated by ordinary CPU
+  `Ori` and `Lui` selections. A third CPU `SpecialAnd` selection advances CPU
+  Count/committed count to `252351/252367` and rotates the token. Selected
+  `Mtc0 r0,SP_MEM_ADDR` at local `0x018` rejects atomically with no fallback:
+  RSP PC/next-PC remains `0x018/0x01C`, RSP count remains six, and r4, v12,
+  SP_MEM_ADDR, DMA, CPU, VI, and complete Machine truth are preserved. This is
+  the current combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`

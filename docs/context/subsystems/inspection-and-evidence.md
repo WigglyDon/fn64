@@ -167,14 +167,19 @@ after two represented SP DMAs, then stops before RSP execution.
 
 Public synthetic step-probe cases now prove processor-tagged scalar RSP MFC0
 from SP_SEMAPHORE, scalar RSP MFC0 from SP_DRAM_ADDR, aligned full-register
-LQV with whole-register unavailable output, and atomic scalar-LW frontier
-rejection. The authoritative core composition starts from generated cold x105
-state, reproduces the exact halt-clear at CPU `0xA4000508`, commits the two
-public MFC0 words with ordinary CPU interleave, commits public LQV at local
-`0x008`, performs one ordinary CPU `Lui`, and stops after selected scalar
-`Lw` rejects at local `0x00C`. Inspection reads only public Machine state and
-never stages RSP registers, PC, turn, semaphore, vector state, or memory to
-force that result.
+LQV with whole-register unavailable output, aligned scalar LW, two independent
+raw-zero NOP commits, and atomic RSP-MTC0 frontier rejection. The authoritative
+core composition starts from generated cold x105 state, reproduces the exact
+halt-clear at CPU `0xA4000508`, commits the two public MFC0 words with ordinary
+CPU interleave, commits public LQV at local `0x008`, commits scalar LW from
+Available DMEM at local `0x00C`, commits the NOPs at `0x010` and `0x014`, and
+stops after selected `Mtc0 r0,SP_MEM_ADDR` rejects at local `0x018`.
+Inspection reads only public Machine state and never stages RSP registers, PC,
+turn, semaphore, vector state, or memory to force that result. The compact
+core proof uses an existing test-only generated-IMEM seam for the three
+independently public continuation words because its historical fixture
+materialized only the first four RSP words; that proof composition is not
+product provenance or an authentic CPU-store claim.
 
 Generic CPU-local/control-flow step-probe fixtures use the already represented
 uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and

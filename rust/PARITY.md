@@ -39,7 +39,7 @@ history.
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB zero-filled storage, checked reads, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, RSP fetch, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
-| `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP DMA records with CPU provenance, general run-start lineage, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, exact aligned element-zero full-register LQV, and separate committed count | no DMA timing/queue, accumulator/flag state, partial/misaligned/nonzero-element LQV, scalar identity beyond exact MFC0, vector identity beyond exact LQV, vector arithmetic, task completion, or RSP interrupt completion |
+| `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP DMA records with CPU provenance, general run-start lineage, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, exact aligned element-zero full-register LQV, exact aligned Available-DMEM scalar LW, exact raw-zero NOP, and separate committed count | no DMA timing/queue, accumulator/flag state, partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar loads, scalar stores, nonzero SLL, RSP MTC0, vector identity beyond exact LQV, vector arithmetic, task completion, or RSP interrupt completion |
 | `Ri` | optional RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD, and exact RI_REFRESH raw/provenance state with source-clear derived fields | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, refresh timing/electrical effect, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Mi` | immutable MI_VERSION `0x02020102`, initialization and RDRAM-register mode, one bounded transfer, and general reached SP/SI/AI/VI/PI/DP pending/mask command truth with CPU provenance | no unrelated MI bank, device timing, generic interrupt-controller framework, MMIO framework, or bus |
 | `Pi` | programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, source-defined domain timing registers, and fully preflighted atomic cart-to-RDRAM DMA records for reached lengths | no PI_RD_LEN, cartridge writes, timing/progress, FIFO, controller reset, generic PI bank, or byte ownership |
@@ -47,7 +47,7 @@ history.
 | `Si` | 64-byte PIF RAM, cold-idle status, CPU provenance, and a fixed hostless no-controller profile | no SI DMA, controller protocol/UI, or private PIF execution |
 | `Vi` | reached raw register words/provenance plus deterministic half-line/current state and MI-owned interrupt assertion/clear relationship | no rendering, framebuffer presentation, scan timing accuracy, or host display |
 | `Machine` | Cartridge, optional accepted or public synthetic PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Ri, Mi, Pi, Ai, Si, Vi, bootstrap lineage, powered/reset state, represented fetch/data/device composition, one private CPU/RSP turn, and processor-tagged public step composition | no hidden global machine, platform clock, file path, renderer, audio/output, host input, event loop, public RSP-only step, or cycle-accuracy claim |
-| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV-frontier proof, and one optional explicit-path redacted user-cartridge probe over public core APIs | no emulated truth, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
+| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV/LW/NOP/MTC0-frontier proof, and one optional explicit-path redacted user-cartridge probe over public core APIs | no emulated truth, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
 
 ## RSP execution foundation
 
@@ -75,11 +75,11 @@ accepted higher-level user-task submission fact.
 
 Selected RSP fetch requires an aligned local PC and one known big-endian
 `SpImem` word. Unknown, opaque, inconsistent, unavailable, or out-of-range
-truth rejects before decode. The represented scalar identity is exact RSP
-MFC0 for only SP_SEMAPHORE and SP_DRAM_ADDR. SP_SEMAPHORE returns the old bit
+truth rejects before decode. One represented scalar transfer identity is exact
+RSP MFC0 for only SP_SEMAPHORE and SP_DRAM_ADDR. SP_SEMAPHORE returns the old bit
 and atomically sets it; SP_DRAM_ADDR returns the singular masked Sp-owned
 register without a source side effect. Destination r0 discards only the scalar
-write. Other control indices, MTC0, and other scalar identities remain closed.
+write. Other control indices and MTC0 remain closed.
 
 `SpDmem` is the singular DMEM backing/knowledge/provenance owner. Its
 truth-bearing observation is either `Available { value, source }` or
@@ -96,9 +96,21 @@ low 12 bits. All sixteen available DMEM bytes produce one available vector in
 architectural byte-element order. Any unavailable source byte produces one
 whole-register cause-known unavailable vector with no byte array or unavailable
 backing value. The old destination is not consumed. Partial/misaligned,
-nonzero-element, other vector-memory, scalar LW, and vector consumers remain
-closed. The functional result becomes visible at instruction commit; hardware
+nonzero-element, other vector-memory, and vector consumers remain closed. The
+functional result becomes visible at instruction commit; hardware
 load-delay/stall cycles are not represented.
+
+Exact scalar RSP LW is represented only for a four-byte-aligned local DMEM
+address, an Available base, and four coherent Available `SpDmem` entries. It
+adds a sign-extended 16-bit offset to the old scalar base, retains the low 12
+bits, constructs a big-endian u32, and completely replaces Available or
+Unavailable destination truth without reading the old destination.
+Destination r0 performs the full valid read and discards only the write.
+Unavailable DMEM rejects; no unavailable scalar result exists. Exact raw word
+zero is one semantic NOP that consumes and writes no register, memory, device,
+accumulator, or flag truth. Nonzero SLL, other scalar loads, and stores remain
+closed. Scalar-load functional truth is visible at instruction commit;
+hardware delay/stall cycles are not represented.
 
 The public generated cold-x105 composition commits `Mfc0 r8,SP_SEMAPHORE` at
 local `0x000`, one CPU `Lui`, `Mfc0 r11,SP_DRAM_ADDR` at local `0x004`, and one
@@ -108,7 +120,12 @@ instructions. The next selected RSP word at local `0x008` commits
 whole-register unavailable with exact cause, SP PC/next-PC become
 `0x00C/0x010`, and RSP count becomes three while CPU Count stays 252,347.
 One CPU `Lui` advances CPU Count to 252,348 and selects RSP. Scalar
-`Lw r4,0x40(r0)` at local `0x00C` then rejects atomically with no fallback.
+`Lw r4,0x40(r0)` at local `0x00C` reads Available bootstrap DMEM bytes
+`03 A0 48 20`, commits Available `r4 = 0x03A04820`, and advances RSP count to
+four. Ordinary CPU `Ori`, RSP NOP at `0x010`, CPU `Lui`, RSP NOP at `0x014`,
+and CPU `SpecialAnd` selections advance CPU Count/committed count to
+`252351/252367` and RSP count to six. Selected `Mtc0 r0,SP_MEM_ADDR` at
+local `0x018` rejects atomically with no fallback or SP/DMA mutation.
 BOOT-2 remains the highest cartridge checkpoint.
 
 ## Cartridge representation

@@ -183,6 +183,15 @@ an available vector while any unavailable byte produces a whole-register
 unavailable result. No RSP cache, shadow memory, new DMA behavior, or
 generalized memory router was added.
 
+Exact aligned scalar RSP LW observes four consecutive `SpDmem` knowledge
+entries without taking byte ownership. It requires all four to be Available
+and coherent, constructs one big-endian 32-bit scalar result, and records their
+sources in scalar provenance. Unavailable bytes reject rather than producing
+an unavailable scalar value. The public bytes at `0x040..0x044` remain
+bootstrap-owned `03 A0 48 20`; the Lw read changes neither DMEM backing nor
+knowledge. Both following NOPs and the rejected MTC0 also leave memory
+unchanged.
+
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.
 Pinned mapping evidence now identifies NTSC raw `[0x0d4,0x71c)` to SP IMEM

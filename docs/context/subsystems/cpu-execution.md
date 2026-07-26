@@ -220,8 +220,18 @@ generated x105 composition commits scalar RSP MFC0 at local `0x000` and
 from 252,345 to 252,347 only on those CPU selections while the separate RSP
 count reaches two. The next RSP selection commits aligned element-zero LQV at
 local `0x008`, leaves CPU Count unchanged, and selects CPU. One represented
-CPU `Lui` advances CPU Count to 252,348 and rotates the turn; selected scalar
-RSP `Lw` at local `0x00C` then rejects atomically with no CPU fallback.
+CPU `Lui` advances CPU Count to 252,348 and rotates the turn. Exact aligned
+scalar RSP `Lw` consumes an Available base and four
+Available `SpDmem` bytes, produces one big-endian 32-bit scalar result at the
+instruction boundary, and advances only RSP instruction truth. The old
+destination is not an input; destination r0 discards only the write after the
+complete valid read. Unavailable DMEM, misalignment, other scalar loads, and
+all stores remain closed. Hardware scalar-load stalls are not represented.
+The public `Lw` makes r4 Available `0x03A04820`. The exact raw-zero words at
+local `0x010` and `0x014` commit as two separate RSP NOPs with ordinary CPU
+`Ori`, `Lui`, and `SpecialAnd` rotations. CPU Count and CPU committed count
+reach `252351/252367` only through those CPU selections. Selected
+`Mtc0 r0,SP_MEM_ADDR` at local `0x018` is the next atomic rejection frontier.
 
-Next authority must be earned by a bounded scalar-RSP-LW packet, not a generic
-dispatcher or cycle model.
+Next authority must be earned by a bounded RSP-MTC0 packet, not a generic
+dispatcher, scalar-memory framework, DMA engine, or cycle model.

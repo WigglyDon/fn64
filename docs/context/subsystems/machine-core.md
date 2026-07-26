@@ -292,12 +292,19 @@ load. All-available DMEM produces an available vector; any unavailable byte
 produces a whole-register cause-known unavailable vector with no byte array.
 The public low-DMEM source is unavailable, so LQV commits unavailable `v12`,
 advances RSP count to three, and selects CPU. After one CPU `Lui`, scalar RSP
-`Lw r4,0x40(r0)` at local `0x00C` rejects without mutation or fallback.
+`Lw r4,0x40(r0)` at local `0x00C` consumes the Available bootstrap-owned
+four-byte DMEM word at `0x040`, commits Available `r4 = 0x03A04820`, advances
+RSP count to four, and selects CPU without changing CPU Count or VI. The exact
+raw-zero words at local `0x010` and `0x014` each commit once as RSP NOPs,
+separated by the ordinary CPU token rotation. RSP count reaches six.
+`Mtc0 r0,SP_MEM_ADDR` at local `0x018` then rejects atomically without
+fallback or SP/DMA mutation.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-translated TLB memory access, RSP execution beyond the exact scalar MFC0 and
-aligned full-register LQV subset, vector consumers/arithmetic, host
+translated TLB memory access, RSP execution beyond exact scalar MFC0, aligned
+full-register LQV, aligned Available-DMEM scalar LW, and raw-zero NOP,
+RSP MTC0/SP DMA, vector consumers/arithmetic, host
 presentation, broader handoff state, and whether any later fact requires
 minimal firmware execution.

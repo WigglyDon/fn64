@@ -153,21 +153,27 @@ before application and never treats unrelated prior `rd` as an input.
 
 RSP fetch is a separate selected-processor pipeline inside the same public
 `Machine::step`. It captures singular `Sp::pc`, requires aligned in-range
-known `SpImem` word truth, retains four-byte provenance, decodes only exact
-MFC0 sources plus aligned element-zero full-register LQV, and plans all source
-effects before mutation. LQV reads an available scalar base, uses its low 12
+known `SpImem` word truth, retains four-byte provenance, and decodes only exact
+MFC0 sources, aligned element-zero full-register LQV, aligned Available-DMEM
+scalar LW, and raw-zero NOP before planning all source effects. LQV reads an
+available scalar base, uses its low 12
 bits plus a sign-extended seven-bit offset shifted left four, and observes one
 sixteen-byte range through `SpDmem` knowledge. All-available bytes plan an
 available vector; any unavailable byte plans one whole-register unavailable
 result with exact cause and no byte payload. Unknown, opaque, malformed, or
 unsupported words reject before application and receive no CPU fallback.
-Successful MFC0 or LQV advances singular current PC and nested next PC once,
-leaves RSP delay context unavailable, increments only the RSP count, records
-exact result/last-instruction provenance, and rotates the private turn to CPU.
+Scalar LW reads an Available base, sign-extends its 16-bit offset, retains the
+low 12 address bits, requires four-byte alignment and four Available coherent
+DMEM observations, and constructs a big-endian u32. NOP consumes no register,
+memory, accumulator, flag, or device truth. Successful MFC0, LQV, LW, or NOP
+advances singular current PC and nested next PC once, leaves RSP delay context
+unavailable, increments only the RSP count, records exact result/last-
+instruction provenance, and rotates the private turn to CPU.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, unearned
 branch-likely/REGIMM members, COP0/CACHE operations beyond the detailed ledger,
 translated TLB access, NMI, generic MMIO, broad CPU or RSP fetch mapping,
-partial/misaligned/nonzero-element LQV, scalar RSP LW, vector consumers or
+partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar
+loads, scalar stores, nonzero SLL, RSP MTC0/SP DMA, vector consumers or
 arithmetic, analog device behavior, and instruction timing.
