@@ -50,6 +50,7 @@ Current durable integration records:
 - [Link-destination provenance and generated x105 InitCCValue frontier](link-destination-provenance-generated-x105-init-cc-frontier-v1/README.md)
 - [Opaque aligned SP-IMEM words and generated x105 FindCC boundary](opaque-sp-imem-word-generated-x105-find-cc-frontier-v1/README.md)
 - [Exact BEQL annul semantics and generated x105 TestCC frontier](beql-generated-x105-test-cc-frontier-v1/README.md)
+- [Exact RSP scalar LW, two NOPs, and MTC0 frontier](rsp-scalar-lw-nop-generated-x105-mtc0-frontier-v1/README.md)
 
 The lineage contract is:
 
