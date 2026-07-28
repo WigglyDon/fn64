@@ -4,8 +4,9 @@ use crate::rsp::{
     MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDelaySlotContext,
     MachineRspExecutionState, MachineRspInstructionIdentity, MachineRspInstructionSource,
     MachineRspLastInstructionState, MachineRspLqvPlan, MachineRspMfc0ControlSource,
-    MachineRspMfc0Plan, MachineRspNopPlan, MachineRspScalarLwPlan, MachineRspScalarRegisterState,
-    MachineRspStepOutcome, MachineRspVectorRegisterState, MachineRspVectorUnitState,
+    MachineRspMfc0Plan, MachineRspMtc0Plan, MachineRspMtc0Source, MachineRspNopPlan,
+    MachineRspScalarLwPlan, MachineRspScalarRegisterState, MachineRspStepOutcome,
+    MachineRspVectorRegisterState, MachineRspVectorUnitState, MachineRspXoriPlan,
 };
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
@@ -75,6 +76,28 @@ impl MachineSpCpuStoreProvenance {
 
     pub const fn physical_address(self) -> u32 {
         self.physical_address
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpRegisterWriteSource {
+    CpuStore(MachineSpCpuStoreProvenance),
+    RspMtc0 { source_index: usize },
+}
+
+impl MachineSpRegisterWriteSource {
+    pub const fn cpu_store(self) -> Option<MachineSpCpuStoreProvenance> {
+        match self {
+            Self::CpuStore(source) => Some(source),
+            Self::RspMtc0 { .. } => None,
+        }
+    }
+
+    pub const fn rsp_mtc0_source_index(self) -> Option<usize> {
+        match self {
+            Self::CpuStore(_) => None,
+            Self::RspMtc0 { source_index } => Some(source_index),
+        }
     }
 }
 
@@ -384,7 +407,7 @@ impl MachineRspRunStartState {
 pub struct MachineSpMemoryAddressState {
     transfer_word: u32,
     local_address: u16,
-    source: MachineSpCpuStoreProvenance,
+    source: MachineSpRegisterWriteSource,
 }
 
 impl MachineSpMemoryAddressState {
@@ -395,7 +418,15 @@ impl MachineSpMemoryAddressState {
         Self {
             transfer_word,
             local_address: (transfer_word as u16) & 0x1ff8,
-            source,
+            source: MachineSpRegisterWriteSource::CpuStore(source),
+        }
+    }
+
+    pub(crate) const fn from_rsp_mtc0_word(transfer_word: u32, source_index: usize) -> Self {
+        Self {
+            transfer_word,
+            local_address: (transfer_word as u16) & 0x1ff8,
+            source: MachineSpRegisterWriteSource::RspMtc0 { source_index },
         }
     }
 
@@ -407,7 +438,7 @@ impl MachineSpMemoryAddressState {
         self.local_address
     }
 
-    pub const fn source(self) -> MachineSpCpuStoreProvenance {
+    pub const fn source(self) -> MachineSpRegisterWriteSource {
         self.source
     }
 }
@@ -423,9 +454,12 @@ pub struct MachineSpDramAddressState {
 pub enum MachineSpDramAddressSource {
     SourceDefinedReset,
     CpuStore(MachineSpCpuStoreProvenance),
+    RspMtc0 {
+        source_index: usize,
+    },
     DmaAdvance {
         record_index: u8,
-        trigger: MachineSpCpuStoreProvenance,
+        trigger: MachineSpRegisterWriteSource,
     },
 }
 
@@ -443,11 +477,13 @@ pub struct MachineSpDmaRecord {
     block_count: u16,
     dram_skip_bytes: u16,
     initial_local_address: u16,
+    initial_memory_address_source: MachineSpRegisterWriteSource,
     initial_rdram_address: u32,
+    initial_dram_address_source: MachineSpDramAddressSource,
     final_local_address: u16,
     final_rdram_address: u32,
     transferred_byte_count: u32,
-    trigger: MachineSpCpuStoreProvenance,
+    trigger: MachineSpRegisterWriteSource,
 }
 
 impl MachineSpDmaRecord {
@@ -455,7 +491,7 @@ impl MachineSpDmaRecord {
         raw_length_word: u32,
         memory_address: MachineSpMemoryAddressState,
         dram_address: MachineSpDramAddressState,
-        trigger: MachineSpCpuStoreProvenance,
+        trigger: MachineSpRegisterWriteSource,
     ) -> Self {
         let block_length_bytes = ((raw_length_word & 0x0ff8) + 8) as u16;
         let block_count = (((raw_length_word >> 12) & 0xff) + 1) as u16;
@@ -476,7 +512,9 @@ impl MachineSpDmaRecord {
             block_count,
             dram_skip_bytes,
             initial_local_address,
+            initial_memory_address_source: memory_address.source(),
             initial_rdram_address,
+            initial_dram_address_source: dram_address.source(),
             final_local_address,
             final_rdram_address,
             transferred_byte_count,
@@ -508,8 +546,16 @@ impl MachineSpDmaRecord {
         self.initial_local_address
     }
 
+    pub const fn initial_memory_address_source(self) -> MachineSpRegisterWriteSource {
+        self.initial_memory_address_source
+    }
+
     pub const fn initial_rdram_address(self) -> u32 {
         self.initial_rdram_address
+    }
+
+    pub const fn initial_dram_address_source(self) -> MachineSpDramAddressSource {
+        self.initial_dram_address_source
     }
 
     pub const fn final_local_address(self) -> u16 {
@@ -524,7 +570,7 @@ impl MachineSpDmaRecord {
         self.transferred_byte_count
     }
 
-    pub const fn trigger(self) -> MachineSpCpuStoreProvenance {
+    pub const fn trigger(self) -> MachineSpRegisterWriteSource {
         self.trigger
     }
 
@@ -557,6 +603,14 @@ impl MachineSpDramAddressState {
             transfer_word,
             physical_address: transfer_word & 0x00ff_fff8,
             source: MachineSpDramAddressSource::CpuStore(source),
+        }
+    }
+
+    pub(crate) const fn from_rsp_mtc0_word(transfer_word: u32, source_index: usize) -> Self {
+        Self {
+            transfer_word,
+            physical_address: transfer_word & 0x00ff_fff8,
+            source: MachineSpDramAddressSource::RspMtc0 { source_index },
         }
     }
 
@@ -716,6 +770,10 @@ impl Sp {
         &self.rsp
     }
 
+    pub(crate) fn rsp_mtc0_source(&self, index: usize) -> Option<&MachineRspMtc0Source> {
+        self.rsp.mtc0_source(index)
+    }
+
     pub(crate) fn apply_status_store(
         &mut self,
         state: MachineSpStatusState,
@@ -853,7 +911,45 @@ impl Sp {
         outcome
     }
 
-    pub(crate) const fn mfc0_control_source(
+    pub(crate) fn apply_rsp_mtc0(&mut self, plan: MachineRspMtc0Plan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_mtc0(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Mtc0 plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Mtc0,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_xori(&mut self, plan: MachineRspXoriPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_xori(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Xori plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Xori,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn mfc0_control_source(
         &self,
         control_register: MachineRspControlRegister,
     ) -> MachineRspMfc0ControlSource {
@@ -867,6 +963,10 @@ impl Sp {
                     value: self.dram_address.physical_address(),
                     source: self.dram_address.source(),
                 }
+            }
+            MachineRspControlRegister::SpMemoryAddress
+            | MachineRspControlRegister::SpReadLength => {
+                unreachable!("Mfc0 decoder does not admit write-only packet destinations")
             }
         }
     }
@@ -1054,7 +1154,10 @@ mod tests {
             0x0010_1038,
             memory,
             dram,
-            source(0x800d_0640, SP_READ_LENGTH_PHYSICAL_ADDRESS),
+            MachineSpRegisterWriteSource::CpuStore(source(
+                0x800d_0640,
+                SP_READ_LENGTH_PHYSICAL_ADDRESS,
+            )),
         );
         assert_eq!(record.direction(), MachineSpDmaDirection::RdramToSp);
         assert_eq!(record.block_length_bytes(), 64);

@@ -83,12 +83,12 @@ use crate::ri::{
     RI_SELECT_PHYSICAL_ADDRESS, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 use crate::rsp::{
-    MachineRspAccumulatorAndFlagsState, MachineRspDecodedInstruction, MachineRspDelaySlotContext,
-    MachineRspFetchRejection, MachineRspLastInstructionState, MachineRspScalarLwDmemObservation,
-    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspStepRejection,
-    MachineRspStepRejectionReason, MachineRspVectorRegisterState, MachineRspVectorUnitState,
-    RSP_INSTRUCTION_ALIGNMENT_MASK, RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_LW_BYTE_COUNT,
-    RSP_VECTOR_REGISTER_BYTE_COUNT,
+    MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDecodedInstruction,
+    MachineRspDelaySlotContext, MachineRspFetchRejection, MachineRspLastInstructionState,
+    MachineRspMtc0Source, MachineRspScalarLwDmemObservation, MachineRspScalarRegisterState,
+    MachineRspStepOutcome, MachineRspStepRejection, MachineRspStepRejectionReason,
+    MachineRspVectorRegisterState, MachineRspVectorUnitState, RSP_INSTRUCTION_ALIGNMENT_MASK,
+    RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_LW_BYTE_COUNT, RSP_VECTOR_REGISTER_BYTE_COUNT,
 };
 use crate::si::{
     MachinePifRamState, MachineSiCpuStoreProvenance, MachineSiInputProfile, MachineSiStatusState,
@@ -97,10 +97,10 @@ use crate::si::{
 use crate::sp::{
     MachineRspRunStartState, MachineSpCpuStoreProvenance, MachineSpDmaRecord,
     MachineSpDramAddressState, MachineSpMemoryAddressState, MachineSpPcState,
-    MachineSpSemaphoreState, MachineSpStatusState, Sp, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS,
-    SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS, SP_PC_PHYSICAL_ADDRESS, SP_READ_LENGTH_PHYSICAL_ADDRESS,
-    SP_SEMAPHORE_PHYSICAL_ADDRESS, SP_SEMAPHORE_X105_CLEAR_WORD, SP_STATUS_CLEAR_INTERRUPT_COMMAND,
-    SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_SET_INTERRUPT_COMMAND,
+    MachineSpRegisterWriteSource, MachineSpSemaphoreState, MachineSpStatusState, Sp,
+    SP_DRAM_ADDRESS_PHYSICAL_ADDRESS, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS, SP_PC_PHYSICAL_ADDRESS,
+    SP_READ_LENGTH_PHYSICAL_ADDRESS, SP_SEMAPHORE_PHYSICAL_ADDRESS, SP_SEMAPHORE_X105_CLEAR_WORD,
+    SP_STATUS_CLEAR_INTERRUPT_COMMAND, SP_STATUS_PHYSICAL_ADDRESS, SP_STATUS_SET_INTERRUPT_COMMAND,
 };
 #[cfg(test)]
 use crate::sp::{SP_STATUS_X105_HALT_CONFIGURE_WORD, SP_STATUS_X105_START_WORD};
@@ -2804,6 +2804,13 @@ pub(crate) enum MachineStoreWordMutationPlan {
     RiRefresh {
         state: MachineRiRefreshState,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MachineSpReadDmaPlanRejection {
+    RecordCapacityExhausted,
+    AddressUnavailable,
+    RdramRangeRejected { physical_address: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5917,6 +5924,10 @@ impl Machine {
         self.sp.rsp_last_instruction()
     }
 
+    pub fn rsp_mtc0_source(&self, index: usize) -> Option<&MachineRspMtc0Source> {
+        self.sp.rsp_mtc0_source(index)
+    }
+
     pub const fn rsp_vector_unit_state(&self) -> &MachineRspVectorUnitState {
         self.sp.rsp_vector_unit()
     }
@@ -6081,6 +6092,72 @@ impl Machine {
                     fetched.byte_provenance(),
                 );
                 self.sp.apply_rsp_mfc0(plan)
+            }
+            MachineRspDecodedInstruction::Mtc0 {
+                control_register, ..
+            } => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_mtc0(pc, decoded, fetched.byte_provenance())
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                let source_index = plan.source_index();
+                let source_value = plan.source_value();
+                match control_register {
+                    MachineRspControlRegister::SpMemoryAddress => {
+                        self.sp.apply_memory_address_store(
+                            MachineSpMemoryAddressState::from_rsp_mtc0_word(
+                                source_value,
+                                source_index,
+                            ),
+                        );
+                    }
+                    MachineRspControlRegister::SpDramAddress => {
+                        self.sp.apply_dram_address_store(
+                            MachineSpDramAddressState::from_rsp_mtc0_word(
+                                source_value,
+                                source_index,
+                            ),
+                        );
+                    }
+                    MachineRspControlRegister::SpReadLength => {
+                        let record = self
+                            .plan_sp_read_dma(
+                                source_value,
+                                MachineSpRegisterWriteSource::RspMtc0 { source_index },
+                            )
+                            .map_err(|reason| {
+                                MachineRepresentedStepError::RspRejected(
+                                    MachineRspStepRejection::new(match reason {
+                                        MachineSpReadDmaPlanRejection::RecordCapacityExhausted => {
+                                            MachineRspStepRejectionReason::Mtc0DmaRecordCapacityExhausted
+                                        }
+                                        MachineSpReadDmaPlanRejection::AddressUnavailable => {
+                                            MachineRspStepRejectionReason::Mtc0DmaAddressUnavailable
+                                        }
+                                        MachineSpReadDmaPlanRejection::RdramRangeRejected {
+                                            physical_address,
+                                        } => MachineRspStepRejectionReason::Mtc0DmaRdramRangeRejected {
+                                            physical_address,
+                                        },
+                                    }),
+                                )
+                            })?;
+                        self.apply_sp_read_dma(record);
+                    }
+                    MachineRspControlRegister::SpSemaphore => {
+                        unreachable!("Mtc0 decoder does not admit SP_SEMAPHORE")
+                    }
+                }
+                self.sp.apply_rsp_mtc0(plan)
+            }
+            MachineRspDecodedInstruction::Xori { .. } => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_xori(pc, decoded, fetched.byte_provenance())
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                self.sp.apply_rsp_xori(plan)
             }
             MachineRspDecodedInstruction::Lqv { .. } => {
                 let address = self
@@ -8060,6 +8137,65 @@ impl Machine {
             .unwrap_or(MachineBootstrapGprSource::UnknownPifProduced)
     }
 
+    fn plan_sp_read_dma(
+        &self,
+        raw_length_word: u32,
+        trigger: MachineSpRegisterWriteSource,
+    ) -> Result<MachineSpDmaRecord, MachineSpReadDmaPlanRejection> {
+        if !self.sp.can_record_dma() {
+            return Err(MachineSpReadDmaPlanRejection::RecordCapacityExhausted);
+        }
+        let memory_address = self
+            .sp
+            .memory_address_state()
+            .ok_or(MachineSpReadDmaPlanRejection::AddressUnavailable)?;
+        let dram_address = self
+            .sp
+            .dram_address_state()
+            .ok_or(MachineSpReadDmaPlanRejection::AddressUnavailable)?;
+        let record =
+            MachineSpDmaRecord::rdram_to_sp(raw_length_word, memory_address, dram_address, trigger);
+        for block in 0..record.block_count() {
+            let final_address =
+                record.rdram_address_for_byte(block, record.block_length_bytes() - 1);
+            self.rdram
+                .require_u8_offset(final_address as usize)
+                .map_err(|_| MachineSpReadDmaPlanRejection::RdramRangeRejected {
+                    physical_address: final_address,
+                })?;
+        }
+        Ok(record)
+    }
+
+    fn apply_sp_read_dma(&mut self, record: MachineSpDmaRecord) {
+        let dma_record_index = self.sp.dma_record_count() as u8;
+        for block in 0..record.block_count() {
+            for byte_in_block in 0..record.block_length_bytes() {
+                let byte_index = u32::from(block) * u32::from(record.block_length_bytes())
+                    + u32::from(byte_in_block);
+                let local_address = record.local_address_for_byte(byte_index);
+                let value = self
+                    .rdram
+                    .read_u8(record.rdram_address_for_byte(block, byte_in_block) as usize)
+                    .expect("SP DMA RDRAM source range was preflighted");
+                if local_address & 0x1000 == 0 {
+                    self.sp_dmem.apply_sp_dma_byte(
+                        SpDmemOffset::new(u32::from(local_address)),
+                        value,
+                        dma_record_index,
+                    );
+                } else {
+                    self.sp_imem.apply_sp_dma_byte(
+                        SpImemOffset::new(u32::from(local_address & 0x0fff)),
+                        value,
+                        dma_record_index,
+                    );
+                }
+            }
+        }
+        self.sp.apply_dma(record);
+    }
+
     fn produce_store_word_step_action(
         &self,
         execution_address: CpuAddress,
@@ -8507,63 +8643,37 @@ impl Machine {
                 ),
             },
             MachineStoreWordTarget::SpReadLength => {
-                if !self.sp.can_record_dma() {
-                    return Err(MachineStoreWordRejection::new(
-                        fields,
-                        Some(effective_address),
-                        Some(cpu_address),
-                        Some(target),
-                        MachineStoreWordRejectionReason::SpDmaRecordCapacityExhausted,
-                    ));
-                }
-                let Some(memory_address) = self.sp.memory_address_state() else {
-                    return Err(MachineStoreWordRejection::new(
-                        fields,
-                        Some(effective_address),
-                        Some(cpu_address),
-                        Some(target),
-                        MachineStoreWordRejectionReason::SpDmaAddressUnavailable,
-                    ));
-                };
-                let Some(dram_address) = self.sp.dram_address_state() else {
-                    return Err(MachineStoreWordRejection::new(
-                        fields,
-                        Some(effective_address),
-                        Some(cpu_address),
-                        Some(target),
-                        MachineStoreWordRejectionReason::SpDmaAddressUnavailable,
-                    ));
-                };
-                let record = MachineSpDmaRecord::rdram_to_sp(
-                    stored_word,
-                    memory_address,
-                    dram_address,
-                    MachineSpCpuStoreProvenance::new(
-                        execution_address,
-                        fields.rt(),
-                        source_lineage,
-                        effective_address,
-                        cpu_address,
-                        SP_READ_LENGTH_PHYSICAL_ADDRESS,
-                    ),
+                let trigger = MachineSpCpuStoreProvenance::new(
+                    execution_address,
+                    fields.rt(),
+                    source_lineage,
+                    effective_address,
+                    cpu_address,
+                    SP_READ_LENGTH_PHYSICAL_ADDRESS,
                 );
-                for block in 0..record.block_count() {
-                    let final_address =
-                        record.rdram_address_for_byte(block, record.block_length_bytes() - 1);
-                    self.rdram
-                        .require_u8_offset(final_address as usize)
-                        .map_err(|_| {
-                            MachineStoreWordRejection::new(
-                                fields,
-                                Some(effective_address),
-                                Some(cpu_address),
-                                Some(target),
-                                MachineStoreWordRejectionReason::SpDmaRdramRangeRejected {
-                                    physical_address: final_address,
+                let record = self
+                    .plan_sp_read_dma(stored_word, MachineSpRegisterWriteSource::CpuStore(trigger))
+                    .map_err(|reason| {
+                        MachineStoreWordRejection::new(
+                            fields,
+                            Some(effective_address),
+                            Some(cpu_address),
+                            Some(target),
+                            match reason {
+                                MachineSpReadDmaPlanRejection::RecordCapacityExhausted => {
+                                    MachineStoreWordRejectionReason::SpDmaRecordCapacityExhausted
+                                }
+                                MachineSpReadDmaPlanRejection::AddressUnavailable => {
+                                    MachineStoreWordRejectionReason::SpDmaAddressUnavailable
+                                }
+                                MachineSpReadDmaPlanRejection::RdramRangeRejected {
+                                    physical_address,
+                                } => MachineStoreWordRejectionReason::SpDmaRdramRangeRejected {
+                                    physical_address,
                                 },
-                            )
-                        })?;
-                }
+                            },
+                        )
+                    })?;
                 MachineStoreWordMutationPlan::SpReadDma { record }
             }
             MachineStoreWordTarget::SpPc => MachineStoreWordMutationPlan::SpPc {
@@ -9467,34 +9577,7 @@ impl Machine {
                         self.sp.apply_dram_address_store(state)
                     }
                     MachineStoreWordMutationPlan::SpReadDma { record } => {
-                        let dma_record_index = self.sp.dma_record_count() as u8;
-                        for block in 0..record.block_count() {
-                            for byte_in_block in 0..record.block_length_bytes() {
-                                let byte_index = u32::from(block)
-                                    * u32::from(record.block_length_bytes())
-                                    + u32::from(byte_in_block);
-                                let local_address = record.local_address_for_byte(byte_index);
-                                let value = self
-                                    .rdram
-                                    .read_u8(record.rdram_address_for_byte(block, byte_in_block)
-                                        as usize)
-                                    .expect("SP DMA RDRAM source range was preflighted");
-                                if local_address & 0x1000 == 0 {
-                                    self.sp_dmem.apply_sp_dma_byte(
-                                        SpDmemOffset::new(u32::from(local_address)),
-                                        value,
-                                        dma_record_index,
-                                    );
-                                } else {
-                                    self.sp_imem.apply_sp_dma_byte(
-                                        SpImemOffset::new(u32::from(local_address & 0x0fff)),
-                                        value,
-                                        dma_record_index,
-                                    );
-                                }
-                            }
-                        }
-                        self.sp.apply_dma(record);
+                        self.apply_sp_read_dma(record);
                     }
                     MachineStoreWordMutationPlan::SpPc { state } => self.sp.apply_pc_store(state),
                     MachineStoreWordMutationPlan::SpSemaphore { state } => {
@@ -12186,6 +12269,8 @@ mod tests {
         PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
     };
     use crate::rdram::RDRAM_SIZE_BYTES;
+    use crate::rsp::{MachineRspInstructionSource, MachineRspScalarRegisterSource};
+    use crate::sp::{MachineSpDmaDirection, MachineSpDramAddressSource};
 
     fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset] = ((value >> 24) & 0xff) as u8;
@@ -24469,6 +24554,291 @@ mod tests {
     }
 
     #[test]
+    fn rsp_mtc0_xori_sp_mem_addr_sp_rd_len_shared_sp_dma_machine_commit_owner_provenance_and_cadence_are_exact(
+    ) {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (
+                    0,
+                    rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_MEMORY_ADDRESS_INDEX),
+                ),
+                (4, immediate_word(0x0e, 0, 3, 0x0180)),
+                (
+                    8,
+                    rsp_mtc0_word(3, crate::rsp::RSP_COP0_SP_DRAM_ADDRESS_INDEX),
+                ),
+                (
+                    12,
+                    rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_READ_LENGTH_INDEX),
+                ),
+            ],
+            true,
+        );
+        let source_bytes = [0x91, 0x42, 0xe3, 0x74, 0x15, 0xa6, 0x37, 0xc8];
+        for (index, value) in source_bytes.into_iter().enumerate() {
+            machine
+                .rdram
+                .write_u8_at_checked_offset(0x180 + index, value);
+        }
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let vi_before = machine.vi_current_state();
+        let semaphore_before = machine.sp_semaphore_state();
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0,
+                    source_gpr: 0,
+                    source_value: 0,
+                    control_register: MachineRspControlRegister::SpMemoryAddress,
+                    source_index: 0,
+                },
+            }
+        ));
+        assert_eq!(
+            machine.sp_memory_address_state().unwrap().local_address(),
+            0
+        );
+        assert_eq!(machine.sp_dma_record_count(), 0);
+        machine.processor_turn = MachineStepProcessor::Rsp;
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 4,
+                    destination_gpr: 3,
+                    result_value: 0x180,
+                },
+            }
+        ));
+        assert_eq!(machine.rsp_scalar_register(3).unwrap().value(), Some(0x180));
+        machine.processor_turn = MachineStepProcessor::Rsp;
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 8,
+                    source_gpr: 3,
+                    source_value: 0x180,
+                    control_register: MachineRspControlRegister::SpDramAddress,
+                    source_index: 1,
+                },
+            }
+        ));
+        assert_eq!(
+            machine.sp_dram_address_state().unwrap().physical_address(),
+            0x180
+        );
+        assert_eq!(machine.sp_dma_record_count(), 0);
+        machine.processor_turn = MachineStepProcessor::Rsp;
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 12,
+                    source_gpr: 0,
+                    source_value: 0,
+                    control_register: MachineRspControlRegister::SpReadLength,
+                    source_index: 2,
+                },
+            }
+        ));
+        assert_eq!(machine.sp_dma_record_count(), 1);
+        let record = machine.sp_dma_record(0).unwrap();
+        assert_eq!(record.direction(), MachineSpDmaDirection::RdramToSp);
+        assert_eq!(record.raw_length_word(), 0);
+        assert_eq!(record.block_length_bytes(), 8);
+        assert_eq!(record.block_count(), 1);
+        assert_eq!(record.dram_skip_bytes(), 0);
+        assert_eq!(record.initial_local_address(), 0);
+        assert_eq!(record.initial_rdram_address(), 0x180);
+        assert_eq!(record.final_local_address(), 8);
+        assert_eq!(record.final_rdram_address(), 0x188);
+        assert_eq!(record.transferred_byte_count(), 8);
+        assert_eq!(
+            record.initial_memory_address_source(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
+        );
+        assert_eq!(
+            record.initial_dram_address_source(),
+            MachineSpDramAddressSource::RspMtc0 { source_index: 1 }
+        );
+        assert_eq!(
+            record.trigger(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 2 }
+        );
+        for (index, value) in source_bytes.into_iter().enumerate() {
+            assert_eq!(
+                machine
+                    .sp_dmem()
+                    .observe_byte(SpDmemOffset::new(index as u32)),
+                Ok(MachineSpDmemByteKnowledge::Available {
+                    value,
+                    source: MachineSpDmemByteSource::SpDma { record_index: 0 },
+                })
+            );
+        }
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 16);
+        assert_eq!(machine.rsp_next_pc(), Some(20));
+        assert_eq!(machine.rsp_committed_instruction_count(), 4);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_semaphore_state(), semaphore_before);
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert_eq!(machine.vi_current_state(), vi_before);
+        assert!(machine.rsp_run_start_state().unwrap().is_consumed());
+    }
+
+    #[test]
+    fn rsp_mtc0_xori_and_shared_sp_dma_rejections_are_atomic() {
+        let cases = [
+            (
+                staged_rsp_running_machine(
+                    &[(
+                        0,
+                        rsp_mtc0_word(1, crate::rsp::RSP_COP0_SP_MEMORY_ADDRESS_INDEX),
+                    )],
+                    true,
+                ),
+                MachineRspStepRejectionReason::Mtc0SourceUnavailable { source_gpr: 1 },
+            ),
+            (
+                staged_rsp_running_machine(
+                    &[(
+                        0,
+                        rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_MEMORY_ADDRESS_INDEX) | 1,
+                    )],
+                    true,
+                ),
+                MachineRspStepRejectionReason::MalformedMtc0Encoding,
+            ),
+            (
+                staged_rsp_running_machine(&[(0, rsp_mtc0_word(0, 3))], true),
+                MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 3 },
+            ),
+            (
+                staged_rsp_running_machine(&[(0, immediate_word(0x0e, 1, 3, 0x0180))], true),
+                MachineRspStepRejectionReason::XoriSourceUnavailable { source_gpr: 1 },
+            ),
+            (
+                staged_rsp_running_machine(
+                    &[(
+                        0,
+                        rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_READ_LENGTH_INDEX),
+                    )],
+                    true,
+                ),
+                MachineRspStepRejectionReason::Mtc0DmaAddressUnavailable,
+            ),
+        ];
+        for (mut machine, expected) in cases {
+            let before = lw_snapshot(&machine);
+            assert_eq!(
+                machine
+                    .step()
+                    .unwrap_err()
+                    .rsp_rejection()
+                    .unwrap()
+                    .reason(),
+                expected
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+            assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        }
+
+        let mut out_of_range = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_READ_LENGTH_INDEX),
+            )],
+            true,
+        );
+        out_of_range
+            .sp
+            .apply_memory_address_store(MachineSpMemoryAddressState::from_cpu_word(
+                0,
+                rsp_test_cpu_store_source(0x8000_1100, 4, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS),
+            ));
+        out_of_range
+            .sp
+            .apply_dram_address_store(MachineSpDramAddressState::from_cpu_word(
+                RDRAM_SIZE_BYTES as u32,
+                rsp_test_cpu_store_source(0x8000_1104, 5, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS),
+            ));
+        let before_out_of_range = lw_snapshot(&out_of_range);
+        assert_eq!(
+            out_of_range
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::Mtc0DmaRdramRangeRejected {
+                physical_address: RDRAM_SIZE_BYTES as u32 + 7,
+            }
+        );
+        assert_eq!(lw_snapshot(&out_of_range), before_out_of_range);
+
+        let mut capacity = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_READ_LENGTH_INDEX),
+            )],
+            true,
+        );
+        let memory_address = MachineSpMemoryAddressState::from_cpu_word(
+            0,
+            rsp_test_cpu_store_source(0x8000_1110, 4, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS),
+        );
+        let dram_address = MachineSpDramAddressState::from_cpu_word(
+            0,
+            rsp_test_cpu_store_source(0x8000_1114, 5, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS),
+        );
+        capacity.sp.apply_memory_address_store(memory_address);
+        capacity.sp.apply_dram_address_store(dram_address);
+        for _ in 0..16 {
+            capacity.sp.apply_dma(MachineSpDmaRecord::rdram_to_sp(
+                0,
+                memory_address,
+                dram_address,
+                MachineSpRegisterWriteSource::CpuStore(rsp_test_cpu_store_source(
+                    0x8000_1118,
+                    6,
+                    SP_READ_LENGTH_PHYSICAL_ADDRESS,
+                )),
+            ));
+        }
+        assert_eq!(capacity.sp_dma_record_count(), 16);
+        let before_capacity = lw_snapshot(&capacity);
+        assert_eq!(
+            capacity
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::Mtc0DmaRecordCapacityExhausted
+        );
+        assert_eq!(lw_snapshot(&capacity), before_capacity);
+    }
+
+    #[test]
     fn rsp_scalar_lw_machine_commit_r0_lifecycle_and_independence_are_exact() {
         let mut first = staged_rsp_running_machine(&[(0, 0x8c04_0040)], true);
         first
@@ -24623,7 +24993,9 @@ mod tests {
                 &[(0, rsp_mtc0_word(8, crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX))],
                 true,
             ),
-            MachineRspStepRejectionReason::Mtc0Unsupported,
+            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
+                register_index: crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX,
+            },
         ));
         cases.push((
             staged_rsp_running_machine(&[(0, 0x2421_0001)], true),
@@ -32026,7 +32398,7 @@ mod tests {
         assert_eq!(record.dram_skip_bytes(), 0);
         assert_eq!(record.transferred_byte_count(), 64);
         assert_eq!(
-            record.trigger().instruction_pc(),
+            record.trigger().cpu_store().unwrap().instruction_pc(),
             CpuAddress::new(0xa400_005c)
         );
         for (index, byte) in expected.iter().copied().enumerate() {
@@ -32412,7 +32784,7 @@ mod tests {
     }
 
     #[test]
-    fn public_x105_scalar_lw_two_nops_and_mtc0_frontier_are_exact_with_donor_exclusions() {
+    fn public_x105_mtc0_xori_dma_read_and_lui_frontier_are_exact_with_donor_exclusions() {
         const PIF_SEED: u8 = 0x81;
         const PUBLIC_X105_RSP_DATA_OFFSET: u16 = 0x0794;
         const FIRST_PIF_WORD: u32 = 0;
@@ -33002,7 +33374,7 @@ mod tests {
             (0xa40, 0x0000e025),
         ];
         words.extend_from_slice(GENERATED_X105_CACHE_SP_AND_RELOCATION_WORDS);
-        const PUBLIC_X105_RSP_WORDS: [u32; 7] = [
+        const PUBLIC_X105_RSP_WORDS: [u32; 11] = [
             0x4008_3800,
             0x400b_0800,
             0xc80c_2000,
@@ -33010,6 +33382,10 @@ mod tests {
             0x0000_0000,
             0x0000_0000,
             0x4080_0000,
+            0x3803_0180,
+            0x4083_0800,
+            0x4080_1000,
+            0x3c05_0020,
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -33018,6 +33394,10 @@ mod tests {
             (0x010, PUBLIC_X105_RSP_WORDS[4]),
             (0x014, PUBLIC_X105_RSP_WORDS[5]),
             (0x018, PUBLIC_X105_RSP_WORDS[6]),
+            (0x01c, PUBLIC_X105_RSP_WORDS[7]),
+            (0x020, PUBLIC_X105_RSP_WORDS[8]),
+            (0x024, PUBLIC_X105_RSP_WORDS[9]),
+            (0x028, PUBLIC_X105_RSP_WORDS[10]),
         ] {
             machine
                 .stage_generated_sp_imem_word_for_test(offset, word)
@@ -36944,27 +37324,529 @@ mod tests {
                 .value(),
             PUBLIC_X105_RSP_WORDS[6]
         );
-        let before_mtc0 = lw_snapshot(&machine);
-        let mtc0_error = machine.step().unwrap_err();
-        assert_eq!(mtc0_error.processor(), MachineStepProcessor::Rsp);
+        assert!(!machine.rsp_scalar_register(3).unwrap().is_available());
+        assert_eq!(machine.sp_memory_address_state(), None);
+        let reset_dram_address = machine.sp_dram_address_state().unwrap();
+        assert_eq!(reset_dram_address.transfer_word(), 0);
+        assert_eq!(reset_dram_address.physical_address(), 0);
         assert_eq!(
-            mtc0_error.rsp_rejection().unwrap().reason(),
-            MachineRspStepRejectionReason::Mtc0Unsupported
+            reset_dram_address.source(),
+            MachineSpDramAddressSource::SourceDefinedReset
         );
-        assert_eq!(lw_snapshot(&machine), before_mtc0);
-        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
-        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x018);
-        assert_eq!(machine.rsp_next_pc(), Some(0x01c));
-        assert_eq!(machine.rsp_committed_instruction_count(), 6);
+        assert_eq!(machine.sp_dma_record_count(), 0);
+        let source_bytes = [0x25, 0x29, 0x00, 0x04, 0x15, 0x1f, 0xff, 0xe3];
+        let observed_source_bytes =
+            std::array::from_fn(|index| machine.rdram().read_u8(0x180 + index).unwrap());
+        assert_eq!(observed_source_bytes, source_bytes);
+        let dmem_before_dma = machine
+            .sp_dmem()
+            .observe_range::<16>(SpDmemOffset::new(0))
+            .unwrap();
+        assert!(dmem_before_dma.iter().all(|knowledge| matches!(
+            knowledge,
+            MachineSpDmemByteKnowledge::Unavailable {
+                source: crate::sp_dmem::MachineSpDmemUnavailableSource::BootstrapUncovered,
+            }
+        )));
+
+        let cpu_before_sp_mem_addr = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let vi_before_sp_mem_addr = machine.vi_current_state();
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x018,
+                    source_gpr: 0,
+                    source_value: 0,
+                    control_register: MachineRspControlRegister::SpMemoryAddress,
+                    source_index: 0,
+                },
+            }
+        );
+        let sp_memory_address = machine.sp_memory_address_state().unwrap();
+        assert_eq!(sp_memory_address.transfer_word(), 0);
+        assert_eq!(sp_memory_address.local_address(), 0);
+        assert_eq!(
+            sp_memory_address.source(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
+        );
+        let sp_mem_addr_source = machine.rsp_mtc0_source(0).unwrap();
+        assert_eq!(sp_mem_addr_source.instruction_pc(), 0x018);
+        assert_eq!(
+            sp_mem_addr_source.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(sp_mem_addr_source.source_gpr(), 0);
+        assert_eq!(sp_mem_addr_source.source_value(), 0);
+        assert_eq!(
+            sp_mem_addr_source.source(),
+            MachineRspScalarRegisterSource::ArchitecturalZero
+        );
+        assert_eq!(
+            sp_mem_addr_source.control_register(),
+            MachineRspControlRegister::SpMemoryAddress
+        );
+        assert_eq!(machine.sp_dma_record_count(), 0);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x01c);
+        assert_eq!(machine.rsp_next_pc(), Some(0x020));
+        assert_eq!(machine.rsp_committed_instruction_count(), 7);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
         assert_eq!(
             machine.rsp_scalar_register(4).unwrap().value(),
             Some(0x03a0_4820)
         );
         assert_eq!(machine.rsp_vector_register(12), Some(&v12));
-        assert_eq!(machine.cpu().pc(), 0x8000_001c);
-        assert_eq!(machine.cpu().next_pc(), 0x8000_0020);
-        assert_eq!(machine.cpu().cop0_count(), 252_351);
-        assert_eq!(total_committed_steps, 252_367);
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before_sp_mem_addr
+        );
+        assert_eq!(machine.vi_current_state(), vi_before_sp_mem_addr);
+
+        let first_dma_cpu_inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(
+            first_dma_cpu_inspection.cpu_address(),
+            CpuAddress::new(0x8000_001c)
+        );
+        assert_eq!(first_dma_cpu_inspection.fields().raw().bits(), 0xac29_0000);
+        assert_eq!(
+            first_dma_cpu_inspection.identity(),
+            CpuInstructionIdentity::Sw
+        );
+        assert_eq!(first_dma_cpu_inspection.fields().rs(), 1);
+        assert_eq!(first_dma_cpu_inspection.fields().rt(), 9);
+        let rsp_before_first_dma_cpu = (
+            machine.rsp_scalar_register(3),
+            machine.rsp_scalar_register(4),
+            machine.rsp_vector_unit_state().clone(),
+            machine.rsp_committed_instruction_count(),
+            machine.rsp_last_instruction(),
+        );
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::DeviceStoreWordCommitted {
+                target: MachineStoreWordTarget::PiDramAddress,
+                source_gpr: 9,
+                stored_word: 0x0000_1000,
+                ..
+            }
+        ));
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0x8000_0020);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0024);
+        assert_eq!(machine.cpu().cop0_count(), 252_352);
+        assert_eq!(total_committed_steps, 252_368);
+        let pi_dram_address = machine.pi_dram_address_state().unwrap();
+        assert_eq!(pi_dram_address.raw_word(), 0x0000_1000);
+        assert_eq!(
+            pi_dram_address.source().instruction_pc(),
+            CpuAddress::new(0x8000_001c)
+        );
+        assert_eq!(pi_dram_address.source().source_gpr(), 9);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            (
+                machine.rsp_scalar_register(3),
+                machine.rsp_scalar_register(4),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_committed_instruction_count(),
+                machine.rsp_last_instruction(),
+            ),
+            rsp_before_first_dma_cpu
+        );
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x01c))
+                .unwrap()
+                .value(),
+            PUBLIC_X105_RSP_WORDS[7]
+        );
+        let cpu_before_xori = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0x01c,
+                    destination_gpr: 3,
+                    result_value: 0x0000_0180,
+                },
+            }
+        );
+        let r3 = machine.rsp_scalar_register(3).unwrap();
+        assert_eq!(r3.value(), Some(0x0000_0180));
+        let r3_source = match r3.source() {
+            Some(MachineRspScalarRegisterSource::Xori(source)) => source,
+            other => panic!("public x105 r3 lacks exact Xori provenance: {other:?}"),
+        };
+        assert_eq!(r3_source.instruction_pc(), 0x01c);
+        assert_eq!(
+            r3_source.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(r3_source.source_gpr(), 0);
+        assert_eq!(r3_source.source_value(), 0);
+        assert_eq!(
+            r3_source.source(),
+            MachineRspScalarRegisterSource::ArchitecturalZero
+        );
+        assert_eq!(r3_source.immediate(), 0x0180);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x020);
+        assert_eq!(machine.rsp_next_pc(), Some(0x024));
+        assert_eq!(machine.rsp_committed_instruction_count(), 8);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.rsp_vector_register(12), Some(&v12));
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before_xori
+        );
+
+        let second_dma_cpu_inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(
+            second_dma_cpu_inspection.cpu_address(),
+            CpuAddress::new(0x8000_0020)
+        );
+        assert_eq!(second_dma_cpu_inspection.fields().raw().bits(), 0x3c08_a460);
+        assert_eq!(
+            second_dma_cpu_inspection.identity(),
+            CpuInstructionIdentity::Lui
+        );
+        let rsp_before_second_dma_cpu = (
+            machine.rsp_scalar_register(3),
+            machine.rsp_scalar_register(4),
+            machine.rsp_vector_unit_state().clone(),
+            machine.rsp_committed_instruction_count(),
+            machine.rsp_last_instruction(),
+        );
+        assert_eq!(
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::Lui)
+        );
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0x8000_0024);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0028);
+        assert_eq!(machine.cpu().cop0_count(), 252_353);
+        assert_eq!(total_committed_steps, 252_369);
+        assert_eq!(machine.cpu().gpr(8), Some(0xffff_ffff_a460_0000));
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            (
+                machine.rsp_scalar_register(3),
+                machine.rsp_scalar_register(4),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_committed_instruction_count(),
+                machine.rsp_last_instruction(),
+            ),
+            rsp_before_second_dma_cpu
+        );
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x020))
+                .unwrap()
+                .value(),
+            PUBLIC_X105_RSP_WORDS[8]
+        );
+        let cpu_before_sp_dram_addr = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x020,
+                    source_gpr: 3,
+                    source_value: 0x0000_0180,
+                    control_register: MachineRspControlRegister::SpDramAddress,
+                    source_index: 1,
+                },
+            }
+        );
+        let sp_dram_address = machine.sp_dram_address_state().unwrap();
+        assert_eq!(sp_dram_address.transfer_word(), 0x0000_0180);
+        assert_eq!(sp_dram_address.physical_address(), 0x0000_0180);
+        assert_eq!(
+            sp_dram_address.source(),
+            MachineSpDramAddressSource::RspMtc0 { source_index: 1 }
+        );
+        let sp_dram_addr_source = machine.rsp_mtc0_source(1).unwrap();
+        assert_eq!(sp_dram_addr_source.instruction_pc(), 0x020);
+        assert_eq!(sp_dram_addr_source.source_gpr(), 3);
+        assert_eq!(sp_dram_addr_source.source_value(), 0x0000_0180);
+        assert_eq!(
+            sp_dram_addr_source.source(),
+            MachineRspScalarRegisterSource::Xori(r3_source.clone())
+        );
+        assert_eq!(
+            sp_dram_addr_source.control_register(),
+            MachineRspControlRegister::SpDramAddress
+        );
+        assert_eq!(machine.sp_dma_record_count(), 0);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x024);
+        assert_eq!(machine.rsp_next_pc(), Some(0x028));
+        assert_eq!(machine.rsp_committed_instruction_count(), 9);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.rsp_vector_register(12), Some(&v12));
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before_sp_dram_addr
+        );
+
+        let third_dma_cpu_inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(
+            third_dma_cpu_inspection.cpu_address(),
+            CpuAddress::new(0x8000_0024)
+        );
+        assert_eq!(third_dma_cpu_inspection.fields().raw().bits(), 0x8d08_0010);
+        assert_eq!(
+            third_dma_cpu_inspection.identity(),
+            CpuInstructionIdentity::Lw
+        );
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::PiStatus,
+                destination_gpr: 8,
+                loaded_word: 0,
+                result_value: 0,
+                ..
+            }
+        ));
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0x8000_0028);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_002c);
+        assert_eq!(machine.cpu().cop0_count(), 252_354);
+        assert_eq!(total_committed_steps, 252_370);
+        assert_eq!(machine.cpu().gpr(8), Some(0));
+        assert_eq!(machine.pi_status_word(), 0);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(machine.sp_dma_record_count(), 0);
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x024))
+                .unwrap()
+                .value(),
+            PUBLIC_X105_RSP_WORDS[9]
+        );
+        let cpu_before_sp_read_length = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let vi_before_sp_read_length = machine.vi_current_state();
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x024,
+                    source_gpr: 0,
+                    source_value: 0,
+                    control_register: MachineRspControlRegister::SpReadLength,
+                    source_index: 2,
+                },
+            }
+        );
+        assert_eq!(machine.sp_dma_record_count(), 1);
+        let dma = machine.sp_dma_record(0).unwrap();
+        assert_eq!(dma.direction(), MachineSpDmaDirection::RdramToSp);
+        assert_eq!(dma.raw_length_word(), 0);
+        assert_eq!(dma.block_length_bytes(), 8);
+        assert_eq!(dma.block_count(), 1);
+        assert_eq!(dma.dram_skip_bytes(), 0);
+        assert_eq!(dma.initial_local_address(), 0);
+        assert_eq!(
+            dma.initial_memory_address_source(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
+        );
+        assert_eq!(dma.initial_rdram_address(), 0x0000_0180);
+        assert_eq!(
+            dma.initial_dram_address_source(),
+            MachineSpDramAddressSource::RspMtc0 { source_index: 1 }
+        );
+        assert_eq!(dma.final_local_address(), 8);
+        assert_eq!(dma.final_rdram_address(), 0x0000_0188);
+        assert_eq!(dma.transferred_byte_count(), 8);
+        assert_eq!(
+            dma.trigger(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 2 }
+        );
+        let sp_read_length_source = machine.rsp_mtc0_source(2).unwrap();
+        assert_eq!(sp_read_length_source.instruction_pc(), 0x024);
+        assert_eq!(sp_read_length_source.source_gpr(), 0);
+        assert_eq!(sp_read_length_source.source_value(), 0);
+        assert_eq!(
+            sp_read_length_source.control_register(),
+            MachineRspControlRegister::SpReadLength
+        );
+        let evolved_memory_address = machine.sp_memory_address_state().unwrap();
+        assert_eq!(evolved_memory_address.transfer_word(), 0);
+        assert_eq!(evolved_memory_address.local_address(), 8);
+        assert_eq!(
+            evolved_memory_address.source(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
+        );
+        let evolved_dram_address = machine.sp_dram_address_state().unwrap();
+        assert_eq!(evolved_dram_address.transfer_word(), 0x0000_0188);
+        assert_eq!(evolved_dram_address.physical_address(), 0x0000_0188);
+        assert_eq!(
+            evolved_dram_address.source(),
+            MachineSpDramAddressSource::DmaAdvance {
+                record_index: 0,
+                trigger: MachineSpRegisterWriteSource::RspMtc0 { source_index: 2 },
+            }
+        );
+        let dmem_after_dma = machine
+            .sp_dmem()
+            .observe_range::<16>(SpDmemOffset::new(0))
+            .unwrap();
+        for (index, expected) in source_bytes.into_iter().enumerate() {
+            assert_eq!(
+                dmem_after_dma[index],
+                MachineSpDmemByteKnowledge::Available {
+                    value: expected,
+                    source: MachineSpDmemByteSource::SpDma { record_index: 0 },
+                }
+            );
+        }
+        assert_eq!(&dmem_after_dma[8..], &dmem_before_dma[8..]);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x028);
+        assert_eq!(machine.rsp_next_pc(), Some(0x02c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 10);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            machine.rsp_scalar_register(3).unwrap().value(),
+            Some(0x0000_0180)
+        );
+        assert_eq!(
+            machine.rsp_scalar_register(4).unwrap().value(),
+            Some(0x03a0_4820)
+        );
+        assert_eq!(machine.rsp_vector_register(12), Some(&v12));
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before_sp_read_length
+        );
+        assert_eq!(machine.vi_current_state(), vi_before_sp_read_length);
+
+        let fourth_dma_cpu_inspection = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(
+            fourth_dma_cpu_inspection.cpu_address(),
+            CpuAddress::new(0x8000_0028)
+        );
+        assert_eq!(fourth_dma_cpu_inspection.fields().raw().bits(), 0x3108_0002);
+        assert_eq!(
+            fourth_dma_cpu_inspection.identity(),
+            CpuInstructionIdentity::Andi
+        );
+        let rsp_before_fourth_dma_cpu = (
+            machine.rsp_scalar_register(3),
+            machine.rsp_scalar_register(4),
+            machine.rsp_vector_unit_state().clone(),
+            machine.rsp_committed_instruction_count(),
+            machine.rsp_last_instruction(),
+            machine.sp_dma_record(0),
+            dmem_after_dma,
+        );
+        assert_eq!(
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::Andi)
+        );
+        total_committed_steps += 1;
+        assert_eq!(machine.cpu().pc(), 0x8000_002c);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0030);
+        assert_eq!(machine.cpu().cop0_count(), 252_355);
+        assert_eq!(total_committed_steps, 252_371);
+        assert_eq!(machine.cpu().gpr(8), Some(0));
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            (
+                machine.rsp_scalar_register(3),
+                machine.rsp_scalar_register(4),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_committed_instruction_count(),
+                machine.rsp_last_instruction(),
+                machine.sp_dma_record(0),
+                machine
+                    .sp_dmem()
+                    .observe_range::<16>(SpDmemOffset::new(0))
+                    .unwrap(),
+            ),
+            rsp_before_fourth_dma_cpu
+        );
+
+        assert_eq!(
+            machine
+                .sp_imem
+                .read_known_u32_be(SpImemOffset::new(0x028))
+                .unwrap()
+                .value(),
+            PUBLIC_X105_RSP_WORDS[10]
+        );
+        assert!(!machine.rsp_scalar_register(5).unwrap().is_available());
+        let before_lui = lw_snapshot(&machine);
+        let lui_error = machine.step().unwrap_err();
+        assert_eq!(lui_error.processor(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            lui_error.rsp_rejection().unwrap().reason(),
+            MachineRspStepRejectionReason::ScalarLuiUnsupported
+        );
+        assert_eq!(lw_snapshot(&machine), before_lui);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x028);
+        assert_eq!(machine.rsp_next_pc(), Some(0x02c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 10);
+        assert_eq!(
+            machine.rsp_scalar_register(3).unwrap().value(),
+            Some(0x0000_0180)
+        );
+        assert_eq!(
+            machine.rsp_scalar_register(4).unwrap().value(),
+            Some(0x03a0_4820)
+        );
+        assert!(!machine.rsp_scalar_register(5).unwrap().is_available());
+        assert_eq!(machine.rsp_vector_register(12), Some(&v12));
+        assert_eq!(machine.sp_dma_record(0), Some(dma));
+        assert_eq!(machine.cpu().pc(), 0x8000_002c);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0030);
+        assert_eq!(machine.cpu().cop0_count(), 252_355);
+        assert_eq!(total_committed_steps, 252_371);
     }
 
     #[test]
