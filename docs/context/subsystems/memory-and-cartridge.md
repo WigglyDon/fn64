@@ -202,6 +202,17 @@ eight destinations become Available with exact `SpDma` record provenance;
 DMEM `[8,16)` remains unavailable. No partial transfer, shadow memory, DMA
 queue, busy-duration truth, or retroactive mutation of pre-DMA `v12` exists.
 
+The later public sequence uses the same singular owners for a second transfer.
+Raw read length `0xFFF` preflights complete Rdram-owned source
+`[0x400,0x1400)` and complete SpDmem destination `[0,0x1000)`. One atomic
+application appends DMA record one, copies all 4096 bytes, and replaces every
+DMEM knowledge entry with Available `SpDma { record_index: 1 }` truth. Existing
+register evolution ends at local zero and RDRAM `0x1400`. The prior record,
+scalar r4/r6, unavailable pre-DMA v12, and semaphore remain unchanged. Failure
+preflight produces no partial byte copy, record, or address evolution. A later
+MFC0 SP_DMA_BUSY read derives idle zero because no transfer persists beyond
+the committing instruction boundary; it adds no timing state.
+
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.
 Pinned mapping evidence now identifies NTSC raw `[0x0d4,0x71c)` to SP IMEM

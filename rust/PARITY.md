@@ -39,7 +39,7 @@ history.
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB private backing with explicit per-byte Available/Unavailable knowledge, checked truth-bearing observations, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, unavailable backing exposure as value truth, RSP fetch, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
-| `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP DMA records with CPU or exact RSP-MTC0 trigger provenance, general run-start lineage, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, exact aligned element-zero full-register LQV, exact aligned Available-DMEM scalar LW, exact raw-zero NOP, exact scalar XORI, exact MTC0 for SP_MEM_ADDR/SP_DRAM_ADDR/SP_RD_LEN, and separate committed count | no DMA timing/queue, accumulator/flag state, partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar loads, scalar stores, nonzero SLL, scalar LUI, other RSP MTC0 destinations, vector identity beyond exact LQV, vector arithmetic, task completion, or RSP interrupt completion |
+| `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP DMA records with CPU or exact RSP-MTC0 trigger provenance, general run-start lineage, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, exact aligned element-zero full-register LQV, exact aligned Available-DMEM scalar LW, exact raw-zero NOP, scalar XORI/LUI/ADDI, scalar BLTZ/BNE with independent delay context, MFC0 for SP_SEMAPHORE/SP_DRAM_ADDR/SP_DMA_BUSY, exact MTC0 for SP_MEM_ADDR/SP_DRAM_ADDR/SP_RD_LEN, and separate committed count | no DMA timing/queue, accumulator/flag state, partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar loads, scalar stores, nonzero SLL, other branches or J-family control flow, other RSP MFC0/MTC0 destinations, vector identity beyond exact LQV/Vsub rejection, vector arithmetic, task completion, or RSP interrupt completion |
 | `Ri` | optional RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD, and exact RI_REFRESH raw/provenance state with source-clear derived fields | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, refresh timing/electrical effect, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Mi` | immutable MI_VERSION `0x02020102`, initialization and RDRAM-register mode, one bounded transfer, and general reached SP/SI/AI/VI/PI/DP pending/mask command truth with CPU provenance | no unrelated MI bank, device timing, generic interrupt-controller framework, MMIO framework, or bus |
 | `Pi` | programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, source-defined domain timing registers, and fully preflighted atomic cart-to-RDRAM DMA records for reached lengths | no PI_RD_LEN, cartridge writes, timing/progress, FIFO, controller reset, generic PI bank, or byte ownership |
@@ -47,7 +47,7 @@ history.
 | `Si` | 64-byte PIF RAM, cold-idle status, CPU provenance, and a fixed hostless no-controller profile | no SI DMA, controller protocol/UI, or private PIF execution |
 | `Vi` | reached raw register words/provenance plus deterministic half-line/current state and MI-owned interrupt assertion/clear relationship | no rendering, framebuffer presentation, scan timing accuracy, or host display |
 | `Machine` | Cartridge, optional accepted or public synthetic PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Ri, Mi, Pi, Ai, Si, Vi, bootstrap lineage, powered/reset state, represented fetch/data/device composition, one private CPU/RSP turn, and processor-tagged public step composition | no hidden global machine, platform clock, file path, renderer, audio/output, host input, event loop, public RSP-only step, or cycle-accuracy claim |
-| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV/LW/NOP/MTC0/XORI/read-DMA/LUI-frontier proof, and one optional explicit-path redacted user-cartridge probe over public core APIs | no emulated truth, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
+| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV/LW/NOP/MTC0/XORI/LUI/ADDI/BLTZ/BNE, guest-semaphore, two-read-DMA, idle-busy-read, and Vsub-frontier proof, plus one optional explicit-path redacted user-cartridge probe over public core APIs | no emulated truth, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
 
 ## RSP execution foundation
 
@@ -76,10 +76,12 @@ accepted higher-level user-task submission fact.
 Selected RSP fetch requires an aligned local PC and one known big-endian
 `SpImem` word. Unknown, opaque, inconsistent, unavailable, or out-of-range
 truth rejects before decode. One represented scalar transfer identity is exact
-RSP MFC0 for only SP_SEMAPHORE and SP_DRAM_ADDR. SP_SEMAPHORE returns the old bit
-and atomically sets it; SP_DRAM_ADDR returns the singular masked Sp-owned
-register without a source side effect. Destination r0 discards only the scalar
-write. Other MFC0 control indices remain closed.
+RSP MFC0 for SP_SEMAPHORE, SP_DRAM_ADDR, and SP_DMA_BUSY. SP_SEMAPHORE returns
+the old bit and atomically sets it; SP_DRAM_ADDR returns the singular masked
+Sp-owned register without a source side effect. Under the atomic DMA model,
+SP_DMA_BUSY derives idle zero at every later instruction boundary because no
+transfer remains pending. Destination r0 discards only the scalar write.
+SP_DMA_FULL and other MFC0 control indices remain closed.
 
 `SpDmem` is the singular DMEM backing/knowledge/provenance owner. Its
 truth-bearing observation is either `Available { value, source }` or
@@ -120,6 +122,25 @@ SP_MEM_ADDR, SP_DRAM_ADDR, and SP_RD_LEN. It consumes one Available old scalar
 source and routes the result into the existing singular `Sp` owners. Other
 control destinations and unavailable sources reject before mutation.
 
+Exact scalar RSP LUI consumes no source and writes
+`zero_extend(immediate) << 16`. Exact ADDI requires one Available old source,
+sign-extends its immediate, and performs wrapping 32-bit addition without an
+overflow exception. Both completely replace the old destination; destination
+r0 discards only the write. Their immutable sources record exact local PC,
+SpImem fetch provenance, and genuine scalar inputs without duplicating the
+register-owned result.
+
+Exact RSP BLTZ requires an Available source and tests bit 31. Exact RSP BNE
+requires two Available sources and compares all 32 bits. Targets add the
+signed offset shifted left two to the delay-slot address and retain low twelve
+aligned PC bits. Every taken or not-taken branch commits once, moves current PC
+to its slot, stages target/fallthrough plus exact cause in the independent
+Sp::rsp delay owner, and selects CPU. The slot is a separate RSP-selected
+commit after one CPU-selected instruction; CPU execution cannot consume the
+RSP context. Slot success follows the staged successor and clears the context
+once. Slot rejection preserves the committed branch. Control flow in an active
+RSP slot remains closed.
+
 SP_RD_LEN reuses the same private owner-local length decoder, address masks,
 range preflight, transfer record, byte application, and register evolution as
 CPU-side SP-register writes. Raw length zero represents one eight-byte block
@@ -129,6 +150,12 @@ with zero skip. The public RDRAM-to-DMEM transfer copies source-known RDRAM
 atomically with the MTC0 instruction. Persistent busy/full duration, queueing,
 partial progress, arbitration, cycles, and semaphore authorization are not
 represented.
+
+The same shared read-DMA path accepts public raw length `0xFFF` as one
+4096-byte block. It atomically copies RDRAM `[0x400,0x1400)` over all DMEM,
+appends record one, evolves local/physical addresses to `0x000/0x1400`, and
+makes every DMEM byte Available with record-one SpDma provenance. The prior
+record, scalar r4/r6, unavailable pre-DMA v12, and semaphore remain unchanged.
 
 The public generated cold-x105 composition commits `Mfc0 r8,SP_SEMAPHORE` at
 local `0x000`, one CPU `Lui`, `Mfc0 r11,SP_DRAM_ADDR` at local `0x004`, and one
@@ -148,8 +175,23 @@ and `Mtc0 r0,SP_RD_LEN` at `0x024` commit with ordinary CPU `Sw`, `Lui`, `Lw`,
 and `Andi` rotations. The DMA copies bytes `25 29 00 04 15 1F FF E3` into
 DMEM `[0,8)`, preserves unavailable DMEM `[8,16)` and pre-DMA unavailable
 `v12`, and advances RSP count to ten. CPU Count/committed count reach
-`252355/252371` only through CPU selections. Scalar `Lui r5,0x0020` at local
-`0x028` rejects atomically with no fallback or state mutation.
+`252355/252371` only through CPU selections.
+
+Scalar `Lui r5,0x0020` at local `0x028` commits `r5 = 0x00200000`. The public
+BLTZ/MFC0/BNE/ADDI loop then uses distinct branch and slot commits with CPU
+interleave. Eight semaphore reads return one; represented guest CPU `Sw` at
+`0x800000B0` clears the singular Sp semaphore; the ninth read returns zero and
+sets it. All nine BLTZ branches are not taken, the first eight BNE branches are
+taken, the ninth is not taken, and every ADDI slot commits. The loop exits
+with `r5 = 0x001FFFF7` and RSP count 47. No host release exists.
+
+Existing scalar LW makes `r6 = 0x25290004`; MTC0/XORI setup and raw length
+`0xFFF` perform the 4096-byte DMA described above. MFC0 SP_DMA_BUSY at `0x054`
+then returns zero. BNE at `0x058` is not taken and its XORI slot writes
+`r3 = 0xFF0`. RSP PC/next-PC become `0x060/0x064`, RSP count reaches 56, and
+CPU Count/committed count reach `252401/252417` only through CPU selections.
+Word `0x4A0D6B51` is identified as `Vsub v13,v13,v13` and rejects atomically
+without vector/accumulator/flag mutation or CPU fallback.
 BOOT-2 remains the highest cartridge checkpoint.
 
 ## Cartridge representation

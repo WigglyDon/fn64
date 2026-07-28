@@ -134,10 +134,14 @@ RSP COP0 write remains separate from CPU COP0. Exact RSP MTC0 now accepts only
 control indices zero, one, and two and routes them to singular Sp-owned
 SP_MEM_ADDR, SP_DRAM_ADDR, and SP_RD_LEN truth. Public writes program DMEM
 offset zero and RDRAM `0x180`; the SP_RD_LEN write reuses existing owner-local
-read-DMA policy and commits one atomic eight-byte effect. Other RSP control
-indices reject atomically. No RSP-selected success or rejection enters CPU
-COP0, advances CPU Count, or receives CPU fallback. Scalar RSP LUI at local
-`0x028` is the next closed boundary.
+read-DMA policy and commits one atomic eight-byte effect. Existing scalar MFC0
+now also accepts exactly control index six, `SP_DMA_BUSY`. Because the current
+Sp DMA model completes atomically at the triggering instruction boundary, a
+later read derives Available idle zero from the singular Sp owner; no
+persistent busy state, countdown, queue, partial progress, or timing claim is
+created. `SP_DMA_FULL` and other RSP control indices reject atomically. No
+RSP-selected success or rejection enters CPU COP0, advances CPU Count, or
+receives CPU fallback. Exact Vsub at local `0x060` is the next closed boundary.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

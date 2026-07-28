@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 198 stable cases, including ordinary
+public `Machine::step` for 206 stable cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -168,21 +168,29 @@ after two represented SP DMAs, then stops before RSP execution.
 Public synthetic step-probe cases now prove processor-tagged scalar RSP MFC0
 from SP_SEMAPHORE, scalar RSP MFC0 from SP_DRAM_ADDR, aligned full-register
 LQV with whole-register unavailable output, aligned scalar LW, two independent
-raw-zero NOP commits, exact MTC0 owner routing, scalar XORI, an atomic shared-
-policy read DMA, and scalar-LUI frontier rejection. The authoritative
+raw-zero NOP commits, exact MTC0 owner routing, scalar XORI/LUI/ADDI,
+BLTZ/BNE with CPU-interleaved delay contexts, an authentic guest CPU
+semaphore clear/acquisition, two atomic shared-policy read DMAs, an idle
+SP_DMA_BUSY read, and Vsub-frontier rejection. The authoritative
 core composition starts from generated cold x105 state, reproduces the exact
 halt-clear at CPU `0xA4000508`, commits the two public MFC0 words with ordinary
 CPU interleave, commits public LQV at local `0x008`, commits scalar LW from
 Available DMEM at local `0x00C`, commits the NOPs at `0x010` and `0x014`, and
-commits the bounded words at `0x018` through `0x024`. The read-length write
-copies public source-known RDRAM `[0x180,0x188)` into DMEM `[0,8)`, and the
-proof stops after selected scalar LUI rejects at local `0x028`.
+commits the bounded words at `0x018` through `0x024`. The first read-length
+write copies public source-known RDRAM `[0x180,0x188)` into DMEM `[0,8)`.
+The extended composition commits `Lui` at `0x028`, exercises every branch and
+slot separately, waits for guest CPU `Sw` at `0x800000B0` to clear the
+semaphore, loads `r6 = 0x25290004`, and copies RDRAM `[0x400,0x1400)` over all
+DMEM through the shared Sp policy. Owner-derived SP_DMA_BUSY is zero after
+atomic completion; Bne is not taken, its Xori slot commits, and the proof
+stops after selected Vsub rejects at local `0x060`.
 Inspection reads only public Machine state and never stages RSP registers, PC,
 turn, semaphore, vector state, or memory to force that result. The compact
 core proof uses an existing test-only generated-IMEM seam for independently
 public continuation words because its historical fixture materialized only
-the first four RSP words; that proof composition is not product provenance or
-an authentic CPU-store claim.
+the first four RSP words; that proof composition is not product provenance.
+The semaphore-release proof is different: it is an ordinary represented guest
+CPU store reached by public composition, not an inspection mutation.
 
 Generic CPU-local/control-flow step-probe fixtures use the already represented
 uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and

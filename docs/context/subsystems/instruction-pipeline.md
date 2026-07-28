@@ -155,8 +155,8 @@ RSP fetch is a separate selected-processor pipeline inside the same public
 `Machine::step`. It captures singular `Sp::pc`, requires aligned in-range
 known `SpImem` word truth, retains four-byte provenance, and decodes only exact
 MFC0 sources, aligned element-zero full-register LQV, aligned Available-DMEM
-scalar LW, raw-zero NOP, scalar XORI, and MTC0 for three reached SP controls
-before planning all source effects. LQV reads an
+scalar LW, raw-zero NOP, scalar XORI/LUI/ADDI, BLTZ/BNE, and MTC0 for three
+reached SP controls before planning all source effects. LQV reads an
 available scalar base, uses its low 12
 bits plus a sign-extended seven-bit offset shifted left four, and observes one
 sixteen-byte range through `SpDmem` knowledge. All-available bytes plan an
@@ -169,17 +169,25 @@ DMEM observations, and constructs a big-endian u32. NOP consumes no register,
 memory, accumulator, flag, or device truth. XORI captures its old Available
 source before destination mutation. MTC0 captures the Available scalar source,
 target control index, fetched word, and owner state; `SP_RD_LEN` additionally
-preflights the complete shared-policy DMA before mutation. Successful MFC0,
-LQV, LW, NOP, XORI, or MTC0 advances singular current PC and nested next PC
-once, leaves RSP delay context unavailable, increments only the RSP count,
-records exact result/last-instruction provenance, and rotates the private turn
-to CPU.
+preflights the complete shared-policy DMA before mutation. LUI has no scalar
+source; ADDI captures one Available old source and performs wrapping
+sign-extended-immediate addition without overflow exception. BLTZ tests bit
+31 and BNE compares complete Available u32 operands. A branch commit advances
+to its slot, stages target/fallthrough plus immutable cause in Sp::rsp, commits
+once, and selects CPU. The slot is a separate later RSP instruction; its
+successful commit follows the staged successor and clears the delay context.
+The context survives intervening CPU selections. Control flow inside an
+active RSP slot remains unsupported. Every other successful ordinary RSP
+identity advances singular current PC and nested next PC once, increments only
+the RSP count, records exact result/last-instruction provenance, and rotates
+the private turn to CPU.
 
 Required validation: `./rust/verify-forward` and relevant focused filters.
 Known unknowns include future public-step integration categories, unearned
 branch-likely/REGIMM members, COP0/CACHE operations beyond the detailed ledger,
 translated TLB access, NMI, generic MMIO, broad CPU or RSP fetch mapping,
 partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar
-loads, scalar stores, nonzero SLL, scalar LUI, MTC0 beyond the three reached
-SP controls, other DMA directions/shapes, vector consumers or arithmetic,
+loads, scalar stores, nonzero SLL, branches beyond BLTZ/BNE, scalar J-family
+control flow, MTC0 beyond the three reached SP controls, MFC0 beyond the three
+reached sources, other DMA directions/shapes, vector consumers or arithmetic,
 analog device behavior, and instruction timing.

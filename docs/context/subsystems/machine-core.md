@@ -307,16 +307,30 @@ read-DMA decoder, preflight, record, application, and register-evolution
 policy: one atomic eight-byte copy makes DMEM `[0,8)` Available with typed DMA
 provenance and advances the programmed addresses to `0x008/0x188`.
 Unavailable DMEM `[8,16)` and pre-DMA unavailable `v12` remain unchanged. RSP
-count reaches ten. No persistent busy/full duration, queue, partial progress,
-cycle timing, or semaphore authorization is represented. Scalar LUI at local
-`0x028` rejects atomically without fallback.
+count reaches ten. Exact scalar LUI produces `r5 = 0x00200000`; exact BLTZ,
+BNE, and ADDI use one Sp::rsp-owned delay context which persists across the
+intervening CPU-selected call. Eight semaphore reads fail before represented
+guest CPU `Sw` at `0x800000B0` clears the singular Sp owner; the ninth
+read-and-set succeeds, with no host shortcut. Existing scalar LW produces
+`r6 = 0x25290004`.
+
+The following existing MTC0/XORI sequence reuses the same shared owner-local
+DMA policy for raw read length `0xFFF`: RDRAM `[0x400,0x1400)` atomically
+replaces all DMEM `[0,0x1000)` with Available record-one SpDma truth. Address
+evolution ends at local zero and RDRAM `0x1400`; r4, r6, unavailable pre-DMA
+v12, semaphore, and the first record remain unchanged. MFC0 SP_DMA_BUSY derives
+idle zero after atomic completion. The not-taken busy BNE still commits one
+XORI delay slot, RSP count reaches 56, and exact Vsub at local `0x060` rejects
+atomically without fallback. No persistent busy/full duration, queue, partial
+progress, cycle timing, or semaphore authorization is represented.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
 translated TLB memory access, RSP execution beyond exact scalar MFC0, aligned
 full-register LQV, aligned Available-DMEM scalar LW, and raw-zero NOP,
-RSP MTC0 beyond the three reached destinations, scalar LUI, other scalar
-logical identities, other DMA directions/shapes, vector consumers/arithmetic, host
+RSP MTC0 beyond the three reached destinations, branches beyond BLTZ/BNE,
+scalar J-family control flow, other scalar identities, other DMA
+directions/shapes, vector consumers/arithmetic, host
 presentation, broader handoff state, and whether any later fact requires
 minimal firmware execution.

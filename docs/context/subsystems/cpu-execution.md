@@ -235,8 +235,24 @@ local `0x018`, XORI at `0x01C`, MTC0 at `0x020`, and MTC0/read-DMA at `0x024`
 each commit once, with represented CPU `Sw`, `Lui`, `Lw`, and `Andi`
 instructions rotating the token between them. RSP-selected commits do not
 change CPU Count or CPU committed count; the four intervening CPU selections
-advance them to `252355/252371`. RSP count reaches ten. Selected scalar
-`Lui r5,0x0020` at local `0x028` is the next atomic rejection frontier.
+advance them to `252355/252371`. RSP count reaches ten.
 
-Next authority must be earned by a bounded scalar-LUI packet, not a generic
-dispatcher, arithmetic framework, DMA engine, or cycle model.
+Exact RSP `Lui`, `Addi`, `Bltz`, and `Bne` now execute under the same
+one-processor-per-call rule. Sp::rsp owns one independent delay context:
+branch commit and slot commit are separate RSP-selected calls, and the context
+survives the intervening CPU-selected instruction unchanged. The public
+semaphore loop makes eight failed acquisitions, then ordinary guest CPU `Sw`
+at `0x800000B0` clears the Sp-owned semaphore; the ninth read succeeds. No
+host event or proof mutation releases it. The loop consumes 37 CPU-selected
+commits and exits with `r5 = 0x001FFFF7`.
+
+Existing scalar LW and Mtc0/Xori instructions then set `r6 = 0x25290004` and
+perform one atomic 4096-byte shared Sp read DMA. Exact Mfc0 SP_DMA_BUSY returns
+idle zero at the later instruction boundary, so the public Bne is not taken
+and its Xori delay slot still commits. Nine additional CPU rotations bring CPU
+Count/committed count to `252401/252417`; RSP count reaches 56. Selected
+`Vsub v13,v13,v13` at local `0x060` is the next atomic rejection frontier.
+
+Next authority must be earned by a bounded vector-arithmetic decision, not a
+generic dispatcher, branch/pipeline framework, DMA timing model, or cycle
+model.

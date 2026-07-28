@@ -96,9 +96,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   public generated x105 path now commits exactly two scalar RSP `Mfc0`
   instructions, one aligned element-zero full-register vector `Lqv`, one
   aligned scalar `Lw`, two exact raw-zero `Nop` instructions, three exact
-  owner-routed `Mtc0` instructions, and one scalar `Xori`. The `SP_RD_LEN`
-  write commits one existing-model atomic eight-byte RDRAM-to-DMEM transfer.
-  Scalar `Lui r5,0x0020` rejects atomically as the next frontier. BOOT-3, a
+  owner-routed `Mtc0` destinations, scalar `Xori`, scalar `Lui`, scalar
+  `Addi`, scalar `Bltz`, and scalar `Bne`. One independently owned RSP delay
+  context persists across intervening CPU-selected calls. The public path
+  completes both an eight-byte and a 4096-byte existing-model atomic
+  RDRAM-to-DMEM transfer, acquires the semaphore only after an ordinary guest
+  CPU clear, and reads `SP_DMA_BUSY` as idle at the later instruction
+  boundary. `Vsub v13,v13,v13` rejects atomically as the next frontier.
+  BOOT-3, a
   proprietary PIF execution chain, commercial-cartridge generality, user-task
   RSP execution, vector arithmetic, compatibility, graphics, window, and
   audio are not claimed. Public generated execution remains synthetic proof
@@ -426,10 +431,32 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `[0x008,0x010)` and pre-DMA unavailable `v12` remain unchanged. Local/DRAM
   addresses evolve to `0x008/0x188`, RSP PC/next-PC become `0x028/0x02C`,
   and RSP count reaches ten. CPU `Andi` at `0x80000028` advances CPU
-  Count/committed count to `252355/252371` and rotates the token. Selected
-  `Lui r5,0x0020` at local `0x028` rejects atomically with no fallback and
-  complete Machine preservation. This is the current combined Machine
-  frontier.
+  Count/committed count to `252355/252371` and rotates the token.
+  `Lui r5,0x0020` at local `0x028` commits Available `r5 = 0x00200000`.
+  Public `Bltz`, `Mfc0 SP_SEMAPHORE`, `Bne`, and `Addi` then execute through
+  ordinary one-processor-per-call cadence. Every branch and its delay slot are
+  distinct RSP commits separated by a CPU-selected call; the exact RSP delay
+  context survives that CPU interleave. Eight semaphore reads return one.
+  Guest CPU `Sw` at `0x800000B0` then stores architectural zero to
+  `SP_SEMAPHORE`; the ninth RSP read returns old clear as zero and sets the
+  semaphore. The successful not-taken Bne still commits its Addi delay slot.
+  The bounded loop uses 73 selected calls after Lui, including 37 CPU commits,
+  and exits at local `0x03C` with `r5 = 0x001FFFF7`, semaphore set, and RSP
+  count 47. No host or proof-side release exists.
+  Existing scalar `Lw r6,0(r0)` commits `r6 = 0x25290004`. Existing
+  Mtc0/Xori operations program DMEM zero, RDRAM `0x400`, and raw read length
+  `0xFFF`; the singular shared Sp read-DMA policy atomically copies RDRAM
+  `[0x400,0x1400)` to complete DMEM `[0,0x1000)`. Every destination byte
+  becomes Available with second-DMA record provenance, programmed addresses
+  evolve to local zero / RDRAM `0x1400`, and r4, r6, unavailable pre-DMA v12,
+  and semaphore truth remain unchanged. `Mfc0 r3,SP_DMA_BUSY` at `0x054`
+  returns owner-derived idle zero because the transfer completed at the prior
+  instruction boundary. Bne at `0x058` is not taken; its Xori delay slot at
+  `0x05C` commits `r3 = 0xFF0`. After the final CPU rotation, CPU
+  Count/committed count are `252401/252417`, RSP PC/next-PC are
+  `0x060/0x064`, and RSP count is 56. Selected word `0x4A0D6B51` is identified
+  as `Vsub v13,v13,v13` and rejects atomically with no fallback and complete
+  Machine preservation. This is the current combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
