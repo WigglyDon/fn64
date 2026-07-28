@@ -1,0 +1,11 @@
+iteration	bltz_taken	semaphore_old_value	bne_taken	addi_result	guest_clear_before_read
+1	false	1	true	0x001FFFFF	false
+2	false	1	true	0x001FFFFE	false
+3	false	1	true	0x001FFFFD	false
+4	false	1	true	0x001FFFFC	false
+5	false	1	true	0x001FFFFB	false
+6	false	1	true	0x001FFFFA	false
+7	false	1	true	0x001FFFF9	false
+8	false	1	true	0x001FFFF8	false
+9	false	0	false	0x001FFFF7	true
+summary	-	8_failed_1_success	-	73_selected_attempts_37_cpu_commits	guest_cpu_sw_pc_0x800000B0
