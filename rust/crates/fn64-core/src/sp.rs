@@ -1,12 +1,13 @@
 use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
 use crate::rsp::{
-    MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDelaySlotContext,
-    MachineRspExecutionState, MachineRspInstructionIdentity, MachineRspInstructionSource,
-    MachineRspLastInstructionState, MachineRspLqvPlan, MachineRspMfc0ControlSource,
-    MachineRspMfc0Plan, MachineRspMtc0Plan, MachineRspMtc0Source, MachineRspNopPlan,
-    MachineRspScalarLwPlan, MachineRspScalarRegisterState, MachineRspStepOutcome,
-    MachineRspVectorRegisterState, MachineRspVectorUnitState, MachineRspXoriPlan,
+    MachineRspAccumulatorAndFlagsState, MachineRspAddiPlan, MachineRspBranchPlan,
+    MachineRspControlRegister, MachineRspDelaySlotContext, MachineRspExecutionState,
+    MachineRspInstructionIdentity, MachineRspInstructionSource, MachineRspLastInstructionState,
+    MachineRspLqvPlan, MachineRspLuiPlan, MachineRspMfc0ControlSource, MachineRspMfc0Plan,
+    MachineRspMtc0Plan, MachineRspMtc0Source, MachineRspNopPlan, MachineRspScalarLwPlan,
+    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspVectorRegisterState,
+    MachineRspVectorUnitState, MachineRspXoriPlan,
 };
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
@@ -735,7 +736,7 @@ impl Sp {
         self.rsp.next_pc()
     }
 
-    pub(crate) const fn rsp_delay_slot_context(&self) -> Option<MachineRspDelaySlotContext> {
+    pub(crate) fn rsp_delay_slot_context(&self) -> Option<MachineRspDelaySlotContext> {
         self.rsp.delay_slot_context()
     }
 
@@ -949,6 +950,63 @@ impl Sp {
         outcome
     }
 
+    pub(crate) fn apply_rsp_lui(&mut self, plan: MachineRspLuiPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_lui(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Lui plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Lui,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_addi(&mut self, plan: MachineRspAddiPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_addi(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Addi plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Addi,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_branch(&mut self, plan: MachineRspBranchPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let delay_slot_pc = plan.delay_slot_pc();
+        let outcome = self.rsp.apply_branch(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP branch plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(delay_slot_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: outcome.identity(),
+            });
+        }
+        outcome
+    }
+
     pub(crate) fn mfc0_control_source(
         &self,
         control_register: MachineRspControlRegister,
@@ -963,6 +1021,9 @@ impl Sp {
                     value: self.dram_address.physical_address(),
                     source: self.dram_address.source(),
                 }
+            }
+            MachineRspControlRegister::SpDmaBusy => {
+                MachineRspMfc0ControlSource::SpDmaBusy { busy: false }
             }
             MachineRspControlRegister::SpMemoryAddress
             | MachineRspControlRegister::SpReadLength => {

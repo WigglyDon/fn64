@@ -18,7 +18,13 @@ pub const RSP_COP0_MTC0_TRANSFER_SELECTOR: u8 = 4;
 pub const RSP_COP0_SP_MEMORY_ADDRESS_INDEX: u8 = 0;
 pub const RSP_COP0_SP_DRAM_ADDRESS_INDEX: u8 = 1;
 pub const RSP_COP0_SP_READ_LENGTH_INDEX: u8 = 2;
+pub const RSP_COP0_SP_DMA_FULL_INDEX: u8 = 5;
+pub const RSP_COP0_SP_DMA_BUSY_INDEX: u8 = 6;
 pub const RSP_COP0_SP_SEMAPHORE_INDEX: u8 = 7;
+pub const RSP_SCALAR_REGIMM_OPCODE: u8 = 0x01;
+pub const RSP_SCALAR_BLTZ_SELECTOR: u8 = 0;
+pub const RSP_SCALAR_BNE_OPCODE: u8 = 0x05;
+pub const RSP_SCALAR_ADDI_OPCODE: u8 = 0x08;
 pub const RSP_SCALAR_XORI_OPCODE: u8 = 0x0e;
 pub const RSP_SCALAR_LUI_OPCODE: u8 = 0x0f;
 pub const RSP_SCALAR_LW_OPCODE: u8 = 0x23;
@@ -36,6 +42,7 @@ pub enum MachineRspControlRegister {
     SpMemoryAddress,
     SpDramAddress,
     SpReadLength,
+    SpDmaBusy,
     SpSemaphore,
 }
 
@@ -44,6 +51,9 @@ pub enum MachineRspMfc0ControlSource {
     SpDramAddress {
         value: u32,
         source: MachineSpDramAddressSource,
+    },
+    SpDmaBusy {
+        busy: bool,
     },
     SpSemaphore {
         old_set: bool,
@@ -55,6 +65,7 @@ impl MachineRspMfc0ControlSource {
     pub const fn register(self) -> MachineRspControlRegister {
         match self {
             Self::SpDramAddress { .. } => MachineRspControlRegister::SpDramAddress,
+            Self::SpDmaBusy { .. } => MachineRspControlRegister::SpDmaBusy,
             Self::SpSemaphore { .. } => MachineRspControlRegister::SpSemaphore,
         }
     }
@@ -62,6 +73,7 @@ impl MachineRspMfc0ControlSource {
     pub const fn result_value(self) -> u32 {
         match self {
             Self::SpDramAddress { value, .. } => value,
+            Self::SpDmaBusy { busy } => busy as u32,
             Self::SpSemaphore { old_set, .. } => old_set as u32,
         }
     }
@@ -101,8 +113,67 @@ impl MachineRspMfc0ResultSource {
 pub enum MachineRspScalarRegisterSource {
     ArchitecturalZero,
     Mfc0(MachineRspMfc0ResultSource),
+    Lui(Box<MachineRspLuiSource>),
+    Addi(Box<MachineRspAddiSource>),
     Lw(Box<MachineRspScalarLwSource>),
     Xori(Box<MachineRspXoriSource>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspLuiSource {
+    instruction_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    immediate: u16,
+}
+
+impl MachineRspLuiSource {
+    pub const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    pub const fn immediate(&self) -> u16 {
+        self.immediate
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspAddiSource {
+    instruction_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    source_gpr: u8,
+    source_value: u32,
+    source: MachineRspScalarRegisterSource,
+    signed_immediate: i16,
+}
+
+impl MachineRspAddiSource {
+    pub const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    pub const fn source_gpr(&self) -> u8 {
+        self.source_gpr
+    }
+
+    pub const fn source_value(&self) -> u32 {
+        self.source_value
+    }
+
+    pub fn source(&self) -> MachineRspScalarRegisterSource {
+        self.source.clone()
+    }
+
+    pub const fn signed_immediate(&self) -> i16 {
+        self.signed_immediate
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -407,19 +478,202 @@ pub enum MachineRspAccumulatorAndFlagsState {
     Unavailable { source: MachineRspUnavailableSource },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MachineRspBranchSource {
+    Bltz {
+        instruction_pc: u16,
+        instruction_provenance: [SpImemByteProvenance; 4],
+        source_gpr: u8,
+        source_value: u32,
+        source: MachineRspScalarRegisterSource,
+        signed_offset: i16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+    },
+    Bne {
+        instruction_pc: u16,
+        instruction_provenance: [SpImemByteProvenance; 4],
+        source_gpr_a: u8,
+        source_value_a: u32,
+        source_a: MachineRspScalarRegisterSource,
+        source_gpr_b: u8,
+        source_value_b: u32,
+        source_b: MachineRspScalarRegisterSource,
+        signed_offset: i16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+    },
+}
+
+impl MachineRspBranchSource {
+    pub const fn instruction_pc(&self) -> u16 {
+        match self {
+            Self::Bltz { instruction_pc, .. } | Self::Bne { instruction_pc, .. } => *instruction_pc,
+        }
+    }
+
+    pub const fn identity(&self) -> MachineRspInstructionIdentity {
+        match self {
+            Self::Bltz { .. } => MachineRspInstructionIdentity::Bltz,
+            Self::Bne { .. } => MachineRspInstructionIdentity::Bne,
+        }
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(match self {
+            Self::Bltz {
+                instruction_provenance,
+                ..
+            }
+            | Self::Bne {
+                instruction_provenance,
+                ..
+            } => *instruction_provenance,
+        })
+    }
+
+    pub const fn source_gpr_a(&self) -> u8 {
+        match self {
+            Self::Bltz { source_gpr, .. } => *source_gpr,
+            Self::Bne { source_gpr_a, .. } => *source_gpr_a,
+        }
+    }
+
+    pub const fn source_value_a(&self) -> u32 {
+        match self {
+            Self::Bltz { source_value, .. } => *source_value,
+            Self::Bne { source_value_a, .. } => *source_value_a,
+        }
+    }
+
+    pub fn source_a(&self) -> MachineRspScalarRegisterSource {
+        match self {
+            Self::Bltz { source, .. } => source.clone(),
+            Self::Bne { source_a, .. } => source_a.clone(),
+        }
+    }
+
+    pub const fn source_gpr_b(&self) -> Option<u8> {
+        match self {
+            Self::Bltz { .. } => None,
+            Self::Bne { source_gpr_b, .. } => Some(*source_gpr_b),
+        }
+    }
+
+    pub const fn source_value_b(&self) -> Option<u32> {
+        match self {
+            Self::Bltz { .. } => None,
+            Self::Bne { source_value_b, .. } => Some(*source_value_b),
+        }
+    }
+
+    pub fn source_b(&self) -> Option<MachineRspScalarRegisterSource> {
+        match self {
+            Self::Bltz { .. } => None,
+            Self::Bne { source_b, .. } => Some(source_b.clone()),
+        }
+    }
+
+    pub const fn signed_offset(&self) -> i16 {
+        match self {
+            Self::Bltz { signed_offset, .. } | Self::Bne { signed_offset, .. } => *signed_offset,
+        }
+    }
+
+    pub const fn delay_slot_pc(&self) -> u16 {
+        match self {
+            Self::Bltz { delay_slot_pc, .. } | Self::Bne { delay_slot_pc, .. } => *delay_slot_pc,
+        }
+    }
+
+    pub const fn target_pc(&self) -> u16 {
+        match self {
+            Self::Bltz { target_pc, .. } | Self::Bne { target_pc, .. } => *target_pc,
+        }
+    }
+
+    pub const fn taken(&self) -> bool {
+        match self {
+            Self::Bltz { taken, .. } | Self::Bne { taken, .. } => *taken,
+        }
+    }
+
+    const fn instruction_provenance(&self) -> [SpImemByteProvenance; 4] {
+        match self {
+            Self::Bltz {
+                instruction_provenance,
+                ..
+            }
+            | Self::Bne {
+                instruction_provenance,
+                ..
+            } => *instruction_provenance,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineRspDelaySlotContext {
-    owner_pc: u16,
+    branch: MachineRspBranchSource,
 }
 
 impl MachineRspDelaySlotContext {
-    #[cfg(test)]
-    pub(crate) const fn new(owner_pc: u16) -> Self {
-        Self { owner_pc }
+    pub(crate) fn new(branch: MachineRspBranchSource) -> Self {
+        Self { branch }
     }
 
-    pub const fn owner_pc(self) -> u16 {
-        self.owner_pc
+    pub const fn owner_pc(&self) -> u16 {
+        self.branch.instruction_pc()
+    }
+
+    pub const fn identity(&self) -> MachineRspInstructionIdentity {
+        self.branch.identity()
+    }
+
+    pub const fn delay_slot_pc(&self) -> u16 {
+        self.branch.delay_slot_pc()
+    }
+
+    pub const fn target_pc(&self) -> u16 {
+        self.branch.target_pc()
+    }
+
+    pub const fn taken(&self) -> bool {
+        self.branch.taken()
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        self.branch.instruction_source()
+    }
+
+    pub const fn source_gpr_a(&self) -> u8 {
+        self.branch.source_gpr_a()
+    }
+
+    pub const fn source_value_a(&self) -> u32 {
+        self.branch.source_value_a()
+    }
+
+    pub fn source_a(&self) -> MachineRspScalarRegisterSource {
+        self.branch.source_a()
+    }
+
+    pub const fn source_gpr_b(&self) -> Option<u8> {
+        self.branch.source_gpr_b()
+    }
+
+    pub const fn source_value_b(&self) -> Option<u32> {
+        self.branch.source_value_b()
+    }
+
+    pub fn source_b(&self) -> Option<MachineRspScalarRegisterSource> {
+        self.branch.source_b()
+    }
+
+    pub const fn signed_offset(&self) -> i16 {
+        self.branch.signed_offset()
     }
 }
 
@@ -427,6 +681,10 @@ impl MachineRspDelaySlotContext {
 pub enum MachineRspInstructionIdentity {
     Mfc0,
     Mtc0,
+    Lui,
+    Addi,
+    Bltz,
+    Bne,
     Xori,
     Lqv,
     Lw,
@@ -464,6 +722,13 @@ enum MachineRspLastInstructionDestination {
         control_register: MachineRspControlRegister,
         source_index: usize,
     },
+    ScalarLui {
+        destination_gpr: u8,
+    },
+    ScalarAddi {
+        destination_gpr: u8,
+    },
+    Branch,
     ScalarXori {
         destination_gpr: u8,
     },
@@ -495,11 +760,16 @@ impl MachineRspLastInstructionState {
             MachineRspLastInstructionDestination::ScalarLw { destination_gpr } => {
                 Some(destination_gpr)
             }
+            MachineRspLastInstructionDestination::ScalarLui { destination_gpr }
+            | MachineRspLastInstructionDestination::ScalarAddi { destination_gpr } => {
+                Some(destination_gpr)
+            }
             MachineRspLastInstructionDestination::ScalarXori { destination_gpr } => {
                 Some(destination_gpr)
             }
             MachineRspLastInstructionDestination::VectorLqv { .. }
             | MachineRspLastInstructionDestination::ScalarMtc0 { .. }
+            | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::None => None,
         }
     }
@@ -514,6 +784,9 @@ impl MachineRspLastInstructionState {
             } => Some(control_register),
             MachineRspLastInstructionDestination::VectorLqv { .. }
             | MachineRspLastInstructionDestination::ScalarLw { .. }
+            | MachineRspLastInstructionDestination::ScalarLui { .. }
+            | MachineRspLastInstructionDestination::ScalarAddi { .. }
+            | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::ScalarXori { .. }
             | MachineRspLastInstructionDestination::None => None,
         }
@@ -540,6 +813,9 @@ impl MachineRspLastInstructionState {
             MachineRspLastInstructionDestination::ScalarMfc0 { .. }
             | MachineRspLastInstructionDestination::ScalarMtc0 { .. }
             | MachineRspLastInstructionDestination::ScalarLw { .. }
+            | MachineRspLastInstructionDestination::ScalarLui { .. }
+            | MachineRspLastInstructionDestination::ScalarAddi { .. }
+            | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::ScalarXori { .. }
             | MachineRspLastInstructionDestination::None => None,
             MachineRspLastInstructionDestination::VectorLqv { destination_vector } => {
@@ -585,6 +861,28 @@ pub enum MachineRspStepOutcome {
         control_register: MachineRspControlRegister,
         source_index: usize,
     },
+    ScalarLuiCommitted {
+        instruction_pc: u16,
+        destination_gpr: u8,
+        result_value: u32,
+    },
+    ScalarAddiCommitted {
+        instruction_pc: u16,
+        destination_gpr: u8,
+        result_value: u32,
+    },
+    ScalarBltzCommitted {
+        instruction_pc: u16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+    },
+    ScalarBneCommitted {
+        instruction_pc: u16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+    },
     ScalarXoriCommitted {
         instruction_pc: u16,
         destination_gpr: u8,
@@ -600,6 +898,10 @@ impl MachineRspStepOutcome {
         match self {
             Self::ScalarMfc0Committed { .. } => MachineRspInstructionIdentity::Mfc0,
             Self::ScalarMtc0Committed { .. } => MachineRspInstructionIdentity::Mtc0,
+            Self::ScalarLuiCommitted { .. } => MachineRspInstructionIdentity::Lui,
+            Self::ScalarAddiCommitted { .. } => MachineRspInstructionIdentity::Addi,
+            Self::ScalarBltzCommitted { .. } => MachineRspInstructionIdentity::Bltz,
+            Self::ScalarBneCommitted { .. } => MachineRspInstructionIdentity::Bne,
             Self::ScalarXoriCommitted { .. } => MachineRspInstructionIdentity::Xori,
             Self::VectorLqvCommitted { .. } => MachineRspInstructionIdentity::Lqv,
             Self::ScalarLwCommitted { .. } => MachineRspInstructionIdentity::Lw,
@@ -611,6 +913,10 @@ impl MachineRspStepOutcome {
         match self {
             Self::ScalarMfc0Committed { instruction_pc, .. }
             | Self::ScalarMtc0Committed { instruction_pc, .. }
+            | Self::ScalarLuiCommitted { instruction_pc, .. }
+            | Self::ScalarAddiCommitted { instruction_pc, .. }
+            | Self::ScalarBltzCommitted { instruction_pc, .. }
+            | Self::ScalarBneCommitted { instruction_pc, .. }
             | Self::ScalarXoriCommitted { instruction_pc, .. }
             | Self::VectorLqvCommitted { instruction_pc, .. }
             | Self::ScalarLwCommitted { instruction_pc, .. }
@@ -626,10 +932,18 @@ impl MachineRspStepOutcome {
             | Self::ScalarLwCommitted {
                 destination_gpr, ..
             }
+            | Self::ScalarLuiCommitted {
+                destination_gpr, ..
+            }
+            | Self::ScalarAddiCommitted {
+                destination_gpr, ..
+            }
             | Self::ScalarXoriCommitted {
                 destination_gpr, ..
             } => Some(destination_gpr),
             Self::ScalarMtc0Committed { .. }
+            | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBneCommitted { .. }
             | Self::VectorLqvCommitted { .. }
             | Self::NopCommitted { .. } => None,
         }
@@ -644,6 +958,10 @@ impl MachineRspStepOutcome {
                 control_register, ..
             } => Some(control_register),
             Self::VectorLqvCommitted { .. }
+            | Self::ScalarLuiCommitted { .. }
+            | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarLwCommitted { .. }
             | Self::NopCommitted { .. } => None,
@@ -654,8 +972,12 @@ impl MachineRspStepOutcome {
         match self {
             Self::ScalarMfc0Committed { result_value, .. }
             | Self::ScalarLwCommitted { result_value, .. }
+            | Self::ScalarLuiCommitted { result_value, .. }
+            | Self::ScalarAddiCommitted { result_value, .. }
             | Self::ScalarXoriCommitted { result_value, .. } => Some(result_value),
             Self::ScalarMtc0Committed { .. }
+            | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBneCommitted { .. }
             | Self::VectorLqvCommitted { .. }
             | Self::NopCommitted { .. } => None,
         }
@@ -665,6 +987,10 @@ impl MachineRspStepOutcome {
         match self {
             Self::ScalarMfc0Committed { .. }
             | Self::ScalarMtc0Committed { .. }
+            | Self::ScalarLuiCommitted { .. }
+            | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarLwCommitted { .. }
             | Self::NopCommitted { .. } => None,
@@ -678,6 +1004,10 @@ impl MachineRspStepOutcome {
         match self {
             Self::ScalarMfc0Committed { .. }
             | Self::ScalarMtc0Committed { .. }
+            | Self::ScalarLuiCommitted { .. }
+            | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::NopCommitted { .. } => None,
             Self::ScalarLwCommitted {
@@ -693,6 +1023,10 @@ impl MachineRspStepOutcome {
         match self {
             Self::ScalarMfc0Committed { .. }
             | Self::ScalarMtc0Committed { .. }
+            | Self::ScalarLuiCommitted { .. }
+            | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. } => None,
             Self::ScalarLwCommitted { .. } | Self::NopCommitted { .. } => None,
             Self::VectorLqvCommitted {
@@ -727,6 +1061,7 @@ pub enum MachineRspStepRejectionReason {
     UnsupportedCop0Register {
         register_index: u8,
     },
+    SpDmaFullUnsupported,
     MalformedMtc0Encoding,
     Mtc0SourceUnavailable {
         source_gpr: u8,
@@ -742,7 +1077,25 @@ pub enum MachineRspStepRejectionReason {
     XoriSourceUnavailable {
         source_gpr: u8,
     },
-    ScalarLuiUnsupported,
+    MalformedLuiEncoding,
+    AddiSourceUnavailable {
+        source_gpr: u8,
+    },
+    UnsupportedRegimmSelector {
+        selector: u8,
+    },
+    BltzSourceUnavailable {
+        source_gpr: u8,
+    },
+    BneSourceAUnavailable {
+        source_gpr: u8,
+    },
+    BneSourceBUnavailable {
+        source_gpr: u8,
+    },
+    ControlFlowInDelaySlot {
+        owner_pc: u16,
+    },
     LqvScalarBaseUnavailable {
         base_gpr: u8,
     },
@@ -779,6 +1132,12 @@ pub enum MachineRspStepRejectionReason {
         opcode: u8,
     },
     ScalarSllUnsupported,
+    VectorVsubUnsupported {
+        destination_vector: u8,
+        source_vector_a: u8,
+        source_vector_b: u8,
+        element: u8,
+    },
     UnrepresentedInstruction {
         class: MachineRspUnrepresentedInstructionClass,
     },
@@ -839,6 +1198,9 @@ impl fmt::Display for MachineRspStepRejection {
                 f,
                 "RSP Mfc0 control-register index {register_index} is not represented"
             ),
+            MachineRspStepRejectionReason::SpDmaFullUnsupported => {
+                write!(f, "RSP Mfc0 SP_DMA_FULL is not represented")
+            }
             MachineRspStepRejectionReason::MalformedMtc0Encoding => {
                 write!(f, "RSP Mtc0 encoding is malformed")
             }
@@ -866,9 +1228,29 @@ impl fmt::Display for MachineRspStepRejection {
             MachineRspStepRejectionReason::XoriSourceUnavailable { source_gpr } => {
                 write!(f, "RSP Xori scalar source r{source_gpr} is unavailable")
             }
-            MachineRspStepRejectionReason::ScalarLuiUnsupported => {
-                write!(f, "RSP scalar Lui is not represented")
+            MachineRspStepRejectionReason::MalformedLuiEncoding => {
+                write!(f, "RSP scalar Lui encoding is malformed")
             }
+            MachineRspStepRejectionReason::AddiSourceUnavailable { source_gpr } => {
+                write!(f, "RSP Addi scalar source r{source_gpr} is unavailable")
+            }
+            MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector } => write!(
+                f,
+                "RSP REGIMM selector {selector} is not represented beyond exact Bltz"
+            ),
+            MachineRspStepRejectionReason::BltzSourceUnavailable { source_gpr } => {
+                write!(f, "RSP Bltz scalar source r{source_gpr} is unavailable")
+            }
+            MachineRspStepRejectionReason::BneSourceAUnavailable { source_gpr } => {
+                write!(f, "RSP Bne scalar source A r{source_gpr} is unavailable")
+            }
+            MachineRspStepRejectionReason::BneSourceBUnavailable { source_gpr } => {
+                write!(f, "RSP Bne scalar source B r{source_gpr} is unavailable")
+            }
+            MachineRspStepRejectionReason::ControlFlowInDelaySlot { owner_pc } => write!(
+                f,
+                "RSP control flow in the active delay slot owned by local PC 0x{owner_pc:03x} is not represented"
+            ),
             MachineRspStepRejectionReason::LqvScalarBaseUnavailable { base_gpr } => write!(
                 f,
                 "RSP Lqv scalar base r{base_gpr} is unavailable"
@@ -927,6 +1309,15 @@ impl fmt::Display for MachineRspStepRejection {
             MachineRspStepRejectionReason::ScalarSllUnsupported => {
                 write!(f, "RSP scalar Sll is not represented beyond the exact raw-zero Nop")
             }
+            MachineRspStepRejectionReason::VectorVsubUnsupported {
+                destination_vector,
+                source_vector_a,
+                source_vector_b,
+                element,
+            } => write!(
+                f,
+                "RSP Vsub v{destination_vector},v{source_vector_a},v{source_vector_b}[{element}] is identified but vector arithmetic is not represented"
+            ),
             MachineRspStepRejectionReason::UnrepresentedInstruction { class } => {
                 write!(f, "RSP {class:?} instruction identity is not represented")
             }
@@ -990,6 +1381,65 @@ impl MachineRspMtc0Plan {
 
     pub(crate) const fn source_index(&self) -> usize {
         self.source_index
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineRspLuiPlan {
+    instruction_pc: u16,
+    old_next_pc: u16,
+    destination_gpr: u8,
+    immediate: u16,
+    result_value: u32,
+    byte_provenance: [SpImemByteProvenance; 4],
+}
+
+impl MachineRspLuiPlan {
+    pub(crate) const fn instruction_pc(self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub(crate) const fn old_next_pc(self) -> u16 {
+        self.old_next_pc
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MachineRspAddiPlan {
+    instruction_pc: u16,
+    old_next_pc: u16,
+    source_gpr: u8,
+    source_value: u32,
+    source: MachineRspScalarRegisterSource,
+    destination_gpr: u8,
+    signed_immediate: i16,
+    result_value: u32,
+    byte_provenance: [SpImemByteProvenance; 4],
+}
+
+impl MachineRspAddiPlan {
+    pub(crate) const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub(crate) const fn old_next_pc(&self) -> u16 {
+        self.old_next_pc
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MachineRspBranchPlan {
+    source: MachineRspBranchSource,
+    selected_next_pc: u16,
+}
+
+impl MachineRspBranchPlan {
+    pub(crate) const fn instruction_pc(&self) -> u16 {
+        self.source.instruction_pc()
+    }
+
+    pub(crate) const fn delay_slot_pc(&self) -> u16 {
+        self.source.delay_slot_pc()
     }
 }
 
@@ -1141,6 +1591,24 @@ pub(crate) enum MachineRspDecodedInstruction {
         source_gpr: u8,
         control_register: MachineRspControlRegister,
     },
+    Lui {
+        destination_gpr: u8,
+        immediate: u16,
+    },
+    Addi {
+        source_gpr: u8,
+        destination_gpr: u8,
+        signed_immediate: i16,
+    },
+    Bltz {
+        source_gpr: u8,
+        signed_offset: i16,
+    },
+    Bne {
+        source_gpr_a: u8,
+        source_gpr_b: u8,
+        signed_offset: i16,
+    },
     Xori {
         source_gpr: u8,
         destination_gpr: u8,
@@ -1181,8 +1649,8 @@ impl MachineRspExecutionState {
         self.next_pc
     }
 
-    pub(crate) const fn delay_slot_context(&self) -> Option<MachineRspDelaySlotContext> {
-        self.delay_slot_context
+    pub(crate) fn delay_slot_context(&self) -> Option<MachineRspDelaySlotContext> {
+        self.delay_slot_context.clone()
     }
 
     pub(crate) const fn committed_instruction_count(&self) -> u64 {
@@ -1263,6 +1731,12 @@ impl MachineRspExecutionState {
             let register_index = ((raw_word >> 11) & 0x1f) as u8;
             let control_register = match register_index {
                 RSP_COP0_SP_DRAM_ADDRESS_INDEX => MachineRspControlRegister::SpDramAddress,
+                RSP_COP0_SP_DMA_FULL_INDEX => {
+                    return Err(MachineRspStepRejection::new(
+                        MachineRspStepRejectionReason::SpDmaFullUnsupported,
+                    ))
+                }
+                RSP_COP0_SP_DMA_BUSY_INDEX => MachineRspControlRegister::SpDmaBusy,
                 RSP_COP0_SP_SEMAPHORE_INDEX => MachineRspControlRegister::SpSemaphore,
                 _ => {
                     return Err(MachineRspStepRejection::new(
@@ -1275,6 +1749,32 @@ impl MachineRspExecutionState {
                 control_register,
             });
         }
+        if opcode == RSP_SCALAR_REGIMM_OPCODE {
+            let selector = ((raw_word >> 16) & 0x1f) as u8;
+            if selector != RSP_SCALAR_BLTZ_SELECTOR {
+                return Err(MachineRspStepRejection::new(
+                    MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector },
+                ));
+            }
+            return Ok(MachineRspDecodedInstruction::Bltz {
+                source_gpr: ((raw_word >> 21) & 0x1f) as u8,
+                signed_offset: raw_word as u16 as i16,
+            });
+        }
+        if opcode == RSP_SCALAR_BNE_OPCODE {
+            return Ok(MachineRspDecodedInstruction::Bne {
+                source_gpr_a: ((raw_word >> 21) & 0x1f) as u8,
+                source_gpr_b: ((raw_word >> 16) & 0x1f) as u8,
+                signed_offset: raw_word as u16 as i16,
+            });
+        }
+        if opcode == RSP_SCALAR_ADDI_OPCODE {
+            return Ok(MachineRspDecodedInstruction::Addi {
+                source_gpr: ((raw_word >> 21) & 0x1f) as u8,
+                destination_gpr: ((raw_word >> 16) & 0x1f) as u8,
+                signed_immediate: raw_word as u16 as i16,
+            });
+        }
         if opcode == RSP_SCALAR_XORI_OPCODE {
             return Ok(MachineRspDecodedInstruction::Xori {
                 source_gpr: ((raw_word >> 21) & 0x1f) as u8,
@@ -1283,9 +1783,15 @@ impl MachineRspExecutionState {
             });
         }
         if opcode == RSP_SCALAR_LUI_OPCODE {
-            return Err(MachineRspStepRejection::new(
-                MachineRspStepRejectionReason::ScalarLuiUnsupported,
-            ));
+            if (raw_word >> 21) & 0x1f != 0 {
+                return Err(MachineRspStepRejection::new(
+                    MachineRspStepRejectionReason::MalformedLuiEncoding,
+                ));
+            }
+            return Ok(MachineRspDecodedInstruction::Lui {
+                destination_gpr: ((raw_word >> 16) & 0x1f) as u8,
+                immediate: raw_word as u16,
+            });
         }
         if opcode == RSP_VECTOR_LOAD_OPCODE {
             let subopcode = ((raw_word >> 11) & 0x1f) as u8;
@@ -1328,6 +1834,16 @@ impl MachineRspExecutionState {
         if opcode == 0 && raw_word & 0x3f == 0 {
             return Err(MachineRspStepRejection::new(
                 MachineRspStepRejectionReason::ScalarSllUnsupported,
+            ));
+        }
+        if opcode == 0x12 && ((raw_word >> 21) & 0x10) != 0 && (raw_word & 0x3f) == 0x11 {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::VectorVsubUnsupported {
+                    destination_vector: ((raw_word >> 6) & 0x1f) as u8,
+                    source_vector_a: ((raw_word >> 11) & 0x1f) as u8,
+                    source_vector_b: ((raw_word >> 16) & 0x1f) as u8,
+                    element: ((raw_word >> 21) & 0x0f) as u8,
+                },
             ));
         }
         let class = if opcode == 0x12 {
@@ -1464,6 +1980,264 @@ impl MachineRspExecutionState {
             source_value: plan.source_value,
             control_register: plan.control_register,
             source_index: plan.source_index,
+        }
+    }
+
+    pub(crate) fn plan_lui(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+        byte_provenance: [SpImemByteProvenance; 4],
+    ) -> MachineRspLuiPlan {
+        let MachineRspDecodedInstruction::Lui {
+            destination_gpr,
+            immediate,
+        } = decoded
+        else {
+            unreachable!("Lui planner receives only decoded Lui")
+        };
+        MachineRspLuiPlan {
+            instruction_pc,
+            old_next_pc: self
+                .next_pc
+                .unwrap_or_else(|| sequential_local_pc(instruction_pc)),
+            destination_gpr,
+            immediate,
+            result_value: u32::from(immediate) << 16,
+            byte_provenance,
+        }
+    }
+
+    pub(crate) fn apply_lui(&mut self, plan: MachineRspLuiPlan) -> MachineRspStepOutcome {
+        if plan.destination_gpr != 0 {
+            self.scalar_registers[usize::from(plan.destination_gpr)] =
+                MachineRspScalarRegisterState::Available {
+                    value: plan.result_value,
+                    source: MachineRspScalarRegisterSource::Lui(Box::new(MachineRspLuiSource {
+                        instruction_pc: plan.instruction_pc,
+                        instruction_provenance: plan.byte_provenance,
+                        immediate: plan.immediate,
+                    })),
+                };
+        }
+        self.next_pc = Some(sequential_local_pc(plan.old_next_pc));
+        self.delay_slot_context = None;
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc: plan.instruction_pc,
+            identity: MachineRspInstructionIdentity::Lui,
+            destination: MachineRspLastInstructionDestination::ScalarLui {
+                destination_gpr: plan.destination_gpr,
+            },
+            byte_provenance: plan.byte_provenance,
+        });
+        MachineRspStepOutcome::ScalarLuiCommitted {
+            instruction_pc: plan.instruction_pc,
+            destination_gpr: plan.destination_gpr,
+            result_value: plan.result_value,
+        }
+    }
+
+    pub(crate) fn plan_addi(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+        byte_provenance: [SpImemByteProvenance; 4],
+    ) -> Result<MachineRspAddiPlan, MachineRspStepRejection> {
+        let MachineRspDecodedInstruction::Addi {
+            source_gpr,
+            destination_gpr,
+            signed_immediate,
+        } = decoded
+        else {
+            unreachable!("Addi planner receives only decoded Addi")
+        };
+        let MachineRspScalarRegisterState::Available {
+            value: source_value,
+            source,
+        } = &self.scalar_registers[usize::from(source_gpr)]
+        else {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::AddiSourceUnavailable { source_gpr },
+            ));
+        };
+        Ok(MachineRspAddiPlan {
+            instruction_pc,
+            old_next_pc: self
+                .next_pc
+                .unwrap_or_else(|| sequential_local_pc(instruction_pc)),
+            source_gpr,
+            source_value: *source_value,
+            source: source.clone(),
+            destination_gpr,
+            signed_immediate,
+            result_value: source_value.wrapping_add_signed(i32::from(signed_immediate)),
+            byte_provenance,
+        })
+    }
+
+    pub(crate) fn apply_addi(&mut self, plan: MachineRspAddiPlan) -> MachineRspStepOutcome {
+        if plan.destination_gpr != 0 {
+            self.scalar_registers[usize::from(plan.destination_gpr)] =
+                MachineRspScalarRegisterState::Available {
+                    value: plan.result_value,
+                    source: MachineRspScalarRegisterSource::Addi(Box::new(MachineRspAddiSource {
+                        instruction_pc: plan.instruction_pc,
+                        instruction_provenance: plan.byte_provenance,
+                        source_gpr: plan.source_gpr,
+                        source_value: plan.source_value,
+                        source: plan.source.clone(),
+                        signed_immediate: plan.signed_immediate,
+                    })),
+                };
+        }
+        self.next_pc = Some(sequential_local_pc(plan.old_next_pc));
+        self.delay_slot_context = None;
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc: plan.instruction_pc,
+            identity: MachineRspInstructionIdentity::Addi,
+            destination: MachineRspLastInstructionDestination::ScalarAddi {
+                destination_gpr: plan.destination_gpr,
+            },
+            byte_provenance: plan.byte_provenance,
+        });
+        MachineRspStepOutcome::ScalarAddiCommitted {
+            instruction_pc: plan.instruction_pc,
+            destination_gpr: plan.destination_gpr,
+            result_value: plan.result_value,
+        }
+    }
+
+    pub(crate) fn plan_branch(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+        byte_provenance: [SpImemByteProvenance; 4],
+    ) -> Result<MachineRspBranchPlan, MachineRspStepRejection> {
+        if let Some(delay) = &self.delay_slot_context {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::ControlFlowInDelaySlot {
+                    owner_pc: delay.owner_pc(),
+                },
+            ));
+        }
+        let delay_slot_pc = self
+            .next_pc
+            .unwrap_or_else(|| sequential_local_pc(instruction_pc));
+        let source = match decoded {
+            MachineRspDecodedInstruction::Bltz {
+                source_gpr,
+                signed_offset,
+            } => {
+                let MachineRspScalarRegisterState::Available {
+                    value: source_value,
+                    source,
+                } = &self.scalar_registers[usize::from(source_gpr)]
+                else {
+                    return Err(MachineRspStepRejection::new(
+                        MachineRspStepRejectionReason::BltzSourceUnavailable { source_gpr },
+                    ));
+                };
+                let target_pc = branch_target_local_pc(delay_slot_pc, signed_offset);
+                MachineRspBranchSource::Bltz {
+                    instruction_pc,
+                    instruction_provenance: byte_provenance,
+                    source_gpr,
+                    source_value: *source_value,
+                    source: source.clone(),
+                    signed_offset,
+                    delay_slot_pc,
+                    target_pc,
+                    taken: source_value & 0x8000_0000 != 0,
+                }
+            }
+            MachineRspDecodedInstruction::Bne {
+                source_gpr_a,
+                source_gpr_b,
+                signed_offset,
+            } => {
+                let MachineRspScalarRegisterState::Available {
+                    value: source_value_a,
+                    source: source_a,
+                } = &self.scalar_registers[usize::from(source_gpr_a)]
+                else {
+                    return Err(MachineRspStepRejection::new(
+                        MachineRspStepRejectionReason::BneSourceAUnavailable {
+                            source_gpr: source_gpr_a,
+                        },
+                    ));
+                };
+                let MachineRspScalarRegisterState::Available {
+                    value: source_value_b,
+                    source: source_b,
+                } = &self.scalar_registers[usize::from(source_gpr_b)]
+                else {
+                    return Err(MachineRspStepRejection::new(
+                        MachineRspStepRejectionReason::BneSourceBUnavailable {
+                            source_gpr: source_gpr_b,
+                        },
+                    ));
+                };
+                let target_pc = branch_target_local_pc(delay_slot_pc, signed_offset);
+                MachineRspBranchSource::Bne {
+                    instruction_pc,
+                    instruction_provenance: byte_provenance,
+                    source_gpr_a,
+                    source_value_a: *source_value_a,
+                    source_a: source_a.clone(),
+                    source_gpr_b,
+                    source_value_b: *source_value_b,
+                    source_b: source_b.clone(),
+                    signed_offset,
+                    delay_slot_pc,
+                    target_pc,
+                    taken: source_value_a != source_value_b,
+                }
+            }
+            _ => unreachable!("branch planner receives only decoded Bltz or Bne"),
+        };
+        let selected_next_pc = if source.taken() {
+            source.target_pc()
+        } else {
+            sequential_local_pc(delay_slot_pc)
+        };
+        Ok(MachineRspBranchPlan {
+            source,
+            selected_next_pc,
+        })
+    }
+
+    pub(crate) fn apply_branch(&mut self, plan: MachineRspBranchPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.source.instruction_pc();
+        let identity = plan.source.identity();
+        let delay_slot_pc = plan.source.delay_slot_pc();
+        let target_pc = plan.source.target_pc();
+        let taken = plan.source.taken();
+        let byte_provenance = plan.source.instruction_provenance();
+        self.next_pc = Some(plan.selected_next_pc);
+        self.delay_slot_context = Some(MachineRspDelaySlotContext::new(plan.source));
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc,
+            identity,
+            destination: MachineRspLastInstructionDestination::Branch,
+            byte_provenance,
+        });
+        match identity {
+            MachineRspInstructionIdentity::Bltz => MachineRspStepOutcome::ScalarBltzCommitted {
+                instruction_pc,
+                delay_slot_pc,
+                target_pc,
+                taken,
+            },
+            MachineRspInstructionIdentity::Bne => MachineRspStepOutcome::ScalarBneCommitted {
+                instruction_pc,
+                delay_slot_pc,
+                target_pc,
+                taken,
+            },
+            _ => unreachable!("branch plan identity is exactly Bltz or Bne"),
         }
     }
 
@@ -1837,7 +2611,20 @@ impl MachineRspExecutionState {
 
     #[cfg(test)]
     pub(crate) fn stage_delay_for_test(&mut self, owner_pc: u16) {
-        self.delay_slot_context = Some(MachineRspDelaySlotContext::new(owner_pc));
+        let delay_slot_pc = sequential_local_pc(owner_pc);
+        self.delay_slot_context = Some(MachineRspDelaySlotContext::new(
+            MachineRspBranchSource::Bltz {
+                instruction_pc: owner_pc,
+                instruction_provenance: [SpImemByteProvenance::GeneratedMachineTestStaging; 4],
+                source_gpr: 0,
+                source_value: 0,
+                source: MachineRspScalarRegisterSource::ArchitecturalZero,
+                signed_offset: 0,
+                delay_slot_pc,
+                target_pc: sequential_local_pc(delay_slot_pc),
+                taken: false,
+            },
+        ));
     }
 }
 
@@ -1872,6 +2659,12 @@ impl Default for MachineRspExecutionState {
 
 pub(crate) const fn sequential_local_pc(pc: u16) -> u16 {
     pc.wrapping_add(4) & RSP_LOCAL_ADDRESS_MASK & !RSP_INSTRUCTION_ALIGNMENT_MASK
+}
+
+pub(crate) fn branch_target_local_pc(delay_slot_pc: u16, signed_offset: i16) -> u16 {
+    ((delay_slot_pc as u32).wrapping_add_signed((signed_offset as i32) << 2) as u16)
+        & RSP_LOCAL_ADDRESS_MASK
+        & !RSP_INSTRUCTION_ALIGNMENT_MASK
 }
 
 fn classify_instruction_source(
@@ -1931,6 +2724,38 @@ mod tests {
             | ((RSP_COP0_MTC0_TRANSFER_SELECTOR as u32) << 21)
             | ((source_gpr as u32) << 16)
             | ((control_index as u32) << 11)
+    }
+
+    const fn mfc0_word(destination_gpr: u8, control_index: u8) -> u32 {
+        ((RSP_COP0_OPCODE as u32) << 26)
+            | ((RSP_COP0_MFC0_TRANSFER_SELECTOR as u32) << 21)
+            | ((destination_gpr as u32) << 16)
+            | ((control_index as u32) << 11)
+    }
+
+    const fn lui_word(destination_gpr: u8, immediate: u16) -> u32 {
+        ((RSP_SCALAR_LUI_OPCODE as u32) << 26) | ((destination_gpr as u32) << 16) | immediate as u32
+    }
+
+    const fn addi_word(source_gpr: u8, destination_gpr: u8, signed_immediate: i16) -> u32 {
+        ((RSP_SCALAR_ADDI_OPCODE as u32) << 26)
+            | ((source_gpr as u32) << 21)
+            | ((destination_gpr as u32) << 16)
+            | signed_immediate as u16 as u32
+    }
+
+    const fn bltz_word(source_gpr: u8, signed_offset: i16) -> u32 {
+        ((RSP_SCALAR_REGIMM_OPCODE as u32) << 26)
+            | ((source_gpr as u32) << 21)
+            | ((RSP_SCALAR_BLTZ_SELECTOR as u32) << 16)
+            | signed_offset as u16 as u32
+    }
+
+    const fn bne_word(source_gpr_a: u8, source_gpr_b: u8, signed_offset: i16) -> u32 {
+        ((RSP_SCALAR_BNE_OPCODE as u32) << 26)
+            | ((source_gpr_a as u32) << 21)
+            | ((source_gpr_b as u32) << 16)
+            | signed_offset as u16 as u32
     }
 
     const fn xori_word(source_gpr: u8, destination_gpr: u8, immediate: u16) -> u32 {
@@ -2102,8 +2927,11 @@ mod tests {
             MachineRspStepRejectionReason::MalformedMtc0Encoding
         );
         assert_eq!(
-            rsp.decode(0x3c05_0020).unwrap_err().reason(),
-            MachineRspStepRejectionReason::ScalarLuiUnsupported
+            rsp.decode(0x3c05_0020),
+            Ok(MachineRspDecodedInstruction::Lui {
+                destination_gpr: 5,
+                immediate: 0x0020,
+            })
         );
     }
 
@@ -2241,6 +3069,424 @@ mod tests {
             .unwrap_err()
             .reason(),
             MachineRspStepRejectionReason::XoriSourceUnavailable { source_gpr: 2 }
+        );
+    }
+
+    #[test]
+    fn rsp_lui_and_rsp_addi_exact_scalar_semantics_and_provenance_are_owned_once() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x028);
+        assert_eq!(
+            rsp.decode(0x3c05_0020),
+            Ok(MachineRspDecodedInstruction::Lui {
+                destination_gpr: 5,
+                immediate: 0x0020,
+            })
+        );
+        assert_eq!(
+            rsp.decode(lui_word(5, 0x0020) | (1 << 21))
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::MalformedLuiEncoding
+        );
+
+        let vectors_before = rsp.vector_unit.clone();
+        let accumulator_before = rsp.accumulator_and_flags;
+        assert_eq!(
+            rsp.apply_lui(rsp.plan_lui(
+                0x028,
+                rsp.decode(lui_word(5, 0x0020)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )),
+            MachineRspStepOutcome::ScalarLuiCommitted {
+                instruction_pc: 0x028,
+                destination_gpr: 5,
+                result_value: 0x0020_0000,
+            }
+        );
+        let r5 = rsp.scalar_register(5).unwrap();
+        assert_eq!(r5.value(), Some(0x0020_0000));
+        let lui_source = match r5.source().unwrap() {
+            MachineRspScalarRegisterSource::Lui(source) => source,
+            other => panic!("Lui result lacks exact provenance: {other:?}"),
+        };
+        assert_eq!(lui_source.instruction_pc(), 0x028);
+        assert_eq!(
+            lui_source.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(lui_source.immediate(), 0x0020);
+        assert_eq!(rsp.vector_unit, vectors_before);
+        assert_eq!(rsp.accumulator_and_flags, accumulator_before);
+
+        stage_available_scalar(&mut rsp, 6, 0xdead_beef);
+        assert_eq!(
+            rsp.apply_lui(rsp.plan_lui(
+                0x02c,
+                rsp.decode(lui_word(6, 0x1234)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )),
+            MachineRspStepOutcome::ScalarLuiCommitted {
+                instruction_pc: 0x02c,
+                destination_gpr: 6,
+                result_value: 0x1234_0000,
+            }
+        );
+        assert_eq!(rsp.scalar_register(6).unwrap().value(), Some(0x1234_0000));
+
+        let r0_before = rsp.scalar_register(0).unwrap();
+        assert_eq!(
+            rsp.apply_lui(rsp.plan_lui(
+                0x030,
+                rsp.decode(lui_word(0, 0xffff)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )),
+            MachineRspStepOutcome::ScalarLuiCommitted {
+                instruction_pc: 0x030,
+                destination_gpr: 0,
+                result_value: 0xffff_0000,
+            }
+        );
+        assert_eq!(rsp.scalar_register(0).unwrap(), r0_before);
+
+        stage_available_scalar(&mut rsp, 7, 0x7fff_ffff);
+        assert_eq!(
+            rsp.apply_addi(
+                rsp.plan_addi(
+                    0x034,
+                    rsp.decode(addi_word(7, 7, 1)).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap(),
+            ),
+            MachineRspStepOutcome::ScalarAddiCommitted {
+                instruction_pc: 0x034,
+                destination_gpr: 7,
+                result_value: 0x8000_0000,
+            }
+        );
+        let r7 = rsp.scalar_register(7).unwrap();
+        let addi_source = match r7.source().unwrap() {
+            MachineRspScalarRegisterSource::Addi(source) => source,
+            other => panic!("Addi result lacks exact provenance: {other:?}"),
+        };
+        assert_eq!(addi_source.instruction_pc(), 0x034);
+        assert_eq!(
+            addi_source.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(addi_source.source_gpr(), 7);
+        assert_eq!(addi_source.source_value(), 0x7fff_ffff);
+        assert_eq!(addi_source.signed_immediate(), 1);
+        assert!(matches!(
+            addi_source.source(),
+            MachineRspScalarRegisterSource::Mfc0(_)
+        ));
+
+        assert_eq!(
+            rsp.apply_addi(
+                rsp.plan_addi(
+                    0x038,
+                    rsp.decode(addi_word(7, 7, -1)).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap(),
+            ),
+            MachineRspStepOutcome::ScalarAddiCommitted {
+                instruction_pc: 0x038,
+                destination_gpr: 7,
+                result_value: 0x7fff_ffff,
+            }
+        );
+        assert_eq!(rsp.scalar_register(7).unwrap().value(), Some(0x7fff_ffff));
+
+        let r0_before = rsp.scalar_register(0).unwrap();
+        assert_eq!(
+            rsp.apply_addi(
+                rsp.plan_addi(
+                    0x03c,
+                    rsp.decode(addi_word(7, 0, -2)).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap(),
+            ),
+            MachineRspStepOutcome::ScalarAddiCommitted {
+                instruction_pc: 0x03c,
+                destination_gpr: 0,
+                result_value: 0x7fff_fffd,
+            }
+        );
+        assert_eq!(rsp.scalar_register(0).unwrap(), r0_before);
+        assert_eq!(
+            rsp.plan_addi(
+                0x040,
+                rsp.decode(addi_word(2, 3, 1)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::AddiSourceUnavailable { source_gpr: 2 }
+        );
+    }
+
+    #[test]
+    fn rsp_bltz_rsp_bne_branch_targets_and_delay_context_are_exact() {
+        let mut not_taken = MachineRspExecutionState::default();
+        not_taken.synchronize_pc_write(0x02c);
+        stage_available_scalar(&mut not_taken, 5, 0x0020_0000);
+        assert_eq!(
+            not_taken.decode(0x04a0_001b),
+            Ok(MachineRspDecodedInstruction::Bltz {
+                source_gpr: 5,
+                signed_offset: 0x001b,
+            })
+        );
+        let scalar_before = not_taken.scalar_registers.clone();
+        let plan = not_taken
+            .plan_branch(
+                0x02c,
+                not_taken.decode(bltz_word(5, 0x001b)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            not_taken.apply_branch(plan),
+            MachineRspStepOutcome::ScalarBltzCommitted {
+                instruction_pc: 0x02c,
+                delay_slot_pc: 0x030,
+                target_pc: 0x09c,
+                taken: false,
+            }
+        );
+        assert_eq!(not_taken.scalar_registers, scalar_before);
+        assert_eq!(not_taken.next_pc(), Some(0x034));
+        assert_eq!(not_taken.committed_instruction_count(), 1);
+        let context = not_taken.delay_slot_context().unwrap();
+        assert_eq!(context.owner_pc(), 0x02c);
+        assert_eq!(context.identity(), MachineRspInstructionIdentity::Bltz);
+        assert_eq!(context.delay_slot_pc(), 0x030);
+        assert_eq!(context.target_pc(), 0x09c);
+        assert!(!context.taken());
+        assert_eq!(context.source_gpr_a(), 5);
+        assert_eq!(context.source_value_a(), 0x0020_0000);
+        assert_eq!(context.source_gpr_b(), None);
+        assert_eq!(context.signed_offset(), 0x001b);
+        let context_before_cpu_interleave = context.clone();
+        assert_eq!(
+            not_taken.delay_slot_context(),
+            Some(context_before_cpu_interleave),
+            "an unrelated processor call has no RSP execution-owner mutation seam"
+        );
+        let slot = not_taken.plan_nop(
+            0x030,
+            not_taken.decode(0).unwrap(),
+            TEST_INSTRUCTION_PROVENANCE,
+        );
+        assert_eq!(
+            not_taken.apply_nop(slot),
+            MachineRspStepOutcome::NopCommitted {
+                instruction_pc: 0x030,
+            }
+        );
+        assert_eq!(not_taken.delay_slot_context(), None);
+        assert_eq!(not_taken.next_pc(), Some(0x038));
+        assert_eq!(not_taken.committed_instruction_count(), 2);
+
+        let mut taken = MachineRspExecutionState::default();
+        taken.synchronize_pc_write(0x02c);
+        stage_available_scalar(&mut taken, 5, 0xffff_ffff);
+        let plan = taken
+            .plan_branch(
+                0x02c,
+                taken.decode(bltz_word(5, 0x001b)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            taken.apply_branch(plan),
+            MachineRspStepOutcome::ScalarBltzCommitted {
+                instruction_pc: 0x02c,
+                delay_slot_pc: 0x030,
+                target_pc: 0x09c,
+                taken: true,
+            }
+        );
+        assert_eq!(taken.next_pc(), Some(0x09c));
+
+        let mut bne = MachineRspExecutionState::default();
+        bne.synchronize_pc_write(0x034);
+        stage_available_scalar(&mut bne, 3, 1);
+        stage_available_scalar(&mut bne, 4, 0x0001_0000);
+        assert_eq!(
+            bne.decode(0x1460_fffd),
+            Ok(MachineRspDecodedInstruction::Bne {
+                source_gpr_a: 3,
+                source_gpr_b: 0,
+                signed_offset: -3,
+            })
+        );
+        let plan = bne
+            .plan_branch(
+                0x034,
+                bne.decode(bne_word(3, 0, -3)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            bne.apply_branch(plan),
+            MachineRspStepOutcome::ScalarBneCommitted {
+                instruction_pc: 0x034,
+                delay_slot_pc: 0x038,
+                target_pc: 0x02c,
+                taken: true,
+            }
+        );
+        let context = bne.delay_slot_context().unwrap();
+        assert_eq!(context.source_gpr_a(), 3);
+        assert_eq!(context.source_value_a(), 1);
+        assert_eq!(context.source_gpr_b(), Some(0));
+        assert_eq!(context.source_value_b(), Some(0));
+        assert_eq!(context.signed_offset(), -3);
+
+        let mut full_width = MachineRspExecutionState::default();
+        full_width.synchronize_pc_write(0x058);
+        stage_available_scalar(&mut full_width, 3, 0x0001_0000);
+        stage_available_scalar(&mut full_width, 4, 0);
+        let plan = full_width
+            .plan_branch(
+                0x058,
+                full_width.decode(bne_word(3, 4, -2)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            full_width.apply_branch(plan),
+            MachineRspStepOutcome::ScalarBneCommitted {
+                instruction_pc: 0x058,
+                delay_slot_pc: 0x05c,
+                target_pc: 0x054,
+                taken: true,
+            },
+            "Bne compares all 32 bits rather than only the low half"
+        );
+    }
+
+    #[test]
+    fn rsp_branch_rejections_preserve_delay_context_and_unknown_sources() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x02c);
+        assert_eq!(
+            rsp.plan_branch(
+                0x02c,
+                rsp.decode(bltz_word(5, 0x001b)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::BltzSourceUnavailable { source_gpr: 5 }
+        );
+        assert_eq!(
+            rsp.plan_branch(
+                0x034,
+                rsp.decode(bne_word(3, 0, -3)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::BneSourceAUnavailable { source_gpr: 3 }
+        );
+        stage_available_scalar(&mut rsp, 3, 1);
+        assert_eq!(
+            rsp.plan_branch(
+                0x034,
+                rsp.decode(bne_word(3, 4, -3)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::BneSourceBUnavailable { source_gpr: 4 }
+        );
+        assert_eq!(
+            rsp.decode(((RSP_SCALAR_REGIMM_OPCODE as u32) << 26) | (5 << 21) | (1 << 16))
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector: 1 }
+        );
+
+        let plan = rsp
+            .plan_branch(
+                0x034,
+                rsp.decode(bne_word(3, 0, -3)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        rsp.apply_branch(plan);
+        let post_branch = rsp.clone();
+        assert_eq!(
+            rsp.plan_branch(
+                0x038,
+                rsp.decode(bltz_word(3, 1)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::ControlFlowInDelaySlot { owner_pc: 0x034 }
+        );
+        assert_eq!(rsp, post_branch);
+    }
+
+    #[test]
+    fn rsp_mfc0_sp_dma_busy_idle_read_and_vsub_frontier_are_exact() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x054);
+        assert_eq!(
+            rsp.decode(0x4003_3000),
+            Ok(MachineRspDecodedInstruction::Mfc0 {
+                destination_gpr: 3,
+                control_register: MachineRspControlRegister::SpDmaBusy,
+            })
+        );
+        let plan = rsp.plan_mfc0(
+            0x054,
+            rsp.decode(mfc0_word(3, RSP_COP0_SP_DMA_BUSY_INDEX))
+                .unwrap(),
+            MachineRspMfc0ControlSource::SpDmaBusy { busy: false },
+            TEST_INSTRUCTION_PROVENANCE,
+        );
+        assert_eq!(
+            rsp.apply_mfc0(plan),
+            MachineRspStepOutcome::ScalarMfc0Committed {
+                instruction_pc: 0x054,
+                destination_gpr: 3,
+                control_register: MachineRspControlRegister::SpDmaBusy,
+                result_value: 0,
+            }
+        );
+        let r3 = rsp.scalar_register(3).unwrap();
+        assert_eq!(r3.value(), Some(0));
+        let source = match r3.source().unwrap() {
+            MachineRspScalarRegisterSource::Mfc0(source) => source,
+            other => panic!("DMA_BUSY result lacks exact Mfc0 provenance: {other:?}"),
+        };
+        assert_eq!(source.instruction_pc(), 0x054);
+        assert_eq!(
+            source.control_source(),
+            MachineRspMfc0ControlSource::SpDmaBusy { busy: false }
+        );
+        assert_eq!(
+            rsp.decode(mfc0_word(3, RSP_COP0_SP_DMA_FULL_INDEX))
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::SpDmaFullUnsupported
+        );
+        assert_eq!(
+            rsp.decode(0x4a0d_6b51).unwrap_err().reason(),
+            MachineRspStepRejectionReason::VectorVsubUnsupported {
+                destination_vector: 13,
+                source_vector_a: 13,
+                source_vector_b: 13,
+                element: 0,
+            }
         );
     }
 
