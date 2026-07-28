@@ -222,7 +222,15 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: rsp-xori-committed ok\
 \ncase: rsp-mtc0-dram-address-committed ok\
 \ncase: rsp-mtc0-read-dma-committed ok\
-\ncase: rsp-lui-frontier-rejected ok\
+\ncase: rsp-lui-committed ok\
+\ncase: rsp-bltz-delay-interleave ok\
+\ncase: rsp-guest-semaphore-clear-and-acquire ok\
+\ncase: rsp-bne-addi-delay-committed ok\
+\ncase: rsp-post-semaphore-lw-committed ok\
+\ncase: rsp-second-read-dma-committed ok\
+\ncase: rsp-dma-busy-idle-read ok\
+\ncase: rsp-dma-busy-branch-delay-committed ok\
+\ncase: rsp-vsub-frontier-rejected ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -6871,7 +6879,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
 }
 
 fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "rsp-mtc0-xori-read-dma-and-lui-frontier";
+    const CASE: &str = "rsp-scalar-control-semaphore-second-dma-and-vsub-frontier";
     const RSP_MFC0_SEMAPHORE: u32 = 0x4008_3800;
     const RSP_MFC0_DRAM_ADDRESS: u32 = 0x400b_0800;
     const RSP_LQV: u32 = 0xc80c_2000;
@@ -6881,10 +6889,21 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
     const RSP_MTC0_DRAM_ADDRESS: u32 = 0x4083_0800;
     const RSP_MTC0_READ_LENGTH: u32 = 0x4080_1000;
     const RSP_LUI: u32 = 0x3c05_0020;
+    const RSP_BLTZ: u32 = 0x04a0_001b;
+    const RSP_MFC0_SEMAPHORE_LOOP: u32 = 0x4003_3800;
+    const RSP_BNE_SEMAPHORE: u32 = 0x1460_fffd;
+    const RSP_ADDI: u32 = 0x20a5_ffff;
+    const RSP_POST_SEMAPHORE_LW: u32 = 0x8c06_0000;
+    const RSP_XORI_SECOND_DMA_ADDRESS: u32 = 0x3803_0400;
+    const RSP_XORI_SECOND_DMA_LENGTH: u32 = 0x3803_0fff;
+    const RSP_MFC0_DMA_BUSY: u32 = 0x4003_3000;
+    const RSP_BNE_DMA_BUSY: u32 = 0x1460_fffe;
+    const RSP_XORI_DMA_BUSY_DELAY: u32 = 0x3803_0ff0;
+    const RSP_VSUB: u32 = 0x4a0d_6b51;
     const DMA_SOURCE_WORD_A: u32 = 0x2529_0004;
     const DMA_SOURCE_WORD_B: u32 = 0x151f_ffe3;
-    const CONTROL_CPU_NOP_COUNT: usize = 10;
-    let words = [
+    const CONTROL_CPU_WORD_COUNT: usize = 24;
+    let mut words: Vec<(usize, u32)> = vec![
         (0x40, immediate_word(0x0f, 0, 1, 0xa404)),
         (0x44, immediate_word(0x0d, 0, 2, 0x00ce)),
         (0x48, immediate_word(0x2b, 1, 2, 0x0010)),
@@ -6965,24 +6984,50 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         ),
         (0xf4, immediate_word(0x0d, 6, 6, DMA_SOURCE_WORD_B as u16)),
         (0xf8, immediate_word(0x2b, 7, 6, 0x0004)),
-        (0xfc, immediate_word(0x0d, 0, 2, 0x00ad)),
-        (0x100, immediate_word(0x2b, 1, 2, 0x0010)),
-        (0x104, 0),
-        (0x108, 0),
-        (0x10c, 0),
-        (0x110, 0),
-        (0x114, 0),
-        (0x118, 0),
-        (0x11c, 0),
-        (0x120, 0),
-        (0x124, 0),
-        (0x128, 0),
     ];
+    let rsp_tail = [
+        RSP_BLTZ,
+        RSP_MFC0_SEMAPHORE_LOOP,
+        RSP_BNE_SEMAPHORE,
+        RSP_ADDI,
+        RSP_POST_SEMAPHORE_LW,
+        RSP_MTC0_MEM_ADDRESS,
+        RSP_XORI_SECOND_DMA_ADDRESS,
+        RSP_MTC0_DRAM_ADDRESS,
+        RSP_XORI_SECOND_DMA_LENGTH,
+        0x4083_1000,
+        RSP_MFC0_DMA_BUSY,
+        RSP_BNE_DMA_BUSY,
+        RSP_XORI_DMA_BUSY_DELAY,
+        RSP_VSUB,
+    ];
+    let mut setup_pc = 0x0fc;
+    for (index, word) in rsp_tail.into_iter().enumerate() {
+        words.push((setup_pc, immediate_word(0x0f, 0, 5, (word >> 16) as u16)));
+        words.push((setup_pc + 4, immediate_word(0x0d, 5, 5, word as u16)));
+        words.push((
+            setup_pc + 8,
+            immediate_word(0x2b, 4, 5, 0x002c + index as u16 * 4),
+        ));
+        setup_pc += 12;
+    }
+    words.push((setup_pc, immediate_word(0x0d, 0, 2, 0x00ad)));
+    words.push((setup_pc + 4, immediate_word(0x2b, 1, 2, 0x0010)));
+    setup_pc += 8;
+    let control_cpu_pc = setup_pc;
+    for index in 0..10 {
+        words.push((control_cpu_pc + index * 4, 0));
+    }
+    words.push((control_cpu_pc + 10 * 4, immediate_word(0x0f, 0, 1, 0xa404)));
+    words.push((control_cpu_pc + 11 * 4, immediate_word(0x2b, 1, 0, 0x001c)));
+    for index in 12..CONTROL_CPU_WORD_COUNT {
+        words.push((control_cpu_pc + index * 4, 0));
+    }
     let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
 
-    let setup_cpu_count = (words.len() - CONTROL_CPU_NOP_COUNT) as u32;
-    let control_cpu_pc = 0xa400_0104;
-    for _ in 0..words.len() - CONTROL_CPU_NOP_COUNT {
+    let setup_cpu_count = (words.len() - CONTROL_CPU_WORD_COUNT) as u32;
+    let control_cpu_pc = 0xa400_0000 | control_cpu_pc as u32;
+    for _ in 0..words.len() - CONTROL_CPU_WORD_COUNT {
         let outcome = step(&mut machine, CASE)?;
         require(
             CASE,
@@ -7471,39 +7516,423 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         "CPU rotation after atomic SP read DMA",
     )?;
 
-    let before_lui_cpu_and_cadence = (
+    let lui = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            lui,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLuiCommitted {
+                    instruction_pc: 0x028,
+                    destination_gpr: 5,
+                    result_value: 0x0020_0000,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(5)
+            .is_some_and(|state| state.value() == Some(0x0020_0000))
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x02c)
+            && machine.rsp_next_pc() == Some(0x030)
+            && machine.rsp_committed_instruction_count() == 11
+            && machine.processor_turn() == MachineStepProcessor::Cpu,
+        "Lui commits exact public 32-bit scalar truth",
+    )?;
+
+    let cpu_prepare_semaphore = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        cpu_prepare_semaphore.identity() == Some(CpuInstructionIdentity::Lui)
+            && machine.cpu().pc() == control_cpu_pc + 44
+            && machine.processor_turn() == MachineStepProcessor::Rsp,
+        "guest CPU prepares the source-defined SP register base",
+    )?;
+
+    let bltz = step(&mut machine, CASE)?;
+    let bltz_delay = machine.rsp_delay_slot_context();
+    require(
+        CASE,
+        matches!(
+            bltz,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarBltzCommitted {
+                    instruction_pc: 0x02c,
+                    delay_slot_pc: 0x030,
+                    target_pc: 0x09c,
+                    taken: false,
+                },
+            }
+        ) && bltz_delay.as_ref().is_some_and(|context| {
+            context.owner_pc() == 0x02c
+                && context.delay_slot_pc() == 0x030
+                && context.target_pc() == 0x09c
+                && !context.taken()
+        }) && machine
+            .sp_pc_state()
+            .is_some_and(|state| state.raw_low_field() == 0x030)
+            && machine.rsp_next_pc() == Some(0x034)
+            && machine.processor_turn() == MachineStepProcessor::Cpu,
+        "not-taken Bltz commits one independently scheduled delay slot",
+    )?;
+
+    let cpu_semaphore_clear = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            cpu_semaphore_clear,
+            MachineRepresentedStepOutcome::DeviceStoreWordCommitted {
+                target: MachineStoreWordTarget::SpSemaphore,
+                source_gpr: 0,
+                stored_word: 0,
+                ..
+            }
+        ) && machine
+            .sp_semaphore_state()
+            .is_some_and(|state| state.clear())
+            && machine.rsp_delay_slot_context() == bltz_delay
+            && machine.cpu().pc() == control_cpu_pc + 48
+            && machine.processor_turn() == MachineStepProcessor::Rsp,
+        "ordinary guest CPU execution clears SP_SEMAPHORE without consuming RSP delay truth",
+    )?;
+
+    let semaphore_read = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            semaphore_read,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 0x030,
+                    destination_gpr: 3,
+                    control_register: MachineRspControlRegister::SpSemaphore,
+                    result_value: 0,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(3)
+            .is_some_and(|state| state.value() == Some(0))
+            && machine
+                .sp_semaphore_state()
+                .is_some_and(|state| state.set())
+            && machine.rsp_delay_slot_context().is_none()
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x034)
+            && machine.rsp_next_pc() == Some(0x038)
+            && machine.rsp_committed_instruction_count() == 13,
+        "Mfc0 acquires the semaphore only after the guest CPU clear",
+    )?;
+
+    let mut control_cpu_word_index = 12_u32;
+    let mut rotate_with_cpu_nop = |machine: &mut Machine| -> Result<(), StepProbeError> {
+        let expected_pc = control_cpu_pc + control_cpu_word_index * 4;
+        let delay_before = machine.rsp_delay_slot_context();
+        let cpu = step(machine, CASE)?;
+        require(
+            CASE,
+            cpu.processor() == MachineStepProcessor::Cpu
+                && cpu.identity() == Some(CpuInstructionIdentity::SpecialSll)
+                && machine.cpu().pc() == expected_pc + 4
+                && machine.rsp_delay_slot_context() == delay_before
+                && machine.processor_turn() == MachineStepProcessor::Rsp,
+            "one generated CPU Nop rotates without RSP mutation",
+        )?;
+        control_cpu_word_index += 1;
+        Ok(())
+    };
+
+    rotate_with_cpu_nop(&mut machine)?;
+    let semaphore_bne = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            semaphore_bne,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarBneCommitted {
+                    instruction_pc: 0x034,
+                    delay_slot_pc: 0x038,
+                    target_pc: 0x02c,
+                    taken: false,
+                },
+            }
+        ) && machine.rsp_delay_slot_context().is_some()
+            && machine.rsp_next_pc() == Some(0x03c),
+        "successful semaphore Bne is not taken but still stages Addi",
+    )?;
+    rotate_with_cpu_nop(&mut machine)?;
+    let semaphore_addi = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            semaphore_addi,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarAddiCommitted {
+                    instruction_pc: 0x038,
+                    destination_gpr: 5,
+                    result_value: 0x001f_ffff,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(5)
+            .is_some_and(|state| state.value() == Some(0x001f_ffff))
+            && machine.rsp_delay_slot_context().is_none()
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x03c)
+            && machine.rsp_next_pc() == Some(0x040),
+        "Addi delay slot decrements the timeout once and completes fallthrough",
+    )?;
+
+    rotate_with_cpu_nop(&mut machine)?;
+    let post_semaphore_lw = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            post_semaphore_lw,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLwCommitted {
+                    instruction_pc: 0x03c,
+                    destination_gpr: 6,
+                    local_dmem_address: 0,
+                    result_value: DMA_SOURCE_WORD_A,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(6)
+            .is_some_and(|state| state.value() == Some(DMA_SOURCE_WORD_A)),
+        "post-semaphore scalar Lw preserves exact first-DMA truth",
+    )?;
+    let r4 = machine.rsp_scalar_register(4);
+    let r6 = machine.rsp_scalar_register(6);
+    let v12_before_second_dma = machine.rsp_vector_register(12).cloned();
+
+    rotate_with_cpu_nop(&mut machine)?;
+    let second_mem = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            second_mem,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x040,
+                    control_register: MachineRspControlRegister::SpMemoryAddress,
+                    source_index: 3,
+                    ..
+                },
+            }
+        ),
+        "second DMA programs singular DMEM offset zero",
+    )?;
+    rotate_with_cpu_nop(&mut machine)?;
+    let second_address = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            second_address,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0x044,
+                    destination_gpr: 3,
+                    result_value: 0x0400,
+                },
+            }
+        ),
+        "second DMA Xori produces source address 0x400",
+    )?;
+    rotate_with_cpu_nop(&mut machine)?;
+    let second_dram = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            second_dram,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x048,
+                    control_register: MachineRspControlRegister::SpDramAddress,
+                    source_index: 4,
+                    ..
+                },
+            }
+        ) && machine
+            .sp_dram_address_state()
+            .is_some_and(|state| state.physical_address() == 0x400),
+        "second DMA programs singular RDRAM address 0x400",
+    )?;
+    rotate_with_cpu_nop(&mut machine)?;
+    let second_length = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            second_length,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0x04c,
+                    destination_gpr: 3,
+                    result_value: 0x0fff,
+                },
+            }
+        ),
+        "second DMA Xori produces raw length 0xFFF",
+    )?;
+    let second_source = (0x400..0x1400)
+        .map(|offset| machine.rdram().read_u8(offset))
+        .collect::<Vec<_>>();
+    rotate_with_cpu_nop(&mut machine)?;
+    let second_read = step(&mut machine, CASE)?;
+    let second_dma = machine.sp_dma_record(1);
+    require(
+        CASE,
+        matches!(
+            second_read,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x050,
+                    control_register: MachineRspControlRegister::SpReadLength,
+                    source_index: 5,
+                    ..
+                },
+            }
+        ) && second_dma.is_some_and(|record| {
+            record.raw_length_word() == 0x0fff
+                && record.block_length_bytes() == 4096
+                && record.block_count() == 1
+                && record.dram_skip_bytes() == 0
+                && record.initial_local_address() == 0
+                && record.initial_rdram_address() == 0x400
+                && record.final_local_address() == 0
+                && record.final_rdram_address() == 0x1400
+                && record.transferred_byte_count() == 4096
+        }) && second_source.iter().enumerate().all(|(index, expected)| {
+            expected.as_ref().is_ok_and(|value| {
+                machine
+                    .sp_dmem()
+                    .observe_byte(SpDmemOffset::new(index as u32))
+                    == Ok(MachineSpDmemByteKnowledge::Available {
+                        value: *value,
+                        source: MachineSpDmemByteSource::SpDma { record_index: 1 },
+                    })
+            })
+        }) && machine.rsp_scalar_register(4) == r4
+            && machine.rsp_scalar_register(6) == r6
+            && machine.rsp_vector_register(12).cloned() == v12_before_second_dma,
+        "second shared-owner DMA atomically replaces complete DMEM truth",
+    )?;
+
+    rotate_with_cpu_nop(&mut machine)?;
+    let dma_busy = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            dma_busy,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 0x054,
+                    destination_gpr: 3,
+                    control_register: MachineRspControlRegister::SpDmaBusy,
+                    result_value: 0,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(3)
+            .is_some_and(|state| state.value() == Some(0))
+            && machine.sp_dma_record_count() == 2,
+        "atomic-model SP_DMA_BUSY reads owner-derived idle zero",
+    )?;
+
+    rotate_with_cpu_nop(&mut machine)?;
+    let busy_bne = step(&mut machine, CASE)?;
+    let busy_delay = machine.rsp_delay_slot_context();
+    require(
+        CASE,
+        matches!(
+            busy_bne,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarBneCommitted {
+                    instruction_pc: 0x058,
+                    delay_slot_pc: 0x05c,
+                    target_pc: 0x054,
+                    taken: false,
+                },
+            }
+        ) && busy_delay.is_some(),
+        "DMA-busy Bne is not taken and owns one real delay slot",
+    )?;
+    rotate_with_cpu_nop(&mut machine)?;
+    require(
+        CASE,
+        machine.rsp_delay_slot_context() == busy_delay,
+        "DMA-busy branch context survives CPU interleave",
+    )?;
+    let busy_delay_xori = step(&mut machine, CASE)?;
+    require(
+        CASE,
+        matches!(
+            busy_delay_xori,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0x05c,
+                    destination_gpr: 3,
+                    result_value: 0x0ff0,
+                },
+            }
+        ) && machine.rsp_delay_slot_context().is_none()
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x060)
+            && machine.rsp_next_pc() == Some(0x064)
+            && machine.rsp_committed_instruction_count() == 24,
+        "Xori delay slot commits once and reaches exact Vsub frontier",
+    )?;
+    rotate_with_cpu_nop(&mut machine)?;
+    require(
+        CASE,
+        control_cpu_word_index == CONTROL_CPU_WORD_COUNT as u32,
+        "every bounded CPU control word committed exactly once",
+    )?;
+
+    let before_vsub_execution = (
         machine.cpu().pc(),
         machine.cpu().next_pc(),
         machine.cpu().cop0_count(),
         machine.processor_turn(),
         machine.sp_pc_state(),
         machine.rsp_next_pc(),
+        machine.rsp_delay_slot_context(),
         machine.rsp_committed_instruction_count(),
     );
-    let before_lui_rsp = (
+    let before_vsub_rsp = (
         machine.rsp_scalar_register(3),
         machine.rsp_scalar_register(4),
         machine.rsp_scalar_register(5),
-        machine.rsp_vector_register(12).cloned(),
-        machine.rsp_run_start_state(),
+        machine.rsp_scalar_register(6),
+        machine.rsp_vector_unit_state().clone(),
+        machine.rsp_accumulator_and_flags_state(),
     );
-    let before_lui_sp = (
+    let before_vsub_sp = (
         machine.sp_memory_address_state(),
         machine.sp_dram_address_state(),
         machine.sp_dma_record(0),
+        machine.sp_dma_record(1),
     );
-    let before_lui_dmem = (0..16)
+    let before_vsub_dmem = (0..4096)
         .map(|offset| machine.sp_dmem().observe_byte(SpDmemOffset::new(offset)))
         .collect::<Vec<_>>();
     let error = machine.step().err().ok_or(StepProbeError::Assertion {
         case: CASE,
-        check: "Lui frontier must reject",
+        check: "Vsub frontier must reject",
     })?;
     require(
         CASE,
         error.rsp_rejection().is_some_and(|rejection| {
-            rejection.reason() == MachineRspStepRejectionReason::ScalarLuiUnsupported
-        }) && before_lui_cpu_and_cadence
+            rejection.reason()
+                == MachineRspStepRejectionReason::VectorVsubUnsupported {
+                    destination_vector: 13,
+                    source_vector_a: 13,
+                    source_vector_b: 13,
+                    element: 0,
+                }
+        }) && before_vsub_execution
             == (
                 machine.cpu().pc(),
                 machine.cpu().next_pc(),
@@ -7511,27 +7940,30 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
                 machine.processor_turn(),
                 machine.sp_pc_state(),
                 machine.rsp_next_pc(),
+                machine.rsp_delay_slot_context(),
                 machine.rsp_committed_instruction_count(),
             )
-            && before_lui_rsp
+            && before_vsub_rsp
                 == (
                     machine.rsp_scalar_register(3),
                     machine.rsp_scalar_register(4),
                     machine.rsp_scalar_register(5),
-                    machine.rsp_vector_register(12).cloned(),
-                    machine.rsp_run_start_state(),
+                    machine.rsp_scalar_register(6),
+                    machine.rsp_vector_unit_state().clone(),
+                    machine.rsp_accumulator_and_flags_state(),
                 )
-            && before_lui_sp
+            && before_vsub_sp
                 == (
                     machine.sp_memory_address_state(),
                     machine.sp_dram_address_state(),
                     machine.sp_dma_record(0),
+                    machine.sp_dma_record(1),
                 )
-            && before_lui_dmem
-                == (0..16)
+            && before_vsub_dmem
+                == (0..4096)
                     .map(|offset| machine.sp_dmem().observe_byte(SpDmemOffset::new(offset)))
                     .collect::<Vec<_>>(),
-        "scalar Lui rejects atomically without CPU fallback after exact DMA truth",
+        "Vsub is identified and rejected atomically without CPU fallback",
     )
 }
 
