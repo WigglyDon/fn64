@@ -130,10 +130,14 @@ Any future RSP-produced MI source would become CPU-visible only at the next
 CPU-selected instruction boundary. The exact scalar RSP MFC0 sources in the
 current product are SP-owned control values, not CPU COP0 state.
 
-RSP COP0 write remains a separate closed boundary. Public
-`Mtc0 r0,SP_MEM_ADDR` at local `0x018` is identified and rejects atomically;
-it does not use the CPU COP0 MTC0 path, mutate SP_MEM_ADDR, start DMA, advance
-either committed count, or receive CPU fallback.
+RSP COP0 write remains separate from CPU COP0. Exact RSP MTC0 now accepts only
+control indices zero, one, and two and routes them to singular Sp-owned
+SP_MEM_ADDR, SP_DRAM_ADDR, and SP_RD_LEN truth. Public writes program DMEM
+offset zero and RDRAM `0x180`; the SP_RD_LEN write reuses existing owner-local
+read-DMA policy and commits one atomic eight-byte effect. Other RSP control
+indices reject atomically. No RSP-selected success or rejection enters CPU
+COP0, advances CPU Count, or receives CPU fallback. Scalar RSP LUI at local
+`0x028` is the next closed boundary.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

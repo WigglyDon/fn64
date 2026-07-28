@@ -18,7 +18,7 @@ Every artifact names source SHA, Context-SHA, command, working directory, exit
 status, and unavailable facts. Similar text output is not semantic equivalence.
 
 `fn64_machine_probe` proves construction/reset only. `fn64_step_probe` calls
-public `Machine::step` for 190 stable cases, including ordinary
+public `Machine::step` for 198 stable cases, including ordinary
 branch/jump scheduling, links, aliasing, slot exceptions, and inner-control-flow
 rejection. Generated frontier cases add cartridge-staged SP-DMEM `Lw`, exact
 source provenance, unclassified-source rejection, delay-slot AdEL, SP-IMEM
@@ -168,18 +168,21 @@ after two represented SP DMAs, then stops before RSP execution.
 Public synthetic step-probe cases now prove processor-tagged scalar RSP MFC0
 from SP_SEMAPHORE, scalar RSP MFC0 from SP_DRAM_ADDR, aligned full-register
 LQV with whole-register unavailable output, aligned scalar LW, two independent
-raw-zero NOP commits, and atomic RSP-MTC0 frontier rejection. The authoritative
+raw-zero NOP commits, exact MTC0 owner routing, scalar XORI, an atomic shared-
+policy read DMA, and scalar-LUI frontier rejection. The authoritative
 core composition starts from generated cold x105 state, reproduces the exact
 halt-clear at CPU `0xA4000508`, commits the two public MFC0 words with ordinary
 CPU interleave, commits public LQV at local `0x008`, commits scalar LW from
 Available DMEM at local `0x00C`, commits the NOPs at `0x010` and `0x014`, and
-stops after selected `Mtc0 r0,SP_MEM_ADDR` rejects at local `0x018`.
+commits the bounded words at `0x018` through `0x024`. The read-length write
+copies public source-known RDRAM `[0x180,0x188)` into DMEM `[0,8)`, and the
+proof stops after selected scalar LUI rejects at local `0x028`.
 Inspection reads only public Machine state and never stages RSP registers, PC,
 turn, semaphore, vector state, or memory to force that result. The compact
-core proof uses an existing test-only generated-IMEM seam for the three
-independently public continuation words because its historical fixture
-materialized only the first four RSP words; that proof composition is not
-product provenance or an authentic CPU-store claim.
+core proof uses an existing test-only generated-IMEM seam for independently
+public continuation words because its historical fixture materialized only
+the first four RSP words; that proof composition is not product provenance or
+an authentic CPU-store claim.
 
 Generic CPU-local/control-flow step-probe fixtures use the already represented
 uncached KSEG1 direct alias. The cache-specific generated proof uses KSEG0 and

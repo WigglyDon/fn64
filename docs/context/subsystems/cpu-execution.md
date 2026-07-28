@@ -230,8 +230,13 @@ all stores remain closed. Hardware scalar-load stalls are not represented.
 The public `Lw` makes r4 Available `0x03A04820`. The exact raw-zero words at
 local `0x010` and `0x014` commit as two separate RSP NOPs with ordinary CPU
 `Ori`, `Lui`, and `SpecialAnd` rotations. CPU Count and CPU committed count
-reach `252351/252367` only through those CPU selections. Selected
-`Mtc0 r0,SP_MEM_ADDR` at local `0x018` is the next atomic rejection frontier.
+reach `252351/252367` only through those CPU selections. Exact RSP MTC0 at
+local `0x018`, XORI at `0x01C`, MTC0 at `0x020`, and MTC0/read-DMA at `0x024`
+each commit once, with represented CPU `Sw`, `Lui`, `Lw`, and `Andi`
+instructions rotating the token between them. RSP-selected commits do not
+change CPU Count or CPU committed count; the four intervening CPU selections
+advance them to `252355/252371`. RSP count reaches ten. Selected scalar
+`Lui r5,0x0020` at local `0x028` is the next atomic rejection frontier.
 
-Next authority must be earned by a bounded RSP-MTC0 packet, not a generic
-dispatcher, scalar-memory framework, DMA engine, or cycle model.
+Next authority must be earned by a bounded scalar-LUI packet, not a generic
+dispatcher, arithmetic framework, DMA engine, or cycle model.

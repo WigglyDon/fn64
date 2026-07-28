@@ -297,14 +297,26 @@ four-byte DMEM word at `0x040`, commits Available `r4 = 0x03A04820`, advances
 RSP count to four, and selects CPU without changing CPU Count or VI. The exact
 raw-zero words at local `0x010` and `0x014` each commit once as RSP NOPs,
 separated by the ordinary CPU token rotation. RSP count reaches six.
-`Mtc0 r0,SP_MEM_ADDR` at local `0x018` then rejects atomically without
-fallback or SP/DMA mutation.
+Exact RSP MTC0 now accepts only control indices zero through two and routes
+`SP_MEM_ADDR`, `SP_DRAM_ADDR`, and `SP_RD_LEN` into their existing singular
+`Sp` owners. Exact scalar XORI consumes one Available old source and
+zero-extends its immediate. The public sequence programs DMEM offset zero,
+sets `r3 = 0x180`, programs physical RDRAM address `0x180`, and writes raw read
+length zero. That last instruction reuses the existing CPU-side owner-local
+read-DMA decoder, preflight, record, application, and register-evolution
+policy: one atomic eight-byte copy makes DMEM `[0,8)` Available with typed DMA
+provenance and advances the programmed addresses to `0x008/0x188`.
+Unavailable DMEM `[8,16)` and pre-DMA unavailable `v12` remain unchanged. RSP
+count reaches ten. No persistent busy/full duration, queue, partial progress,
+cycle timing, or semaphore authorization is represented. Scalar LUI at local
+`0x028` rejects atomically without fallback.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
 translated TLB memory access, RSP execution beyond exact scalar MFC0, aligned
 full-register LQV, aligned Available-DMEM scalar LW, and raw-zero NOP,
-RSP MTC0/SP DMA, vector consumers/arithmetic, host
+RSP MTC0 beyond the three reached destinations, scalar LUI, other scalar
+logical identities, other DMA directions/shapes, vector consumers/arithmetic, host
 presentation, broader handoff state, and whether any later fact requires
 minimal firmware execution.

@@ -189,8 +189,18 @@ and coherent, constructs one big-endian 32-bit scalar result, and records their
 sources in scalar provenance. Unavailable bytes reject rather than producing
 an unavailable scalar value. The public bytes at `0x040..0x044` remain
 bootstrap-owned `03 A0 48 20`; the Lw read changes neither DMEM backing nor
-knowledge. Both following NOPs and the rejected MTC0 also leave memory
-unchanged.
+knowledge. Both following NOPs leave memory unchanged.
+
+Exact RSP MTC0 does not add a memory owner. `SP_MEM_ADDR` and `SP_DRAM_ADDR`
+program their existing `Sp` state without transferring bytes. `SP_RD_LEN`
+reuses the private owner-local read-DMA policy already reached from CPU
+SP-register writes. The public raw-zero length preflights source-known RDRAM
+`[0x180,0x188)`, then atomically copies `25 29 00 04 15 1F FF E3` into DMEM
+`[0,8)`. `Rdram` remains the source-byte owner, `SpDmem` remains the
+destination-byte/knowledge owner, and `Sp` records transfer causality. The
+eight destinations become Available with exact `SpDma` record provenance;
+DMEM `[8,16)` remains unavailable. No partial transfer, shadow memory, DMA
+queue, busy-duration truth, or retroactive mutation of pre-DMA `v12` exists.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.

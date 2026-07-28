@@ -95,8 +95,10 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   initialization to its first genuine RSP task-start request. The earlier
   public generated x105 path now commits exactly two scalar RSP `Mfc0`
   instructions, one aligned element-zero full-register vector `Lqv`, one
-  aligned scalar `Lw`, and two exact raw-zero `Nop` instructions. RSP
-  `Mtc0 r0,SP_MEM_ADDR` rejects atomically as the next frontier. BOOT-3, a
+  aligned scalar `Lw`, two exact raw-zero `Nop` instructions, three exact
+  owner-routed `Mtc0` instructions, and one scalar `Xori`. The `SP_RD_LEN`
+  write commits one existing-model atomic eight-byte RDRAM-to-DMEM transfer.
+  Scalar `Lui r5,0x0020` rejects atomically as the next frontier. BOOT-3, a
   proprietary PIF execution chain, commercial-cartridge generality, user-task
   RSP execution, vector arithmetic, compatibility, graphics, window, and
   audio are not claimed. Public generated execution remains synthetic proof
@@ -412,10 +414,22 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   then commit independently as exact RSP NOPs, separated by ordinary CPU
   `Ori` and `Lui` selections. A third CPU `SpecialAnd` selection advances CPU
   Count/committed count to `252351/252367` and rotates the token. Selected
-  `Mtc0 r0,SP_MEM_ADDR` at local `0x018` rejects atomically with no fallback:
-  RSP PC/next-PC remains `0x018/0x01C`, RSP count remains six, and r4, v12,
-  SP_MEM_ADDR, DMA, CPU, VI, and complete Machine truth are preserved. This is
-  the current combined Machine frontier.
+  `Mtc0 r0,SP_MEM_ADDR` at local `0x018` now commits through the singular `Sp`
+  owner and selects DMEM offset zero. CPU `Sw` at `0x8000001C` rotates the
+  token. `Xori r3,r0,0x0180` at local `0x01C` commits `r3 = 0x00000180`; CPU
+  `Lui` at `0x80000020` rotates the token. `Mtc0 r3,SP_DRAM_ADDR` at local
+  `0x020` programs physical `0x00000180`; CPU `Lw` at `0x80000024` rotates the
+  token. `Mtc0 r0,SP_RD_LEN` at local `0x024` reuses the existing Sp-owned
+  read-DMA policy and atomically transfers public source-known RDRAM bytes
+  `25 29 00 04 15 1F FF E3` from `[0x180,0x188)` into DMEM `[0x000,0x008)`.
+  Those destination bytes become Available with exact DMA-record provenance;
+  `[0x008,0x010)` and pre-DMA unavailable `v12` remain unchanged. Local/DRAM
+  addresses evolve to `0x008/0x188`, RSP PC/next-PC become `0x028/0x02C`,
+  and RSP count reaches ten. CPU `Andi` at `0x80000028` advances CPU
+  Count/committed count to `252355/252371` and rotates the token. Selected
+  `Lui r5,0x0020` at local `0x028` rejects atomically with no fallback and
+  complete Machine preservation. This is the current combined Machine
+  frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`
