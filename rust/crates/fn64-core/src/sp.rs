@@ -1267,7 +1267,8 @@ mod tests {
     }
 
     #[test]
-    fn dma_address_and_length_fields_derive_one_bounded_record_and_advance_owner_state() {
+    fn dma_record_dma_length_dma_count_dma_skip_fields_derive_one_bounded_record_and_advance_owner_state(
+    ) {
         let memory = MachineSpMemoryAddressState::from_cpu_word(
             0x0400_1fc7,
             source(0x800d_0600, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS),

@@ -10,4 +10,3 @@ The SP memory-address state retains its original programmed transfer word and
 source lineage while its owner-local interpreted address advances. The DRAM
 address becomes one `DmaAdvance` state pointing at record index 2 and the
 RSP-Mtc0 trigger.
-

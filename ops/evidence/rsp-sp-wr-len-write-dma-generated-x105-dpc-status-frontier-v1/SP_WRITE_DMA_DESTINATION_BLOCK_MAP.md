@@ -9,4 +9,3 @@ Each block contains eight bytes. The first range is
 `0x00312080..0x00312088`. All 24 ranges are disjoint.
 
 The complete exact map is in `PUBLIC_X105_SP_WRITE_DMA_BLOCKS.tsv`.
-

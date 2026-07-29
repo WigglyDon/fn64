@@ -9,4 +9,3 @@ The shared SP decoder applies to raw word `0xFE817000`:
 - transferred byte count: `8 * 24 = 192`
 
 No x105-specific field decoder exists.
-

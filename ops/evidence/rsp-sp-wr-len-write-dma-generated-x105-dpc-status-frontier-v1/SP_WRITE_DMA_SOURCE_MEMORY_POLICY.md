@@ -7,4 +7,3 @@ length, independent of DRAM skip.
 The public state is transfer word `0x0000B120`, selecting IMEM offset `0x120`.
 The 24 eight-byte blocks consume aggregate local range `0x120..0x1E0`.
 Unsupported source wrapping rejects before mutation.
-

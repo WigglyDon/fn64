@@ -935,7 +935,7 @@ test outside public composition is not enough.
 It does not call `Machine::step`.
 
 `fn64_step_probe` uses generated instruction words and synthetic addresses and
-calls only public `Machine::step` for execution. Its 190 cases cover:
+calls only public `Machine::step` for execution. Its 209 cases cover:
 
 - CPU-local committed success;
 - arithmetic-overflow exception entry;

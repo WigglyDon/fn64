@@ -7,4 +7,3 @@ failure, fetch failure, selected single-step, and the DPC_STATUS frontier.
 
 All pre-commit failures compare equal to a complete pre-step snapshot. Selected
 RSP rejection receives no CPU fallback.
-

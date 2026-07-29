@@ -6,4 +6,3 @@ complete source-knownness, record and register evolution, rejection atomicity,
 ordinary CPU/RSP cadence, post-DMA Xori, and the DPC_STATUS rejection.
 
 All test source patterns are independently generated in repository test code.
-

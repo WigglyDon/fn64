@@ -7,4 +7,3 @@ RSP `Mtc0 r3,SP_WR_LEN`, one atomic SP-to-RDRAM transfer, the following scalar
 The input is the repository's deterministic public synthetic cold-x105
 fixture. No private PIF image, commercial cartridge, or user-task microcode is
 used.
-

@@ -10,4 +10,3 @@ All 192 selected public synthetic IMEM bytes are concrete and non-opaque.
 
 Unavailable, opaque, inconsistent, or out-of-range source truth rejects the
 complete transfer before its first destination mutation.
-

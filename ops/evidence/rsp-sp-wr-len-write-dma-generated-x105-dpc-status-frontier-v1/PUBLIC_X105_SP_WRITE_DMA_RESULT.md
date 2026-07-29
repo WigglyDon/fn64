@@ -8,4 +8,3 @@ DMA records.
 The product gate must prove one Mtc0 commit, one third `SpToRdram` record, 192
 equal source/destination bytes, RSP PC/next-PC `0x094/0x098`, RSP count 1089,
 and CPU selection without CPU cadence changes during the RSP commit.
-

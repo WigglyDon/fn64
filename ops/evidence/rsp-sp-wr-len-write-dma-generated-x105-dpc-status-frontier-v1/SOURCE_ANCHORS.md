@@ -11,4 +11,3 @@ The guide identifies control index 3 as DMA write length, selects IMEM with
 SP memory-address bit 12, and defines the length/count/DRAM-skip fields. The
 repository's existing SP owner remains authoritative for masks and register
 evolution.
-

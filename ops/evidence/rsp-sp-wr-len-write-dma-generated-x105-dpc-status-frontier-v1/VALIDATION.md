@@ -16,7 +16,7 @@ Focused candidate results:
 - `rsp_mtc0`: 5 passed, 0 failed;
 - `mtc0`: 14 passed, 0 failed;
 - inspection all targets: 16 library, 2 user-probe, and 11 CLI tests passed;
-- complete no-window step probe: `result: ok`;
+- complete 209-case no-window step probe: `result: ok`;
 - context verifier: 15 checks, 0 errors;
 - reconciled candidate Context-SHA:
-  `86eee0976cd27608e9240bfc259df3615eaa366792aca7d2c7df3f656cd72b0c`.
+  `2bef4ba41a68a18c468cd35bda9a9f41eb6d7d2d0eb621ca0da1cae6c5d70c9d`.

@@ -8,4 +8,3 @@ register evolution.
 owners. `Rdram` remains the singular destination-byte owner. No RSP-specific
 DMA owner, generic DMA framework, bus, MMIO layer, or physical-memory map is
 introduced.
-

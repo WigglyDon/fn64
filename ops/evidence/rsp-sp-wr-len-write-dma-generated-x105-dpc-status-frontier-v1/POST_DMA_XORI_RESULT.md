@@ -5,4 +5,3 @@ After one actual CPU-selected interleave, existing RSP
 `r3 = 0x00000240`, advances RSP PC/next-PC to `0x098/0x09C`, advances the RSP
 count to 1090, and leaves the completed DMA record and destination bytes
 unchanged.
-

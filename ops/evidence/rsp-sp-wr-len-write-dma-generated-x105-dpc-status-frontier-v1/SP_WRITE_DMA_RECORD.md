@@ -14,4 +14,3 @@ RDRAM-to-SP records. The new record identifies:
 - trigger `RspMtc0` with the exact scalar-source provenance index
 
 The record owns causality and address evolution, not duplicate memory bytes.
-

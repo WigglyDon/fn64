@@ -7,4 +7,3 @@ It is identified but remains unsupported. Rejection must preserve the completed
 SP write DMA and complete Machine state, keep processor turn RSP, retain
 PC/next-PC `0x098/0x09C`, and retain RSP count 1090. No Dpc or Rdp owner is
 created, and Break at `0x09C` is not executed.
-
