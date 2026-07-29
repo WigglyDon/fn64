@@ -6,8 +6,8 @@ use crate::rsp::{
     MachineRspInstructionIdentity, MachineRspInstructionSource, MachineRspLastInstructionState,
     MachineRspLqvPlan, MachineRspLuiPlan, MachineRspMfc0ControlSource, MachineRspMfc0Plan,
     MachineRspMtc0Plan, MachineRspMtc0Source, MachineRspNopPlan, MachineRspScalarLwPlan,
-    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspVectorRegisterState,
-    MachineRspVectorUnitState, MachineRspXoriPlan,
+    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspVectorArithmeticPlan,
+    MachineRspVectorRegisterState, MachineRspVectorUnitState, MachineRspXoriPlan,
 };
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
@@ -759,7 +759,7 @@ impl Sp {
         self.rsp.vector_register(index)
     }
 
-    pub(crate) const fn rsp_accumulator_and_flags(&self) -> MachineRspAccumulatorAndFlagsState {
+    pub(crate) fn rsp_accumulator_and_flags(&self) -> MachineRspAccumulatorAndFlagsState {
         self.rsp.accumulator_and_flags()
     }
 
@@ -869,6 +869,28 @@ impl Sp {
                 provenance,
                 first_rsp_instruction_pc: instruction_pc,
                 first_rsp_identity: MachineRspInstructionIdentity::Lqv,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_vector_arithmetic(
+        &mut self,
+        plan: MachineRspVectorArithmeticPlan,
+    ) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_vector_arithmetic(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP vector arithmetic plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: outcome.identity(),
             });
         }
         outcome

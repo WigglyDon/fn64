@@ -1,4 +1,5 @@
 use core::fmt;
+use std::sync::Arc;
 
 use crate::sp::{MachineSpDramAddressSource, MachineSpSemaphoreSource};
 use crate::sp_dmem::{
@@ -23,6 +24,7 @@ pub const RSP_COP0_SP_DMA_BUSY_INDEX: u8 = 6;
 pub const RSP_COP0_SP_SEMAPHORE_INDEX: u8 = 7;
 pub const RSP_SCALAR_REGIMM_OPCODE: u8 = 0x01;
 pub const RSP_SCALAR_BLTZ_SELECTOR: u8 = 0;
+pub const RSP_SCALAR_BGEZ_SELECTOR: u8 = 1;
 pub const RSP_SCALAR_BNE_OPCODE: u8 = 0x05;
 pub const RSP_SCALAR_ADDI_OPCODE: u8 = 0x08;
 pub const RSP_SCALAR_XORI_OPCODE: u8 = 0x0e;
@@ -31,6 +33,10 @@ pub const RSP_SCALAR_LW_OPCODE: u8 = 0x23;
 pub const RSP_SCALAR_LW_BYTE_COUNT: usize = 4;
 pub const RSP_VECTOR_LOAD_OPCODE: u8 = 0x32;
 pub const RSP_VECTOR_LQV_SUBOPCODE: u8 = 4;
+pub const RSP_VECTOR_COMPUTE_OPCODE: u8 = 0x12;
+pub const RSP_VECTOR_VSUB_FUNCTION: u8 = 0x11;
+pub const RSP_VECTOR_VADDC_FUNCTION: u8 = 0x14;
+pub const RSP_VECTOR_LANE_COUNT: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRspUnavailableSource {
@@ -412,12 +418,16 @@ impl MachineRspLqvSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineRspVectorRegisterSource {
     Lqv(Box<MachineRspLqvSource>),
+    Vsub(Arc<MachineRspVectorArithmeticSource>),
+    Vaddc(Arc<MachineRspVectorArithmeticSource>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineRspVectorUnavailableSource {
     ConstructionOrReset,
     Lqv(Box<MachineRspLqvSource>),
+    Vsub(Arc<MachineRspVectorArithmeticSource>),
+    Vaddc(Arc<MachineRspVectorArithmeticSource>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -473,14 +483,343 @@ impl MachineRspVectorUnitState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspVectorArithmeticSource {
+    instruction_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    identity: MachineRspInstructionIdentity,
+    destination_vector: u8,
+    source_vector_a: u8,
+    source_a: MachineRspVectorRegisterState,
+    source_vector_b: u8,
+    source_b: Option<MachineRspVectorRegisterState>,
+    element: u8,
+    vsub_borrow_input: Option<MachineRspVcoHalfState>,
+    result_available: bool,
+}
+
+impl MachineRspVectorArithmeticSource {
+    pub const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    pub const fn identity(&self) -> MachineRspInstructionIdentity {
+        self.identity
+    }
+
+    pub const fn destination_vector(&self) -> u8 {
+        self.destination_vector
+    }
+
+    pub const fn source_vector_a(&self) -> u8 {
+        self.source_vector_a
+    }
+
+    pub const fn source_a(&self) -> &MachineRspVectorRegisterState {
+        &self.source_a
+    }
+
+    pub const fn source_vector_b(&self) -> u8 {
+        self.source_vector_b
+    }
+
+    pub const fn source_b(&self) -> Option<&MachineRspVectorRegisterState> {
+        self.source_b.as_ref()
+    }
+
+    pub const fn sources_alias(&self) -> bool {
+        self.source_b.is_none()
+    }
+
+    pub const fn element(&self) -> u8 {
+        self.element
+    }
+
+    pub const fn vsub_borrow_input(&self) -> Option<&MachineRspVcoHalfState> {
+        self.vsub_borrow_input.as_ref()
+    }
+
+    pub const fn result_available(&self) -> bool {
+        self.result_available
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspAccumulatorSliceSource {
+    Vsub(Arc<MachineRspVectorArithmeticSource>),
+    Vaddc(Arc<MachineRspVectorArithmeticSource>),
+    #[cfg(test)]
+    GeneratedMachineTestStaging,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspAccumulatorSliceUnavailableSource {
+    ConstructionOrReset,
+    Vsub(Arc<MachineRspVectorArithmeticSource>),
+    Vaddc(Arc<MachineRspVectorArithmeticSource>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspAccumulatorSliceState {
+    Available {
+        value: u16,
+        source: MachineRspAccumulatorSliceSource,
+    },
+    Unavailable {
+        source: MachineRspAccumulatorSliceUnavailableSource,
+    },
+}
+
+impl MachineRspAccumulatorSliceState {
+    pub const fn value(&self) -> Option<u16> {
+        match self {
+            Self::Available { value, .. } => Some(*value),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn is_available(&self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+
+    pub const fn available_source(&self) -> Option<&MachineRspAccumulatorSliceSource> {
+        match self {
+            Self::Available { source, .. } => Some(source),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn unavailable_source(&self) -> Option<&MachineRspAccumulatorSliceUnavailableSource> {
+        match self {
+            Self::Available { .. } => None,
+            Self::Unavailable { source } => Some(source),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspAccumulatorLaneState {
+    high: MachineRspAccumulatorSliceState,
+    middle: MachineRspAccumulatorSliceState,
+    low: MachineRspAccumulatorSliceState,
+}
+
+impl MachineRspAccumulatorLaneState {
+    pub const fn high(&self) -> &MachineRspAccumulatorSliceState {
+        &self.high
+    }
+
+    pub const fn middle(&self) -> &MachineRspAccumulatorSliceState {
+        &self.middle
+    }
+
+    pub const fn low(&self) -> &MachineRspAccumulatorSliceState {
+        &self.low
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspAccumulatorState {
+    lanes: [MachineRspAccumulatorLaneState; RSP_VECTOR_LANE_COUNT],
+}
+
+impl MachineRspAccumulatorState {
+    pub const fn lane_count(&self) -> usize {
+        self.lanes.len()
+    }
+
+    pub fn lane(&self, index: usize) -> Option<&MachineRspAccumulatorLaneState> {
+        self.lanes.get(index)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspVcoHalfSource {
+    VsubClear(Arc<MachineRspVectorArithmeticSource>),
+    VaddcCarry(Arc<MachineRspVectorArithmeticSource>),
+    VaddcNotEqualClear(Arc<MachineRspVectorArithmeticSource>),
+    #[cfg(test)]
+    GeneratedMachineTestStaging,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspVcoHalfUnavailableSource {
+    ConstructionOrReset,
+    VaddcCarry(Arc<MachineRspVectorArithmeticSource>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MachineRspVcoHalfState {
+    Available {
+        value: u8,
+        source: MachineRspVcoHalfSource,
+    },
+    Unavailable {
+        source: MachineRspVcoHalfUnavailableSource,
+    },
+}
+
+impl MachineRspVcoHalfState {
+    pub const fn value(&self) -> Option<u8> {
+        match self {
+            Self::Available { value, .. } => Some(*value),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn is_available(&self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+
+    pub const fn available_source(&self) -> Option<&MachineRspVcoHalfSource> {
+        match self {
+            Self::Available { source, .. } => Some(source),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn unavailable_source(&self) -> Option<&MachineRspVcoHalfUnavailableSource> {
+        match self {
+            Self::Available { .. } => None,
+            Self::Unavailable { source } => Some(source),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspVcoState {
+    carry_or_borrow: MachineRspVcoHalfState,
+    not_equal: MachineRspVcoHalfState,
+}
+
+impl MachineRspVcoState {
+    pub const fn carry_or_borrow(&self) -> &MachineRspVcoHalfState {
+        &self.carry_or_borrow
+    }
+
+    pub const fn not_equal(&self) -> &MachineRspVcoHalfState {
+        &self.not_equal
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MachineRspAccumulatorAndFlagsState {
-    Unavailable { source: MachineRspUnavailableSource },
+pub enum MachineRspVccSource {
+    ConstructionOrReset,
+    #[cfg(test)]
+    GeneratedMachineTestStaging,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRspVccState {
+    Available {
+        value: u16,
+        source: MachineRspVccSource,
+    },
+    Unavailable {
+        source: MachineRspVccSource,
+    },
+}
+
+impl MachineRspVccState {
+    pub const fn value(self) -> Option<u16> {
+        match self {
+            Self::Available { value, .. } => Some(value),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+
+    pub const fn source(self) -> MachineRspVccSource {
+        match self {
+            Self::Available { source, .. } | Self::Unavailable { source } => source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRspVceSource {
+    ConstructionOrReset,
+    #[cfg(test)]
+    GeneratedMachineTestStaging,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRspVceState {
+    Available {
+        value: u8,
+        source: MachineRspVceSource,
+    },
+    Unavailable {
+        source: MachineRspVceSource,
+    },
+}
+
+impl MachineRspVceState {
+    pub const fn value(self) -> Option<u8> {
+        match self {
+            Self::Available { value, .. } => Some(value),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+
+    pub const fn source(self) -> MachineRspVceSource {
+        match self {
+            Self::Available { source, .. } | Self::Unavailable { source } => source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspAccumulatorAndFlagsState {
+    accumulator: MachineRspAccumulatorState,
+    vco: MachineRspVcoState,
+    vcc: MachineRspVccState,
+    vce: MachineRspVceState,
+}
+
+impl MachineRspAccumulatorAndFlagsState {
+    pub const fn accumulator(&self) -> &MachineRspAccumulatorState {
+        &self.accumulator
+    }
+
+    pub const fn vco(&self) -> &MachineRspVcoState {
+        &self.vco
+    }
+
+    pub const fn vcc(&self) -> MachineRspVccState {
+        self.vcc
+    }
+
+    pub const fn vce(&self) -> MachineRspVceState {
+        self.vce
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MachineRspBranchSource {
     Bltz {
+        instruction_pc: u16,
+        instruction_provenance: [SpImemByteProvenance; 4],
+        source_gpr: u8,
+        source_value: u32,
+        source: MachineRspScalarRegisterSource,
+        signed_offset: i16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+    },
+    Bgez {
         instruction_pc: u16,
         instruction_provenance: [SpImemByteProvenance; 4],
         source_gpr: u8,
@@ -510,13 +849,16 @@ pub(crate) enum MachineRspBranchSource {
 impl MachineRspBranchSource {
     pub const fn instruction_pc(&self) -> u16 {
         match self {
-            Self::Bltz { instruction_pc, .. } | Self::Bne { instruction_pc, .. } => *instruction_pc,
+            Self::Bltz { instruction_pc, .. }
+            | Self::Bgez { instruction_pc, .. }
+            | Self::Bne { instruction_pc, .. } => *instruction_pc,
         }
     }
 
     pub const fn identity(&self) -> MachineRspInstructionIdentity {
         match self {
             Self::Bltz { .. } => MachineRspInstructionIdentity::Bltz,
+            Self::Bgez { .. } => MachineRspInstructionIdentity::Bgez,
             Self::Bne { .. } => MachineRspInstructionIdentity::Bne,
         }
     }
@@ -524,6 +866,10 @@ impl MachineRspBranchSource {
     pub fn instruction_source(&self) -> MachineRspInstructionSource {
         classify_instruction_source(match self {
             Self::Bltz {
+                instruction_provenance,
+                ..
+            }
+            | Self::Bgez {
                 instruction_provenance,
                 ..
             }
@@ -536,73 +882,83 @@ impl MachineRspBranchSource {
 
     pub const fn source_gpr_a(&self) -> u8 {
         match self {
-            Self::Bltz { source_gpr, .. } => *source_gpr,
+            Self::Bltz { source_gpr, .. } | Self::Bgez { source_gpr, .. } => *source_gpr,
             Self::Bne { source_gpr_a, .. } => *source_gpr_a,
         }
     }
 
     pub const fn source_value_a(&self) -> u32 {
         match self {
-            Self::Bltz { source_value, .. } => *source_value,
+            Self::Bltz { source_value, .. } | Self::Bgez { source_value, .. } => *source_value,
             Self::Bne { source_value_a, .. } => *source_value_a,
         }
     }
 
     pub fn source_a(&self) -> MachineRspScalarRegisterSource {
         match self {
-            Self::Bltz { source, .. } => source.clone(),
+            Self::Bltz { source, .. } | Self::Bgez { source, .. } => source.clone(),
             Self::Bne { source_a, .. } => source_a.clone(),
         }
     }
 
     pub const fn source_gpr_b(&self) -> Option<u8> {
         match self {
-            Self::Bltz { .. } => None,
+            Self::Bltz { .. } | Self::Bgez { .. } => None,
             Self::Bne { source_gpr_b, .. } => Some(*source_gpr_b),
         }
     }
 
     pub const fn source_value_b(&self) -> Option<u32> {
         match self {
-            Self::Bltz { .. } => None,
+            Self::Bltz { .. } | Self::Bgez { .. } => None,
             Self::Bne { source_value_b, .. } => Some(*source_value_b),
         }
     }
 
     pub fn source_b(&self) -> Option<MachineRspScalarRegisterSource> {
         match self {
-            Self::Bltz { .. } => None,
+            Self::Bltz { .. } | Self::Bgez { .. } => None,
             Self::Bne { source_b, .. } => Some(source_b.clone()),
         }
     }
 
     pub const fn signed_offset(&self) -> i16 {
         match self {
-            Self::Bltz { signed_offset, .. } | Self::Bne { signed_offset, .. } => *signed_offset,
+            Self::Bltz { signed_offset, .. }
+            | Self::Bgez { signed_offset, .. }
+            | Self::Bne { signed_offset, .. } => *signed_offset,
         }
     }
 
     pub const fn delay_slot_pc(&self) -> u16 {
         match self {
-            Self::Bltz { delay_slot_pc, .. } | Self::Bne { delay_slot_pc, .. } => *delay_slot_pc,
+            Self::Bltz { delay_slot_pc, .. }
+            | Self::Bgez { delay_slot_pc, .. }
+            | Self::Bne { delay_slot_pc, .. } => *delay_slot_pc,
         }
     }
 
     pub const fn target_pc(&self) -> u16 {
         match self {
-            Self::Bltz { target_pc, .. } | Self::Bne { target_pc, .. } => *target_pc,
+            Self::Bltz { target_pc, .. }
+            | Self::Bgez { target_pc, .. }
+            | Self::Bne { target_pc, .. } => *target_pc,
         }
     }
 
     pub const fn taken(&self) -> bool {
         match self {
-            Self::Bltz { taken, .. } | Self::Bne { taken, .. } => *taken,
+            Self::Bltz { taken, .. } | Self::Bgez { taken, .. } | Self::Bne { taken, .. } => *taken,
         }
     }
 
     const fn instruction_provenance(&self) -> [SpImemByteProvenance; 4] {
         match self {
             Self::Bltz {
+                instruction_provenance,
+                ..
+            }
+            | Self::Bgez {
                 instruction_provenance,
                 ..
             }
@@ -684,9 +1040,12 @@ pub enum MachineRspInstructionIdentity {
     Lui,
     Addi,
     Bltz,
+    Bgez,
     Bne,
     Xori,
     Lqv,
+    Vsub,
+    Vaddc,
     Lw,
     Nop,
 }
@@ -712,6 +1071,9 @@ enum MachineRspLastInstructionDestination {
         control_register: MachineRspControlRegister,
     },
     VectorLqv {
+        destination_vector: u8,
+    },
+    VectorArithmetic {
         destination_vector: u8,
     },
     ScalarLw {
@@ -768,6 +1130,7 @@ impl MachineRspLastInstructionState {
                 Some(destination_gpr)
             }
             MachineRspLastInstructionDestination::VectorLqv { .. }
+            | MachineRspLastInstructionDestination::VectorArithmetic { .. }
             | MachineRspLastInstructionDestination::ScalarMtc0 { .. }
             | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::None => None,
@@ -783,6 +1146,7 @@ impl MachineRspLastInstructionState {
                 control_register, ..
             } => Some(control_register),
             MachineRspLastInstructionDestination::VectorLqv { .. }
+            | MachineRspLastInstructionDestination::VectorArithmetic { .. }
             | MachineRspLastInstructionDestination::ScalarLw { .. }
             | MachineRspLastInstructionDestination::ScalarLui { .. }
             | MachineRspLastInstructionDestination::ScalarAddi { .. }
@@ -819,6 +1183,9 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::ScalarXori { .. }
             | MachineRspLastInstructionDestination::None => None,
             MachineRspLastInstructionDestination::VectorLqv { destination_vector } => {
+                Some(destination_vector)
+            }
+            MachineRspLastInstructionDestination::VectorArithmetic { destination_vector } => {
                 Some(destination_vector)
             }
         }
@@ -877,6 +1244,12 @@ pub enum MachineRspStepOutcome {
         target_pc: u16,
         taken: bool,
     },
+    ScalarBgezCommitted {
+        instruction_pc: u16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+    },
     ScalarBneCommitted {
         instruction_pc: u16,
         delay_slot_pc: u16,
@@ -887,6 +1260,16 @@ pub enum MachineRspStepOutcome {
         instruction_pc: u16,
         destination_gpr: u8,
         result_value: u32,
+    },
+    VectorVsubCommitted {
+        instruction_pc: u16,
+        destination_vector: u8,
+        result_available: bool,
+    },
+    VectorVaddcCommitted {
+        instruction_pc: u16,
+        destination_vector: u8,
+        result_available: bool,
     },
     NopCommitted {
         instruction_pc: u16,
@@ -901,9 +1284,12 @@ impl MachineRspStepOutcome {
             Self::ScalarLuiCommitted { .. } => MachineRspInstructionIdentity::Lui,
             Self::ScalarAddiCommitted { .. } => MachineRspInstructionIdentity::Addi,
             Self::ScalarBltzCommitted { .. } => MachineRspInstructionIdentity::Bltz,
+            Self::ScalarBgezCommitted { .. } => MachineRspInstructionIdentity::Bgez,
             Self::ScalarBneCommitted { .. } => MachineRspInstructionIdentity::Bne,
             Self::ScalarXoriCommitted { .. } => MachineRspInstructionIdentity::Xori,
             Self::VectorLqvCommitted { .. } => MachineRspInstructionIdentity::Lqv,
+            Self::VectorVsubCommitted { .. } => MachineRspInstructionIdentity::Vsub,
+            Self::VectorVaddcCommitted { .. } => MachineRspInstructionIdentity::Vaddc,
             Self::ScalarLwCommitted { .. } => MachineRspInstructionIdentity::Lw,
             Self::NopCommitted { .. } => MachineRspInstructionIdentity::Nop,
         }
@@ -916,9 +1302,12 @@ impl MachineRspStepOutcome {
             | Self::ScalarLuiCommitted { instruction_pc, .. }
             | Self::ScalarAddiCommitted { instruction_pc, .. }
             | Self::ScalarBltzCommitted { instruction_pc, .. }
+            | Self::ScalarBgezCommitted { instruction_pc, .. }
             | Self::ScalarBneCommitted { instruction_pc, .. }
             | Self::ScalarXoriCommitted { instruction_pc, .. }
             | Self::VectorLqvCommitted { instruction_pc, .. }
+            | Self::VectorVsubCommitted { instruction_pc, .. }
+            | Self::VectorVaddcCommitted { instruction_pc, .. }
             | Self::ScalarLwCommitted { instruction_pc, .. }
             | Self::NopCommitted { instruction_pc } => instruction_pc,
         }
@@ -943,8 +1332,11 @@ impl MachineRspStepOutcome {
             } => Some(destination_gpr),
             Self::ScalarMtc0Committed { .. }
             | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::VectorLqvCommitted { .. }
+            | Self::VectorVsubCommitted { .. }
+            | Self::VectorVaddcCommitted { .. }
             | Self::NopCommitted { .. } => None,
         }
     }
@@ -958,9 +1350,12 @@ impl MachineRspStepOutcome {
                 control_register, ..
             } => Some(control_register),
             Self::VectorLqvCommitted { .. }
+            | Self::VectorVsubCommitted { .. }
+            | Self::VectorVaddcCommitted { .. }
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarLwCommitted { .. }
@@ -977,8 +1372,11 @@ impl MachineRspStepOutcome {
             | Self::ScalarXoriCommitted { result_value, .. } => Some(result_value),
             Self::ScalarMtc0Committed { .. }
             | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::VectorLqvCommitted { .. }
+            | Self::VectorVsubCommitted { .. }
+            | Self::VectorVaddcCommitted { .. }
             | Self::NopCommitted { .. } => None,
         }
     }
@@ -990,11 +1388,18 @@ impl MachineRspStepOutcome {
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarLwCommitted { .. }
             | Self::NopCommitted { .. } => None,
             Self::VectorLqvCommitted {
+                destination_vector, ..
+            }
+            | Self::VectorVsubCommitted {
+                destination_vector, ..
+            }
+            | Self::VectorVaddcCommitted {
                 destination_vector, ..
             } => Some(destination_vector),
         }
@@ -1007,8 +1412,11 @@ impl MachineRspStepOutcome {
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
+            | Self::VectorVsubCommitted { .. }
+            | Self::VectorVaddcCommitted { .. }
             | Self::NopCommitted { .. } => None,
             Self::ScalarLwCommitted {
                 local_dmem_address, ..
@@ -1026,10 +1434,17 @@ impl MachineRspStepOutcome {
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
+            | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. } => None,
             Self::ScalarLwCommitted { .. } | Self::NopCommitted { .. } => None,
             Self::VectorLqvCommitted {
+                result_available, ..
+            }
+            | Self::VectorVsubCommitted {
+                result_available, ..
+            }
+            | Self::VectorVaddcCommitted {
                 result_available, ..
             } => Some(result_available),
         }
@@ -1087,6 +1502,9 @@ pub enum MachineRspStepRejectionReason {
     BltzSourceUnavailable {
         source_gpr: u8,
     },
+    BgezSourceUnavailable {
+        source_gpr: u8,
+    },
     BneSourceAUnavailable {
         source_gpr: u8,
     },
@@ -1132,10 +1550,10 @@ pub enum MachineRspStepRejectionReason {
         opcode: u8,
     },
     ScalarSllUnsupported,
-    VectorVsubUnsupported {
-        destination_vector: u8,
-        source_vector_a: u8,
-        source_vector_b: u8,
+    VsubElementUnsupported {
+        element: u8,
+    },
+    VaddcElementUnsupported {
         element: u8,
     },
     UnrepresentedInstruction {
@@ -1236,10 +1654,13 @@ impl fmt::Display for MachineRspStepRejection {
             }
             MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector } => write!(
                 f,
-                "RSP REGIMM selector {selector} is not represented beyond exact Bltz"
+                "RSP REGIMM selector {selector} is not represented beyond exact Bltz and Bgez"
             ),
             MachineRspStepRejectionReason::BltzSourceUnavailable { source_gpr } => {
                 write!(f, "RSP Bltz scalar source r{source_gpr} is unavailable")
+            }
+            MachineRspStepRejectionReason::BgezSourceUnavailable { source_gpr } => {
+                write!(f, "RSP Bgez scalar source r{source_gpr} is unavailable")
             }
             MachineRspStepRejectionReason::BneSourceAUnavailable { source_gpr } => {
                 write!(f, "RSP Bne scalar source A r{source_gpr} is unavailable")
@@ -1309,14 +1730,13 @@ impl fmt::Display for MachineRspStepRejection {
             MachineRspStepRejectionReason::ScalarSllUnsupported => {
                 write!(f, "RSP scalar Sll is not represented beyond the exact raw-zero Nop")
             }
-            MachineRspStepRejectionReason::VectorVsubUnsupported {
-                destination_vector,
-                source_vector_a,
-                source_vector_b,
-                element,
-            } => write!(
+            MachineRspStepRejectionReason::VsubElementUnsupported { element } => write!(
                 f,
-                "RSP Vsub v{destination_vector},v{source_vector_a},v{source_vector_b}[{element}] is identified but vector arithmetic is not represented"
+                "RSP Vsub element {element} is outside the element-zero lane-aligned boundary"
+            ),
+            MachineRspStepRejectionReason::VaddcElementUnsupported { element } => write!(
+                f,
+                "RSP Vaddc element {element} is outside the element-zero lane-aligned boundary"
             ),
             MachineRspStepRejectionReason::UnrepresentedInstruction { class } => {
                 write!(f, "RSP {class:?} instruction identity is not represented")
@@ -1528,6 +1948,29 @@ pub(crate) struct MachineRspScalarLwPlan {
     result_value: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MachineRspVectorArithmeticPlan {
+    instruction_pc: u16,
+    old_next_pc: u16,
+    identity: MachineRspInstructionIdentity,
+    destination_vector: u8,
+    old_destination_state: MachineRspVectorRegisterState,
+    byte_provenance: [SpImemByteProvenance; 4],
+    destination_state: MachineRspVectorRegisterState,
+    old_accumulator_and_flags: MachineRspAccumulatorAndFlagsState,
+    accumulator_and_flags: MachineRspAccumulatorAndFlagsState,
+}
+
+impl MachineRspVectorArithmeticPlan {
+    pub(crate) const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub(crate) const fn old_next_pc(&self) -> u16 {
+        self.old_next_pc
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MachineRspScalarLwDmemObservation {
     descriptor: MachineSpDmemByteKnowledgeDescriptor,
@@ -1604,6 +2047,10 @@ pub(crate) enum MachineRspDecodedInstruction {
         source_gpr: u8,
         signed_offset: i16,
     },
+    Bgez {
+        source_gpr: u8,
+        signed_offset: i16,
+    },
     Bne {
         source_gpr_a: u8,
         source_gpr_b: u8,
@@ -1619,6 +2066,18 @@ pub(crate) enum MachineRspDecodedInstruction {
         destination_vector: u8,
         element: u8,
         signed_offset: i8,
+    },
+    Vsub {
+        destination_vector: u8,
+        source_vector_a: u8,
+        source_vector_b: u8,
+        element: u8,
+    },
+    Vaddc {
+        destination_vector: u8,
+        source_vector_a: u8,
+        source_vector_b: u8,
+        element: u8,
     },
     Lw {
         base_gpr: u8,
@@ -1669,8 +2128,8 @@ impl MachineRspExecutionState {
         self.vector_unit.register(index)
     }
 
-    pub(crate) const fn accumulator_and_flags(&self) -> MachineRspAccumulatorAndFlagsState {
-        self.accumulator_and_flags
+    pub(crate) fn accumulator_and_flags(&self) -> MachineRspAccumulatorAndFlagsState {
+        self.accumulator_and_flags.clone()
     }
 
     pub(crate) fn mtc0_source(&self, index: usize) -> Option<&MachineRspMtc0Source> {
@@ -1751,15 +2210,21 @@ impl MachineRspExecutionState {
         }
         if opcode == RSP_SCALAR_REGIMM_OPCODE {
             let selector = ((raw_word >> 16) & 0x1f) as u8;
-            if selector != RSP_SCALAR_BLTZ_SELECTOR {
-                return Err(MachineRspStepRejection::new(
+            let source_gpr = ((raw_word >> 21) & 0x1f) as u8;
+            let signed_offset = raw_word as u16 as i16;
+            return match selector {
+                RSP_SCALAR_BLTZ_SELECTOR => Ok(MachineRspDecodedInstruction::Bltz {
+                    source_gpr,
+                    signed_offset,
+                }),
+                RSP_SCALAR_BGEZ_SELECTOR => Ok(MachineRspDecodedInstruction::Bgez {
+                    source_gpr,
+                    signed_offset,
+                }),
+                _ => Err(MachineRspStepRejection::new(
                     MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector },
-                ));
-            }
-            return Ok(MachineRspDecodedInstruction::Bltz {
-                source_gpr: ((raw_word >> 21) & 0x1f) as u8,
-                signed_offset: raw_word as u16 as i16,
-            });
+                )),
+            };
         }
         if opcode == RSP_SCALAR_BNE_OPCODE {
             return Ok(MachineRspDecodedInstruction::Bne {
@@ -1809,6 +2274,31 @@ impl MachineRspExecutionState {
                 signed_offset,
             });
         }
+        if opcode == RSP_VECTOR_COMPUTE_OPCODE && ((raw_word >> 21) & 0x10) != 0 {
+            let destination_vector = ((raw_word >> 6) & 0x1f) as u8;
+            let source_vector_a = ((raw_word >> 11) & 0x1f) as u8;
+            let source_vector_b = ((raw_word >> 16) & 0x1f) as u8;
+            let element = ((raw_word >> 21) & 0x0f) as u8;
+            return match (raw_word & 0x3f) as u8 {
+                RSP_VECTOR_VSUB_FUNCTION => Ok(MachineRspDecodedInstruction::Vsub {
+                    destination_vector,
+                    source_vector_a,
+                    source_vector_b,
+                    element,
+                }),
+                RSP_VECTOR_VADDC_FUNCTION => Ok(MachineRspDecodedInstruction::Vaddc {
+                    destination_vector,
+                    source_vector_a,
+                    source_vector_b,
+                    element,
+                }),
+                _ => Err(MachineRspStepRejection::new(
+                    MachineRspStepRejectionReason::UnrepresentedInstruction {
+                        class: MachineRspUnrepresentedInstructionClass::Vector,
+                    },
+                )),
+            };
+        }
         if opcode == 0x3a {
             return Err(MachineRspStepRejection::new(
                 MachineRspStepRejectionReason::VectorStoreUnsupported,
@@ -1836,17 +2326,7 @@ impl MachineRspExecutionState {
                 MachineRspStepRejectionReason::ScalarSllUnsupported,
             ));
         }
-        if opcode == 0x12 && ((raw_word >> 21) & 0x10) != 0 && (raw_word & 0x3f) == 0x11 {
-            return Err(MachineRspStepRejection::new(
-                MachineRspStepRejectionReason::VectorVsubUnsupported {
-                    destination_vector: ((raw_word >> 6) & 0x1f) as u8,
-                    source_vector_a: ((raw_word >> 11) & 0x1f) as u8,
-                    source_vector_b: ((raw_word >> 16) & 0x1f) as u8,
-                    element: ((raw_word >> 21) & 0x0f) as u8,
-                },
-            ));
-        }
-        let class = if opcode == 0x12 {
+        let class = if opcode == RSP_VECTOR_COMPUTE_OPCODE {
             MachineRspUnrepresentedInstructionClass::Vector
         } else {
             MachineRspUnrepresentedInstructionClass::Scalar
@@ -2152,6 +2632,32 @@ impl MachineRspExecutionState {
                     taken: source_value & 0x8000_0000 != 0,
                 }
             }
+            MachineRspDecodedInstruction::Bgez {
+                source_gpr,
+                signed_offset,
+            } => {
+                let MachineRspScalarRegisterState::Available {
+                    value: source_value,
+                    source,
+                } = &self.scalar_registers[usize::from(source_gpr)]
+                else {
+                    return Err(MachineRspStepRejection::new(
+                        MachineRspStepRejectionReason::BgezSourceUnavailable { source_gpr },
+                    ));
+                };
+                let target_pc = branch_target_local_pc(delay_slot_pc, signed_offset);
+                MachineRspBranchSource::Bgez {
+                    instruction_pc,
+                    instruction_provenance: byte_provenance,
+                    source_gpr,
+                    source_value: *source_value,
+                    source: source.clone(),
+                    signed_offset,
+                    delay_slot_pc,
+                    target_pc,
+                    taken: source_value & 0x8000_0000 == 0,
+                }
+            }
             MachineRspDecodedInstruction::Bne {
                 source_gpr_a,
                 source_gpr_b,
@@ -2195,7 +2701,7 @@ impl MachineRspExecutionState {
                     taken: source_value_a != source_value_b,
                 }
             }
-            _ => unreachable!("branch planner receives only decoded Bltz or Bne"),
+            _ => unreachable!("branch planner receives only decoded Bltz, Bgez, or Bne"),
         };
         let selected_next_pc = if source.taken() {
             source.target_pc()
@@ -2231,13 +2737,19 @@ impl MachineRspExecutionState {
                 target_pc,
                 taken,
             },
+            MachineRspInstructionIdentity::Bgez => MachineRspStepOutcome::ScalarBgezCommitted {
+                instruction_pc,
+                delay_slot_pc,
+                target_pc,
+                taken,
+            },
             MachineRspInstructionIdentity::Bne => MachineRspStepOutcome::ScalarBneCommitted {
                 instruction_pc,
                 delay_slot_pc,
                 target_pc,
                 taken,
             },
-            _ => unreachable!("branch plan identity is exactly Bltz or Bne"),
+            _ => unreachable!("branch plan identity is exactly Bltz, Bgez, or Bne"),
         }
     }
 
@@ -2450,6 +2962,261 @@ impl MachineRspExecutionState {
         }
     }
 
+    pub(crate) fn plan_vector_arithmetic(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+        byte_provenance: [SpImemByteProvenance; 4],
+    ) -> Result<MachineRspVectorArithmeticPlan, MachineRspStepRejection> {
+        let (identity, destination_vector, source_vector_a, source_vector_b, element) =
+            match decoded {
+                MachineRspDecodedInstruction::Vsub {
+                    destination_vector,
+                    source_vector_a,
+                    source_vector_b,
+                    element,
+                } => (
+                    MachineRspInstructionIdentity::Vsub,
+                    destination_vector,
+                    source_vector_a,
+                    source_vector_b,
+                    element,
+                ),
+                MachineRspDecodedInstruction::Vaddc {
+                    destination_vector,
+                    source_vector_a,
+                    source_vector_b,
+                    element,
+                } => (
+                    MachineRspInstructionIdentity::Vaddc,
+                    destination_vector,
+                    source_vector_a,
+                    source_vector_b,
+                    element,
+                ),
+                _ => unreachable!("vector arithmetic planner receives only decoded Vsub or Vaddc"),
+            };
+        if element != 0 {
+            return Err(MachineRspStepRejection::new(match identity {
+                MachineRspInstructionIdentity::Vsub => {
+                    MachineRspStepRejectionReason::VsubElementUnsupported { element }
+                }
+                MachineRspInstructionIdentity::Vaddc => {
+                    MachineRspStepRejectionReason::VaddcElementUnsupported { element }
+                }
+                _ => unreachable!("vector arithmetic plan identity is Vsub or Vaddc"),
+            }));
+        }
+
+        let source_a = self.vector_unit.registers[usize::from(source_vector_a)].clone();
+        let source_b = if source_vector_a == source_vector_b {
+            None
+        } else {
+            Some(self.vector_unit.registers[usize::from(source_vector_b)].clone())
+        };
+        let old_destination_state =
+            self.vector_unit.registers[usize::from(destination_vector)].clone();
+        let old_accumulator_and_flags = self.accumulator_and_flags.clone();
+
+        let (available_bytes, available_accumulator_low, available_carry) = match identity {
+            MachineRspInstructionIdentity::Vsub => {
+                let borrow = old_accumulator_and_flags.vco.carry_or_borrow.value();
+                let computed = borrow.and_then(|borrow| {
+                    if source_vector_a == source_vector_b {
+                        Some(compute_vsub_self_alias(borrow))
+                    } else {
+                        compute_vsub_available(&source_a, source_b.as_ref()?, borrow)
+                    }
+                });
+                match computed {
+                    Some((bytes, accumulator_low)) => (Some(bytes), Some(accumulator_low), None),
+                    None => (None, None, None),
+                }
+            }
+            MachineRspInstructionIdentity::Vaddc => {
+                let computed = if source_vector_a == source_vector_b {
+                    compute_vaddc_available(&source_a, &source_a)
+                } else {
+                    compute_vaddc_available(&source_a, source_b.as_ref().expect("non-alias source"))
+                };
+                match computed {
+                    Some((bytes, accumulator_low, carry)) => {
+                        (Some(bytes), Some(accumulator_low), Some(carry))
+                    }
+                    None => (None, None, None),
+                }
+            }
+            _ => unreachable!("vector arithmetic plan identity is Vsub or Vaddc"),
+        };
+        let result_available = available_bytes.is_some();
+        let arithmetic_source = Arc::new(MachineRspVectorArithmeticSource {
+            instruction_pc,
+            instruction_provenance: byte_provenance,
+            identity,
+            destination_vector,
+            source_vector_a,
+            source_a,
+            source_vector_b,
+            source_b,
+            element,
+            vsub_borrow_input: (identity == MachineRspInstructionIdentity::Vsub)
+                .then(|| old_accumulator_and_flags.vco.carry_or_borrow.clone()),
+            result_available,
+        });
+
+        let destination_state = match (identity, available_bytes) {
+            (MachineRspInstructionIdentity::Vsub, Some(bytes)) => {
+                MachineRspVectorRegisterState::Available {
+                    bytes,
+                    source: MachineRspVectorRegisterSource::Vsub(arithmetic_source.clone()),
+                }
+            }
+            (MachineRspInstructionIdentity::Vsub, None) => {
+                MachineRspVectorRegisterState::Unavailable {
+                    source: MachineRspVectorUnavailableSource::Vsub(arithmetic_source.clone()),
+                }
+            }
+            (MachineRspInstructionIdentity::Vaddc, Some(bytes)) => {
+                MachineRspVectorRegisterState::Available {
+                    bytes,
+                    source: MachineRspVectorRegisterSource::Vaddc(arithmetic_source.clone()),
+                }
+            }
+            (MachineRspInstructionIdentity::Vaddc, None) => {
+                MachineRspVectorRegisterState::Unavailable {
+                    source: MachineRspVectorUnavailableSource::Vaddc(arithmetic_source.clone()),
+                }
+            }
+            _ => unreachable!("vector arithmetic plan identity is Vsub or Vaddc"),
+        };
+
+        let mut accumulator_and_flags = old_accumulator_and_flags.clone();
+        for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+            accumulator_and_flags.accumulator.lanes[lane_index].low =
+                match (identity, available_accumulator_low) {
+                    (MachineRspInstructionIdentity::Vsub, Some(values)) => {
+                        MachineRspAccumulatorSliceState::Available {
+                            value: values[lane_index],
+                            source: MachineRspAccumulatorSliceSource::Vsub(
+                                arithmetic_source.clone(),
+                            ),
+                        }
+                    }
+                    (MachineRspInstructionIdentity::Vsub, None) => {
+                        MachineRspAccumulatorSliceState::Unavailable {
+                            source: MachineRspAccumulatorSliceUnavailableSource::Vsub(
+                                arithmetic_source.clone(),
+                            ),
+                        }
+                    }
+                    (MachineRspInstructionIdentity::Vaddc, Some(values)) => {
+                        MachineRspAccumulatorSliceState::Available {
+                            value: values[lane_index],
+                            source: MachineRspAccumulatorSliceSource::Vaddc(
+                                arithmetic_source.clone(),
+                            ),
+                        }
+                    }
+                    (MachineRspInstructionIdentity::Vaddc, None) => {
+                        MachineRspAccumulatorSliceState::Unavailable {
+                            source: MachineRspAccumulatorSliceUnavailableSource::Vaddc(
+                                arithmetic_source.clone(),
+                            ),
+                        }
+                    }
+                    _ => unreachable!("vector arithmetic plan identity is Vsub or Vaddc"),
+                };
+        }
+        match identity {
+            MachineRspInstructionIdentity::Vsub => {
+                accumulator_and_flags.vco = MachineRspVcoState {
+                    carry_or_borrow: MachineRspVcoHalfState::Available {
+                        value: 0,
+                        source: MachineRspVcoHalfSource::VsubClear(arithmetic_source.clone()),
+                    },
+                    not_equal: MachineRspVcoHalfState::Available {
+                        value: 0,
+                        source: MachineRspVcoHalfSource::VsubClear(arithmetic_source.clone()),
+                    },
+                };
+            }
+            MachineRspInstructionIdentity::Vaddc => {
+                accumulator_and_flags.vco = MachineRspVcoState {
+                    carry_or_borrow: match available_carry {
+                        Some(value) => MachineRspVcoHalfState::Available {
+                            value,
+                            source: MachineRspVcoHalfSource::VaddcCarry(arithmetic_source.clone()),
+                        },
+                        None => MachineRspVcoHalfState::Unavailable {
+                            source: MachineRspVcoHalfUnavailableSource::VaddcCarry(
+                                arithmetic_source.clone(),
+                            ),
+                        },
+                    },
+                    not_equal: MachineRspVcoHalfState::Available {
+                        value: 0,
+                        source: MachineRspVcoHalfSource::VaddcNotEqualClear(
+                            arithmetic_source.clone(),
+                        ),
+                    },
+                };
+            }
+            _ => unreachable!("vector arithmetic plan identity is Vsub or Vaddc"),
+        }
+
+        Ok(MachineRspVectorArithmeticPlan {
+            instruction_pc,
+            old_next_pc: self
+                .next_pc
+                .unwrap_or_else(|| sequential_local_pc(instruction_pc)),
+            identity,
+            destination_vector,
+            old_destination_state,
+            byte_provenance,
+            destination_state,
+            old_accumulator_and_flags,
+            accumulator_and_flags,
+        })
+    }
+
+    pub(crate) fn apply_vector_arithmetic(
+        &mut self,
+        plan: MachineRspVectorArithmeticPlan,
+    ) -> MachineRspStepOutcome {
+        debug_assert_eq!(
+            self.vector_unit.registers[usize::from(plan.destination_vector)],
+            plan.old_destination_state
+        );
+        debug_assert_eq!(self.accumulator_and_flags, plan.old_accumulator_and_flags);
+        let result_available = plan.destination_state.is_available();
+        self.vector_unit.registers[usize::from(plan.destination_vector)] = plan.destination_state;
+        self.accumulator_and_flags = plan.accumulator_and_flags;
+        self.next_pc = Some(sequential_local_pc(plan.old_next_pc));
+        self.delay_slot_context = None;
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc: plan.instruction_pc,
+            identity: plan.identity,
+            destination: MachineRspLastInstructionDestination::VectorArithmetic {
+                destination_vector: plan.destination_vector,
+            },
+            byte_provenance: plan.byte_provenance,
+        });
+        match plan.identity {
+            MachineRspInstructionIdentity::Vsub => MachineRspStepOutcome::VectorVsubCommitted {
+                instruction_pc: plan.instruction_pc,
+                destination_vector: plan.destination_vector,
+                result_available,
+            },
+            MachineRspInstructionIdentity::Vaddc => MachineRspStepOutcome::VectorVaddcCommitted {
+                instruction_pc: plan.instruction_pc,
+                destination_vector: plan.destination_vector,
+                result_available,
+            },
+            _ => unreachable!("vector arithmetic plan identity is Vsub or Vaddc"),
+        }
+    }
+
     pub(crate) fn plan_lw_address(
         &self,
         instruction_pc: u16,
@@ -2649,12 +3416,113 @@ impl Default for MachineRspExecutionState {
                     source: MachineRspVectorUnavailableSource::ConstructionOrReset,
                 }),
             },
-            accumulator_and_flags: MachineRspAccumulatorAndFlagsState::Unavailable {
-                source: MachineRspUnavailableSource::ConstructionOrReset,
+            accumulator_and_flags: MachineRspAccumulatorAndFlagsState {
+                accumulator: MachineRspAccumulatorState {
+                    lanes: core::array::from_fn(|_| MachineRspAccumulatorLaneState {
+                        high: MachineRspAccumulatorSliceState::Unavailable {
+                            source:
+                                MachineRspAccumulatorSliceUnavailableSource::ConstructionOrReset,
+                        },
+                        middle: MachineRspAccumulatorSliceState::Unavailable {
+                            source:
+                                MachineRspAccumulatorSliceUnavailableSource::ConstructionOrReset,
+                        },
+                        low: MachineRspAccumulatorSliceState::Unavailable {
+                            source:
+                                MachineRspAccumulatorSliceUnavailableSource::ConstructionOrReset,
+                        },
+                    }),
+                },
+                vco: MachineRspVcoState {
+                    carry_or_borrow: MachineRspVcoHalfState::Unavailable {
+                        source: MachineRspVcoHalfUnavailableSource::ConstructionOrReset,
+                    },
+                    not_equal: MachineRspVcoHalfState::Unavailable {
+                        source: MachineRspVcoHalfUnavailableSource::ConstructionOrReset,
+                    },
+                },
+                vcc: MachineRspVccState::Unavailable {
+                    source: MachineRspVccSource::ConstructionOrReset,
+                },
+                vce: MachineRspVceState::Unavailable {
+                    source: MachineRspVceSource::ConstructionOrReset,
+                },
             },
             mtc0_sources: Vec::new(),
         }
     }
+}
+
+fn compute_vsub_self_alias(borrow: u8) -> ([u8; RSP_VECTOR_REGISTER_BYTE_COUNT], [u16; 8]) {
+    let mut bytes = [0_u8; RSP_VECTOR_REGISTER_BYTE_COUNT];
+    let mut accumulator_low = [0_u16; RSP_VECTOR_LANE_COUNT];
+    for (lane_index, accumulator_low) in accumulator_low.iter_mut().enumerate() {
+        let result = -i32::from((borrow >> lane_index) & 1);
+        *accumulator_low = result as u16;
+        let lane_bytes = (result as i16).to_be_bytes();
+        bytes[lane_index * 2] = lane_bytes[0];
+        bytes[lane_index * 2 + 1] = lane_bytes[1];
+    }
+    (bytes, accumulator_low)
+}
+
+fn compute_vsub_available(
+    source_a: &MachineRspVectorRegisterState,
+    source_b: &MachineRspVectorRegisterState,
+    borrow: u8,
+) -> Option<([u8; RSP_VECTOR_REGISTER_BYTE_COUNT], [u16; 8])> {
+    let source_a = source_a.bytes()?;
+    let source_b = source_b.bytes()?;
+    let mut bytes = [0_u8; RSP_VECTOR_REGISTER_BYTE_COUNT];
+    let mut accumulator_low = [0_u16; RSP_VECTOR_LANE_COUNT];
+    for (lane_index, accumulator_low) in accumulator_low.iter_mut().enumerate() {
+        let byte_index = lane_index * 2;
+        let lane_a = i32::from(i16::from_be_bytes([
+            source_a[byte_index],
+            source_a[byte_index + 1],
+        ]));
+        let lane_b = i32::from(i16::from_be_bytes([
+            source_b[byte_index],
+            source_b[byte_index + 1],
+        ]));
+        let wide_result = lane_a - lane_b - i32::from((borrow >> lane_index) & 1);
+        *accumulator_low = wide_result as u16;
+        let clamped = wide_result.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+        let lane_bytes = clamped.to_be_bytes();
+        bytes[byte_index] = lane_bytes[0];
+        bytes[byte_index + 1] = lane_bytes[1];
+    }
+    Some((bytes, accumulator_low))
+}
+
+fn compute_vaddc_available(
+    source_a: &MachineRspVectorRegisterState,
+    source_b: &MachineRspVectorRegisterState,
+) -> Option<([u8; RSP_VECTOR_REGISTER_BYTE_COUNT], [u16; 8], u8)> {
+    let source_a = source_a.bytes()?;
+    let source_b = source_b.bytes()?;
+    let mut bytes = [0_u8; RSP_VECTOR_REGISTER_BYTE_COUNT];
+    let mut accumulator_low = [0_u16; RSP_VECTOR_LANE_COUNT];
+    let mut carry = 0_u8;
+    for (lane_index, accumulator_low) in accumulator_low.iter_mut().enumerate() {
+        let byte_index = lane_index * 2;
+        let lane_a = u32::from(u16::from_be_bytes([
+            source_a[byte_index],
+            source_a[byte_index + 1],
+        ]));
+        let lane_b = u32::from(u16::from_be_bytes([
+            source_b[byte_index],
+            source_b[byte_index + 1],
+        ]));
+        let sum = lane_a + lane_b;
+        let low = sum as u16;
+        *accumulator_low = low;
+        carry |= ((sum >> 16) as u8) << lane_index;
+        let lane_bytes = low.to_be_bytes();
+        bytes[byte_index] = lane_bytes[0];
+        bytes[byte_index + 1] = lane_bytes[1];
+    }
+    Some((bytes, accumulator_low, carry))
 }
 
 pub(crate) const fn sequential_local_pc(pc: u16) -> u16 {
@@ -2751,6 +3619,13 @@ mod tests {
             | signed_offset as u16 as u32
     }
 
+    const fn bgez_word(source_gpr: u8, signed_offset: i16) -> u32 {
+        ((RSP_SCALAR_REGIMM_OPCODE as u32) << 26)
+            | ((source_gpr as u32) << 21)
+            | ((RSP_SCALAR_BGEZ_SELECTOR as u32) << 16)
+            | signed_offset as u16 as u32
+    }
+
     const fn bne_word(source_gpr_a: u8, source_gpr_b: u8, signed_offset: i16) -> u32 {
         ((RSP_SCALAR_BNE_OPCODE as u32) << 26)
             | ((source_gpr_a as u32) << 21)
@@ -2765,6 +3640,22 @@ mod tests {
             | immediate as u32
     }
 
+    const fn vector_compute_word(
+        function: u8,
+        destination_vector: u8,
+        source_vector_a: u8,
+        source_vector_b: u8,
+        element: u8,
+    ) -> u32 {
+        ((RSP_VECTOR_COMPUTE_OPCODE as u32) << 26)
+            | (1 << 25)
+            | ((element as u32) << 21)
+            | ((source_vector_b as u32) << 16)
+            | ((source_vector_a as u32) << 11)
+            | ((destination_vector as u32) << 6)
+            | function as u32
+    }
+
     fn stage_available_scalar(rsp: &mut MachineRspExecutionState, index: usize, value: u32) {
         rsp.scalar_registers[index] = MachineRspScalarRegisterState::Available {
             value,
@@ -2776,6 +3667,77 @@ mod tests {
                 },
                 byte_provenance: TEST_INSTRUCTION_PROVENANCE,
             }),
+        };
+    }
+
+    fn stage_available_vector(
+        rsp: &mut MachineRspExecutionState,
+        index: usize,
+        bytes: [u8; RSP_VECTOR_REGISTER_BYTE_COUNT],
+    ) {
+        let dmem_knowledge = core::array::from_fn(|byte_index| {
+            MachineSpDmemByteKnowledgeDescriptor::new(
+                SpDmemOffset::new(byte_index as u32),
+                MachineSpDmemByteKnowledgeSource::Available {
+                    source: crate::sp_dmem::MachineSpDmemByteSource::GeneratedMachineTestStaging,
+                },
+            )
+        });
+        rsp.vector_unit.registers[index] = MachineRspVectorRegisterState::Available {
+            bytes,
+            source: MachineRspVectorRegisterSource::Lqv(Box::new(MachineRspLqvSource {
+                instruction_pc: 0,
+                instruction_provenance: TEST_INSTRUCTION_PROVENANCE,
+                base_gpr: 0,
+                base_value: 0,
+                base_source: MachineRspScalarRegisterSource::ArchitecturalZero,
+                element: 0,
+                signed_offset: 0,
+                local_dmem_address: 0,
+                dmem_knowledge,
+            })),
+        };
+    }
+
+    fn vector_bytes_from_lanes(lanes: [u16; RSP_VECTOR_LANE_COUNT]) -> [u8; 16] {
+        let mut bytes = [0_u8; 16];
+        for (lane_index, lane) in lanes.into_iter().enumerate() {
+            let lane_bytes = lane.to_be_bytes();
+            bytes[lane_index * 2] = lane_bytes[0];
+            bytes[lane_index * 2 + 1] = lane_bytes[1];
+        }
+        bytes
+    }
+
+    fn stage_available_vector_control(rsp: &mut MachineRspExecutionState, carry_or_borrow: u8) {
+        for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+            let lane = &mut rsp.accumulator_and_flags.accumulator.lanes[lane_index];
+            lane.high = MachineRspAccumulatorSliceState::Available {
+                value: 0x1000 + lane_index as u16,
+                source: MachineRspAccumulatorSliceSource::GeneratedMachineTestStaging,
+            };
+            lane.middle = MachineRspAccumulatorSliceState::Available {
+                value: 0x2000 + lane_index as u16,
+                source: MachineRspAccumulatorSliceSource::GeneratedMachineTestStaging,
+            };
+        }
+        rsp.accumulator_and_flags.vco = MachineRspVcoState {
+            carry_or_borrow: MachineRspVcoHalfState::Available {
+                value: carry_or_borrow,
+                source: MachineRspVcoHalfSource::GeneratedMachineTestStaging,
+            },
+            not_equal: MachineRspVcoHalfState::Available {
+                value: 0xa5,
+                source: MachineRspVcoHalfSource::GeneratedMachineTestStaging,
+            },
+        };
+        rsp.accumulator_and_flags.vcc = MachineRspVccState::Available {
+            value: 0x5aa5,
+            source: MachineRspVccSource::GeneratedMachineTestStaging,
+        };
+        rsp.accumulator_and_flags.vce = MachineRspVceState::Available {
+            value: 0x5a,
+            source: MachineRspVceSource::GeneratedMachineTestStaging,
         };
     }
 
@@ -2844,10 +3806,46 @@ mod tests {
                 })
             ));
         }
-        assert!(matches!(
-            rsp.accumulator_and_flags(),
-            MachineRspAccumulatorAndFlagsState::Unavailable { .. }
-        ));
+        let accumulator_and_flags = rsp.accumulator_and_flags();
+        assert_eq!(
+            accumulator_and_flags.accumulator().lane_count(),
+            RSP_VECTOR_LANE_COUNT
+        );
+        for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+            let lane = accumulator_and_flags
+                .accumulator()
+                .lane(lane_index)
+                .unwrap();
+            for slice in [lane.high(), lane.middle(), lane.low()] {
+                assert_eq!(
+                    slice.unavailable_source(),
+                    Some(&MachineRspAccumulatorSliceUnavailableSource::ConstructionOrReset)
+                );
+            }
+        }
+        assert_eq!(
+            accumulator_and_flags
+                .vco()
+                .carry_or_borrow()
+                .unavailable_source(),
+            Some(&MachineRspVcoHalfUnavailableSource::ConstructionOrReset)
+        );
+        assert_eq!(
+            accumulator_and_flags.vco().not_equal().unavailable_source(),
+            Some(&MachineRspVcoHalfUnavailableSource::ConstructionOrReset)
+        );
+        assert_eq!(
+            accumulator_and_flags.vcc(),
+            MachineRspVccState::Unavailable {
+                source: MachineRspVccSource::ConstructionOrReset,
+            }
+        );
+        assert_eq!(
+            accumulator_and_flags.vce(),
+            MachineRspVceState::Unavailable {
+                source: MachineRspVceSource::ConstructionOrReset,
+            }
+        );
     }
 
     #[test]
@@ -2942,7 +3940,7 @@ mod tests {
         stage_available_scalar(&mut rsp, 3, 0x0000_0187);
         let scalar_before = rsp.scalar_registers.clone();
         let vector_before = rsp.vector_unit.clone();
-        let accumulator_before = rsp.accumulator_and_flags;
+        let accumulator_before = rsp.accumulator_and_flags.clone();
         let decoded = rsp.decode(mtc0_word(3, 1)).unwrap();
         let plan = rsp
             .plan_mtc0(0x018, decoded, TEST_INSTRUCTION_PROVENANCE)
@@ -3091,7 +4089,7 @@ mod tests {
         );
 
         let vectors_before = rsp.vector_unit.clone();
-        let accumulator_before = rsp.accumulator_and_flags;
+        let accumulator_before = rsp.accumulator_and_flags.clone();
         assert_eq!(
             rsp.apply_lui(rsp.plan_lui(
                 0x028,
@@ -3407,10 +4405,10 @@ mod tests {
             MachineRspStepRejectionReason::BneSourceBUnavailable { source_gpr: 4 }
         );
         assert_eq!(
-            rsp.decode(((RSP_SCALAR_REGIMM_OPCODE as u32) << 26) | (5 << 21) | (1 << 16))
+            rsp.decode(((RSP_SCALAR_REGIMM_OPCODE as u32) << 26) | (5 << 21) | (2 << 16))
                 .unwrap_err()
                 .reason(),
-            MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector: 1 }
+            MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector: 2 }
         );
 
         let plan = rsp
@@ -3480,13 +4478,13 @@ mod tests {
             MachineRspStepRejectionReason::SpDmaFullUnsupported
         );
         assert_eq!(
-            rsp.decode(0x4a0d_6b51).unwrap_err().reason(),
-            MachineRspStepRejectionReason::VectorVsubUnsupported {
+            rsp.decode(0x4a0d_6b51),
+            Ok(MachineRspDecodedInstruction::Vsub {
                 destination_vector: 13,
                 source_vector_a: 13,
                 source_vector_b: 13,
                 element: 0,
-            }
+            })
         );
     }
 
@@ -3539,7 +4537,7 @@ mod tests {
         let mut rsp = MachineRspExecutionState::default();
         rsp.synchronize_pc_write(0);
         let scalar_before = rsp.scalar_registers.clone();
-        let accumulator_before = rsp.accumulator_and_flags;
+        let accumulator_before = rsp.accumulator_and_flags.clone();
         let bytes = core::array::from_fn(|index| (index as u8).wrapping_mul(17).wrapping_add(3));
         let address = rsp
             .plan_lqv_address(0, rsp.decode(lqv_word(0, 12, 0, 0)).unwrap())
@@ -3737,7 +4735,7 @@ mod tests {
         let mut rsp = MachineRspExecutionState::default();
         rsp.synchronize_pc_write(0x00c);
         let vectors_before = rsp.vector_unit.clone();
-        let accumulator_before = rsp.accumulator_and_flags;
+        let accumulator_before = rsp.accumulator_and_flags.clone();
         let address = rsp
             .plan_lw_address(0x00c, rsp.decode(0x8c04_0040).unwrap())
             .unwrap();
@@ -3889,7 +4887,7 @@ mod tests {
         stage_available_scalar(&mut rsp, 4, 0x03a0_4820);
         let scalars_before = rsp.scalar_registers.clone();
         let vectors_before = rsp.vector_unit.clone();
-        let accumulator_before = rsp.accumulator_and_flags;
+        let accumulator_before = rsp.accumulator_and_flags.clone();
 
         let first = rsp.plan_nop(0x010, rsp.decode(0).unwrap(), TEST_INSTRUCTION_PROVENANCE);
         assert_eq!(
@@ -3920,6 +4918,557 @@ mod tests {
         assert_eq!(rsp.scalar_registers, scalars_before);
         assert_eq!(rsp.vector_unit, vectors_before);
         assert_eq!(rsp.accumulator_and_flags, accumulator_before);
+    }
+
+    #[test]
+    fn rsp_vector_control_accumulator_slice_vco_vcc_vce_lifecycle_is_exact() {
+        let first = MachineRspExecutionState::default();
+        let second = MachineRspExecutionState::default();
+        assert_eq!(first, second);
+        let state = first.accumulator_and_flags();
+        assert_eq!(state.accumulator().lane_count(), RSP_VECTOR_LANE_COUNT);
+        for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+            let lane = state.accumulator().lane(lane_index).unwrap();
+            for slice in [lane.high(), lane.middle(), lane.low()] {
+                assert!(!slice.is_available());
+                assert_eq!(
+                    slice.unavailable_source(),
+                    Some(&MachineRspAccumulatorSliceUnavailableSource::ConstructionOrReset)
+                );
+            }
+        }
+        for half in [state.vco().carry_or_borrow(), state.vco().not_equal()] {
+            assert!(!half.is_available());
+            assert_eq!(
+                half.unavailable_source(),
+                Some(&MachineRspVcoHalfUnavailableSource::ConstructionOrReset)
+            );
+        }
+        assert_eq!(
+            state.vcc(),
+            MachineRspVccState::Unavailable {
+                source: MachineRspVccSource::ConstructionOrReset,
+            }
+        );
+        assert_eq!(
+            state.vce(),
+            MachineRspVceState::Unavailable {
+                source: MachineRspVceSource::ConstructionOrReset,
+            }
+        );
+    }
+
+    #[test]
+    fn rsp_vsub_self_alias_proves_all_borrow_patterns_without_consuming_vector_bytes() {
+        let word = vector_compute_word(RSP_VECTOR_VSUB_FUNCTION, 13, 13, 13, 0);
+        assert_eq!(word, 0x4a0d_6b51);
+        for borrow in 0_u8..=u8::MAX {
+            let mut rsp = MachineRspExecutionState::default();
+            rsp.synchronize_pc_write(0x060);
+            stage_available_vector_control(&mut rsp, borrow);
+            let high_middle_before: Vec<_> = rsp
+                .accumulator_and_flags
+                .accumulator
+                .lanes
+                .iter()
+                .map(|lane| (lane.high.clone(), lane.middle.clone()))
+                .collect();
+            let vcc_before = rsp.accumulator_and_flags.vcc;
+            let vce_before = rsp.accumulator_and_flags.vce;
+            let decoded = rsp.decode(word).unwrap();
+            let plan = rsp
+                .plan_vector_arithmetic(0x060, decoded, TEST_INSTRUCTION_PROVENANCE)
+                .unwrap();
+            assert_eq!(
+                rsp.apply_vector_arithmetic(plan),
+                MachineRspStepOutcome::VectorVsubCommitted {
+                    instruction_pc: 0x060,
+                    destination_vector: 13,
+                    result_available: true,
+                }
+            );
+
+            let result = rsp.vector_register(13).unwrap();
+            let expected_lanes = core::array::from_fn(|lane| {
+                if borrow & (1 << lane) == 0 {
+                    0
+                } else {
+                    u16::MAX
+                }
+            });
+            assert_eq!(
+                result.bytes(),
+                Some(&vector_bytes_from_lanes(expected_lanes))
+            );
+            let source = match result.available_source().unwrap() {
+                MachineRspVectorRegisterSource::Vsub(source) => source,
+                other => panic!("Vsub result lacks Vsub provenance: {other:?}"),
+            };
+            assert!(source.sources_alias());
+            assert!(!source.source_a().is_available());
+            assert_eq!(source.source_b(), None);
+            assert_eq!(
+                source
+                    .vsub_borrow_input()
+                    .and_then(MachineRspVcoHalfState::value),
+                Some(borrow)
+            );
+            assert!(source.result_available());
+            for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+                let lane = rsp
+                    .accumulator_and_flags
+                    .accumulator
+                    .lane(lane_index)
+                    .unwrap();
+                assert_eq!(lane.low().value(), Some(expected_lanes[lane_index]));
+                assert_eq!(
+                    (&lane.high, &lane.middle),
+                    (
+                        &high_middle_before[lane_index].0,
+                        &high_middle_before[lane_index].1
+                    )
+                );
+            }
+            assert_eq!(
+                rsp.accumulator_and_flags.vco.carry_or_borrow.value(),
+                Some(0)
+            );
+            assert_eq!(rsp.accumulator_and_flags.vco.not_equal.value(), Some(0));
+            assert_eq!(rsp.accumulator_and_flags.vcc, vcc_before);
+            assert_eq!(rsp.accumulator_and_flags.vce, vce_before);
+            assert_eq!(rsp.next_pc(), Some(0x068));
+            assert_eq!(rsp.committed_instruction_count(), 1);
+        }
+    }
+
+    #[test]
+    fn rsp_vsub_concrete_signed_clamp_accumulator_and_unavailable_policy_are_exact() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x060);
+        stage_available_vector_control(&mut rsp, 0);
+        stage_available_vector(
+            &mut rsp,
+            13,
+            vector_bytes_from_lanes([
+                0x7fff,
+                0x8000,
+                100,
+                (-100_i16) as u16,
+                0,
+                1,
+                (-1_i16) as u16,
+                30_000,
+            ]),
+        );
+        stage_available_vector(
+            &mut rsp,
+            14,
+            vector_bytes_from_lanes([
+                (-1_i16) as u16,
+                1,
+                (-50_i16) as u16,
+                50,
+                0,
+                (-1_i16) as u16,
+                1,
+                (-30_000_i16) as u16,
+            ]),
+        );
+        let high_middle_before: Vec<_> = rsp
+            .accumulator_and_flags
+            .accumulator
+            .lanes
+            .iter()
+            .map(|lane| (lane.high.clone(), lane.middle.clone()))
+            .collect();
+        let plan = rsp
+            .plan_vector_arithmetic(
+                0x060,
+                rsp.decode(vector_compute_word(RSP_VECTOR_VSUB_FUNCTION, 13, 13, 14, 0))
+                    .unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert!(rsp.apply_vector_arithmetic(plan).vector_result_available() == Some(true));
+        assert_eq!(
+            rsp.vector_register(13).unwrap().bytes(),
+            Some(&vector_bytes_from_lanes([
+                0x7fff,
+                0x8000,
+                150,
+                (-150_i16) as u16,
+                0,
+                2,
+                (-2_i16) as u16,
+                0x7fff,
+            ]))
+        );
+        let expected_low = [
+            0x8000,
+            0x7fff,
+            150,
+            (-150_i16) as u16,
+            0,
+            2,
+            (-2_i16) as u16,
+            60_000,
+        ];
+        for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+            let lane = rsp
+                .accumulator_and_flags
+                .accumulator
+                .lane(lane_index)
+                .unwrap();
+            assert_eq!(lane.low().value(), Some(expected_low[lane_index]));
+            assert_eq!(
+                (&lane.high, &lane.middle),
+                (
+                    &high_middle_before[lane_index].0,
+                    &high_middle_before[lane_index].1
+                )
+            );
+        }
+
+        let mut unavailable_borrow = MachineRspExecutionState::default();
+        unavailable_borrow.synchronize_pc_write(0x060);
+        let plan = unavailable_borrow
+            .plan_vector_arithmetic(
+                0x060,
+                unavailable_borrow
+                    .decode(vector_compute_word(RSP_VECTOR_VSUB_FUNCTION, 13, 13, 13, 0))
+                    .unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            unavailable_borrow
+                .apply_vector_arithmetic(plan)
+                .vector_result_available(),
+            Some(false)
+        );
+        assert!(matches!(
+            unavailable_borrow
+                .vector_register(13)
+                .unwrap()
+                .unavailable_source(),
+            Some(MachineRspVectorUnavailableSource::Vsub(_))
+        ));
+        for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+            assert!(matches!(
+                unavailable_borrow
+                    .accumulator_and_flags
+                    .accumulator
+                    .lane(lane_index)
+                    .unwrap()
+                    .low()
+                    .unavailable_source(),
+                Some(MachineRspAccumulatorSliceUnavailableSource::Vsub(_))
+            ));
+        }
+        assert_eq!(
+            unavailable_borrow
+                .accumulator_and_flags
+                .vco
+                .carry_or_borrow
+                .value(),
+            Some(0)
+        );
+
+        let mut non_alias_unavailable = MachineRspExecutionState::default();
+        non_alias_unavailable.synchronize_pc_write(0x060);
+        stage_available_vector_control(&mut non_alias_unavailable, 0);
+        stage_available_vector(&mut non_alias_unavailable, 14, [0; 16]);
+        let plan = non_alias_unavailable
+            .plan_vector_arithmetic(
+                0x060,
+                non_alias_unavailable
+                    .decode(vector_compute_word(RSP_VECTOR_VSUB_FUNCTION, 13, 13, 14, 0))
+                    .unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            non_alias_unavailable
+                .apply_vector_arithmetic(plan)
+                .vector_result_available(),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn rsp_vaddc_proves_all_carry_patterns_and_ignores_old_vco() {
+        let word = vector_compute_word(RSP_VECTOR_VADDC_FUNCTION, 13, 13, 14, 0);
+        assert_eq!(word, 0x4a0e_6b54);
+        for expected_carry in 0_u8..=u8::MAX {
+            let mut rsp = MachineRspExecutionState::default();
+            rsp.synchronize_pc_write(0x070);
+            stage_available_vector_control(&mut rsp, !expected_carry);
+            let source_a_lanes = core::array::from_fn(|lane| {
+                if expected_carry & (1 << lane) == 0 {
+                    1
+                } else {
+                    u16::MAX
+                }
+            });
+            let source_b_lanes = core::array::from_fn(|lane| {
+                if expected_carry & (1 << lane) == 0 {
+                    2
+                } else {
+                    1
+                }
+            });
+            stage_available_vector(&mut rsp, 13, vector_bytes_from_lanes(source_a_lanes));
+            stage_available_vector(&mut rsp, 14, vector_bytes_from_lanes(source_b_lanes));
+            let high_middle_before: Vec<_> = rsp
+                .accumulator_and_flags
+                .accumulator
+                .lanes
+                .iter()
+                .map(|lane| (lane.high.clone(), lane.middle.clone()))
+                .collect();
+            let vcc_before = rsp.accumulator_and_flags.vcc;
+            let vce_before = rsp.accumulator_and_flags.vce;
+            let plan = rsp
+                .plan_vector_arithmetic(
+                    0x070,
+                    rsp.decode(word).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap();
+            assert_eq!(
+                rsp.apply_vector_arithmetic(plan),
+                MachineRspStepOutcome::VectorVaddcCommitted {
+                    instruction_pc: 0x070,
+                    destination_vector: 13,
+                    result_available: true,
+                }
+            );
+            let expected_low = core::array::from_fn(|lane| {
+                if expected_carry & (1 << lane) == 0 {
+                    3
+                } else {
+                    0
+                }
+            });
+            assert_eq!(
+                rsp.vector_register(13).unwrap().bytes(),
+                Some(&vector_bytes_from_lanes(expected_low))
+            );
+            assert_eq!(
+                rsp.accumulator_and_flags.vco.carry_or_borrow.value(),
+                Some(expected_carry)
+            );
+            assert_eq!(rsp.accumulator_and_flags.vco.not_equal.value(), Some(0));
+            for lane_index in 0..RSP_VECTOR_LANE_COUNT {
+                let lane = rsp
+                    .accumulator_and_flags
+                    .accumulator
+                    .lane(lane_index)
+                    .unwrap();
+                assert_eq!(lane.low().value(), Some(expected_low[lane_index]));
+                assert_eq!(
+                    (&lane.high, &lane.middle),
+                    (
+                        &high_middle_before[lane_index].0,
+                        &high_middle_before[lane_index].1
+                    )
+                );
+            }
+            assert_eq!(rsp.accumulator_and_flags.vcc, vcc_before);
+            assert_eq!(rsp.accumulator_and_flags.vce, vce_before);
+        }
+    }
+
+    #[test]
+    fn rsp_vaddc_unavailable_alias_and_control_replacement_are_exact() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x070);
+        stage_available_vector_control(&mut rsp, 0xff);
+        stage_available_vector(&mut rsp, 14, [0x5a; 16]);
+        let old_vco = rsp.accumulator_and_flags.vco.clone();
+        let vcc_before = rsp.accumulator_and_flags.vcc;
+        let vce_before = rsp.accumulator_and_flags.vce;
+        let plan = rsp
+            .plan_vector_arithmetic(
+                0x070,
+                rsp.decode(vector_compute_word(
+                    RSP_VECTOR_VADDC_FUNCTION,
+                    13,
+                    13,
+                    14,
+                    0,
+                ))
+                .unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_vector_arithmetic(plan),
+            MachineRspStepOutcome::VectorVaddcCommitted {
+                instruction_pc: 0x070,
+                destination_vector: 13,
+                result_available: false,
+            }
+        );
+        let source = match rsp.vector_register(13).unwrap().unavailable_source() {
+            Some(MachineRspVectorUnavailableSource::Vaddc(source)) => source,
+            other => panic!("unavailable Vaddc lacks exact cause: {other:?}"),
+        };
+        assert_eq!(source.identity(), MachineRspInstructionIdentity::Vaddc);
+        assert_eq!(source.vsub_borrow_input(), None);
+        assert!(!source.result_available());
+        assert_ne!(rsp.accumulator_and_flags.vco, old_vco);
+        assert!(matches!(
+            rsp.accumulator_and_flags.vco.carry_or_borrow,
+            MachineRspVcoHalfState::Unavailable {
+                source: MachineRspVcoHalfUnavailableSource::VaddcCarry(_),
+            }
+        ));
+        assert_eq!(rsp.accumulator_and_flags.vco.not_equal.value(), Some(0));
+        assert_eq!(rsp.accumulator_and_flags.vcc, vcc_before);
+        assert_eq!(rsp.accumulator_and_flags.vce, vce_before);
+
+        let mut alias = MachineRspExecutionState::default();
+        alias.synchronize_pc_write(0x070);
+        stage_available_vector(
+            &mut alias,
+            13,
+            vector_bytes_from_lanes([1, 2, 3, 4, 5, 6, 7, 0xffff]),
+        );
+        let plan = alias
+            .plan_vector_arithmetic(
+                0x070,
+                alias
+                    .decode(vector_compute_word(
+                        RSP_VECTOR_VADDC_FUNCTION,
+                        13,
+                        13,
+                        13,
+                        0,
+                    ))
+                    .unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        alias.apply_vector_arithmetic(plan);
+        assert_eq!(
+            alias.vector_register(13).unwrap().bytes(),
+            Some(&vector_bytes_from_lanes([2, 4, 6, 8, 10, 12, 14, 0xfffe]))
+        );
+        assert_eq!(
+            alias.accumulator_and_flags.vco.carry_or_borrow.value(),
+            Some(0x80)
+        );
+    }
+
+    #[test]
+    fn rsp_bgez_decode_condition_target_and_delay_context_are_exact() {
+        assert_eq!(bgez_word(3, -3), 0x0461_fffd);
+        for (source_value, taken) in [(1, true), (0, true), (0x8000_0000, false)] {
+            let mut rsp = MachineRspExecutionState::default();
+            rsp.synchronize_pc_write(0x06c);
+            stage_available_scalar(&mut rsp, 3, source_value);
+            let plan = rsp
+                .plan_branch(
+                    0x06c,
+                    rsp.decode(bgez_word(3, -3)).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap();
+            assert_eq!(
+                rsp.apply_branch(plan),
+                MachineRspStepOutcome::ScalarBgezCommitted {
+                    instruction_pc: 0x06c,
+                    delay_slot_pc: 0x070,
+                    target_pc: 0x064,
+                    taken,
+                }
+            );
+            let delay = rsp.delay_slot_context().unwrap();
+            assert_eq!(delay.identity(), MachineRspInstructionIdentity::Bgez);
+            assert_eq!(delay.owner_pc(), 0x06c);
+            assert_eq!(delay.delay_slot_pc(), 0x070);
+            assert_eq!(delay.target_pc(), 0x064);
+            assert_eq!(delay.taken(), taken);
+            assert_eq!(rsp.next_pc(), Some(if taken { 0x064 } else { 0x074 }));
+        }
+
+        let unavailable = MachineRspExecutionState::default();
+        assert_eq!(
+            unavailable
+                .plan_branch(
+                    0x06c,
+                    unavailable.decode(bgez_word(3, -3)).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::BgezSourceUnavailable { source_gpr: 3 }
+        );
+        assert_eq!(
+            unavailable
+                .decode(((RSP_SCALAR_REGIMM_OPCODE as u32) << 26) | (3 << 21) | (2 << 16) | 0xfffd)
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::UnsupportedRegimmSelector { selector: 2 }
+        );
+    }
+
+    #[test]
+    fn rsp_vsub_vaddc_element_and_delay_slot_rejections_are_atomic() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x060);
+        let before = rsp.clone();
+        let decoded = rsp
+            .decode(vector_compute_word(RSP_VECTOR_VSUB_FUNCTION, 13, 13, 13, 1))
+            .unwrap();
+        assert_eq!(
+            rsp.plan_vector_arithmetic(0x060, decoded, TEST_INSTRUCTION_PROVENANCE)
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::VsubElementUnsupported { element: 1 }
+        );
+        assert_eq!(rsp, before);
+
+        let decoded = rsp
+            .decode(vector_compute_word(
+                RSP_VECTOR_VADDC_FUNCTION,
+                13,
+                13,
+                14,
+                15,
+            ))
+            .unwrap();
+        assert_eq!(
+            rsp.plan_vector_arithmetic(0x060, decoded, TEST_INSTRUCTION_PROVENANCE)
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::VaddcElementUnsupported { element: 15 }
+        );
+        assert_eq!(rsp, before);
+
+        stage_available_scalar(&mut rsp, 3, 1);
+        rsp.stage_delay_for_test(0x050);
+        let committed_branch_state = rsp.clone();
+        assert_eq!(
+            rsp.plan_branch(
+                0x06c,
+                rsp.decode(bgez_word(3, -3)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::ControlFlowInDelaySlot { owner_pc: 0x050 }
+        );
+        assert_eq!(rsp, committed_branch_state);
+        assert_eq!(
+            rsp.decode(vector_compute_word(0x10, 13, 13, 14, 0))
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::UnrepresentedInstruction {
+                class: MachineRspUnrepresentedInstructionClass::Vector,
+            }
+        );
     }
 
     #[test]
