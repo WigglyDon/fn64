@@ -39726,11 +39726,64 @@ mod tests {
         );
         assert_eq!(machine.vi_current_state(), vi_before_write);
 
+        let first_post_write_cpu_before = (
+            machine.inspect_current_cpu_instruction().unwrap(),
+            machine.cpu().gpr(15).unwrap(),
+            machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(15)
+                .unwrap(),
+            machine.cpu_delay_slot_context(),
+        );
         commit_cpu_interleave(
             &mut machine,
             &mut total_committed_steps,
             &mut post_loop_cpu_trace,
         );
+        let first_post_write_cpu_after = (
+            machine.cpu().gpr(15).unwrap(),
+            machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(15)
+                .unwrap(),
+            machine.cpu_delay_slot_context(),
+        );
+        assert_eq!(
+            first_post_write_cpu_before.0.cpu_address(),
+            CpuAddress::new(0x8000_017c)
+        );
+        assert_eq!(
+            first_post_write_cpu_before.0.source(),
+            MachineCpuInstructionSource::PrimaryInstructionCacheHit {
+                offset: RdramOffset::new(0x017c),
+                line_index: 11,
+                physical_tag: 0,
+            }
+        );
+        assert_eq!(first_post_write_cpu_before.1, 0xffff_ffff_a000_0000);
+        assert_eq!(
+            first_post_write_cpu_before.2,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0x8000_0178),
+                identity: CpuInstructionIdentity::Lui,
+                source_gpr_a: None,
+                source_gpr_b: None,
+            }
+        );
+        assert_eq!(first_post_write_cpu_before.3, None);
+        assert_eq!(first_post_write_cpu_after.0, 0xffff_ffff_a000_02ff);
+        assert_eq!(
+            first_post_write_cpu_after.1,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0x8000_017c),
+                identity: CpuInstructionIdentity::Ori,
+                source_gpr_a: Some(15),
+                source_gpr_b: None,
+            }
+        );
+        assert_eq!(first_post_write_cpu_after.2, None);
         assert_eq!(machine.cpu().cop0_count(), 253_434);
         assert_eq!(total_committed_steps, 253_450);
         assert_eq!(
@@ -39753,17 +39806,97 @@ mod tests {
         assert_eq!(machine.sp_dma_record(2), Some(write_dma));
         assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
 
+        let second_post_write_cpu_before = (
+            machine.inspect_current_cpu_instruction().unwrap(),
+            machine.cpu().gpr(9).unwrap(),
+            machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(9)
+                .unwrap(),
+            machine.cpu_delay_slot_context(),
+        );
         commit_cpu_interleave(
             &mut machine,
             &mut total_committed_steps,
             &mut post_loop_cpu_trace,
         );
+        let second_post_write_cpu_after = (
+            machine.cpu().gpr(9).unwrap(),
+            machine
+                .cartridge_bootstrap_state()
+                .unwrap()
+                .gpr_source(9)
+                .unwrap(),
+            machine.cpu_delay_slot_context(),
+        );
+        assert_eq!(
+            second_post_write_cpu_before.0.cpu_address(),
+            CpuAddress::new(0x8000_0180)
+        );
+        assert_eq!(
+            second_post_write_cpu_before.0.source(),
+            MachineCpuInstructionSource::PrimaryInstructionCacheHit {
+                offset: RdramOffset::new(0x0180),
+                line_index: 12,
+                physical_tag: 0,
+            }
+        );
+        assert_eq!(second_post_write_cpu_before.1, 0xffff_ffff_8000_1090);
+        assert_eq!(
+            second_post_write_cpu_before.2,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0x8000_0180),
+                identity: CpuInstructionIdentity::Addiu,
+                source_gpr_a: Some(9),
+                source_gpr_b: None,
+            }
+        );
+        assert_eq!(second_post_write_cpu_before.3, None);
+        assert_eq!(second_post_write_cpu_after.0, 0xffff_ffff_8000_1094);
+        assert_eq!(
+            second_post_write_cpu_after.1,
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: CpuAddress::new(0x8000_0180),
+                identity: CpuInstructionIdentity::Addiu,
+                source_gpr_a: Some(9),
+                source_gpr_b: None,
+            }
+        );
+        assert_eq!(second_post_write_cpu_after.2, None);
         assert_eq!(machine.cpu().cop0_count(), 253_435);
         assert_eq!(total_committed_steps, 253_451);
         assert_eq!(post_loop_cpu_trace.len(), 19);
+        assert_eq!(
+            post_loop_cpu_trace[17],
+            (
+                0x8000_017c,
+                0x35ef_02ff,
+                CpuInstructionIdentity::Ori,
+                0x8000_0180,
+                0x8000_0184,
+                253_434,
+                253_450,
+            )
+        );
+        assert_eq!(
+            post_loop_cpu_trace[18],
+            (
+                0x8000_0180,
+                0x2529_0004,
+                CpuInstructionIdentity::Addiu,
+                0x8000_0184,
+                0x8000_0188,
+                253_435,
+                253_451,
+            )
+        );
         eprintln!(
-            "post-write CPU interleave: {:08x?}",
-            &post_loop_cpu_trace[17..]
+            "post-write CPU interleave: trace={:08x?} first_before={first_post_write_cpu_before:?} \
+             first_after={first_post_write_cpu_after:?} \
+             second_before={second_post_write_cpu_before:?} \
+             second_after={second_post_write_cpu_after:?}",
+            &post_loop_cpu_trace[17..],
         );
 
         let before_dpc_status = lw_snapshot(&machine);

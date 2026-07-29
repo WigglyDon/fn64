@@ -13,10 +13,11 @@ use fn64_core::{
     MachineRdramCalibrationStatus, MachineRdramFirstResponderDeviceIdAperture,
     MachineRdramInitialModeAperture, MachineRepresentedStepError, MachineRepresentedStepOutcome,
     MachineRiModeSource, MachineRiSelectSource, MachineRspControlRegister, MachineRspStepOutcome,
-    MachineRspStepRejectionReason, MachineSpDmaDirection, MachineSpDmemByteKnowledge,
-    MachineSpDmemByteSource, MachineSpDmemLoadWordProvenance, MachineSpDramAddressSource,
-    MachineSpRegisterWriteSource, MachineStepCadenceSource, MachineStepControlFlowAction,
-    MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory, MachineStepProcessor,
+    MachineRspStepRejectionReason, MachineSpDmaDirection, MachineSpDmaSpMemory,
+    MachineSpDmemByteKnowledge, MachineSpDmemByteSource, MachineSpDmemLoadWordProvenance,
+    MachineSpDramAddressSource, MachineSpRegisterWriteSource, MachineStepCadenceSource,
+    MachineStepControlFlowAction, MachineStepCountAction,
+    MachineStepNoEffectExecutedInstructionCategory, MachineStepProcessor,
     MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
     MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
     PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
@@ -233,7 +234,7 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: rsp-vsub-committed ok\
 \ncase: rsp-vector-sum-loop-committed ok\
 \ncase: rsp-post-sum-scalar-setup ok\
-\ncase: rsp-sp-wr-len-frontier-rejected ok\
+\ncase: rsp-sp-write-dma-dpc-status-frontier ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -6882,7 +6883,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
 }
 
 fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "rsp-vsub-vaddc-bgez-sum-loop-and-sp-wr-len-frontier";
+    const CASE: &str = "rsp-sp-write-dma-and-dpc-status-frontier";
     const RSP_MFC0_SEMAPHORE: u32 = 0x4008_3800;
     const RSP_MFC0_DRAM_ADDRESS: u32 = 0x400b_0800;
     const RSP_LQV: u32 = 0xc80c_2000;
@@ -6915,6 +6916,9 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
     const RSP_POST_SUM_LUI_LENGTH: u32 = 0x3c03_fe81;
     const RSP_POST_SUM_XORI_LENGTH: u32 = 0x3863_7000;
     const RSP_MTC0_WRITE_LENGTH: u32 = 0x4083_1800;
+    const RSP_POST_DMA_XORI: u32 = 0x3803_0240;
+    const RSP_MTC0_DPC_STATUS: u32 = 0x4083_5800;
+    const RSP_BREAK: u32 = 0x0000_000d;
     const DMA_SOURCE_WORD_A: u32 = 0x2529_0004;
     const DMA_SOURCE_WORD_B: u32 = 0x151f_ffe3;
     const CPU_LOOP_PC: u32 = 0xa000_2000;
@@ -7029,6 +7033,11 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         RSP_POST_SUM_LUI_LENGTH,
         RSP_POST_SUM_XORI_LENGTH,
         RSP_MTC0_WRITE_LENGTH,
+        RSP_POST_DMA_XORI,
+        RSP_MTC0_DPC_STATUS,
+        RSP_BREAK,
+        0,
+        0,
     ];
     let mut setup_pc = 0x0fc;
     for (index, word) in rsp_tail.into_iter().enumerate() {
@@ -7064,6 +7073,17 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
     }
     words.push((control_cpu_pc + 10 * 4, immediate_word(0x2b, 1, 0, 0x001c)));
     words.push((control_cpu_pc + 11 * 4, jump_word(0x02, CPU_LOOP_PC)));
+    let generated_firmware = generated_pif_firmware();
+    let copy_source_start = PifIpl2Profile::NtscPinned
+        .copy_layout()
+        .source_start_offset() as usize;
+    let expected_write_source =
+        generated_firmware[copy_source_start + 0x120..copy_source_start + 0x1e0].to_vec();
+    require(
+        CASE,
+        expected_write_source.len() == 192,
+        "public generated IMEM write-DMA source has 192 bytes",
+    )?;
     let (mut machine, _) = generated_cold_x105_machine(CASE, &words)?;
 
     let setup_cpu_count = (words.len() - CONTROL_CPU_WORD_COUNT) as u32;
@@ -8238,7 +8258,7 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         "seven post-sum RSP commits and eight CPU interleaves reach SP_WR_LEN",
     )?;
 
-    let before_frontier_execution = (
+    let before_write_execution = (
         machine.cpu().pc(),
         machine.cpu().next_pc(),
         machine.cpu().cop0_count(),
@@ -8248,32 +8268,288 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         machine.rsp_delay_slot_context(),
         machine.rsp_committed_instruction_count(),
     );
-    let before_frontier_rsp = (
+    let before_write_rsp = (
         machine.rsp_scalar_register(3),
         machine.rsp_vector_unit_state().clone(),
         machine.rsp_accumulator_and_flags_state(),
     );
-    let before_frontier_sp = (
+    let before_write_sp = (
         machine.sp_memory_address_state(),
         machine.sp_dram_address_state(),
         machine.sp_dma_record(0),
         machine.sp_dma_record(1),
     );
-    let before_dmem = (0..4096)
+    let before_write_dmem = (0..4096)
         .map(|offset| machine.sp_dmem().observe_byte(SpDmemOffset::new(offset)))
         .collect::<Vec<_>>();
+    let read_write_destination = |machine: &Machine| -> Result<Vec<u8>, RdramAccessError> {
+        let mut bytes = Vec::with_capacity(192);
+        for block in 0_usize..24 {
+            let start = 0x002f_b1f0 + block * 0x0ff0;
+            for byte in 0_usize..8 {
+                bytes.push(machine.rdram().read_u8(start + byte)?);
+            }
+        }
+        Ok(bytes)
+    };
+    let before_write_destination = read_write_destination(&machine)
+        .map_err(|source| StepProbeError::Rdram { case: CASE, source })?;
+    let write_dma = step(&mut machine, CASE)?;
+    let record = machine.sp_dma_record(2).ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "third SP DMA record exists",
+    })?;
+    let destination = read_write_destination(&machine)
+        .map_err(|source| StepProbeError::Rdram { case: CASE, source })?;
+    let digest = |bytes: &[u8]| {
+        bytes
+            .iter()
+            .fold(0xcbf2_9ce4_8422_2325_u64, |digest, byte| {
+                (digest ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            })
+    };
+    eprintln!(
+        "{CASE}: write_dma_probe outcome={write_dma:?} record={record:?} \
+         source_digest={:016x} destination_digest={:016x} equal={} \
+         source_first={:02x?} destination_first={:02x?} \
+         source_last={:02x?} destination_last={:02x?} \
+         sp_mem={:?} sp_dram={:?} records={} rsp_pc={:?} rsp_next={:?} \
+         rsp_count={} turn={:?} cpu={:08x}/{:08x}/{} \
+         rsp_preserved={} dmem_preserved={} prior_records_preserved={}",
+        digest(&expected_write_source),
+        digest(&destination),
+        destination == expected_write_source,
+        &expected_write_source[..16],
+        &destination[..16],
+        &expected_write_source[176..],
+        &destination[176..],
+        machine.sp_memory_address_state(),
+        machine.sp_dram_address_state(),
+        machine.sp_dma_record_count(),
+        machine.sp_pc_state(),
+        machine.rsp_next_pc(),
+        machine.rsp_committed_instruction_count(),
+        machine.processor_turn(),
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        before_write_rsp
+            == (
+                machine.rsp_scalar_register(3),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_accumulator_and_flags_state(),
+            ),
+        before_write_dmem
+            == (0..4096)
+                .map(|offset| machine.sp_dmem().observe_byte(SpDmemOffset::new(offset)))
+                .collect::<Vec<_>>(),
+        before_write_sp.2 == machine.sp_dma_record(0)
+            && before_write_sp.3 == machine.sp_dma_record(1),
+    );
+    require(
+        CASE,
+        matches!(
+            write_dma,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x090,
+                    source_gpr: 3,
+                    source_value: 0xfe81_7000,
+                    control_register: MachineRspControlRegister::SpWriteLength,
+                    source_index: 8,
+                },
+            }
+        ) && record.direction() == MachineSpDmaDirection::SpToRdram
+            && record.selected_sp_memory() == MachineSpDmaSpMemory::Imem
+            && record.raw_length_word() == 0xfe81_7000
+            && record.block_length_bytes() == 8
+            && record.block_count() == 24
+            && record.dram_skip_bytes() == 0x0fe8
+            && record.initial_local_address() == 0x1120
+            && record.initial_rdram_address() == 0x002f_b1f0
+            && record.final_local_address() == 0x11e0
+            && record.final_rdram_address() == 0x0031_3070
+            && record.transferred_byte_count() == 192
+            && record.initial_memory_address_source()
+                == MachineSpRegisterWriteSource::RspMtc0 { source_index: 6 }
+            && record.initial_dram_address_source()
+                == MachineSpDramAddressSource::RspMtc0 { source_index: 7 }
+            && record.trigger() == MachineSpRegisterWriteSource::RspMtc0 { source_index: 8 }
+            && destination == expected_write_source
+            && machine.sp_dma_record_count() == 3
+            && machine.sp_memory_address_state().is_some_and(|state| {
+                state.transfer_word() == 0xb120 && state.local_address() == 0x11e0
+            })
+            && machine.sp_dram_address_state().is_some_and(|state| {
+                state.transfer_word() == 0x0031_3070
+                    && state.physical_address() == 0x0031_3070
+                    && state.source()
+                        == MachineSpDramAddressSource::DmaAdvance {
+                            record_index: 2,
+                            trigger: MachineSpRegisterWriteSource::RspMtc0 { source_index: 8 },
+                        }
+            })
+            && before_write_rsp
+                == (
+                    machine.rsp_scalar_register(3),
+                    machine.rsp_vector_unit_state().clone(),
+                    machine.rsp_accumulator_and_flags_state(),
+                )
+            && before_write_dmem
+                == (0..4096)
+                    .map(|offset| machine.sp_dmem().observe_byte(SpDmemOffset::new(offset)))
+                    .collect::<Vec<_>>()
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x094)
+            && machine.rsp_next_pc() == Some(0x098)
+            && machine.rsp_committed_instruction_count() == 1057
+            && machine.processor_turn() == MachineStepProcessor::Cpu
+            && before_write_execution.0 == machine.cpu().pc()
+            && before_write_execution.1 == machine.cpu().next_pc()
+            && before_write_execution.2 == machine.cpu().cop0_count()
+            && before_write_sp.2 == machine.sp_dma_record(0)
+            && before_write_sp.3 == machine.sp_dma_record(1),
+        "SP_WR_LEN commits one exact atomic 24-block IMEM-to-RDRAM DMA",
+    )?;
+    eprintln!(
+        "{CASE}: write_dma source_digest={:016x} destination_digest={:016x} \
+         pre_destination_first={:?} source_first={:02x?} source_last={:02x?} record={record:?}",
+        digest(&expected_write_source),
+        digest(&destination),
+        &before_write_destination[..8],
+        &expected_write_source[..16],
+        &expected_write_source[176..],
+    );
+
+    let first_cpu_inspection = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    let first_cpu_fields = first_cpu_inspection.fields();
+    let first_cpu_pre = (
+        first_cpu_inspection.cpu_address(),
+        first_cpu_fields.raw().bits(),
+        first_cpu_inspection.identity(),
+        first_cpu_fields.rs(),
+        machine
+            .cpu()
+            .gpr(usize::from(first_cpu_fields.rs()))
+            .unwrap(),
+        first_cpu_fields.rt(),
+        machine
+            .cpu()
+            .gpr(usize::from(first_cpu_fields.rt()))
+            .unwrap(),
+        machine.cpu().cop0_count(),
+    );
+    rotate_with_cpu_instruction(&mut machine)?;
+    let first_cpu_post = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine
+            .cpu()
+            .gpr(usize::from(first_cpu_fields.rt()))
+            .unwrap(),
+        machine.cpu().cop0_count(),
+    );
+    eprintln!("{CASE}: first_post_dma_cpu pre={first_cpu_pre:?} post={first_cpu_post:?}");
+
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0x094,
+                    destination_gpr: 3,
+                    result_value: 0x0240,
+                },
+            }
+        ) && machine
+            .rsp_scalar_register(3)
+            .is_some_and(|state| state.value() == Some(0x0240))
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x098)
+            && machine.rsp_next_pc() == Some(0x09c)
+            && machine.rsp_committed_instruction_count() == 1058
+            && machine.sp_dma_record(2) == Some(record),
+        "post-DMA Xori commits once and reaches DPC_STATUS",
+    )?;
+
+    let second_cpu_inspection = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    let second_cpu_fields = second_cpu_inspection.fields();
+    let second_cpu_pre = (
+        second_cpu_inspection.cpu_address(),
+        second_cpu_fields.raw().bits(),
+        second_cpu_inspection.identity(),
+        second_cpu_fields.rs(),
+        machine
+            .cpu()
+            .gpr(usize::from(second_cpu_fields.rs()))
+            .unwrap(),
+        second_cpu_fields.rt(),
+        machine
+            .cpu()
+            .gpr(usize::from(second_cpu_fields.rt()))
+            .unwrap(),
+        machine.cpu().cop0_count(),
+    );
+    rotate_with_cpu_instruction(&mut machine)?;
+    let second_cpu_post = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine
+            .cpu()
+            .gpr(usize::from(second_cpu_fields.rt()))
+            .unwrap(),
+        machine.cpu().cop0_count(),
+    );
+    eprintln!("{CASE}: second_post_dma_cpu pre={second_cpu_pre:?} post={second_cpu_post:?}");
+
+    let before_dpc_execution = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        machine.processor_turn(),
+        machine.sp_pc_state(),
+        machine.rsp_next_pc(),
+        machine.rsp_delay_slot_context(),
+        machine.rsp_committed_instruction_count(),
+    );
+    let before_dpc_rsp = (
+        machine.rsp_scalar_register(3),
+        machine.rsp_vector_unit_state().clone(),
+        machine.rsp_accumulator_and_flags_state(),
+    );
+    let before_dpc_sp = (
+        machine.sp_memory_address_state(),
+        machine.sp_dram_address_state(),
+        machine.sp_dma_record(0),
+        machine.sp_dma_record(1),
+        machine.sp_dma_record(2),
+    );
+    let before_dpc_destination = destination;
     let error = machine.step().err().ok_or(StepProbeError::Assertion {
         case: CASE,
-        check: "SP_WR_LEN frontier must reject",
+        check: "DPC_STATUS frontier must reject",
     })?;
     require(
         CASE,
         error.rsp_rejection().is_some_and(|rejection| {
             rejection.reason()
                 == MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
-                    register_index: 3,
+                    register_index: 11,
                 }
-        }) && before_frontier_execution
+        }) && before_dpc_execution
             == (
                 machine.cpu().pc(),
                 machine.cpu().next_pc(),
@@ -8284,24 +8560,30 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
                 machine.rsp_delay_slot_context(),
                 machine.rsp_committed_instruction_count(),
             )
-            && before_frontier_rsp
+            && before_dpc_rsp
                 == (
                     machine.rsp_scalar_register(3),
                     machine.rsp_vector_unit_state().clone(),
                     machine.rsp_accumulator_and_flags_state(),
                 )
-            && before_frontier_sp
+            && before_dpc_sp
                 == (
                     machine.sp_memory_address_state(),
                     machine.sp_dram_address_state(),
                     machine.sp_dma_record(0),
                     machine.sp_dma_record(1),
+                    machine.sp_dma_record(2),
                 )
-            && before_dmem
-                == (0..4096)
-                    .map(|offset| machine.sp_dmem().observe_byte(SpDmemOffset::new(offset)))
-                    .collect::<Vec<_>>(),
-        "SP_WR_LEN rejects atomically without fallback or SP-to-RDRAM DMA",
+            && before_dpc_destination
+                == read_write_destination(&machine)
+                    .expect("preflighted public write-DMA destinations remain readable")
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x098)
+            && machine.rsp_next_pc() == Some(0x09c)
+            && machine.rsp_committed_instruction_count() == 1058
+            && machine.sp_dma_record_count() == 3,
+        "DPC_STATUS rejects atomically without fallback or DP owner",
     )
 }
 
@@ -9065,13 +9347,10 @@ fn generated_cold_x105_machine_from_cartridge(
     cartridge: Cartridge,
 ) -> Result<(Machine, u32), StepProbeError> {
     let mut machine = Machine::from_cartridge(cartridge);
-    let mut firmware: Vec<u8> = (0..PIF_BOOT_ROM_SIZE_BYTES)
-        .map(|index| 0xa5_u8.wrapping_add((index as u8).wrapping_mul(29)))
-        .collect();
+    let firmware = generated_pif_firmware();
     let source_start = PifIpl2Profile::NtscPinned
         .copy_layout()
         .source_start_offset() as usize;
-    write_be_u32(&mut firmware, source_start, 0x81ab_c000);
     let generated_sp_imem_word = u32::from_be_bytes(
         firmware[source_start..source_start + 4]
             .try_into()
@@ -9090,6 +9369,17 @@ fn generated_cold_x105_machine_from_cartridge(
         .map_err(|source| StepProbeError::Bootstrap { case, source })?;
 
     Ok((machine, generated_sp_imem_word))
+}
+
+fn generated_pif_firmware() -> Vec<u8> {
+    let mut firmware: Vec<u8> = (0..PIF_BOOT_ROM_SIZE_BYTES)
+        .map(|index| 0xa5_u8.wrapping_add((index as u8).wrapping_mul(29)))
+        .collect();
+    let source_start = PifIpl2Profile::NtscPinned
+        .copy_layout()
+        .source_start_offset() as usize;
+    write_be_u32(&mut firmware, source_start, 0x81ab_c000);
+    firmware
 }
 
 fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
