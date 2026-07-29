@@ -141,7 +141,9 @@ later read derives Available idle zero from the singular Sp owner; no
 persistent busy state, countdown, queue, partial progress, or timing claim is
 created. `SP_DMA_FULL` and other RSP control indices reject atomically. No
 RSP-selected success or rejection enters CPU COP0, advances CPU Count, or
-receives CPU fallback. Exact Vsub at local `0x060` is the next closed boundary.
+receives CPU fallback. Exact Vsub/Vaddc/Bgez execute without CPU-COP0 effects.
+RSP MTC0 control index three, SP_WR_LEN, rejects atomically at local `0x090`
+without a write DMA and is the next closed control boundary.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

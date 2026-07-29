@@ -213,6 +213,15 @@ preflight produces no partial byte copy, record, or address evolution. A later
 MFC0 SP_DMA_BUSY read derives idle zero because no transfer persists beyond
 the committing instruction boundary; it adds no timing state.
 
+Exact Vsub and Vaddc do not move or duplicate DMEM ownership. Each aligned
+Lqv observes the existing Available `SpDmem` truth and writes only `Sp::rsp`
+vector state. The 256-address sequence is `0xFF0` through `0x000` by `-0x10`;
+final v14 reflects the last Available read at DMEM zero. Cause-known
+unavailable v13/accumulator/VCO results contain no hidden memory bytes. The
+post-loop SP_MEM_ADDR and SP_DRAM_ADDR writes program only existing `Sp` state.
+SP_WR_LEN rejects before mutation, so no SP-to-RDRAM DMA, RDRAM write, DMEM
+change, IMEM change, or third DMA record exists.
+
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.
 Pinned mapping evidence now identifies NTSC raw `[0x0d4,0x71c)` to SP IMEM

@@ -154,8 +154,9 @@ before application and never treats unrelated prior `rd` as an input.
 RSP fetch is a separate selected-processor pipeline inside the same public
 `Machine::step`. It captures singular `Sp::pc`, requires aligned in-range
 known `SpImem` word truth, retains four-byte provenance, and decodes only exact
-MFC0 sources, aligned element-zero full-register LQV, aligned Available-DMEM
-scalar LW, raw-zero NOP, scalar XORI/LUI/ADDI, BLTZ/BNE, and MTC0 for three
+MFC0 sources, aligned element-zero full-register LQV, exact element-zero
+VSUB/VADDC, aligned Available-DMEM scalar LW, raw-zero NOP, scalar
+XORI/LUI/ADDI, BLTZ/BGEZ/BNE, and MTC0 for three
 reached SP controls before planning all source effects. LQV reads an
 available scalar base, uses its low 12
 bits plus a sign-extended seven-bit offset shifted left four, and observes one
@@ -172,7 +173,15 @@ target control index, fetched word, and owner state; `SP_RD_LEN` additionally
 preflights the complete shared-policy DMA before mutation. LUI has no scalar
 source; ADDI captures one Available old source and performs wrapping
 sign-extended-immediate addition without overflow exception. BLTZ tests bit
-31 and BNE compares complete Available u32 operands. A branch commit advances
+31, BGEZ tests its complement, and BNE compares complete Available u32
+operands. Vsub planning captures both vector operands, genuinely consumed low
+VCO, sliced accumulator, and VCC/VCE. Self-alias cancels vector bits; unknown
+borrow still produces whole-register and low-slice unavailable results.
+Application clears both VCO halves. Vaddc captures both old vector sources but
+does not consume old VCO; available inputs produce unsigned 17-bit low/carry
+truth, while any unavailable input produces whole-register, low-slice, and
+carry unavailability. Both preserve accumulator high/middle and VCC/VCE. A
+branch commit advances
 to its slot, stages target/fallthrough plus immutable cause in Sp::rsp, commits
 once, and selects CPU. The slot is a separate later RSP instruction; its
 successful commit follows the staged successor and clears the delay context.
@@ -187,7 +196,8 @@ Known unknowns include future public-step integration categories, unearned
 branch-likely/REGIMM members, COP0/CACHE operations beyond the detailed ledger,
 translated TLB access, NMI, generic MMIO, broad CPU or RSP fetch mapping,
 partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar
-loads, scalar stores, nonzero SLL, branches beyond BLTZ/BNE, scalar J-family
-control flow, MTC0 beyond the three reached SP controls, MFC0 beyond the three
-reached sources, other DMA directions/shapes, vector consumers or arithmetic,
+loads, scalar stores, nonzero SLL, branches beyond BLTZ/BGEZ/BNE, scalar
+J-family control flow, MTC0 beyond the three reached SP controls including
+SP_WR_LEN, MFC0 beyond the three reached sources, SP-to-RDRAM and other DMA
+directions/shapes, other vector consumers/arithmetic or nonzero elements,
 analog device behavior, and instruction timing.

@@ -50,9 +50,13 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   retaining singular current-PC and control ownership. Scalar r0 is immutable
   known zero; r1-r31 are unavailable until written. The nested state owns 32
   individually available-or-unavailable vector-register slots; every slot
-  begins unavailable and exposes no fabricated reset bytes. Accumulator, VCC,
-  VCO, and VCE truth remains explicitly unavailable. One private per-Machine
-  turn makes each public `Machine::step` select at most one CPU or RSP
+  begins unavailable and exposes no fabricated reset bytes. It also owns eight
+  accumulator lanes with independently Available or Unavailable high, middle,
+  and low 16-bit slices; independently known VCO carry/borrow and not-equal
+  halves; Available-or-Unavailable VCC and VCE; and immutable vector-arithmetic
+  provenance. All accumulator/control truth begins Unavailable from
+  construction or reset. One private per-Machine turn makes each public
+  `Machine::step` select at most one CPU or RSP
   instruction. Successful CPU/RSP commits alternate while halt is false;
   selected rejection has no fallback. CPU Count, CPU committed-step count,
   CPU interrupt recognition, and VI remain CPU-selected cadence only; RSP owns
@@ -97,17 +101,23 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   instructions, one aligned element-zero full-register vector `Lqv`, one
   aligned scalar `Lw`, two exact raw-zero `Nop` instructions, three exact
   owner-routed `Mtc0` destinations, scalar `Xori`, scalar `Lui`, scalar
-  `Addi`, scalar `Bltz`, and scalar `Bne`. One independently owned RSP delay
-  context persists across intervening CPU-selected calls. The public path
+  `Addi`, scalar `Bltz`, scalar `Bne`, scalar `Bgez`, exact element-zero
+  `Vsub`, and exact element-zero `Vaddc`. One independently owned RSP delay
+  context persists across intervening CPU-selected calls, including every
+  public Bgez/Vaddc branch-slot pair. The public path
   completes both an eight-byte and a 4096-byte existing-model atomic
   RDRAM-to-DMEM transfer, acquires the semaphore only after an ordinary guest
-  CPU clear, and reads `SP_DMA_BUSY` as idle at the later instruction
-  boundary. `Vsub v13,v13,v13` rejects atomically as the next frontier.
-  BOOT-3, a
+  CPU clear, reads `SP_DMA_BUSY` as idle at the later instruction boundary,
+  and completes 256 authentic vector-sum iterations through public
+  `Machine::step`. Unavailable initial VCO makes Vsub produce cause-known
+  unavailable v13; every Vaddc propagates that truth while aligned Lqv
+  produces Available v14. Post-loop scalar/control setup reaches
+  `Mtc0 r3,SP_WR_LEN` at local `0x090`, which rejects atomically as the next
+  frontier. BOOT-3, a
   proprietary PIF execution chain, commercial-cartridge generality, user-task
-  RSP execution, vector arithmetic, compatibility, graphics, window, and
-  audio are not claimed. Public generated execution remains synthetic proof
-  only.
+  RSP execution beyond the exact subset, SP-to-RDRAM DMA, general vector
+  arithmetic, compatibility, graphics, window, and audio are not claimed.
+  Public generated execution remains synthetic proof only.
 - `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `BLEZ`, non-linking/non-likely
   `BLTZ` and `BGEZ`, `J`, `JAL`, `JR`, and `JALR`
   execute through `Machine::step` with one CPU-owned delay-slot context.
@@ -454,9 +464,17 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   instruction boundary. Bne at `0x058` is not taken; its Xori delay slot at
   `0x05C` commits `r3 = 0xFF0`. After the final CPU rotation, CPU
   Count/committed count are `252401/252417`, RSP PC/next-PC are
-  `0x060/0x064`, and RSP count is 56. Selected word `0x4A0D6B51` is identified
-  as `Vsub v13,v13,v13` and rejects atomically with no fallback and complete
-  Machine preservation. This is the current combined Machine frontier.
+  `0x060/0x064`, and RSP count is 56. Selected word `0x4A0D6B51` commits exact
+  element-zero `Vsub v13,v13,v13`: unavailable initial borrow truth makes v13
+  and the accumulator-low slices cause-known unavailable, VCO becomes
+  Available zero, and accumulator high/middle, VCC, and VCE remain unchanged.
+  The public path then commits 256 aligned Lqv/Addi/Bgez/Vaddc iterations with
+  one real CPU-selected call between every RSP commit. Final r3 is
+  `0xFFFFFFF0`, RSP PC/next-PC are `0x074/0x078`, and RSP count is 1081.
+  Existing post-loop scalar/control operations program local SP address
+  `0x1120` and physical DRAM address `0x002FB1F0`; selected
+  `Mtc0 r3,SP_WR_LEN` at local `0x090` rejects atomically with no fallback or
+  SP-to-RDRAM DMA. This is the current combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`

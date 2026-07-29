@@ -251,8 +251,15 @@ perform one atomic 4096-byte shared Sp read DMA. Exact Mfc0 SP_DMA_BUSY returns
 idle zero at the later instruction boundary, so the public Bne is not taken
 and its Xori delay slot still commits. Nine additional CPU rotations bring CPU
 Count/committed count to `252401/252417`; RSP count reaches 56. Selected
-`Vsub v13,v13,v13` at local `0x060` is the next atomic rejection frontier.
+`Vsub v13,v13,v13` at local `0x060` commits while leaving CPU truth unchanged.
+The following 256-iteration Lqv/Addi/Bgez/Vaddc loop uses exactly 1,024
+CPU-selected and 1,024 RSP-selected commits. Every Bgez and Vaddc slot remains
+separate with one intervening CPU call; CPU Count/committed count become
+`253425/253441` while RSP count becomes 1081. Seven post-loop RSP commits and
+eight CPU interleaves then produce final CPU PC/next
+`0x8000017C/0x80000180`, Count/committed `253433/253449`, and RSP count 1088.
+Selected SP_WR_LEN rejection changes no CPU/RSP/device state and receives no
+CPU fallback.
 
-Next authority must be earned by a bounded vector-arithmetic decision, not a
-generic dispatcher, branch/pipeline framework, DMA timing model, or cycle
-model.
+Next authority must be earned by a bounded SP write-DMA decision, not a generic
+dispatcher, branch/pipeline/DMA framework, timing model, or cycle model.

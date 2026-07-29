@@ -818,6 +818,30 @@ product or reference lane requires a new explicit product decision.
   SLL, MTC0, SP DMA execution, scalar J, vector arithmetic, BREAK, task
   completion, RDP, BOOT-3, and compatibility remain unavailable.
 
+## Era 43 — Sliced vector control, exact vector sum, and SP write frontier (2026-07-29)
+
+- Ownership result: `Sp::rsp` replaces its monolithic accumulator/flag
+  boundary with eight independently sliced accumulator lanes, independent VCO
+  carry/borrow and not-equal halves, and independent VCC/VCE truth. Every new
+  state begins Unavailable from construction/reset and carries exact immutable
+  provenance.
+- Semantic result: exact element-zero VSUB performs signed subtract/clamp,
+  writes accumulator-low, clears both VCO halves, and preserves VCC/VCE. Exact
+  element-zero VADDC performs unsigned 17-bit addition, writes low results and
+  carry truth, clears upper VCO, and preserves VCC/VCE. Unavailable inputs
+  commit cause-known unavailable results without backing bytes. Exact scalar
+  BGEZ reuses the independent RSP delay owner.
+- Runtime result: public VSUB commits once from unavailable borrow. A real
+  2,048-call CPU/RSP composition commits 256 each of LQV, ADDI, BGEZ, and
+  VADDC; BGEZ is taken 255 times. Final r3 is `0xFFFFFFF0`, PC/next is
+  `0x074/0x078`, and RSP count is 1081. Seven existing RSP setup commits plus
+  eight CPU interleaves reach `Mtc0 r3,SP_WR_LEN` at local `0x090`, where it
+  rejects atomically with RSP count 1088.
+- Boundary: SP_WR_LEN and SP-to-RDRAM DMA remain unavailable. No later bounded
+  instruction consumes v13, accumulator, VCO, VCC, or VCE. DPC_STATUS, BREAK,
+  task completion, RDP, graphics, audio, BOOT-3, and compatibility remain
+  unavailable.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

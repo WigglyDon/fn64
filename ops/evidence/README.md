@@ -51,6 +51,7 @@ Current durable integration records:
 - [Opaque aligned SP-IMEM words and generated x105 FindCC boundary](opaque-sp-imem-word-generated-x105-find-cc-frontier-v1/README.md)
 - [Exact BEQL annul semantics and generated x105 TestCC frontier](beql-generated-x105-test-cc-frontier-v1/README.md)
 - [Exact RSP scalar LW, two NOPs, and MTC0 frontier](rsp-scalar-lw-nop-generated-x105-mtc0-frontier-v1/README.md)
+- [Exact RSP Vsub/Vaddc/Bgez vector sum and SP write frontier](rsp-vsub-vaddc-sum-loop-generated-x105-sp-wr-len-frontier-v1/README.md)
 
 The lineage contract is:
 
