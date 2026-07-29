@@ -842,6 +842,29 @@ product or reference lane requires a new explicit product decision.
   task completion, RDP, graphics, audio, BOOT-3, and compatibility remain
   unavailable.
 
+## Era 44 — Exact SP write DMA and DPC status frontier (2026-07-29)
+
+- Ownership result: `Sp` remains the sole SP address, length-command,
+  transfer-plan, record, and evolution owner. `SpImem`/`SpDmem` remain the
+  source-byte and knowledge owners, while `Rdram` remains the destination-byte
+  owner. No generic DMA, bus, MMIO, Dpc, or Rdp owner was created.
+- Semantic result: exact RSP MTC0 control index three commits SP_WR_LEN only
+  after complete source-knownness, destination-range, record-capacity, and
+  address-evolution preflight. One atomic application copies every planned
+  byte, appends one typed `SpToRdram` record, and evolves both addresses once.
+  Unavailable or opaque source truth and every malformed plan reject before
+  mutation.
+- Runtime result: public raw word `0xFE817000` decodes as 24 eight-byte blocks,
+  skip `0xFE8`, and 192 transferred bytes from IMEM `[0x120,0x1E0)`. The
+  disjoint RDRAM destinations begin at `0x002FB1F0` and end at
+  `0x00312088`; final programmed addresses are local `0x11E0` and RDRAM
+  `0x00313070`. The third DMA record commits at RSP count 1089. One CPU
+  interleave, Xori `r3 = 0x240`, and a second CPU interleave reach
+  DPC_STATUS at local `0x098`, RSP count 1090.
+- Boundary: DPC_STATUS rejects atomically. No Dpc/Rdp state, BREAK, task
+  completion, persistent DMA timing, queue, partial progress, graphics, audio,
+  BOOT-3, or compatibility is represented.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

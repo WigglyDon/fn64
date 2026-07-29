@@ -52,6 +52,7 @@ Current durable integration records:
 - [Exact BEQL annul semantics and generated x105 TestCC frontier](beql-generated-x105-test-cc-frontier-v1/README.md)
 - [Exact RSP scalar LW, two NOPs, and MTC0 frontier](rsp-scalar-lw-nop-generated-x105-mtc0-frontier-v1/README.md)
 - [Exact RSP Vsub/Vaddc/Bgez vector sum and SP write frontier](rsp-vsub-vaddc-sum-loop-generated-x105-sp-wr-len-frontier-v1/README.md)
+- [Exact RSP SP write DMA and DPC status frontier](rsp-sp-wr-len-write-dma-generated-x105-dpc-status-frontier-v1/README.md)
 
 The lineage contract is:
 

@@ -218,9 +218,14 @@ Lqv observes the existing Available `SpDmem` truth and writes only `Sp::rsp`
 vector state. The 256-address sequence is `0xFF0` through `0x000` by `-0x10`;
 final v14 reflects the last Available read at DMEM zero. Cause-known
 unavailable v13/accumulator/VCO results contain no hidden memory bytes. The
-post-loop SP_MEM_ADDR and SP_DRAM_ADDR writes program only existing `Sp` state.
-SP_WR_LEN rejects before mutation, so no SP-to-RDRAM DMA, RDRAM write, DMEM
-change, IMEM change, or third DMA record exists.
+post-loop SP_MEM_ADDR and SP_DRAM_ADDR writes program only existing `Sp`
+state. SP_WR_LEN selects complete Available/non-opaque IMEM `[0x120,0x1e0)`.
+The Sp owner preflights all 24 eight-byte RDRAM destinations before atomically
+copying 192 bytes, preserving IMEM truth, and appending record two. Rdram
+retains singular destination-byte ownership; the record owns causality rather
+than duplicate bytes. Final local/RDRAM addresses are `0x11e0/0x00313070`.
+No persistent DMA duration, queue, partial progress, or unrelated memory
+mutation exists.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.

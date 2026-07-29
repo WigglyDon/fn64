@@ -142,8 +142,10 @@ persistent busy state, countdown, queue, partial progress, or timing claim is
 created. `SP_DMA_FULL` and other RSP control indices reject atomically. No
 RSP-selected success or rejection enters CPU COP0, advances CPU Count, or
 receives CPU fallback. Exact Vsub/Vaddc/Bgez execute without CPU-COP0 effects.
-RSP MTC0 control index three, SP_WR_LEN, rejects atomically at local `0x090`
-without a write DMA and is the next closed control boundary.
+RSP MTC0 control index three, SP_WR_LEN, commits one fully preflighted atomic
+write DMA without CPU-COP0 effects. Control index eleven, DPC_STATUS, rejects
+atomically at local `0x098` without creating Dpc/Rdp state and is the next
+closed control boundary.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

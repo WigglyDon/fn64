@@ -172,7 +172,8 @@ raw-zero NOP commits, exact MTC0 owner routing, scalar XORI/LUI/ADDI,
 BLTZ/BNE with CPU-interleaved delay contexts, an authentic guest CPU
 semaphore clear/acquisition, two atomic shared-policy read DMAs, an idle
 SP_DMA_BUSY read, exact element-zero Vsub/Vaddc, exact Bgez, a 256-iteration
-vector sum, and SP_WR_LEN-frontier rejection. The authoritative
+vector sum, exact SP_WR_LEN write DMA, post-DMA Xori, and DPC_STATUS-frontier
+rejection. The authoritative
 core composition starts from generated cold x105 state, reproduces the exact
 halt-clear at CPU `0xA4000508`, commits the two public MFC0 words with ordinary
 CPU interleave, commits public LQV at local `0x008`, commits scalar LW from
@@ -187,8 +188,11 @@ atomic completion; Bne is not taken and its Xori slot commits. Vsub commits
 unavailable v13 and clears VCO. The public loop then commits 256 each of
 Lqv/Addi/Bgez/Vaddc through 2,048 selected calls, with 255 taken Bgez
 instances and one not-taken instance. Seven existing scalar/control commits
-reach unsupported SP_WR_LEN at local `0x090`; the rejection preserves the
-complete Machine and performs no write DMA.
+reach SP_WR_LEN at local `0x090`; one atomic 192-byte transfer maps 24
+Available IMEM blocks into disjoint RDRAM destinations and appends a typed
+third record. After one real CPU call, Xori commits `r3 = 0x240`; another CPU
+call reaches unsupported DPC_STATUS at local `0x098`, whose rejection
+preserves the complete Machine and completed write DMA.
 Inspection reads only public Machine state and never stages RSP registers, PC,
 turn, semaphore, vector state, or memory to force that result. The compact
 core proof uses an existing test-only generated-IMEM seam for independently

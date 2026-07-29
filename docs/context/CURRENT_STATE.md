@@ -111,11 +111,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   and completes 256 authentic vector-sum iterations through public
   `Machine::step`. Unavailable initial VCO makes Vsub produce cause-known
   unavailable v13; every Vaddc propagates that truth while aligned Lqv
-  produces Available v14. Post-loop scalar/control setup reaches
-  `Mtc0 r3,SP_WR_LEN` at local `0x090`, which rejects atomically as the next
-  frontier. BOOT-3, a
+  produces Available v14. Post-loop scalar/control setup commits
+  `Mtc0 r3,SP_WR_LEN` at local `0x090`: the singular `Sp` owner atomically
+  copies 24 eight-byte blocks from IMEM `[0x120,0x1e0)` into disjoint RDRAM
+  blocks beginning at `0x002fb1f0` with DRAM skip `0xfe8`, then appends one
+  typed third DMA record. Existing Xori commits at `0x094`; `Mtc0
+  r3,DPC_STATUS` at local `0x098` rejects atomically as the next frontier.
+  BOOT-3, a
   proprietary PIF execution chain, commercial-cartridge generality, user-task
-  RSP execution beyond the exact subset, SP-to-RDRAM DMA, general vector
+  RSP execution beyond the exact subset, DPC/RDP execution, general vector
   arithmetic, compatibility, graphics, window, and audio are not claimed.
   Public generated execution remains synthetic proof only.
 - `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `BLEZ`, non-linking/non-likely
@@ -472,9 +476,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   one real CPU-selected call between every RSP commit. Final r3 is
   `0xFFFFFFF0`, RSP PC/next-PC are `0x074/0x078`, and RSP count is 1081.
   Existing post-loop scalar/control operations program local SP address
-  `0x1120` and physical DRAM address `0x002FB1F0`; selected
-  `Mtc0 r3,SP_WR_LEN` at local `0x090` rejects atomically with no fallback or
-  SP-to-RDRAM DMA. This is the current combined Machine frontier.
+  `0x1120` and physical DRAM address `0x002FB1F0`. Selected
+  `Mtc0 r3,SP_WR_LEN` at local `0x090` commits one atomic 192-byte
+  IMEM-to-RDRAM transfer: raw `0xFE817000` decodes as 24 eight-byte blocks
+  with skip `0xFE8`, addresses evolve to local `0x11E0` / RDRAM
+  `0x00313070`, and the first two records remain unchanged. Existing Xori at
+  `0x094` produces `r3 = 0x240`; selected `Mtc0 r3,DPC_STATUS` at local
+  `0x098` then rejects atomically without fallback or a Dpc/Rdp owner. This
+  is the current combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`

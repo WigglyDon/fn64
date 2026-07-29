@@ -258,8 +258,13 @@ separate with one intervening CPU call; CPU Count/committed count become
 `253425/253441` while RSP count becomes 1081. Seven post-loop RSP commits and
 eight CPU interleaves then produce final CPU PC/next
 `0x8000017C/0x80000180`, Count/committed `253433/253449`, and RSP count 1088.
-Selected SP_WR_LEN rejection changes no CPU/RSP/device state and receives no
-CPU fallback.
+Selected SP_WR_LEN commits on an RSP-selected call without changing CPU Count,
+CPU committed count, or VI. The next real CPU commit is Ori at `0x8000017C`,
+which updates r15 from sign-extended `0xA0000000` to `0xA00002FF`; after RSP
+Xori at `0x094`, Addiu at `0x80000180` updates r9 from sign-extended
+`0x80001090` to `0x80001094`. Counts become `253435/253451`. Selected
+DPC_STATUS rejection changes no CPU/RSP/device state and receives no fallback.
 
-Next authority must be earned by a bounded SP write-DMA decision, not a generic
-dispatcher, branch/pipeline/DMA framework, timing model, or cycle model.
+Next authority must be earned by a bounded DPC_STATUS owner decision, not a
+generic dispatcher, branch/pipeline/DMA framework, timing model, or cycle
+model.

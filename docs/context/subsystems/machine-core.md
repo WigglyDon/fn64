@@ -326,9 +326,14 @@ both VCO halves, and preserves sliced high/middle plus VCC/VCE. Exact Bgez and
 element-zero Vaddc reuse the independent RSP delay owner. The public loop
 commits 256 Lqv/Addi/Bgez/Vaddc iterations in 2,048 selected calls; final v13,
 accumulator-low, and VCO carry remain cause-known unavailable while VCO upper
-is zero. Seven existing setup commits reach unsupported SP_WR_LEN at local
-`0x090` with RSP count 1088 and no write DMA. No persistent busy/full duration,
-queue, partial progress, cycle timing, or semaphore authorization is
+is zero. Seven existing setup commits reach SP_WR_LEN at local `0x090` with
+RSP count 1088. The singular Sp owner decodes raw `0xFE817000`, preflights
+complete Available/non-opaque IMEM `[0x120,0x1e0)` and 24 disjoint RDRAM
+blocks, then atomically copies 192 bytes and appends one `SpToRdram` record.
+Addresses evolve once to local `0x11e0` and RDRAM `0x00313070`; the first two
+records and all unrelated truth remain unchanged. Xori at `0x094` commits
+before DPC_STATUS rejects at `0x098`. No persistent busy/full duration, queue,
+partial progress, cycle timing, Dpc/Rdp owner, or semaphore authorization is
 represented.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
@@ -338,6 +343,6 @@ translated TLB memory access, RSP execution beyond exact scalar MFC0, aligned
 full-register LQV, element-zero Vsub/Vaddc, aligned Available-DMEM scalar LW,
 and raw-zero NOP, RSP MTC0 beyond the three reached destinations, branches
 beyond BLTZ/BGEZ/BNE, scalar J-family control flow, other scalar identities,
-SP-to-RDRAM DMA and other DMA shapes, other vector consumers/arithmetic, host
+other DMA shapes, DPC_STATUS, other vector consumers/arithmetic, host
 presentation, broader handoff state, and whether any later fact requires
 minimal firmware execution.
