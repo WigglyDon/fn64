@@ -471,6 +471,12 @@ pub enum MachineSpDmaDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDmaSpMemory {
+    Dmem,
+    Imem,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineSpDmaRecord {
     direction: MachineSpDmaDirection,
     raw_length_word: u32,
@@ -488,7 +494,8 @@ pub struct MachineSpDmaRecord {
 }
 
 impl MachineSpDmaRecord {
-    pub(crate) const fn rdram_to_sp(
+    const fn new(
+        direction: MachineSpDmaDirection,
         raw_length_word: u32,
         memory_address: MachineSpMemoryAddressState,
         dram_address: MachineSpDramAddressState,
@@ -507,7 +514,7 @@ impl MachineSpDmaRecord {
             (block_length_bytes as u32 + dram_skip_bytes as u32) * block_count as u32,
         );
         Self {
-            direction: MachineSpDmaDirection::RdramToSp,
+            direction,
             raw_length_word,
             block_length_bytes,
             block_count,
@@ -523,8 +530,46 @@ impl MachineSpDmaRecord {
         }
     }
 
+    pub(crate) const fn rdram_to_sp(
+        raw_length_word: u32,
+        memory_address: MachineSpMemoryAddressState,
+        dram_address: MachineSpDramAddressState,
+        trigger: MachineSpRegisterWriteSource,
+    ) -> Self {
+        Self::new(
+            MachineSpDmaDirection::RdramToSp,
+            raw_length_word,
+            memory_address,
+            dram_address,
+            trigger,
+        )
+    }
+
+    pub(crate) const fn sp_to_rdram(
+        raw_length_word: u32,
+        memory_address: MachineSpMemoryAddressState,
+        dram_address: MachineSpDramAddressState,
+        trigger: MachineSpRegisterWriteSource,
+    ) -> Self {
+        Self::new(
+            MachineSpDmaDirection::SpToRdram,
+            raw_length_word,
+            memory_address,
+            dram_address,
+            trigger,
+        )
+    }
+
     pub const fn direction(self) -> MachineSpDmaDirection {
         self.direction
+    }
+
+    pub const fn selected_sp_memory(self) -> MachineSpDmaSpMemory {
+        if self.initial_local_address & 0x1000 == 0 {
+            MachineSpDmaSpMemory::Dmem
+        } else {
+            MachineSpDmaSpMemory::Imem
+        }
     }
 
     pub const fn raw_length_word(self) -> u32 {
@@ -1048,7 +1093,8 @@ impl Sp {
                 MachineRspMfc0ControlSource::SpDmaBusy { busy: false }
             }
             MachineRspControlRegister::SpMemoryAddress
-            | MachineRspControlRegister::SpReadLength => {
+            | MachineRspControlRegister::SpReadLength
+            | MachineRspControlRegister::SpWriteLength => {
                 unreachable!("Mfc0 decoder does not admit write-only packet destinations")
             }
         }

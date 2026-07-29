@@ -185,7 +185,7 @@ pub use si::{
 };
 pub use sp::{
     MachineRspRunStartProvenance, MachineRspRunStartState, MachineSpCpuStoreProvenance,
-    MachineSpDmaDirection, MachineSpDmaRecord, MachineSpDramAddressSource,
+    MachineSpDmaDirection, MachineSpDmaRecord, MachineSpDmaSpMemory, MachineSpDramAddressSource,
     MachineSpDramAddressState, MachineSpMemoryAddressState, MachineSpPcState,
     MachineSpRegisterWriteSource, MachineSpSemaphorePriorSource, MachineSpSemaphoreSource,
     MachineSpSemaphoreState, MachineSpStatusState, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS,

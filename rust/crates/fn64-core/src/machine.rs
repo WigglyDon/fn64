@@ -2814,6 +2814,23 @@ enum MachineSpReadDmaPlanRejection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MachineSpWriteDmaPlanRejection {
+    RecordCapacityExhausted,
+    AddressUnavailable,
+    SourceRangeRejected { local_address: u16 },
+    SourceUnavailable { local_address: u16 },
+    SourceOpaque { local_address: u16 },
+    SourceKnowledgeInconsistent { local_address: u16 },
+    RdramRangeRejected { physical_address: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MachineSpWriteDmaPlan {
+    record: MachineSpDmaRecord,
+    source_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MachineStoreWordAddressErrorPlan {
     fields: CpuInstructionFields,
     effective_address: u64,
@@ -6145,6 +6162,51 @@ impl Machine {
                             })?;
                         self.apply_sp_read_dma(record);
                     }
+                    MachineRspControlRegister::SpWriteLength => {
+                        let dma_plan = self
+                            .plan_sp_write_dma(
+                                source_value,
+                                MachineSpRegisterWriteSource::RspMtc0 { source_index },
+                            )
+                            .map_err(|reason| {
+                                MachineRepresentedStepError::RspRejected(
+                                    MachineRspStepRejection::new(match reason {
+                                        MachineSpWriteDmaPlanRejection::RecordCapacityExhausted => {
+                                            MachineRspStepRejectionReason::Mtc0WriteDmaRecordCapacityExhausted
+                                        }
+                                        MachineSpWriteDmaPlanRejection::AddressUnavailable => {
+                                            MachineRspStepRejectionReason::Mtc0WriteDmaAddressUnavailable
+                                        }
+                                        MachineSpWriteDmaPlanRejection::SourceRangeRejected {
+                                            local_address,
+                                        } => MachineRspStepRejectionReason::Mtc0WriteDmaSourceRangeRejected {
+                                            local_address,
+                                        },
+                                        MachineSpWriteDmaPlanRejection::SourceUnavailable {
+                                            local_address,
+                                        } => MachineRspStepRejectionReason::Mtc0WriteDmaSourceUnavailable {
+                                            local_address,
+                                        },
+                                        MachineSpWriteDmaPlanRejection::SourceOpaque {
+                                            local_address,
+                                        } => MachineRspStepRejectionReason::Mtc0WriteDmaSourceOpaque {
+                                            local_address,
+                                        },
+                                        MachineSpWriteDmaPlanRejection::SourceKnowledgeInconsistent {
+                                            local_address,
+                                        } => MachineRspStepRejectionReason::Mtc0WriteDmaSourceKnowledgeInconsistent {
+                                            local_address,
+                                        },
+                                        MachineSpWriteDmaPlanRejection::RdramRangeRejected {
+                                            physical_address,
+                                        } => MachineRspStepRejectionReason::Mtc0WriteDmaRdramRangeRejected {
+                                            physical_address,
+                                        },
+                                    }),
+                                )
+                            })?;
+                        self.apply_sp_write_dma(dma_plan);
+                    }
                     MachineRspControlRegister::SpSemaphore => {
                         unreachable!("Mtc0 decoder does not admit SP_SEMAPHORE")
                     }
@@ -8228,6 +8290,133 @@ impl Machine {
                         dma_record_index,
                     );
                 }
+            }
+        }
+        self.sp.apply_dma(record);
+    }
+
+    fn plan_sp_write_dma(
+        &self,
+        raw_length_word: u32,
+        trigger: MachineSpRegisterWriteSource,
+    ) -> Result<MachineSpWriteDmaPlan, MachineSpWriteDmaPlanRejection> {
+        if !self.sp.can_record_dma() {
+            return Err(MachineSpWriteDmaPlanRejection::RecordCapacityExhausted);
+        }
+        let memory_address = self
+            .sp
+            .memory_address_state()
+            .ok_or(MachineSpWriteDmaPlanRejection::AddressUnavailable)?;
+        let dram_address = self
+            .sp
+            .dram_address_state()
+            .ok_or(MachineSpWriteDmaPlanRejection::AddressUnavailable)?;
+        let record =
+            MachineSpDmaRecord::sp_to_rdram(raw_length_word, memory_address, dram_address, trigger);
+
+        let initial_local_address = record.initial_local_address();
+        let local_bank = initial_local_address & 0x1000;
+        let local_start = u32::from(initial_local_address & 0x0fff);
+        let local_end = local_start
+            .checked_add(record.transferred_byte_count())
+            .ok_or(MachineSpWriteDmaPlanRejection::SourceRangeRejected {
+                local_address: local_bank.saturating_add(0x1000),
+            })?;
+        if local_end > 0x1000 {
+            return Err(MachineSpWriteDmaPlanRejection::SourceRangeRejected {
+                local_address: local_bank.saturating_add(0x1000),
+            });
+        }
+
+        let mut source_bytes = Vec::with_capacity(record.transferred_byte_count() as usize);
+        if local_bank == 0 {
+            for byte_index in 0..record.transferred_byte_count() {
+                let local_address = (local_start + byte_index) as u16;
+                match self
+                    .sp_dmem
+                    .observe_byte(SpDmemOffset::new(u32::from(local_address)))
+                    .map_err(|_| MachineSpWriteDmaPlanRejection::SourceRangeRejected {
+                        local_address,
+                    })? {
+                    MachineSpDmemByteKnowledge::Available { value, .. } => {
+                        source_bytes.push(value);
+                    }
+                    MachineSpDmemByteKnowledge::Unavailable { .. } => {
+                        return Err(MachineSpWriteDmaPlanRejection::SourceUnavailable {
+                            local_address,
+                        });
+                    }
+                }
+            }
+        } else {
+            debug_assert_eq!(local_start & 0x7, 0);
+            debug_assert_eq!(record.transferred_byte_count() & 0x7, 0);
+            for word_offset in (0..record.transferred_byte_count()).step_by(4) {
+                let offset = SpImemOffset::new(local_start + word_offset);
+                let word = self
+                    .sp_imem
+                    .read_known_u32_be(offset)
+                    .map_err(|error| match error {
+                        SpImemReadError::UnknownByte { unknown_offset, .. } => {
+                            MachineSpWriteDmaPlanRejection::SourceUnavailable {
+                                local_address: local_bank | unknown_offset.value() as u16,
+                            }
+                        }
+                        SpImemReadError::OpaqueWord { offset, .. } => {
+                            MachineSpWriteDmaPlanRejection::SourceOpaque {
+                                local_address: local_bank | offset.value() as u16,
+                            }
+                        }
+                        SpImemReadError::InconsistentOpaqueWord { offset } => {
+                            MachineSpWriteDmaPlanRejection::SourceKnowledgeInconsistent {
+                                local_address: local_bank | offset.value() as u16,
+                            }
+                        }
+                        SpImemReadError::OutOfRange { offset, .. } => {
+                            MachineSpWriteDmaPlanRejection::SourceRangeRejected {
+                                local_address: local_bank | offset.value() as u16,
+                            }
+                        }
+                        SpImemReadError::Unaligned { offset, .. } => {
+                            MachineSpWriteDmaPlanRejection::SourceKnowledgeInconsistent {
+                                local_address: local_bank | offset.value() as u16,
+                            }
+                        }
+                    })?;
+                source_bytes.extend_from_slice(&word.value().to_be_bytes());
+            }
+        }
+
+        for block in 0..record.block_count() {
+            let final_address =
+                record.rdram_address_for_byte(block, record.block_length_bytes() - 1);
+            self.rdram
+                .require_u8_offset(final_address as usize)
+                .map_err(|_| MachineSpWriteDmaPlanRejection::RdramRangeRejected {
+                    physical_address: final_address,
+                })?;
+        }
+
+        debug_assert_eq!(source_bytes.len(), record.transferred_byte_count() as usize);
+        Ok(MachineSpWriteDmaPlan {
+            record,
+            source_bytes,
+        })
+    }
+
+    fn apply_sp_write_dma(&mut self, plan: MachineSpWriteDmaPlan) {
+        let record = plan.record;
+        for block in 0..record.block_count() {
+            let block_start = record.rdram_address_for_byte(block, 0);
+            self.cpu_rdram_reservation
+                .invalidate_for_rdram_write(block_start, usize::from(record.block_length_bytes()));
+            for byte_in_block in 0..record.block_length_bytes() {
+                let source_index = usize::from(block) * usize::from(record.block_length_bytes())
+                    + usize::from(byte_in_block);
+                self.rdram.write_u8_at_checked_offset(
+                    record.rdram_address_for_byte(block, byte_in_block) as usize,
+                    plan.source_bytes[source_index],
+                );
             }
         }
         self.sp.apply_dma(record);
@@ -12307,7 +12496,7 @@ mod tests {
     };
     use crate::rdram::RDRAM_SIZE_BYTES;
     use crate::rsp::{MachineRspInstructionSource, MachineRspScalarRegisterSource};
-    use crate::sp::{MachineSpDmaDirection, MachineSpDramAddressSource};
+    use crate::sp::{MachineSpDmaDirection, MachineSpDmaSpMemory, MachineSpDramAddressSource};
 
     fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset] = ((value >> 24) & 0xff) as u8;
@@ -24761,6 +24950,455 @@ mod tests {
     }
 
     #[test]
+    fn rsp_mtc0_sp_write_length_atomic_sp_to_rdram_dma_owner_block_map_record_and_cadence_are_exact(
+    ) {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (0, immediate_word(0x0f, 0, 3, 0xfe81)),
+                (4, immediate_word(0x0e, 3, 3, 0x7000)),
+                (
+                    8,
+                    rsp_mtc0_word(3, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+                ),
+            ],
+            true,
+        );
+        machine
+            .sp
+            .apply_memory_address_store(MachineSpMemoryAddressState::from_cpu_word(
+                0x0000_b120,
+                rsp_test_cpu_store_source(0x8000_1200, 4, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS),
+            ));
+        machine
+            .sp
+            .apply_dram_address_store(MachineSpDramAddressState::from_cpu_word(
+                0x002f_b1f0,
+                rsp_test_cpu_store_source(0x8000_1204, 5, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS),
+            ));
+        let source_bytes = (0..192)
+            .map(|index| 0x11_u8.wrapping_add((index as u8).wrapping_mul(37)))
+            .collect::<Vec<_>>();
+        for (word_index, bytes) in source_bytes.chunks_exact(4).enumerate() {
+            machine
+                .stage_generated_sp_imem_word_for_test(
+                    0x120 + word_index as u32 * 4,
+                    u32::from_be_bytes(bytes.try_into().unwrap()),
+                )
+                .unwrap();
+        }
+        let source_before = (0..192)
+            .map(|index| {
+                machine
+                    .sp_imem
+                    .observe_byte(SpImemOffset::new(0x120 + index))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        for block in 0_u32..24 {
+            let destination_start = 0x002f_b1f0 + block * 0x0ff0;
+            machine
+                .rdram
+                .write_u8_at_checked_offset((destination_start + 8) as usize, 0xd0 + block as u8);
+        }
+
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let vi_before = machine.vi_current_state();
+        let scalar_before =
+            core::array::from_fn::<_, { crate::rsp::RSP_SCALAR_REGISTER_COUNT }, _>(|index| {
+                machine.rsp_scalar_register(index).unwrap()
+            });
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let control_before = machine.rsp_accumulator_and_flags_state();
+        let semaphore_before = machine.sp_semaphore_state();
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLuiCommitted {
+                    instruction_pc: 0,
+                    destination_gpr: 3,
+                    result_value: 0xfe81_0000,
+                },
+            }
+        ));
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 4,
+                    destination_gpr: 3,
+                    result_value: 0xfe81_7000,
+                },
+            }
+        ));
+        machine.processor_turn = MachineStepProcessor::Rsp;
+
+        let scalar_at_dma =
+            core::array::from_fn::<_, { crate::rsp::RSP_SCALAR_REGISTER_COUNT }, _>(|index| {
+                machine.rsp_scalar_register(index).unwrap()
+            });
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 8,
+                    source_gpr: 3,
+                    source_value: 0xfe81_7000,
+                    control_register: MachineRspControlRegister::SpWriteLength,
+                    source_index: 0,
+                },
+            }
+        );
+
+        assert_eq!(machine.sp_dma_record_count(), 1);
+        let record = machine.sp_dma_record(0).unwrap();
+        assert_eq!(record.direction(), MachineSpDmaDirection::SpToRdram);
+        assert_eq!(record.selected_sp_memory(), MachineSpDmaSpMemory::Imem);
+        assert_eq!(record.raw_length_word(), 0xfe81_7000);
+        assert_eq!(record.block_length_bytes(), 8);
+        assert_eq!(record.block_count(), 24);
+        assert_eq!(record.dram_skip_bytes(), 0x0fe8);
+        assert_eq!(record.initial_local_address(), 0x1120);
+        assert_eq!(record.initial_rdram_address(), 0x002f_b1f0);
+        assert_eq!(record.final_local_address(), 0x11e0);
+        assert_eq!(record.final_rdram_address(), 0x0031_3070);
+        assert_eq!(record.transferred_byte_count(), 192);
+        assert_eq!(
+            record.trigger(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
+        );
+        assert_eq!(
+            machine.sp_memory_address_state().unwrap().transfer_word(),
+            0x0000_b120
+        );
+        assert_eq!(
+            machine.sp_memory_address_state().unwrap().local_address(),
+            0x11e0
+        );
+        assert_eq!(
+            machine.sp_dram_address_state().unwrap().transfer_word(),
+            0x0031_3070
+        );
+        assert_eq!(
+            machine.sp_dram_address_state().unwrap().physical_address(),
+            0x0031_3070
+        );
+        assert_eq!(
+            machine.sp_dram_address_state().unwrap().source(),
+            MachineSpDramAddressSource::DmaAdvance {
+                record_index: 0,
+                trigger: MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 },
+            }
+        );
+        for block in 0_u32..24 {
+            let destination_start = 0x002f_b1f0 + block * 0x0ff0;
+            for byte_in_block in 0_u32..8 {
+                assert_eq!(
+                    machine
+                        .rdram()
+                        .read_u8((destination_start + byte_in_block) as usize),
+                    Ok(source_bytes[(block * 8 + byte_in_block) as usize])
+                );
+            }
+            assert_eq!(
+                machine.rdram().read_u8((destination_start + 8) as usize),
+                Ok(0xd0 + block as u8)
+            );
+        }
+        assert_eq!(
+            (0..192)
+                .map(|index| {
+                    machine
+                        .sp_imem
+                        .observe_byte(SpImemOffset::new(0x120 + index))
+                        .unwrap()
+                })
+                .collect::<Vec<_>>(),
+            source_before
+        );
+        assert_eq!(
+            core::array::from_fn::<_, { crate::rsp::RSP_SCALAR_REGISTER_COUNT }, _>(|index| {
+                machine.rsp_scalar_register(index).unwrap()
+            }),
+            scalar_at_dma
+        );
+        assert_ne!(scalar_before, scalar_at_dma);
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(machine.rsp_accumulator_and_flags_state(), control_before);
+        assert_eq!(machine.sp_semaphore_state(), semaphore_before);
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert_eq!(machine.vi_current_state(), vi_before);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 12);
+        assert_eq!(machine.rsp_next_pc(), Some(16));
+        assert_eq!(machine.rsp_committed_instruction_count(), 3);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+
+        let mut dmem = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+            )],
+            true,
+        );
+        dmem.sp
+            .apply_memory_address_store(MachineSpMemoryAddressState::from_cpu_word(
+                0,
+                rsp_test_cpu_store_source(0x8000_1210, 4, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS),
+            ));
+        dmem.sp
+            .apply_dram_address_store(MachineSpDramAddressState::from_cpu_word(
+                0x200,
+                rsp_test_cpu_store_source(0x8000_1214, 5, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS),
+            ));
+        let dmem_bytes = [0x90, 0x01, 0x72, 0x23, 0x54, 0x45, 0x36, 0x67];
+        dmem.sp_dmem
+            .write_bytes(SpDmemOffset::new(0), &dmem_bytes)
+            .unwrap();
+        let dmem_knowledge = dmem
+            .sp_dmem
+            .observe_range::<8>(SpDmemOffset::new(0))
+            .unwrap();
+        dmem.step().unwrap();
+        assert_eq!(
+            dmem.sp_dma_record(0).unwrap().selected_sp_memory(),
+            MachineSpDmaSpMemory::Dmem
+        );
+        assert_eq!(
+            (0..8)
+                .map(|index| dmem.rdram().read_u8(0x200 + index).unwrap())
+                .collect::<Vec<_>>(),
+            dmem_bytes
+        );
+        assert_eq!(
+            dmem.sp_dmem
+                .observe_range::<8>(SpDmemOffset::new(0))
+                .unwrap(),
+            dmem_knowledge
+        );
+    }
+
+    #[test]
+    fn rsp_mtc0_sp_write_dma_source_range_knowledge_destination_and_capacity_rejections_are_atomic()
+    {
+        fn configure_addresses(machine: &mut Machine, memory_word: u32, dram_word: u32) {
+            machine
+                .sp
+                .apply_memory_address_store(MachineSpMemoryAddressState::from_cpu_word(
+                    memory_word,
+                    rsp_test_cpu_store_source(0x8000_1220, 4, SP_MEMORY_ADDRESS_PHYSICAL_ADDRESS),
+                ));
+            machine
+                .sp
+                .apply_dram_address_store(MachineSpDramAddressState::from_cpu_word(
+                    dram_word,
+                    rsp_test_cpu_store_source(0x8000_1224, 5, SP_DRAM_ADDRESS_PHYSICAL_ADDRESS),
+                ));
+        }
+
+        let mut cases = Vec::new();
+        cases.push((
+            staged_rsp_running_machine(
+                &[(
+                    0,
+                    rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+                )],
+                true,
+            ),
+            MachineRspStepRejectionReason::Mtc0WriteDmaAddressUnavailable,
+        ));
+
+        let mut unavailable = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+            )],
+            true,
+        );
+        configure_addresses(&mut unavailable, 0, 0);
+        cases.push((
+            unavailable,
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceUnavailable { local_address: 0 },
+        ));
+
+        let opaque_state = MachineSpImemOpaqueWordState::from_cpu_store(
+            0x120,
+            CpuAddress::new(0x8000_1228),
+            4,
+            MachineBootstrapGprSource::UnknownPifProduced,
+            0xa400_1120,
+            CpuAddress::new(0xa400_1120),
+            0x0400_1120,
+        );
+        let mut opaque = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+            )],
+            true,
+        );
+        configure_addresses(&mut opaque, 0x1120, 0);
+        let opaque_plan = opaque
+            .sp_imem
+            .plan_cpu_store_opaque_word(SpImemOffset::new(0x120), opaque_state)
+            .unwrap();
+        opaque.sp_imem.apply_cpu_store_opaque_word(opaque_plan);
+        cases.push((
+            opaque,
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceOpaque {
+                local_address: 0x1120,
+            },
+        ));
+
+        let mut inconsistent = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+            )],
+            true,
+        );
+        configure_addresses(&mut inconsistent, 0x1120, 0);
+        let opaque_plan = inconsistent
+            .sp_imem
+            .plan_cpu_store_opaque_word(SpImemOffset::new(0x120), opaque_state)
+            .unwrap();
+        inconsistent
+            .sp_imem
+            .apply_cpu_store_opaque_word(opaque_plan);
+        inconsistent
+            .sp_imem
+            .apply_sp_dma_byte(SpImemOffset::new(0x120), 0x7e, 0);
+        cases.push((
+            inconsistent,
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceKnowledgeInconsistent {
+                local_address: 0x1120,
+            },
+        ));
+
+        let mut out_of_range = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+            )],
+            true,
+        );
+        configure_addresses(&mut out_of_range, 0, RDRAM_SIZE_BYTES as u32);
+        out_of_range
+            .sp_dmem
+            .write_bytes(SpDmemOffset::new(0), &[0x5a; 8])
+            .unwrap();
+        cases.push((
+            out_of_range,
+            MachineRspStepRejectionReason::Mtc0WriteDmaRdramRangeRejected {
+                physical_address: RDRAM_SIZE_BYTES as u32 + 7,
+            },
+        ));
+
+        let mut capacity = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+            )],
+            true,
+        );
+        configure_addresses(&mut capacity, 0, 0);
+        capacity
+            .sp_dmem
+            .write_bytes(SpDmemOffset::new(0), &[0x6b; 8])
+            .unwrap();
+        let memory_address = capacity.sp.memory_address_state().unwrap();
+        let dram_address = capacity.sp.dram_address_state().unwrap();
+        let mut source_index = 0;
+        while capacity.sp.can_record_dma() {
+            capacity.sp.apply_dma(MachineSpDmaRecord::rdram_to_sp(
+                0,
+                memory_address,
+                dram_address,
+                MachineSpRegisterWriteSource::RspMtc0 { source_index },
+            ));
+            source_index += 1;
+        }
+        cases.push((
+            capacity,
+            MachineRspStepRejectionReason::Mtc0WriteDmaRecordCapacityExhausted,
+        ));
+
+        cases.push((
+            staged_rsp_running_machine(
+                &[(
+                    0,
+                    rsp_mtc0_word(1, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+                )],
+                true,
+            ),
+            MachineRspStepRejectionReason::Mtc0SourceUnavailable { source_gpr: 1 },
+        ));
+        cases.push((
+            staged_rsp_running_machine(
+                &[(
+                    0,
+                    rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX) | 1,
+                )],
+                true,
+            ),
+            MachineRspStepRejectionReason::MalformedMtc0Encoding,
+        ));
+
+        for (mut machine, expected) in cases {
+            let before = lw_snapshot(&machine);
+            assert_eq!(
+                machine
+                    .step()
+                    .unwrap_err()
+                    .rsp_rejection()
+                    .unwrap()
+                    .reason(),
+                expected
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+            assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        }
+
+        let mut wrap = staged_rsp_running_machine(
+            &[
+                (0, immediate_word(0x0e, 0, 3, 8)),
+                (
+                    4,
+                    rsp_mtc0_word(3, crate::rsp::RSP_COP0_SP_WRITE_LENGTH_INDEX),
+                ),
+            ],
+            true,
+        );
+        configure_addresses(&mut wrap, 0x0ff8, 0);
+        wrap.sp_dmem
+            .write_bytes(SpDmemOffset::new(0x0ff8), &[0x7c; 8])
+            .unwrap();
+        wrap.step().unwrap();
+        wrap.processor_turn = MachineStepProcessor::Rsp;
+        let before_wrap = lw_snapshot(&wrap);
+        assert_eq!(
+            wrap.step().unwrap_err().rsp_rejection().unwrap().reason(),
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceRangeRejected {
+                local_address: 0x1000,
+            }
+        );
+        assert_eq!(lw_snapshot(&wrap), before_wrap);
+    }
+
+    #[test]
     fn rsp_mtc0_xori_and_shared_sp_dma_rejections_are_atomic() {
         let cases = [
             (
@@ -24784,8 +25422,10 @@ mod tests {
                 MachineRspStepRejectionReason::MalformedMtc0Encoding,
             ),
             (
-                staged_rsp_running_machine(&[(0, rsp_mtc0_word(0, 3))], true),
-                MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 3 },
+                staged_rsp_running_machine(&[(0, rsp_mtc0_word(0, 11))], true),
+                MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
+                    register_index: 11,
+                },
             ),
             (
                 staged_rsp_running_machine(&[(0, immediate_word(0x0e, 1, 3, 0x0180))], true),
@@ -32947,7 +33587,7 @@ mod tests {
     }
 
     #[test]
-    fn public_x105_vsub_vaddc_bgez_sum_loop_and_sp_wr_len_frontier_are_exact() {
+    fn public_x105_sp_wr_len_write_dma_xori_and_dpc_status_frontier_are_exact() {
         const PIF_SEED: u8 = 0x81;
         const PUBLIC_X105_RSP_DATA_OFFSET: u16 = 0x0794;
         const FIRST_PIF_WORD: u32 = 0;
@@ -33537,7 +34177,7 @@ mod tests {
             (0xa40, 0x0000e025),
         ];
         words.extend_from_slice(GENERATED_X105_CACHE_SP_AND_RELOCATION_WORDS);
-        const PUBLIC_X105_RSP_WORDS: [u32; 37] = [
+        const PUBLIC_X105_RSP_WORDS: [u32; 42] = [
             0x4008_3800,
             0x400b_0800,
             0xc80c_2000,
@@ -33575,6 +34215,11 @@ mod tests {
             0x3c03_fe81,
             0x3863_7000,
             0x4083_1800,
+            0x3803_0240,
+            0x4083_5800,
+            0x0000_000d,
+            0x0000_0000,
+            0x0000_0000,
         ];
         let (mut machine, observed_pif_word) =
             staged_generated_cold_x105_machine_with_firmware(&words, firmware);
@@ -38894,25 +39539,252 @@ mod tests {
         assert_eq!(machine.rsp_delay_slot_context(), None);
         assert_eq!(machine.rsp_accumulator_and_flags_state(), final_control);
 
-        let before_sp_wr_len = lw_snapshot(&machine);
-        let sp_wr_len_error = machine.step().unwrap_err();
-        assert_eq!(sp_wr_len_error.processor(), MachineStepProcessor::Rsp);
+        let digest = |bytes: &[u8]| {
+            bytes
+                .iter()
+                .fold(0xcbf2_9ce4_8422_2325_u64, |digest, byte| {
+                    (digest ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+                })
+        };
+        let source_observations = (0x120_u32..0x1e0)
+            .map(|offset| {
+                machine
+                    .sp_imem
+                    .observe_byte(SpImemOffset::new(offset))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert!(source_observations
+            .iter()
+            .all(|observation| observation.is_known()));
+        let source_bytes = source_observations
+            .iter()
+            .map(|observation| observation.value())
+            .collect::<Vec<_>>();
+        assert_eq!(source_bytes.len(), 192);
+        assert_eq!(digest(&source_bytes), 0x78c6_2762_97c6_c565);
         assert_eq!(
-            sp_wr_len_error.rsp_rejection().unwrap().reason(),
-            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 3 }
+            &source_bytes[..16],
+            &[
+                0x25, 0x42, 0x5f, 0x7c, 0x99, 0xb6, 0xd3, 0xf0, 0x0d, 0x2a, 0x47, 0x64, 0x81, 0x9e,
+                0xbb, 0xd8,
+            ]
         );
-        assert_eq!(lw_snapshot(&machine), before_sp_wr_len);
+        assert_eq!(
+            &source_bytes[176..],
+            &[
+                0x15, 0x32, 0x4f, 0x6c, 0x89, 0xa6, 0xc3, 0xe0, 0xfd, 0x1a, 0x37, 0x54, 0x71, 0x8e,
+                0xab, 0xc8,
+            ]
+        );
+        let before_rdram = (0..machine.rdram().size_bytes())
+            .map(|offset| machine.rdram().read_u8(offset).unwrap())
+            .collect::<Vec<_>>();
+        let prior_records = [
+            machine.sp_dma_record(0).unwrap(),
+            machine.sp_dma_record(1).unwrap(),
+        ];
+        let scalar_before_write =
+            core::array::from_fn::<_, { crate::rsp::RSP_SCALAR_REGISTER_COUNT }, _>(|index| {
+                machine.rsp_scalar_register(index).unwrap()
+            });
+        let vector_before_write = machine.rsp_vector_unit_state().clone();
+        let control_before_write = machine.rsp_accumulator_and_flags_state();
+        let semaphore_before_write = machine.sp_semaphore_state();
+        let status_before_write = machine.sp_status_state();
+        let cpu_before_write = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            total_committed_steps,
+            machine.cpu_delay_slot_context(),
+        );
+        let vi_before_write = machine.vi_current_state();
+
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x090,
+                    source_gpr: 3,
+                    source_value: 0xfe81_7000,
+                    control_register: MachineRspControlRegister::SpWriteLength,
+                    source_index: 8,
+                },
+            }
+        );
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x094);
+        assert_eq!(machine.rsp_next_pc(), Some(0x098));
+        assert_eq!(machine.rsp_committed_instruction_count(), 1_089);
+        assert_eq!(machine.sp_dma_record_count(), 3);
+        assert_eq!(machine.sp_dma_record(0), Some(prior_records[0]));
+        assert_eq!(machine.sp_dma_record(1), Some(prior_records[1]));
+        let write_dma = machine.sp_dma_record(2).unwrap();
+        assert_eq!(write_dma.direction(), MachineSpDmaDirection::SpToRdram);
+        assert_eq!(write_dma.selected_sp_memory(), MachineSpDmaSpMemory::Imem);
+        assert_eq!(write_dma.raw_length_word(), 0xfe81_7000);
+        assert_eq!(write_dma.block_length_bytes(), 8);
+        assert_eq!(write_dma.block_count(), 24);
+        assert_eq!(write_dma.dram_skip_bytes(), 0x0fe8);
+        assert_eq!(write_dma.initial_local_address(), 0x1120);
+        assert_eq!(write_dma.initial_rdram_address(), 0x002f_b1f0);
+        assert_eq!(write_dma.final_local_address(), 0x11e0);
+        assert_eq!(write_dma.final_rdram_address(), 0x0031_3070);
+        assert_eq!(write_dma.transferred_byte_count(), 192);
+        assert_eq!(
+            write_dma.initial_memory_address_source(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 6 }
+        );
+        assert_eq!(
+            write_dma.initial_dram_address_source(),
+            MachineSpDramAddressSource::RspMtc0 { source_index: 7 }
+        );
+        assert_eq!(
+            write_dma.trigger(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 8 }
+        );
+        assert_eq!(
+            machine.sp_memory_address_state().unwrap().transfer_word(),
+            0x0000_b120
+        );
+        assert_eq!(
+            machine.sp_memory_address_state().unwrap().local_address(),
+            0x11e0
+        );
+        assert_eq!(
+            machine.sp_dram_address_state().unwrap().transfer_word(),
+            0x0031_3070
+        );
+        assert_eq!(
+            machine.sp_dram_address_state().unwrap().physical_address(),
+            0x0031_3070
+        );
+        assert_eq!(
+            machine.sp_dram_address_state().unwrap().source(),
+            MachineSpDramAddressSource::DmaAdvance {
+                record_index: 2,
+                trigger: MachineSpRegisterWriteSource::RspMtc0 { source_index: 8 },
+            }
+        );
+        let mut expected_rdram = before_rdram;
+        let mut destination_bytes = Vec::with_capacity(192);
+        for block in 0_u32..24 {
+            let destination_start = 0x002f_b1f0 + block * 0x0ff0;
+            for byte_in_block in 0_u32..8 {
+                let value = source_bytes[(block * 8 + byte_in_block) as usize];
+                expected_rdram[(destination_start + byte_in_block) as usize] = value;
+                destination_bytes.push(
+                    machine
+                        .rdram()
+                        .read_u8((destination_start + byte_in_block) as usize)
+                        .unwrap(),
+                );
+            }
+        }
+        assert_eq!(destination_bytes, source_bytes);
+        assert_eq!(digest(&destination_bytes), 0x78c6_2762_97c6_c565);
+        assert_eq!(
+            (0..machine.rdram().size_bytes())
+                .map(|offset| machine.rdram().read_u8(offset).unwrap())
+                .collect::<Vec<_>>(),
+            expected_rdram
+        );
+        assert_eq!(
+            (0x120_u32..0x1e0)
+                .map(|offset| {
+                    machine
+                        .sp_imem
+                        .observe_byte(SpImemOffset::new(offset))
+                        .unwrap()
+                })
+                .collect::<Vec<_>>(),
+            source_observations
+        );
+        assert_eq!(
+            core::array::from_fn::<_, { crate::rsp::RSP_SCALAR_REGISTER_COUNT }, _>(|index| {
+                machine.rsp_scalar_register(index).unwrap()
+            }),
+            scalar_before_write
+        );
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before_write);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            control_before_write
+        );
+        assert_eq!(machine.sp_semaphore_state(), semaphore_before_write);
+        assert_eq!(machine.sp_status_state(), status_before_write);
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                total_committed_steps,
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before_write
+        );
+        assert_eq!(machine.vi_current_state(), vi_before_write);
+
+        commit_cpu_interleave(
+            &mut machine,
+            &mut total_committed_steps,
+            &mut post_loop_cpu_trace,
+        );
+        assert_eq!(machine.cpu().cop0_count(), 253_434);
+        assert_eq!(total_committed_steps, 253_450);
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0x094,
+                    destination_gpr: 3,
+                    result_value: 0x0000_0240,
+                },
+            }
+        );
+        assert_eq!(
+            machine.rsp_scalar_register(3).unwrap().value(),
+            Some(0x0000_0240)
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x098);
+        assert_eq!(machine.rsp_next_pc(), Some(0x09c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 1_090);
+        assert_eq!(machine.sp_dma_record(2), Some(write_dma));
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+
+        commit_cpu_interleave(
+            &mut machine,
+            &mut total_committed_steps,
+            &mut post_loop_cpu_trace,
+        );
+        assert_eq!(machine.cpu().cop0_count(), 253_435);
+        assert_eq!(total_committed_steps, 253_451);
+        assert_eq!(post_loop_cpu_trace.len(), 19);
+        eprintln!(
+            "post-write CPU interleave: {:08x?}",
+            &post_loop_cpu_trace[17..]
+        );
+
+        let before_dpc_status = lw_snapshot(&machine);
+        let dpc_status_error = machine.step().unwrap_err();
+        assert_eq!(dpc_status_error.processor(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            dpc_status_error.rsp_rejection().unwrap().reason(),
+            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 11 }
+        );
+        assert_eq!(lw_snapshot(&machine), before_dpc_status);
         assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
-        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x090);
-        assert_eq!(machine.rsp_next_pc(), Some(0x094));
-        assert_eq!(machine.rsp_committed_instruction_count(), 1_088);
-        assert_eq!(machine.sp_dma_record_count(), 2);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x098);
+        assert_eq!(machine.rsp_next_pc(), Some(0x09c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 1_090);
+        assert_eq!(machine.sp_dma_record_count(), 3);
         eprintln!(
             "public vector sum: loop_attempts={sum_loop_attempts} cpu={sum_loop_cpu_commits} \
              rsp={sum_loop_rsp_commits} lqv={} addi={sum_addi_commits} \
              bgez={sum_bgez_commits} taken={sum_bgez_taken} \
              not_taken={sum_bgez_not_taken} vaddc={sum_vaddc_commits} \
-             lineage={vaddc_lineage_count} total_after_vsub_attempts=2064 \
+             lineage={vaddc_lineage_count} write_dma_blocks=24 write_dma_bytes=192 \
              final_cpu_count={} final_cpu_committed={total_committed_steps} \
              final_rsp_count={}",
             lqv_addresses.len(),

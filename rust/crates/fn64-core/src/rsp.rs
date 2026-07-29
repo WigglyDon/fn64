@@ -19,6 +19,7 @@ pub const RSP_COP0_MTC0_TRANSFER_SELECTOR: u8 = 4;
 pub const RSP_COP0_SP_MEMORY_ADDRESS_INDEX: u8 = 0;
 pub const RSP_COP0_SP_DRAM_ADDRESS_INDEX: u8 = 1;
 pub const RSP_COP0_SP_READ_LENGTH_INDEX: u8 = 2;
+pub const RSP_COP0_SP_WRITE_LENGTH_INDEX: u8 = 3;
 pub const RSP_COP0_SP_DMA_FULL_INDEX: u8 = 5;
 pub const RSP_COP0_SP_DMA_BUSY_INDEX: u8 = 6;
 pub const RSP_COP0_SP_SEMAPHORE_INDEX: u8 = 7;
@@ -48,6 +49,7 @@ pub enum MachineRspControlRegister {
     SpMemoryAddress,
     SpDramAddress,
     SpReadLength,
+    SpWriteLength,
     SpDmaBusy,
     SpSemaphore,
 }
@@ -1489,6 +1491,23 @@ pub enum MachineRspStepRejectionReason {
     Mtc0DmaRdramRangeRejected {
         physical_address: u32,
     },
+    Mtc0WriteDmaRecordCapacityExhausted,
+    Mtc0WriteDmaAddressUnavailable,
+    Mtc0WriteDmaSourceRangeRejected {
+        local_address: u16,
+    },
+    Mtc0WriteDmaSourceUnavailable {
+        local_address: u16,
+    },
+    Mtc0WriteDmaSourceOpaque {
+        local_address: u16,
+    },
+    Mtc0WriteDmaSourceKnowledgeInconsistent {
+        local_address: u16,
+    },
+    Mtc0WriteDmaRdramRangeRejected {
+        physical_address: u32,
+    },
     XoriSourceUnavailable {
         source_gpr: u8,
     },
@@ -1642,6 +1661,42 @@ impl fmt::Display for MachineRspStepRejection {
             } => write!(
                 f,
                 "RSP Mtc0 SP_RD_LEN rejected because RDRAM source address 0x{physical_address:08x} is outside represented memory"
+            ),
+            MachineRspStepRejectionReason::Mtc0WriteDmaRecordCapacityExhausted => {
+                write!(f, "RSP Mtc0 SP_WR_LEN rejected because SP DMA record capacity is exhausted")
+            }
+            MachineRspStepRejectionReason::Mtc0WriteDmaAddressUnavailable => {
+                write!(f, "RSP Mtc0 SP_WR_LEN rejected because one programmed SP DMA address is unavailable")
+            }
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceRangeRejected {
+                local_address,
+            } => write!(
+                f,
+                "RSP Mtc0 SP_WR_LEN rejected because selected SP source address 0x{local_address:04x} would require unsupported wrapping or lies outside represented memory"
+            ),
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceUnavailable {
+                local_address,
+            } => write!(
+                f,
+                "RSP Mtc0 SP_WR_LEN rejected because selected SP source byte 0x{local_address:04x} is unavailable"
+            ),
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceOpaque {
+                local_address,
+            } => write!(
+                f,
+                "RSP Mtc0 SP_WR_LEN rejected because selected SP source word at 0x{local_address:04x} is opaque"
+            ),
+            MachineRspStepRejectionReason::Mtc0WriteDmaSourceKnowledgeInconsistent {
+                local_address,
+            } => write!(
+                f,
+                "RSP Mtc0 SP_WR_LEN rejected because selected SP source knowledge at 0x{local_address:04x} is inconsistent"
+            ),
+            MachineRspStepRejectionReason::Mtc0WriteDmaRdramRangeRejected {
+                physical_address,
+            } => write!(
+                f,
+                "RSP Mtc0 SP_WR_LEN rejected because RDRAM destination address 0x{physical_address:08x} is outside represented memory"
             ),
             MachineRspStepRejectionReason::XoriSourceUnavailable { source_gpr } => {
                 write!(f, "RSP Xori scalar source r{source_gpr} is unavailable")
@@ -2162,6 +2217,7 @@ impl MachineRspExecutionState {
                     RSP_COP0_SP_MEMORY_ADDRESS_INDEX => MachineRspControlRegister::SpMemoryAddress,
                     RSP_COP0_SP_DRAM_ADDRESS_INDEX => MachineRspControlRegister::SpDramAddress,
                     RSP_COP0_SP_READ_LENGTH_INDEX => MachineRspControlRegister::SpReadLength,
+                    RSP_COP0_SP_WRITE_LENGTH_INDEX => MachineRspControlRegister::SpWriteLength,
                     _ => {
                         return Err(MachineRspStepRejection::new(
                             MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
@@ -3904,6 +3960,13 @@ mod tests {
             })
         );
         assert_eq!(
+            rsp.decode(0x4083_1800),
+            Ok(MachineRspDecodedInstruction::Mtc0 {
+                source_gpr: 3,
+                control_register: MachineRspControlRegister::SpWriteLength,
+            })
+        );
+        assert_eq!(
             rsp.decode(0x3803_0180),
             Ok(MachineRspDecodedInstruction::Xori {
                 source_gpr: 0,
@@ -3917,8 +3980,8 @@ mod tests {
             MachineRspStepRejectionReason::ScalarSllUnsupported
         );
         assert_eq!(
-            rsp.decode(mtc0_word(0, 3)).unwrap_err().reason(),
-            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 3 }
+            rsp.decode(mtc0_word(0, 11)).unwrap_err().reason(),
+            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 11 }
         );
         assert_eq!(
             rsp.decode(mtc0_word(0, 0) | 1).unwrap_err().reason(),
