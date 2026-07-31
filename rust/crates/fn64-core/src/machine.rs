@@ -84,12 +84,13 @@ use crate::ri::{
     RI_SELECT_PHYSICAL_ADDRESS, RI_SELECT_X105_ENABLE_TX_RX_WORD,
 };
 use crate::rsp::{
-    MachineRspAccumulatorAndFlagsState, MachineRspControlRegister, MachineRspDecodedInstruction,
-    MachineRspDelaySlotContext, MachineRspFetchRejection, MachineRspLastInstructionState,
-    MachineRspMtc0Source, MachineRspScalarLwDmemObservation, MachineRspScalarRegisterState,
-    MachineRspStepOutcome, MachineRspStepRejection, MachineRspStepRejectionReason,
-    MachineRspVectorRegisterState, MachineRspVectorUnitState, RSP_INSTRUCTION_ALIGNMENT_MASK,
-    RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_LW_BYTE_COUNT, RSP_VECTOR_REGISTER_BYTE_COUNT,
+    MachineRspAccumulatorAndFlagsState, MachineRspBreakSource, MachineRspControlRegister,
+    MachineRspDecodedInstruction, MachineRspDelaySlotContext, MachineRspFetchRejection,
+    MachineRspLastInstructionState, MachineRspMtc0Source, MachineRspScalarLwDmemObservation,
+    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspStepRejection,
+    MachineRspStepRejectionReason, MachineRspVectorRegisterState, MachineRspVectorUnitState,
+    RSP_INSTRUCTION_ALIGNMENT_MASK, RSP_LOCAL_ADDRESS_MASK, RSP_SCALAR_LW_BYTE_COUNT,
+    RSP_VECTOR_REGISTER_BYTE_COUNT,
 };
 use crate::si::{
     MachinePifRamState, MachineSiCpuStoreProvenance, MachineSiInputProfile, MachineSiStatusState,
@@ -5981,6 +5982,10 @@ impl Machine {
         self.sp.rsp_run_start_state()
     }
 
+    pub const fn rsp_last_break_source(&self) -> Option<MachineRspBreakSource> {
+        self.sp.rsp_last_break_source()
+    }
+
     pub fn step(&mut self) -> Result<MachineRepresentedStepOutcome, MachineRepresentedStepError> {
         let rsp_halted = self
             .sp
@@ -6375,6 +6380,24 @@ impl Machine {
                     .rsp_execution()
                     .plan_nop(pc, decoded, fetched.byte_provenance());
                 self.sp.apply_rsp_nop(plan)
+            }
+            MachineRspDecodedInstruction::Break => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_break(
+                        pc,
+                        decoded,
+                        fetched.byte_provenance(),
+                        status,
+                        self.mi.interrupt_state(),
+                    )
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                if plan.source().interrupt_on_break() {
+                    self.mi
+                        .set_sp_pending_from_rsp_break(plan.source().mi_interrupt_source());
+                }
+                self.sp.apply_rsp_break(plan)
             }
         };
         self.processor_turn = MachineStepProcessor::Cpu;
@@ -9848,7 +9871,16 @@ impl Machine {
                                 ),
                             );
                         } else if state.command_word() & SP_STATUS_SET_INTERRUPT_COMMAND != 0 {
-                            self.mi.set_pending_interrupt(MachineMiInterruptSource::Sp);
+                            self.mi.set_sp_pending_from_cpu_status(
+                                MachineMiCpuStoreProvenance::new(
+                                    source.instruction_pc(),
+                                    source.source_gpr(),
+                                    source.source_lineage(),
+                                    source.effective_address(),
+                                    source.cpu_address(),
+                                    source.physical_address(),
+                                ),
+                            );
                         }
                     }
                     MachineStoreWordMutationPlan::SpMemoryAddress { state } => {
@@ -23879,6 +23911,7 @@ mod tests {
         rsp_vector_unit: MachineRspVectorUnitState,
         rsp_accumulator_and_flags: MachineRspAccumulatorAndFlagsState,
         rsp_run_start: Option<MachineRspRunStartState>,
+        rsp_last_break_source: Option<MachineRspBreakSource>,
         processor_turn: MachineStepProcessor,
         ri_select: Option<MachineRiSelectState>,
         ri_config: Option<MachineRiConfigState>,
@@ -24050,6 +24083,7 @@ mod tests {
             rsp_vector_unit: machine.rsp_vector_unit_state().clone(),
             rsp_accumulator_and_flags: machine.rsp_accumulator_and_flags_state(),
             rsp_run_start: machine.rsp_run_start_state(),
+            rsp_last_break_source: machine.rsp_last_break_source(),
             processor_turn: machine.processor_turn(),
             ri_select: machine.ri_select_state(),
             ri_config: machine.ri_config_state(),
@@ -24387,7 +24421,7 @@ mod tests {
     }
 
     #[test]
-    fn dpc_status_source_decode_counter_invariant_and_break_rejections_are_atomic() {
+    fn dpc_status_source_decode_counter_invariant_and_nonzero_break_rejections_are_atomic() {
         let mut unavailable = staged_rsp_running_machine(
             &[(0, rsp_mtc0_word(3, crate::rsp::RSP_COP0_DPC_STATUS_INDEX))],
             false,
@@ -24416,8 +24450,8 @@ mod tests {
                 },
             ),
             (
-                crate::rsp::RSP_SCALAR_BREAK_WORD,
-                MachineRspStepRejectionReason::BreakUnsupported,
+                (1 << 6) | crate::rsp::RSP_SCALAR_BREAK_WORD,
+                MachineRspStepRejectionReason::BreakCodeUnsupported { code: 1 },
             ),
         ] {
             let mut machine = staged_rsp_running_machine(&[(0, word)], false);
@@ -24459,6 +24493,355 @@ mod tests {
             }
         );
         assert_eq!(lw_snapshot(&malformed), malformed_before);
+    }
+
+    fn configure_synthetic_break_status(
+        machine: &mut Machine,
+        interrupt_on_break: bool,
+    ) -> MachineSpStatusState {
+        let command = if interrupt_on_break { 1 << 8 } else { 1 << 7 } | (1 << 10) | (1 << 16);
+        let status = MachineSpStatusState::from_command(
+            command,
+            rsp_test_cpu_store_source(0x8000_1030, 4, SP_STATUS_PHYSICAL_ADDRESS),
+            machine.sp.status_state(),
+        )
+        .expect("synthetic Break status command is source-defined");
+        assert_eq!(
+            machine.sp.apply_status_store(status),
+            crate::sp::MachineSpStatusTransition::Unchanged
+        );
+        assert!(!status.halt());
+        assert!(!status.broke());
+        assert!(!status.single_step());
+        assert_eq!(status.interrupt_on_break(), interrupt_on_break);
+        assert_eq!(
+            status.signals(),
+            [true, false, false, true, false, false, false, false]
+        );
+        status
+    }
+
+    fn assert_only_break_commit_changes(
+        before: &MachineLwSnapshot,
+        after: &MachineLwSnapshot,
+        mi_may_change: bool,
+        run_start_may_change: bool,
+    ) {
+        let mut expected = before.clone();
+        expected.sp_status = after.sp_status;
+        expected.sp_pc = after.sp_pc;
+        expected.rsp_next_pc = after.rsp_next_pc;
+        expected.rsp_committed_instruction_count = after.rsp_committed_instruction_count;
+        expected.rsp_last_instruction = after.rsp_last_instruction;
+        expected.rsp_last_break_source = after.rsp_last_break_source;
+        expected.processor_turn = after.processor_turn;
+        if mi_may_change {
+            expected.mi_interrupt = after.mi_interrupt;
+        }
+        if run_start_may_change {
+            expected.rsp_run_start = after.rsp_run_start;
+        }
+        assert_eq!(after, &expected);
+    }
+
+    #[test]
+    fn rsp_break_sp_halt_sp_broke_interrupt_on_break_mi_sp_pending_provenance_and_preservation_are_exact(
+    ) {
+        let mut machine =
+            staged_rsp_running_machine(&[(0, crate::rsp::RSP_SCALAR_BREAK_WORD)], true);
+        let status_before = configure_synthetic_break_status(&mut machine, false);
+        let run_start_before = machine.rsp_run_start_state().unwrap();
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+            machine.cpu().cop0_rcp_interrupt_pending(),
+            machine.vi_current_state(),
+        );
+        let before = lw_snapshot(&machine);
+
+        let outcome = machine.step().unwrap();
+
+        assert!(matches!(
+            outcome,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::BreakCommitted {
+                    instruction_pc: 0,
+                    interrupt_on_break: false,
+                    interrupt_signaled: false,
+                },
+            }
+        ));
+        let status_after = machine.sp_status_state().unwrap();
+        assert!(status_after.halt());
+        assert!(status_after.broke());
+        assert!(!status_after.single_step());
+        assert!(!status_after.interrupt_on_break());
+        assert_eq!(status_after.signals(), status_before.signals());
+        assert_eq!(status_after.source(), status_before.source());
+        assert_eq!(status_after.command_word(), status_before.command_word());
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 4);
+        assert_eq!(machine.rsp_next_pc(), Some(8));
+        assert_eq!(machine.rsp_committed_instruction_count(), 1);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert!(!machine
+            .mi_interrupt_state()
+            .pending(MachineMiInterruptSource::Sp));
+        assert_eq!(
+            machine
+                .mi_interrupt_state()
+                .pending_set_provenance(MachineMiInterruptSource::Sp),
+            None
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+                machine.cpu().cop0_rcp_interrupt_pending(),
+                machine.vi_current_state(),
+            ),
+            cpu_before
+        );
+
+        let break_source = machine.rsp_last_break_source().unwrap();
+        assert_eq!(break_source.instruction_pc(), 0);
+        assert_eq!(break_source.prior_next_pc(), 4);
+        assert_eq!(
+            break_source.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(
+            break_source.byte_provenance(),
+            [SpImemByteProvenance::GeneratedMachineTestStaging; 4]
+        );
+        assert_eq!(break_source.raw_word(), crate::rsp::RSP_SCALAR_BREAK_WORD);
+        assert_eq!(break_source.pre_break_status(), status_before);
+        assert!(!break_source.pre_break_mi_sp_pending());
+        assert_eq!(break_source.pre_break_mi_sp_pending_source(), None);
+        assert!(!break_source.interrupt_on_break());
+        assert!(!break_source.interrupt_signaled());
+        let last = machine.rsp_last_instruction().unwrap();
+        assert_eq!(last.instruction_pc(), 0);
+        assert_eq!(
+            last.identity(),
+            crate::rsp::MachineRspInstructionIdentity::Break
+        );
+        assert_eq!(
+            last.byte_provenance(),
+            [SpImemByteProvenance::GeneratedMachineTestStaging; 4]
+        );
+        let consumed = machine.rsp_run_start_state().unwrap();
+        assert!(consumed.is_consumed());
+        assert_eq!(consumed.provenance(), run_start_before.provenance());
+        assert_eq!(consumed.first_rsp_instruction_pc(), Some(0));
+        assert_eq!(
+            consumed.first_rsp_identity(),
+            Some(crate::rsp::MachineRspInstructionIdentity::Break)
+        );
+
+        let after = lw_snapshot(&machine);
+        assert_only_break_commit_changes(&before, &after, false, true);
+    }
+
+    #[test]
+    fn rsp_break_pending_matrix_is_idempotent_and_cpu_interrupt_recognition_stays_cpu_selected() {
+        for (interrupt_on_break, pending_before) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let mut machine =
+                staged_rsp_running_machine(&[(0, crate::rsp::RSP_SCALAR_BREAK_WORD)], false);
+            configure_synthetic_break_status(&mut machine, interrupt_on_break);
+            if pending_before {
+                machine
+                    .mi
+                    .set_pending_interrupt(MachineMiInterruptSource::Sp);
+            }
+            let pending_source_before = machine
+                .mi_interrupt_state()
+                .pending_set_provenance(MachineMiInterruptSource::Sp);
+            let cpu_before = (
+                machine.cpu().cop0_rcp_interrupt_pending(),
+                machine.cpu().cop0_status(),
+                machine.cpu().cop0_epc(),
+                machine.cpu().cop0_exception_code(),
+            );
+            let before = lw_snapshot(&machine);
+
+            let outcome = machine.step().unwrap();
+
+            assert_eq!(outcome.processor(), MachineStepProcessor::Rsp);
+            assert_eq!(
+                outcome.rsp_outcome().unwrap().interrupt_on_break(),
+                Some(interrupt_on_break)
+            );
+            assert_eq!(
+                outcome.rsp_outcome().unwrap().interrupt_signaled(),
+                Some(interrupt_on_break)
+            );
+            assert_eq!(
+                machine
+                    .mi_interrupt_state()
+                    .pending(MachineMiInterruptSource::Sp),
+                pending_before || interrupt_on_break
+            );
+            let pending_source_after = machine
+                .mi_interrupt_state()
+                .pending_set_provenance(MachineMiInterruptSource::Sp);
+            if interrupt_on_break && !pending_before {
+                let crate::mi::MachineMiInterruptPendingSource::RspBreak(source) =
+                    pending_source_after.unwrap()
+                else {
+                    panic!("new Break assertion must own exact MI provenance");
+                };
+                assert_eq!(source.instruction_pc(), 0);
+                assert_eq!(source.prior_next_pc(), 4);
+                assert_eq!(
+                    source.instruction_source(),
+                    MachineRspInstructionSource::GeneratedMachineTestStaging
+                );
+                assert_eq!(
+                    source.byte_provenance(),
+                    [SpImemByteProvenance::GeneratedMachineTestStaging; 4]
+                );
+                assert_eq!(source.raw_word(), crate::rsp::RSP_SCALAR_BREAK_WORD);
+            } else {
+                assert_eq!(pending_source_after, pending_source_before);
+            }
+            assert_eq!(
+                (
+                    machine.cpu().cop0_rcp_interrupt_pending(),
+                    machine.cpu().cop0_status(),
+                    machine.cpu().cop0_epc(),
+                    machine.cpu().cop0_exception_code(),
+                ),
+                cpu_before,
+                "an RSP-selected Break cannot synchronize or recognize a CPU interrupt"
+            );
+            let after = lw_snapshot(&machine);
+            assert_only_break_commit_changes(
+                &before,
+                &after,
+                interrupt_on_break && !pending_before,
+                false,
+            );
+        }
+    }
+
+    #[test]
+    fn rsp_break_rejection_atomicity_delay_single_step_nonzero_code_and_adjacent_special_are_exact()
+    {
+        let mut delay =
+            staged_rsp_running_machine(&[(0, crate::rsp::RSP_SCALAR_BREAK_WORD)], false);
+        delay.sp.stage_rsp_delay_for_test(0x120);
+        let delay_before = lw_snapshot(&delay);
+        assert_eq!(
+            delay.step().unwrap_err().rsp_rejection().unwrap().reason(),
+            MachineRspStepRejectionReason::BreakInDelaySlotUnsupported { owner_pc: 0x120 }
+        );
+        assert_eq!(lw_snapshot(&delay), delay_before);
+
+        let mut single_step =
+            staged_rsp_running_machine(&[(0, crate::rsp::RSP_SCALAR_BREAK_WORD)], false);
+        let status = MachineSpStatusState::from_command(
+            1 << 6,
+            rsp_test_cpu_store_source(0x8000_1034, 4, SP_STATUS_PHYSICAL_ADDRESS),
+            single_step.sp.status_state(),
+        )
+        .unwrap();
+        single_step.sp.apply_status_store(status);
+        let single_step_before = lw_snapshot(&single_step);
+        assert_eq!(
+            single_step
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::SingleStepUnsupported
+        );
+        assert_eq!(lw_snapshot(&single_step), single_step_before);
+
+        for (word, reason) in [
+            (
+                crate::rsp::RSP_SCALAR_BREAK_WORD | (1 << 6),
+                MachineRspStepRejectionReason::BreakCodeUnsupported { code: 1 },
+            ),
+            (
+                0x0000_000c,
+                MachineRspStepRejectionReason::UnrepresentedInstruction {
+                    class: crate::rsp::MachineRspUnrepresentedInstructionClass::Scalar,
+                },
+            ),
+        ] {
+            let mut machine = staged_rsp_running_machine(&[(0, word)], false);
+            let before = lw_snapshot(&machine);
+            assert_eq!(
+                machine
+                    .step()
+                    .unwrap_err()
+                    .rsp_rejection()
+                    .unwrap()
+                    .reason(),
+                reason
+            );
+            assert_eq!(lw_snapshot(&machine), before);
+            assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        }
+    }
+
+    #[test]
+    fn rsp_break_reset_bootstrap_failed_bootstrap_independent_machine_and_task_completion_boundary_are_exact(
+    ) {
+        let mut first =
+            staged_rsp_running_machine(&[(0, crate::rsp::RSP_SCALAR_BREAK_WORD)], false);
+        let second = staged_rsp_running_machine(&[(0, crate::rsp::RSP_SCALAR_BREAK_WORD)], false);
+        first.step().unwrap();
+        assert!(first.rsp_last_break_source().is_some());
+        assert!(first.sp_status_state().unwrap().halt());
+        assert!(first.sp_status_state().unwrap().broke());
+        assert!(second.rsp_last_break_source().is_none());
+        assert!(!second.sp_status_state().unwrap().halt());
+        assert!(!second.sp_status_state().unwrap().broke());
+
+        first.install_pif_ipl2_profile(PifIpl2Profile::PalPinned);
+        let before_failed_bootstrap = lw_snapshot(&first);
+        assert!(first.stage_cartridge_bootstrap().is_err());
+        assert_eq!(lw_snapshot(&first), before_failed_bootstrap);
+
+        first.reset();
+        assert_eq!(first.rsp_last_break_source(), None);
+        assert_eq!(first.rsp_last_instruction(), None);
+        assert_eq!(first.rsp_committed_instruction_count(), 0);
+        assert_eq!(first.processor_turn(), MachineStepProcessor::Cpu);
+        assert!(first.sp_status_state().is_none());
+        assert!(!first
+            .mi_interrupt_state()
+            .pending(MachineMiInterruptSource::Sp));
+        assert_eq!(
+            first
+                .mi_interrupt_state()
+                .pending_set_provenance(MachineMiInterruptSource::Sp),
+            None
+        );
+
+        let mut bootstrap = staged_lw_bootstrap_machine(0, 0);
+        stage_rsp_running(
+            &mut bootstrap,
+            &[(0, crate::rsp::RSP_SCALAR_BREAK_WORD)],
+            false,
+        );
+        bootstrap.step().unwrap();
+        assert!(bootstrap.rsp_last_break_source().is_some());
+        bootstrap.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(bootstrap.rsp_last_break_source(), None);
+        assert_eq!(bootstrap.rsp_last_instruction(), None);
+        assert_eq!(bootstrap.processor_turn(), MachineStepProcessor::Cpu);
+        let once = lw_snapshot(&bootstrap);
+        bootstrap.stage_cartridge_bootstrap().unwrap();
+        assert_eq!(lw_snapshot(&bootstrap), once);
     }
 
     #[test]
@@ -33886,7 +34269,7 @@ mod tests {
     }
 
     #[test]
-    fn public_x105_dpc_status_counter_clear_cpu_interleave_and_break_frontier_are_exact() {
+    fn public_x105_break_halt_broke_post_break_cpu_frontier_is_exact() {
         const PIF_SEED: u8 = 0x81;
         const PUBLIC_X105_RSP_DATA_OFFSET: u16 = 0x0794;
         const FIRST_PIF_WORD: u32 = 0;
@@ -40384,19 +40767,123 @@ mod tests {
         );
 
         let before_break = lw_snapshot(&machine);
-        let break_error = machine.step().unwrap_err();
-        assert_eq!(break_error.processor(), MachineStepProcessor::Rsp);
-        assert_eq!(
-            break_error.rsp_rejection().unwrap().reason(),
-            MachineRspStepRejectionReason::BreakUnsupported
+        let status_before_break = machine.sp_status_state().unwrap();
+        let mi_before_break = machine.mi_interrupt_state();
+        let dpc_before_break = (
+            machine.dpc_clock_counter_state().clone(),
+            machine.dpc_command_busy_counter_state().clone(),
+            machine.dpc_pipe_busy_counter_state().clone(),
+            machine.dpc_tmem_load_counter_state().clone(),
         );
-        assert_eq!(lw_snapshot(&machine), before_break);
-        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        let run_start_before_break = machine.rsp_run_start_state();
+        assert!(!status_before_break.halt());
+        assert!(!status_before_break.broke());
+        assert!(!status_before_break.single_step());
+        assert!(!status_before_break.interrupt_on_break());
+        assert!(!mi_before_break.pending(MachineMiInterruptSource::Sp));
+        assert_eq!(
+            mi_before_break.pending_set_provenance(MachineMiInterruptSource::Sp),
+            None
+        );
         assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x09c);
         assert_eq!(machine.rsp_next_pc(), Some(0x0a0));
         assert_eq!(machine.rsp_committed_instruction_count(), 1_091);
+
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::BreakCommitted {
+                    instruction_pc: 0x09c,
+                    interrupt_on_break: false,
+                    interrupt_signaled: false,
+                },
+            }
+        );
+
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x0a0);
+        assert_eq!(machine.rsp_next_pc(), Some(0x0a4));
+        assert_eq!(machine.rsp_delay_slot_context(), None);
+        assert_eq!(machine.rsp_committed_instruction_count(), 1_092);
+        let status_after_break = machine.sp_status_state().unwrap();
+        assert!(status_after_break.halt());
+        assert!(status_after_break.broke());
+        assert!(!status_after_break.single_step());
+        assert!(!status_after_break.interrupt_on_break());
+        assert_eq!(status_after_break.signals(), status_before_break.signals());
+        assert_eq!(
+            status_after_break.interrupt_pending(),
+            status_before_break.interrupt_pending()
+        );
+        assert_eq!(status_after_break.source(), status_before_break.source());
+        assert_eq!(
+            status_after_break.command_word(),
+            status_before_break.command_word()
+        );
+        assert_eq!(machine.mi_interrupt_state(), mi_before_break);
+        assert!(!machine
+            .mi_interrupt_state()
+            .pending(MachineMiInterruptSource::Sp));
+        assert_eq!(
+            dpc_before_break,
+            (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            )
+        );
+        assert_eq!(machine.rsp_run_start_state(), run_start_before_break);
         assert_eq!(machine.cpu().cop0_count(), 253_436);
         assert_eq!(total_committed_steps, 253_452);
+        assert_eq!(machine.cpu().pc(), 0x8000_0188);
+        assert_eq!(machine.cpu().next_pc(), 0x8000_0114);
+        assert_eq!(
+            machine
+                .cpu_delay_slot_context()
+                .unwrap()
+                .branch_or_jump_pc(),
+            0x8000_0184
+        );
+
+        let break_source = machine.rsp_last_break_source().unwrap();
+        assert_eq!(break_source.instruction_pc(), 0x09c);
+        assert_eq!(break_source.prior_next_pc(), 0x0a0);
+        assert_eq!(
+            break_source.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(
+            break_source.byte_provenance(),
+            [SpImemByteProvenance::GeneratedMachineTestStaging; 4]
+        );
+        assert_eq!(break_source.raw_word(), 0x0000_000d);
+        assert_eq!(break_source.pre_break_status(), status_before_break);
+        assert!(!break_source.pre_break_mi_sp_pending());
+        assert_eq!(break_source.pre_break_mi_sp_pending_source(), None);
+        assert!(!break_source.interrupt_on_break());
+        assert!(!break_source.interrupt_signaled());
+        let last_instruction = machine.rsp_last_instruction().unwrap();
+        assert_eq!(last_instruction.instruction_pc(), 0x09c);
+        assert_eq!(
+            last_instruction.identity(),
+            crate::rsp::MachineRspInstructionIdentity::Break
+        );
+        assert_eq!(
+            last_instruction.byte_provenance(),
+            [SpImemByteProvenance::GeneratedMachineTestStaging; 4]
+        );
+
+        let after_break = lw_snapshot(&machine);
+        assert_only_break_commit_changes(&before_break, &after_break, false, false);
+
+        let cpu_frontier = machine.inspect_current_cpu_instruction().unwrap();
+        assert_eq!(cpu_frontier.cpu_address(), CpuAddress::new(0x8000_0188));
+        assert_eq!(cpu_frontier.fields().raw().bits(), 0x02cf_b024);
+        assert_eq!(cpu_frontier.identity(), CpuInstructionIdentity::SpecialAnd);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert!(machine.sp_status_state().unwrap().halt());
+        assert_eq!(machine.rsp_committed_instruction_count(), 1_092);
         eprintln!(
             "public vector sum: loop_attempts={sum_loop_attempts} cpu={sum_loop_cpu_commits} \
              rsp={sum_loop_rsp_commits} lqv={} addi={sum_addi_commits} \
@@ -40405,7 +40892,10 @@ mod tests {
              lineage={vaddc_lineage_count} write_dma_blocks=24 write_dma_bytes=192 \
              dpc_command=0x00000240 final_cpu_count={} \
              final_cpu_committed={total_committed_steps} final_rsp_count={} \
-             break_pc=0x09c break_word=0x0000000d",
+             break_pc=0x09c break_word=0x0000000d post_break_pc=0x0a0 \
+             post_break_next_pc=0x0a4 halt=true broke=true intr_break=false \
+             mi_sp_pending=false next_cpu_pc=0x80000188 next_cpu_word=0x02cfb024 \
+             next_cpu_identity=SpecialAnd next_cpu_executed=false rsp_nops_executed=false",
             lqv_addresses.len(),
             machine.cpu().cop0_count(),
             machine.rsp_committed_instruction_count(),

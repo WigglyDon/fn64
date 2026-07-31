@@ -1,5 +1,7 @@
 use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
+use crate::rsp::{MachineRspInstructionSource, RSP_SCALAR_BREAK_WORD};
+use crate::sp_imem::SpImemByteProvenance;
 
 pub const MI_INIT_MODE_PHYSICAL_ADDRESS: u32 = 0x0430_0000;
 pub const MI_INIT_MODE_X105_WRITE_WORD: u32 = 0x0000_010f;
@@ -75,6 +77,57 @@ pub enum MachineMiInterruptSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineMiRspBreakInterruptSource {
+    instruction_pc: u16,
+    prior_next_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    raw_word: u32,
+}
+
+impl MachineMiRspBreakInterruptSource {
+    pub(crate) const fn new(
+        instruction_pc: u16,
+        prior_next_pc: u16,
+        instruction_provenance: [SpImemByteProvenance; 4],
+    ) -> Self {
+        Self {
+            instruction_pc,
+            prior_next_pc,
+            instruction_provenance,
+            raw_word: RSP_SCALAR_BREAK_WORD,
+        }
+    }
+
+    pub const fn instruction_pc(self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub const fn prior_next_pc(self) -> u16 {
+        self.prior_next_pc
+    }
+
+    pub fn instruction_source(self) -> MachineRspInstructionSource {
+        crate::rsp::classify_instruction_source(self.instruction_provenance)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn byte_provenance(self) -> [SpImemByteProvenance; 4] {
+        self.instruction_provenance
+    }
+
+    pub const fn raw_word(self) -> u32 {
+        self.raw_word
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineMiInterruptPendingSource {
+    DeviceEffect { source: MachineMiInterruptSource },
+    CpuSpStatusSet(MachineMiCpuStoreProvenance),
+    RspBreak(MachineMiRspBreakInterruptSource),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineMiInterruptMaskCommandState {
     raw_word: u32,
     provenance: MachineMiCpuStoreProvenance,
@@ -114,6 +167,7 @@ impl MachineMiInterruptSource {
 pub struct MachineMiInterruptState {
     pending: [bool; 6],
     masks: [bool; 6],
+    pending_set_provenance: [Option<MachineMiInterruptPendingSource>; 6],
     pending_clear_provenance: [Option<MachineMiCpuStoreProvenance>; 6],
     mask_clear_provenance: Option<MachineMiCpuStoreProvenance>,
     last_mask_command: Option<MachineMiInterruptMaskCommandState>,
@@ -156,6 +210,12 @@ impl MachineMiInterruptState {
     ) -> Option<MachineMiCpuStoreProvenance> {
         self.pending_clear_provenance[source.index()]
     }
+    pub const fn pending_set_provenance(
+        self,
+        source: MachineMiInterruptSource,
+    ) -> Option<MachineMiInterruptPendingSource> {
+        self.pending_set_provenance[source.index()]
+    }
     pub const fn mask_clear_provenance(self) -> Option<MachineMiCpuStoreProvenance> {
         self.mask_clear_provenance
     }
@@ -163,15 +223,38 @@ impl MachineMiInterruptState {
         self.last_mask_command
     }
     fn set_pending(&mut self, source: MachineMiInterruptSource) {
-        self.pending[source.index()] = true;
+        let index = source.index();
+        if !self.pending[index] {
+            self.pending_set_provenance[index] =
+                Some(MachineMiInterruptPendingSource::DeviceEffect { source });
+            self.pending[index] = true;
+        }
+    }
+    fn set_sp_pending_from_cpu_status(&mut self, provenance: MachineMiCpuStoreProvenance) {
+        let index = MachineMiInterruptSource::Sp.index();
+        if !self.pending[index] {
+            self.pending_set_provenance[index] =
+                Some(MachineMiInterruptPendingSource::CpuSpStatusSet(provenance));
+            self.pending[index] = true;
+        }
+    }
+    fn set_sp_pending_from_rsp_break(&mut self, provenance: MachineMiRspBreakInterruptSource) {
+        let index = MachineMiInterruptSource::Sp.index();
+        if !self.pending[index] {
+            self.pending_set_provenance[index] =
+                Some(MachineMiInterruptPendingSource::RspBreak(provenance));
+            self.pending[index] = true;
+        }
     }
     fn clear_pending(
         &mut self,
         source: MachineMiInterruptSource,
         provenance: MachineMiCpuStoreProvenance,
     ) {
-        self.pending[source.index()] = false;
-        self.pending_clear_provenance[source.index()] = Some(provenance);
+        let index = source.index();
+        self.pending[index] = false;
+        self.pending_set_provenance[index] = None;
+        self.pending_clear_provenance[index] = Some(provenance);
     }
     fn apply_mask_command(&mut self, state: MachineMiInterruptMaskCommandState) {
         for source in [
@@ -463,6 +546,20 @@ impl Mi {
 
     pub(crate) fn set_pending_interrupt(&mut self, source: MachineMiInterruptSource) {
         self.interrupts.set_pending(source);
+    }
+
+    pub(crate) fn set_sp_pending_from_cpu_status(
+        &mut self,
+        provenance: MachineMiCpuStoreProvenance,
+    ) {
+        self.interrupts.set_sp_pending_from_cpu_status(provenance);
+    }
+
+    pub(crate) fn set_sp_pending_from_rsp_break(
+        &mut self,
+        provenance: MachineMiRspBreakInterruptSource,
+    ) {
+        self.interrupts.set_sp_pending_from_rsp_break(provenance);
     }
 
     pub(crate) fn clear_pending_interrupt(

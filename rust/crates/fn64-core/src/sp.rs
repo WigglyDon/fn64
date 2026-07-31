@@ -2,12 +2,13 @@ use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
 use crate::rsp::{
     MachineRspAccumulatorAndFlagsState, MachineRspAddiPlan, MachineRspBranchPlan,
-    MachineRspControlRegister, MachineRspDelaySlotContext, MachineRspExecutionState,
-    MachineRspInstructionIdentity, MachineRspInstructionSource, MachineRspLastInstructionState,
-    MachineRspLqvPlan, MachineRspLuiPlan, MachineRspMfc0ControlSource, MachineRspMfc0Plan,
-    MachineRspMtc0Plan, MachineRspMtc0Source, MachineRspNopPlan, MachineRspScalarLwPlan,
-    MachineRspScalarRegisterState, MachineRspStepOutcome, MachineRspVectorArithmeticPlan,
-    MachineRspVectorRegisterState, MachineRspVectorUnitState, MachineRspXoriPlan,
+    MachineRspBreakPlan, MachineRspBreakSource, MachineRspControlRegister,
+    MachineRspDelaySlotContext, MachineRspExecutionState, MachineRspInstructionIdentity,
+    MachineRspInstructionSource, MachineRspLastInstructionState, MachineRspLqvPlan,
+    MachineRspLuiPlan, MachineRspMfc0ControlSource, MachineRspMfc0Plan, MachineRspMtc0Plan,
+    MachineRspMtc0Source, MachineRspNopPlan, MachineRspScalarLwPlan, MachineRspScalarRegisterState,
+    MachineRspStepOutcome, MachineRspVectorArithmeticPlan, MachineRspVectorRegisterState,
+    MachineRspVectorUnitState, MachineRspXoriPlan,
 };
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
@@ -225,6 +226,11 @@ impl MachineSpStatusState {
             | ((self.signals[5] as u32) << 12)
             | ((self.signals[6] as u32) << 13)
             | ((self.signals[7] as u32) << 14)
+    }
+
+    fn apply_rsp_break(&mut self) {
+        self.halt = true;
+        self.broke = true;
     }
 }
 
@@ -716,6 +722,7 @@ pub(crate) struct Sp {
     dma_record_count: u8,
     rsp: MachineRspExecutionState,
     rsp_run_start: Option<MachineRspRunStartState>,
+    last_break: Option<MachineRspBreakSource>,
 }
 
 impl Sp {
@@ -810,6 +817,10 @@ impl Sp {
 
     pub(crate) const fn rsp_run_start_state(&self) -> Option<MachineRspRunStartState> {
         self.rsp_run_start
+    }
+
+    pub(crate) const fn rsp_last_break_source(&self) -> Option<MachineRspBreakSource> {
+        self.last_break
     }
 
     pub(crate) fn rsp_execution(&self) -> &MachineRspExecutionState {
@@ -979,6 +990,31 @@ impl Sp {
         outcome
     }
 
+    pub(crate) fn apply_rsp_break(&mut self, plan: MachineRspBreakPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let source = plan.source();
+        let outcome = self.rsp.apply_break(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Break plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        self.status
+            .as_mut()
+            .expect("selected RSP Break requires represented SP status truth")
+            .apply_rsp_break();
+        self.last_break = Some(source);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Break,
+            });
+        }
+        outcome
+    }
+
     pub(crate) fn apply_rsp_mtc0(&mut self, plan: MachineRspMtc0Plan) -> MachineRspStepOutcome {
         let instruction_pc = plan.instruction_pc();
         let old_next_pc = plan.old_next_pc();
@@ -1140,6 +1176,7 @@ impl Default for Sp {
             dma_record_count: 0,
             rsp: MachineRspExecutionState::default(),
             rsp_run_start: None,
+            last_break: None,
         }
     }
 }

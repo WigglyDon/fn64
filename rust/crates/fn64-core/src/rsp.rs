@@ -2,7 +2,11 @@ use core::fmt;
 use std::sync::Arc;
 
 use crate::dpc::MachineDpcCounterIdentity;
-use crate::sp::{MachineSpDramAddressSource, MachineSpSemaphoreSource};
+use crate::mi::{
+    MachineMiInterruptPendingSource, MachineMiInterruptSource, MachineMiInterruptState,
+    MachineMiRspBreakInterruptSource,
+};
+use crate::sp::{MachineSpDramAddressSource, MachineSpSemaphoreSource, MachineSpStatusState};
 use crate::sp_dmem::{
     MachineSpDmemByteKnowledge, MachineSpDmemByteKnowledgeDescriptor,
     MachineSpDmemByteKnowledgeSource, SpDmemOffset,
@@ -26,6 +30,8 @@ pub const RSP_COP0_SP_DMA_BUSY_INDEX: u8 = 6;
 pub const RSP_COP0_SP_SEMAPHORE_INDEX: u8 = 7;
 pub const RSP_COP0_DPC_STATUS_INDEX: u8 = 11;
 pub const RSP_SCALAR_BREAK_WORD: u32 = 0x0000_000d;
+pub const RSP_SCALAR_BREAK_FUNCTION: u8 = 0x0d;
+pub const RSP_SCALAR_BREAK_CODE_MASK: u32 = 0x000f_ffff;
 pub const RSP_SCALAR_REGIMM_OPCODE: u8 = 0x01;
 pub const RSP_SCALAR_BLTZ_SELECTOR: u8 = 0;
 pub const RSP_SCALAR_BGEZ_SELECTOR: u8 = 1;
@@ -1054,6 +1060,7 @@ pub enum MachineRspInstructionIdentity {
     Vaddc,
     Lw,
     Nop,
+    Break,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1068,6 +1075,73 @@ pub enum MachineRspInstructionSource {
     MixedKnown,
     #[cfg(test)]
     GeneratedMachineTestStaging,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRspBreakSource {
+    instruction_pc: u16,
+    prior_next_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    raw_word: u32,
+    pre_break_status: MachineSpStatusState,
+    pre_break_mi_sp_pending: bool,
+    pre_break_mi_sp_pending_source: Option<MachineMiInterruptPendingSource>,
+    interrupt_signaled: bool,
+}
+
+impl MachineRspBreakSource {
+    pub const fn instruction_pc(self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub const fn prior_next_pc(self) -> u16 {
+        self.prior_next_pc
+    }
+
+    pub fn instruction_source(self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn byte_provenance(self) -> [SpImemByteProvenance; 4] {
+        self.instruction_provenance
+    }
+
+    pub const fn raw_word(self) -> u32 {
+        self.raw_word
+    }
+
+    pub const fn pre_break_status(self) -> MachineSpStatusState {
+        self.pre_break_status
+    }
+
+    pub const fn pre_break_mi_sp_pending(self) -> bool {
+        self.pre_break_mi_sp_pending
+    }
+
+    pub const fn pre_break_mi_sp_pending_source(self) -> Option<MachineMiInterruptPendingSource> {
+        self.pre_break_mi_sp_pending_source
+    }
+
+    pub const fn interrupt_on_break(self) -> bool {
+        self.pre_break_status.interrupt_on_break()
+    }
+
+    pub const fn interrupt_signaled(self) -> bool {
+        self.interrupt_signaled
+    }
+
+    pub(crate) const fn mi_interrupt_source(self) -> MachineMiRspBreakInterruptSource {
+        MachineMiRspBreakInterruptSource::new(
+            self.instruction_pc,
+            self.prior_next_pc,
+            self.instruction_provenance,
+        )
+    }
+
+    const fn instruction_provenance(self) -> [SpImemByteProvenance; 4] {
+        self.instruction_provenance
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1280,6 +1354,11 @@ pub enum MachineRspStepOutcome {
     NopCommitted {
         instruction_pc: u16,
     },
+    BreakCommitted {
+        instruction_pc: u16,
+        interrupt_on_break: bool,
+        interrupt_signaled: bool,
+    },
 }
 
 impl MachineRspStepOutcome {
@@ -1298,6 +1377,7 @@ impl MachineRspStepOutcome {
             Self::VectorVaddcCommitted { .. } => MachineRspInstructionIdentity::Vaddc,
             Self::ScalarLwCommitted { .. } => MachineRspInstructionIdentity::Lw,
             Self::NopCommitted { .. } => MachineRspInstructionIdentity::Nop,
+            Self::BreakCommitted { .. } => MachineRspInstructionIdentity::Break,
         }
     }
 
@@ -1315,7 +1395,8 @@ impl MachineRspStepOutcome {
             | Self::VectorVsubCommitted { instruction_pc, .. }
             | Self::VectorVaddcCommitted { instruction_pc, .. }
             | Self::ScalarLwCommitted { instruction_pc, .. }
-            | Self::NopCommitted { instruction_pc } => instruction_pc,
+            | Self::NopCommitted { instruction_pc }
+            | Self::BreakCommitted { instruction_pc, .. } => instruction_pc,
         }
     }
 
@@ -1343,7 +1424,8 @@ impl MachineRspStepOutcome {
             | Self::VectorLqvCommitted { .. }
             | Self::VectorVsubCommitted { .. }
             | Self::VectorVaddcCommitted { .. }
-            | Self::NopCommitted { .. } => None,
+            | Self::NopCommitted { .. }
+            | Self::BreakCommitted { .. } => None,
         }
     }
 
@@ -1365,7 +1447,8 @@ impl MachineRspStepOutcome {
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarLwCommitted { .. }
-            | Self::NopCommitted { .. } => None,
+            | Self::NopCommitted { .. }
+            | Self::BreakCommitted { .. } => None,
         }
     }
 
@@ -1383,7 +1466,8 @@ impl MachineRspStepOutcome {
             | Self::VectorLqvCommitted { .. }
             | Self::VectorVsubCommitted { .. }
             | Self::VectorVaddcCommitted { .. }
-            | Self::NopCommitted { .. } => None,
+            | Self::NopCommitted { .. }
+            | Self::BreakCommitted { .. } => None,
         }
     }
 
@@ -1398,7 +1482,8 @@ impl MachineRspStepOutcome {
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarLwCommitted { .. }
-            | Self::NopCommitted { .. } => None,
+            | Self::NopCommitted { .. }
+            | Self::BreakCommitted { .. } => None,
             Self::VectorLqvCommitted {
                 destination_vector, ..
             }
@@ -1423,7 +1508,8 @@ impl MachineRspStepOutcome {
             | Self::ScalarXoriCommitted { .. }
             | Self::VectorVsubCommitted { .. }
             | Self::VectorVaddcCommitted { .. }
-            | Self::NopCommitted { .. } => None,
+            | Self::NopCommitted { .. }
+            | Self::BreakCommitted { .. } => None,
             Self::ScalarLwCommitted {
                 local_dmem_address, ..
             } => Some(local_dmem_address),
@@ -1443,7 +1529,9 @@ impl MachineRspStepOutcome {
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarXoriCommitted { .. } => None,
-            Self::ScalarLwCommitted { .. } | Self::NopCommitted { .. } => None,
+            Self::ScalarLwCommitted { .. }
+            | Self::NopCommitted { .. }
+            | Self::BreakCommitted { .. } => None,
             Self::VectorLqvCommitted {
                 result_available, ..
             }
@@ -1453,6 +1541,24 @@ impl MachineRspStepOutcome {
             | Self::VectorVaddcCommitted {
                 result_available, ..
             } => Some(result_available),
+        }
+    }
+
+    pub const fn interrupt_on_break(self) -> Option<bool> {
+        match self {
+            Self::BreakCommitted {
+                interrupt_on_break, ..
+            } => Some(interrupt_on_break),
+            _ => None,
+        }
+    }
+
+    pub const fn interrupt_signaled(self) -> Option<bool> {
+        match self {
+            Self::BreakCommitted {
+                interrupt_signaled, ..
+            } => Some(interrupt_signaled),
+            _ => None,
         }
     }
 }
@@ -1519,7 +1625,12 @@ pub enum MachineRspStepRejectionReason {
         counter: MachineDpcCounterIdentity,
         value: u32,
     },
-    BreakUnsupported,
+    BreakCodeUnsupported {
+        code: u32,
+    },
+    BreakInDelaySlotUnsupported {
+        owner_pc: u16,
+    },
     XoriSourceUnavailable {
         source_gpr: u8,
     },
@@ -1723,9 +1834,14 @@ impl fmt::Display for MachineRspStepRejection {
                 f,
                 "RSP Mtc0 DPC_STATUS rejected malformed {counter:?} counter value 0x{value:08x}"
             ),
-            MachineRspStepRejectionReason::BreakUnsupported => {
-                write!(f, "RSP Break is identified but not represented")
-            }
+            MachineRspStepRejectionReason::BreakCodeUnsupported { code } => write!(
+                f,
+                "RSP Break code field 0x{code:05x} is outside the exact represented zero-code identity"
+            ),
+            MachineRspStepRejectionReason::BreakInDelaySlotUnsupported { owner_pc } => write!(
+                f,
+                "RSP Break in the active delay slot owned by local PC 0x{owner_pc:03x} is not represented"
+            ),
             MachineRspStepRejectionReason::XoriSourceUnavailable { source_gpr } => {
                 write!(f, "RSP Xori scalar source r{source_gpr} is unavailable")
             }
@@ -2124,6 +2240,25 @@ impl MachineRspNopPlan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineRspBreakPlan {
+    source: MachineRspBreakSource,
+}
+
+impl MachineRspBreakPlan {
+    pub(crate) const fn source(self) -> MachineRspBreakSource {
+        self.source
+    }
+
+    pub(crate) const fn instruction_pc(self) -> u16 {
+        self.source.instruction_pc()
+    }
+
+    pub(crate) const fn old_next_pc(self) -> u16 {
+        self.source.prior_next_pc()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MachineRspDecodedInstruction {
     Mfc0 {
         destination_gpr: u8,
@@ -2184,6 +2319,7 @@ pub(crate) enum MachineRspDecodedInstruction {
         signed_offset: i16,
     },
     Nop,
+    Break,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2247,9 +2383,13 @@ impl MachineRspExecutionState {
         if raw_word == 0 {
             return Ok(MachineRspDecodedInstruction::Nop);
         }
-        if raw_word == RSP_SCALAR_BREAK_WORD {
+        if raw_word >> 26 == 0 && raw_word & 0x3f == u32::from(RSP_SCALAR_BREAK_FUNCTION) {
+            let code = (raw_word >> 6) & RSP_SCALAR_BREAK_CODE_MASK;
+            if raw_word == RSP_SCALAR_BREAK_WORD {
+                return Ok(MachineRspDecodedInstruction::Break);
+            }
             return Err(MachineRspStepRejection::new(
-                MachineRspStepRejectionReason::BreakUnsupported,
+                MachineRspStepRejectionReason::BreakCodeUnsupported { code },
             ));
         }
         let opcode = (raw_word >> 26) as u8;
@@ -2466,6 +2606,43 @@ impl MachineRspExecutionState {
             control_source,
             byte_provenance,
         }
+    }
+
+    pub(crate) fn plan_break(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+        byte_provenance: [SpImemByteProvenance; 4],
+        status: MachineSpStatusState,
+        mi_interrupts: MachineMiInterruptState,
+    ) -> Result<MachineRspBreakPlan, MachineRspStepRejection> {
+        let MachineRspDecodedInstruction::Break = decoded else {
+            unreachable!("Break planner receives only decoded Break")
+        };
+        if let Some(delay) = &self.delay_slot_context {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::BreakInDelaySlotUnsupported {
+                    owner_pc: delay.owner_pc(),
+                },
+            ));
+        }
+        let prior_next_pc = self
+            .next_pc
+            .unwrap_or_else(|| sequential_local_pc(instruction_pc));
+        let pre_break_mi_sp_pending = mi_interrupts.pending(MachineMiInterruptSource::Sp);
+        Ok(MachineRspBreakPlan {
+            source: MachineRspBreakSource {
+                instruction_pc,
+                prior_next_pc,
+                instruction_provenance: byte_provenance,
+                raw_word: RSP_SCALAR_BREAK_WORD,
+                pre_break_status: status,
+                pre_break_mi_sp_pending,
+                pre_break_mi_sp_pending_source: mi_interrupts
+                    .pending_set_provenance(MachineMiInterruptSource::Sp),
+                interrupt_signaled: status.interrupt_on_break(),
+            },
+        })
     }
 
     pub(crate) fn apply_mfc0(&mut self, plan: MachineRspMfc0Plan) -> MachineRspStepOutcome {
@@ -3482,6 +3659,24 @@ impl MachineRspExecutionState {
         }
     }
 
+    pub(crate) fn apply_break(&mut self, plan: MachineRspBreakPlan) -> MachineRspStepOutcome {
+        let source = plan.source();
+        self.next_pc = Some(sequential_local_pc(plan.old_next_pc()));
+        self.delay_slot_context = None;
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc: plan.instruction_pc(),
+            identity: MachineRspInstructionIdentity::Break,
+            destination: MachineRspLastInstructionDestination::None,
+            byte_provenance: source.instruction_provenance(),
+        });
+        MachineRspStepOutcome::BreakCommitted {
+            instruction_pc: plan.instruction_pc(),
+            interrupt_on_break: source.interrupt_on_break(),
+            interrupt_signaled: source.interrupt_signaled(),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn stage_delay_for_test(&mut self, owner_pc: u16) {
         let delay_slot_pc = sequential_local_pc(owner_pc);
@@ -4052,8 +4247,28 @@ mod tests {
             })
         );
         assert_eq!(
-            rsp.decode(RSP_SCALAR_BREAK_WORD).unwrap_err().reason(),
-            MachineRspStepRejectionReason::BreakUnsupported
+            rsp.decode(RSP_SCALAR_BREAK_WORD),
+            Ok(MachineRspDecodedInstruction::Break)
+        );
+        for code in [1, 0x12345, RSP_SCALAR_BREAK_CODE_MASK] {
+            assert_eq!(
+                rsp.decode((code << 6) | u32::from(RSP_SCALAR_BREAK_FUNCTION))
+                    .unwrap_err()
+                    .reason(),
+                MachineRspStepRejectionReason::BreakCodeUnsupported { code }
+            );
+        }
+        assert_eq!(
+            rsp.decode(0x0000_000c).unwrap_err().reason(),
+            MachineRspStepRejectionReason::UnrepresentedInstruction {
+                class: MachineRspUnrepresentedInstructionClass::Scalar,
+            }
+        );
+        assert_eq!(
+            rsp.decode(0x2400_000d).unwrap_err().reason(),
+            MachineRspStepRejectionReason::UnrepresentedInstruction {
+                class: MachineRspUnrepresentedInstructionClass::Scalar,
+            }
         );
     }
 
