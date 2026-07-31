@@ -266,9 +266,12 @@ Xori at `0x094`, Addiu at `0x80000180` updates r9 from sign-extended
 DPC_STATUS command `0x240` commits on the next RSP-selected call without
 changing CPU Count, CPU committed count, or VI. The following real CPU Bne at
 `0x80000184` is taken, advances Count/committed count to `253436/253452`, and
-returns the token to RSP. Selected Break at local `0x09C` then rejects without
-CPU fallback and preserves the complete post-DPC/post-CPU state.
+returns the token to RSP. Selected zero-code Break at local `0x09C` commits
+without advancing CPU Count, CPU committed count, or VI, sets Sp halt/broke,
+and selects CPU. Read-only current I-cache inspection identifies word
+`0x02CFB024` (`SpecialAnd`) at CPU PC `0x80000188` under the still-active
+delay owner `0x80000184`; that CPU instruction is not executed.
 
-Next authority must be earned by a bounded Break/SP-completion decision, not a
-generic dispatcher, branch/pipeline/DMA framework, timing model, or cycle
-model.
+Next authority must be earned by a bounded CPU-continuation decision, not a
+generic task, dispatcher, branch/pipeline/DMA framework, timing model, or
+cycle model.

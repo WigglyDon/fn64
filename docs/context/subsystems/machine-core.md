@@ -336,10 +336,15 @@ before exact DPC_STATUS command `0x240` commits at `0x098`. The private Dpc
 owner changes only TMEM-load and clock counters from undefined-power-up
 Unavailable truth to Available zero with exact provenance; command-busy and
 pipe-busy counters remain Unavailable. One real CPU Bne returns the token,
-then Break at `0x09C` rejects atomically with SP halt/broke, MI, Dpc, and the
-complete Machine preserved. No persistent busy/full duration, queue, partial
-progress, cycle timing, DPC counter cadence/mode/readback, Rdp owner, or
-semaphore authorization is represented.
+then exact zero-code Break at `0x09C` commits through the existing owners:
+ordinary successor PC/next becomes `0x0A0/0x0A4`, RSP count becomes 1092,
+Sp halt/broke become true, false interrupt-on-break leaves Mi SP-pending
+false, and the token becomes CPU. Dpc and every unrelated Machine fact remain
+preserved; neither RSP NOP executes. Read-only current I-cache inspection
+identifies unexecuted CPU `SpecialAnd` word `0x02CFB024` at `0x80000188`.
+No persistent busy/full duration, queue, partial progress, cycle timing, DPC
+counter cadence/mode/readback, Rdp owner, or semaphore authorization is
+represented.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
@@ -347,7 +352,8 @@ include unearned full machine scheduling, timing, broad memory/device routing,
 translated TLB memory access, RSP execution beyond exact scalar MFC0, aligned
 full-register LQV, element-zero Vsub/Vaddc, aligned Available-DMEM scalar LW,
 and raw-zero NOP, RSP MTC0 beyond the four reached SP destinations plus the
-sole exact DPC_STATUS command, Break/SP completion, branches
+sole exact DPC_STATUS command, nonzero-code/delay-slot Break, CPU continuation,
+generic task completion, branches
 beyond BLTZ/BGEZ/BNE, scalar J-family control flow, other scalar identities,
 other DMA shapes, DPC mode/readback/counter cadence, RDP execution, other
 vector consumers/arithmetic, host presentation, broader handoff state, and

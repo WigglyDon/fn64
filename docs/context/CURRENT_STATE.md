@@ -120,10 +120,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   counters whose undefined power-up values remain Unavailable. Exact `Mtc0
   r3,DPC_STATUS` command `0x240` at local `0x098` clears only the TMEM-load
   and clock counters to Available zero with exact provenance. One real CPU
-  Bne then rotates the token; RSP Break at local `0x09c` rejects atomically as
-  the next frontier. BOOT-3, a
+  Bne then rotates the token. Exact zero-code RSP Break at local `0x09c`
+  commits once, advances ordinary successor truth to `0x0a0/0x0a4`, sets the
+  singular `Sp` halt and broke bits, preserves false interrupt-on-break, and
+  therefore leaves `Mi` SP-pending false. The halted RSP executes neither
+  following NOP. Read-only inspection identifies the next selected CPU
+  frontier at PC `0x80000188` as current I-cache word `0x02cfb024`
+  (`SpecialAnd`) without committing it. BOOT-3, a
   proprietary PIF execution chain, commercial-cartridge generality, user-task
-  RSP execution beyond the exact subset, Break completion, DPC counter
+  RSP execution beyond the exact subset, generic task completion, DPC counter
   cadence or mode/readback truth, RDP execution, general vector arithmetic,
   compatibility, graphics, window, and audio are not claimed.
   Public generated execution remains synthetic proof only.
@@ -492,8 +497,12 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   counters preserve ConstructionOrResetUndefined unavailability. One actual
   CPU Bne at `0x80000184` advances Count/committed count to
   `253436/253452` and returns the token to RSP. Selected Break word
-  `0x0000000D` at local `0x09C` then rejects atomically with RSP count 1091,
-  preserving Dpc, SP halt/broke, MI, and the complete Machine. This is the
+  `0x0000000D` at local `0x09C` then commits atomically: RSP PC/next-PC become
+  `0x0A0/0x0A4`, RSP count becomes 1092, halt and broke become true, and the
+  token becomes CPU. Public interrupt-on-break and MI SP-pending both remain
+  false. Dpc, all registers, all memory, and all three DMA records are
+  preserved. Neither RSP NOP executes. The unexecuted current CPU frontier is
+  I-cache word `0x02CFB024` (`SpecialAnd`) at `0x80000188`; this is the
   current combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,

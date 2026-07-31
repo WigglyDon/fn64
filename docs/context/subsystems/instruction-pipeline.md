@@ -208,6 +208,7 @@ partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar
 loads, scalar stores, nonzero SLL, branches beyond BLTZ/BGEZ/BNE, scalar
 J-family control flow, MTC0 beyond the four reached SP controls and the sole
 exact DPC_STATUS command, MFC0 beyond the three reached sources,
-Break and SP completion, DPC mode/readback/counter cadence, other DMA shapes,
+nonzero-code or delay-slot Break, CPU continuation after Break, generic task
+completion, DPC mode/readback/counter cadence, other DMA shapes,
 other vector consumers/arithmetic or nonzero elements,
 analog device behavior, and instruction timing.

@@ -886,6 +886,28 @@ product or reference lane requires a new explicit product decision.
   interrupt-on-break, DPC mode/readback/counter cadence, RDP execution, task
   completion, graphics, audio, BOOT-3, and compatibility remain unavailable.
 
+## Era 46 — Exact RSP Break and halted CPU frontier (2026-07-30)
+
+- Ownership result: existing `Sp` remains the only halt, broke,
+  interrupt-on-break, signal, semaphore, address, and DMA owner; existing
+  `Mi` remains the only SP-pending owner; `Sp::rsp` retains exact
+  last-instruction truth. No task-completion owner, host event, interrupt
+  queue, scheduler, or Rdp owner was created.
+- Semantic result: exactly SPECIAL/BREAK with zero code (`0x0000000D`) commits
+  outside an RSP delay slot. It applies ordinary successor PC state, sets halt
+  and broke, preserves interrupt-on-break, conditionally asserts the one Mi
+  SP-pending bit, increments only RSP count, and selects CPU. Nonzero-code and
+  delay-slot Break remain atomic rejection boundaries.
+- Runtime result: public false interrupt-on-break leaves MI SP-pending false.
+  RSP PC/next becomes `0x0A0/0x0A4`, count becomes 1092, and the RSP is
+  halted and broke while Dpc, all registers, memory, and three DMA records are
+  preserved. Neither following RSP NOP executes. Read-only inspection names
+  I-cache word `0x02CFB024` (`SpecialAnd`) at CPU PC `0x80000188`; it is not
+  executed.
+- Boundary: CPU continuation, generic task completion, DPC cadence/readback,
+  RDP execution, graphics, audio, BOOT-3, and compatibility remain
+  unavailable.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

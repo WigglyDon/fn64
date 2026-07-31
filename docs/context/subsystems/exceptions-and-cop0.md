@@ -147,8 +147,11 @@ write DMA without CPU-COP0 effects. Control index eleven, DPC_STATUS, accepts
 only exact command `0x240`: its RSP-selected commit clears the private Dpc
 TMEM-load and clock counters to Available zero while preserving CPU COP0,
 pipe-busy, and command-busy truth. It creates no mode/readback or Rdp state.
-Break at local `0x09C` rejects atomically without SP halt/broke or MI effects
-and is the next closed control boundary.
+Exact zero-code Break at local `0x09C` has no architectural exception. Its
+RSP-selected commit sets existing Sp halt/broke and conditionally delegates
+only SP-pending assertion to Mi; it does not recognize a CPU interrupt or
+mutate COP0 Cause/Status. Public false interrupt-on-break leaves MI pending
+false. CPU continuation is the next closed control boundary.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.
