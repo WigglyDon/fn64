@@ -54,6 +54,7 @@ Current durable integration records:
 - [Exact RSP Vsub/Vaddc/Bgez vector sum and SP write frontier](rsp-vsub-vaddc-sum-loop-generated-x105-sp-wr-len-frontier-v1/README.md)
 - [Exact RSP SP write DMA and DPC status frontier](rsp-sp-wr-len-write-dma-generated-x105-dpc-status-frontier-v1/README.md)
 - [Exact RSP DPC counter clear and Break frontier](rsp-dpc-status-counter-clear-generated-x105-break-frontier-v1/README.md)
+- [Exact RSP Break halt, broke, and CPU frontier](rsp-break-halt-broke-generated-x105-cpu-frontier-v1/README.md)
 
 The lineage contract is:
 
