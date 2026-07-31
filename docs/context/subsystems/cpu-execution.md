@@ -263,8 +263,12 @@ CPU committed count, or VI. The next real CPU commit is Ori at `0x8000017C`,
 which updates r15 from sign-extended `0xA0000000` to `0xA00002FF`; after RSP
 Xori at `0x094`, Addiu at `0x80000180` updates r9 from sign-extended
 `0x80001090` to `0x80001094`. Counts become `253435/253451`. Selected
-DPC_STATUS rejection changes no CPU/RSP/device state and receives no fallback.
+DPC_STATUS command `0x240` commits on the next RSP-selected call without
+changing CPU Count, CPU committed count, or VI. The following real CPU Bne at
+`0x80000184` is taken, advances Count/committed count to `253436/253452`, and
+returns the token to RSP. Selected Break at local `0x09C` then rejects without
+CPU fallback and preserves the complete post-DPC/post-CPU state.
 
-Next authority must be earned by a bounded DPC_STATUS owner decision, not a
+Next authority must be earned by a bounded Break/SP-completion decision, not a
 generic dispatcher, branch/pipeline/DMA framework, timing model, or cycle
 model.

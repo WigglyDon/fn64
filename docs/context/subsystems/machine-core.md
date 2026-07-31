@@ -13,7 +13,7 @@ Update triggers: Machine ownership, lifecycle, public execution, or state lineag
 
 `fn64-core::Machine` is the current production owner of each represented
 machine instance: cartridge, CPU, RDRAM, SP DMEM, SP IMEM, concrete PI,
-AI, SI, VI,
+AI, SI, VI, one private minimal Dpc four-counter owner,
 minimal RI_MODE,
 RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD event, RI_REFRESH, immutable MI_VERSION
 identity, MI initialization-mode/RDRAM-register mode and interrupt state,
@@ -332,17 +332,23 @@ complete Available/non-opaque IMEM `[0x120,0x1e0)` and 24 disjoint RDRAM
 blocks, then atomically copies 192 bytes and appends one `SpToRdram` record.
 Addresses evolve once to local `0x11e0` and RDRAM `0x00313070`; the first two
 records and all unrelated truth remain unchanged. Xori at `0x094` commits
-before DPC_STATUS rejects at `0x098`. No persistent busy/full duration, queue,
-partial progress, cycle timing, Dpc/Rdp owner, or semaphore authorization is
-represented.
+before exact DPC_STATUS command `0x240` commits at `0x098`. The private Dpc
+owner changes only TMEM-load and clock counters from undefined-power-up
+Unavailable truth to Available zero with exact provenance; command-busy and
+pipe-busy counters remain Unavailable. One real CPU Bne returns the token,
+then Break at `0x09C` rejects atomically with SP halt/broke, MI, Dpc, and the
+complete Machine preserved. No persistent busy/full duration, queue, partial
+progress, cycle timing, DPC counter cadence/mode/readback, Rdp owner, or
+semaphore authorization is represented.
 
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
 translated TLB memory access, RSP execution beyond exact scalar MFC0, aligned
 full-register LQV, element-zero Vsub/Vaddc, aligned Available-DMEM scalar LW,
-and raw-zero NOP, RSP MTC0 beyond the three reached destinations, branches
+and raw-zero NOP, RSP MTC0 beyond the four reached SP destinations plus the
+sole exact DPC_STATUS command, Break/SP completion, branches
 beyond BLTZ/BGEZ/BNE, scalar J-family control flow, other scalar identities,
-other DMA shapes, DPC_STATUS, other vector consumers/arithmetic, host
-presentation, broader handoff state, and whether any later fact requires
-minimal firmware execution.
+other DMA shapes, DPC mode/readback/counter cadence, RDP execution, other
+vector consumers/arithmetic, host presentation, broader handoff state, and
+whether any later fact requires minimal firmware execution.

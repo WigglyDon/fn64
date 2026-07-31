@@ -178,7 +178,11 @@ operands. MTC0 SP_WR_LEN reuses the same length/count/skip decoder, captures
 the selected SP-memory bytes through their singular knowledge owner, and
 preflights every RDRAM destination block plus record/address evolution before
 one atomic application. Unavailable, opaque, inconsistent, wrapping, or
-out-of-range plans reject without partial effects. Vsub planning captures
+out-of-range plans reject without partial effects. MTC0 DPC_STATUS captures
+the Available scalar source, exact fetch provenance, and complete private Dpc
+counter state; only command `0x240` plans TMEM-load and clock zero results,
+and its atomic application preserves the other counters and creates no status
+mode/readback or Rdp truth. Vsub planning captures
 both vector operands, genuinely consumed low
 VCO, sliced accumulator, and VCC/VCE. Self-alias cancels vector bits; unknown
 borrow still produces whole-register and low-slice unavailable results.
@@ -202,7 +206,8 @@ branch-likely/REGIMM members, COP0/CACHE operations beyond the detailed ledger,
 translated TLB access, NMI, generic MMIO, broad CPU or RSP fetch mapping,
 partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar
 loads, scalar stores, nonzero SLL, branches beyond BLTZ/BGEZ/BNE, scalar
-J-family control flow, MTC0 beyond the four reached SP controls including
-DPC_STATUS, MFC0 beyond the three reached sources, other DMA shapes, other
-vector consumers/arithmetic or nonzero elements,
+J-family control flow, MTC0 beyond the four reached SP controls and the sole
+exact DPC_STATUS command, MFC0 beyond the three reached sources,
+Break and SP completion, DPC mode/readback/counter cadence, other DMA shapes,
+other vector consumers/arithmetic or nonzero elements,
 analog device behavior, and instruction timing.

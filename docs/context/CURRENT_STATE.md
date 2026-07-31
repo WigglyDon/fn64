@@ -115,12 +115,17 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `Mtc0 r3,SP_WR_LEN` at local `0x090`: the singular `Sp` owner atomically
   copies 24 eight-byte blocks from IMEM `[0x120,0x1e0)` into disjoint RDRAM
   blocks beginning at `0x002fb1f0` with DRAM skip `0xfe8`, then appends one
-  typed third DMA record. Existing Xori commits at `0x094`; `Mtc0
-  r3,DPC_STATUS` at local `0x098` rejects atomically as the next frontier.
-  BOOT-3, a
+  typed third DMA record. Existing Xori commits at `0x094`. One private
+  per-Machine `Dpc` owns four independent 24-bit Available-or-Unavailable
+  counters whose undefined power-up values remain Unavailable. Exact `Mtc0
+  r3,DPC_STATUS` command `0x240` at local `0x098` clears only the TMEM-load
+  and clock counters to Available zero with exact provenance. One real CPU
+  Bne then rotates the token; RSP Break at local `0x09c` rejects atomically as
+  the next frontier. BOOT-3, a
   proprietary PIF execution chain, commercial-cartridge generality, user-task
-  RSP execution beyond the exact subset, DPC/RDP execution, general vector
-  arithmetic, compatibility, graphics, window, and audio are not claimed.
+  RSP execution beyond the exact subset, Break completion, DPC counter
+  cadence or mode/readback truth, RDP execution, general vector arithmetic,
+  compatibility, graphics, window, and audio are not claimed.
   Public generated execution remains synthetic proof only.
 - `LIVE_REPO_FACT`: ordinary `BEQ`, `BNE`, `BLEZ`, non-linking/non-likely
   `BLTZ` and `BGEZ`, `J`, `JAL`, `JR`, and `JALR`
@@ -481,9 +486,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   IMEM-to-RDRAM transfer: raw `0xFE817000` decodes as 24 eight-byte blocks
   with skip `0xFE8`, addresses evolve to local `0x11E0` / RDRAM
   `0x00313070`, and the first two records remain unchanged. Existing Xori at
-  `0x094` produces `r3 = 0x240`; selected `Mtc0 r3,DPC_STATUS` at local
-  `0x098` then rejects atomically without fallback or a Dpc/Rdp owner. This
-  is the current combined Machine frontier.
+  `0x094` produces `r3 = 0x240`. Selected `Mtc0 r3,DPC_STATUS` at local
+  `0x098` commits the sole represented command: the TMEM-load and clock
+  counters become Available zero while the command-busy and pipe-busy
+  counters preserve ConstructionOrResetUndefined unavailability. One actual
+  CPU Bne at `0x80000184` advances Count/committed count to
+  `253436/253452` and returns the token to RSP. Selected Break word
+  `0x0000000D` at local `0x09C` then rejects atomically with RSP count 1091,
+  preserving Dpc, SP halt/broke, MI, and the complete Machine. This is the
+  current combined Machine frontier.
 - `EXTERNAL_TECHNICAL_EVIDENCE`: pinned NTSC, PAL, and MPAL IPL
   reconstructions share raw source start `0x0d4` and SP IMEM destination zero,
   but NTSC ends at `0x71c` (`0x648` bytes) while PAL and MPAL end at `0x720`

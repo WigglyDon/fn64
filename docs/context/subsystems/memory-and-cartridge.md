@@ -225,7 +225,9 @@ copying 192 bytes, preserving IMEM truth, and appending record two. Rdram
 retains singular destination-byte ownership; the record owns causality rather
 than duplicate bytes. Final local/RDRAM addresses are `0x11e0/0x00313070`.
 No persistent DMA duration, queue, partial progress, or unrelated memory
-mutation exists.
+mutation exists. The later exact DPC_STATUS counter-clear command and the
+subsequent Break rejection leave RDRAM, DMEM, IMEM, cartridge bytes, and all
+three DMA records unchanged.
 
 Required validation: `./rust/verify-forward` plus focused cartridge/RDRAM tests.
 Performance and large-ROM resource behavior are `UNKNOWN` without measurement.

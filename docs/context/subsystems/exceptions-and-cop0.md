@@ -143,9 +143,12 @@ created. `SP_DMA_FULL` and other RSP control indices reject atomically. No
 RSP-selected success or rejection enters CPU COP0, advances CPU Count, or
 receives CPU fallback. Exact Vsub/Vaddc/Bgez execute without CPU-COP0 effects.
 RSP MTC0 control index three, SP_WR_LEN, commits one fully preflighted atomic
-write DMA without CPU-COP0 effects. Control index eleven, DPC_STATUS, rejects
-atomically at local `0x098` without creating Dpc/Rdp state and is the next
-closed control boundary.
+write DMA without CPU-COP0 effects. Control index eleven, DPC_STATUS, accepts
+only exact command `0x240`: its RSP-selected commit clears the private Dpc
+TMEM-load and clock counters to Available zero while preserving CPU COP0,
+pipe-busy, and command-busy truth. It creates no mode/readback or Rdp state.
+Break at local `0x09C` rejects atomically without SP halt/broke or MI effects
+and is the next closed control boundary.
 
 Required validation: `./rust/verify-forward` plus the narrow exception test.
 Next authority requires a bounded source-proven exception source or field.

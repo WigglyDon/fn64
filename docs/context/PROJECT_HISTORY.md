@@ -865,6 +865,27 @@ product or reference lane requires a new explicit product decision.
   completion, persistent DMA timing, queue, partial progress, graphics, audio,
   BOOT-3, or compatibility is represented.
 
+## Era 45 — Minimal DPC counter clear and Break frontier (2026-07-30)
+
+- Ownership result: `Machine` owns one private `Dpc`, distinct from `Sp`,
+  `Rsp`, `Mi`, and `Rdram`. It owns exactly four independent 24-bit
+  Available-or-Unavailable counter states. Construction, reset, and complete
+  bootstrap preserve source-defined undefined power-up values as unavailable;
+  no backing zero, status-mode owner, readback word, or Rdp owner exists.
+- Semantic result: exact RSP MTC0 control index eleven accepts only raw
+  DPC_STATUS command `0x00000240`. One atomic commit clears the TMEM-load and
+  clock counters to Available zero with exact fetch/source/command provenance,
+  while preserving command-busy and pipe-busy counters. Every other command
+  rejects before mutation; no counter cadence or timing is represented.
+- Runtime result: public DPC_STATUS commits at local `0x098`, advancing RSP
+  PC/next-PC to `0x09C/0x0A0`, count to 1091, and selecting CPU. One real CPU
+  Bne at `0x80000184` advances Count/committed count to `253436/253452` and
+  returns the token to RSP. Break word `0x0000000D` then rejects atomically
+  while preserving the two known-zero counters and complete Machine state.
+- Boundary: Break has not executed. SP halt/broke completion, MI
+  interrupt-on-break, DPC mode/readback/counter cadence, RDP execution, task
+  completion, graphics, audio, BOOT-3, and compatibility remain unavailable.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
