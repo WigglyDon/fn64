@@ -5,23 +5,26 @@ use fn64_core::cpu::address::CpuAddress;
 use fn64_core::{
     load_cartridge, Cartridge, CartridgeLoadError, CpuAddressErrorKind, CpuInstructionIdentity,
     Machine, MachineBootstrapGprSource, MachineCartridgeBootstrapError,
-    MachineCpuInstructionFetchError, MachineLoadWordRejectionReason, MachineLoadWordTarget,
-    MachineMiInterruptSource, MachineMtc0Destination, MachineMtc0RejectionReason,
-    MachineOrdinaryControlFlowRejectionReason, MachinePifIpl2HandoffBootMedium,
-    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
-    MachineRdramBroadcastDeviceIdAperture, MachineRdramBroadcastRefreshRowAperture,
-    MachineRdramCalibrationStatus, MachineRdramFirstResponderDeviceIdAperture,
-    MachineRdramInitialModeAperture, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineRiModeSource, MachineRiSelectSource, MachineRspControlRegister, MachineRspStepOutcome,
-    MachineRspStepRejectionReason, MachineSpDmaDirection, MachineSpDmaSpMemory,
-    MachineSpDmemByteKnowledge, MachineSpDmemByteSource, MachineSpDmemLoadWordProvenance,
-    MachineSpDramAddressSource, MachineSpRegisterWriteSource, MachineStepCadenceSource,
-    MachineStepControlFlowAction, MachineStepCountAction,
+    MachineCpuInstructionFetchError, MachineDpcCounterIdentity, MachineDpcCounterUnavailableSource,
+    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachineMiInterruptSource,
+    MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
+    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
+    MachinePifVersionBit, MachineRdramBroadcastDeviceIdAperture,
+    MachineRdramBroadcastRefreshRowAperture, MachineRdramCalibrationStatus,
+    MachineRdramFirstResponderDeviceIdAperture, MachineRdramInitialModeAperture,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRiModeSource,
+    MachineRiSelectSource, MachineRspControlRegister, MachineRspInstructionSource,
+    MachineRspStepOutcome, MachineRspStepRejectionReason, MachineSpDmaDirection,
+    MachineSpDmaSpMemory, MachineSpDmemByteKnowledge, MachineSpDmemByteSource,
+    MachineSpDmemLoadWordProvenance, MachineSpDramAddressSource, MachineSpRegisterWriteSource,
+    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
     MachineStepNoEffectExecutedInstructionCategory, MachineStepProcessor,
     MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
     MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
     PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
-    MI_INIT_MODE_X105_WRITE_WORD, MI_VERSION_STANDARD_RETAIL_NUS_WORD, PIF_BOOT_ROM_SIZE_BYTES,
+    DPC_STATUS_CLEAR_CLOCK_COUNTER, DPC_STATUS_CLEAR_TMEM_COUNTER,
+    DPC_STATUS_X105_COUNTER_CLEAR_COMMAND, MI_INIT_MODE_X105_WRITE_WORD,
+    MI_VERSION_STANDARD_RETAIL_NUS_WORD, PIF_BOOT_ROM_SIZE_BYTES,
     RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
     RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DELAY_X105_LOGICAL_CONFIGURATION,
     RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD, RDRAM_DEVICE_ID_X105_REQUESTED_PHYSICAL_BASE,
@@ -234,7 +237,7 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: rsp-vsub-committed ok\
 \ncase: rsp-vector-sum-loop-committed ok\
 \ncase: rsp-post-sum-scalar-setup ok\
-\ncase: rsp-sp-write-dma-dpc-status-frontier ok\
+\ncase: rsp-dpc-status-counter-clear-break-frontier ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -6883,7 +6886,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
 }
 
 fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "rsp-sp-write-dma-and-dpc-status-frontier";
+    const CASE: &str = "rsp-dpc-status-counter-clear-and-break-frontier";
     const RSP_MFC0_SEMAPHORE: u32 = 0x4008_3800;
     const RSP_MFC0_DRAM_ADDRESS: u32 = 0x400b_0800;
     const RSP_LQV: u32 = 0xc80c_2000;
@@ -8515,21 +8518,40 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
     );
     eprintln!("{CASE}: second_post_dma_cpu pre={second_cpu_pre:?} post={second_cpu_post:?}");
 
-    let before_dpc_execution = (
-        machine.cpu().pc(),
-        machine.cpu().next_pc(),
-        machine.cpu().cop0_count(),
-        machine.processor_turn(),
-        machine.sp_pc_state(),
-        machine.rsp_next_pc(),
-        machine.rsp_delay_slot_context(),
-        machine.rsp_committed_instruction_count(),
-    );
     let before_dpc_rsp = (
         machine.rsp_scalar_register(3),
         machine.rsp_vector_unit_state().clone(),
         machine.rsp_accumulator_and_flags_state(),
     );
+    let before_dpc_r3_source = machine
+        .rsp_scalar_register(3)
+        .and_then(|state| state.source())
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "DPC_STATUS source r3 must retain Xori lineage",
+        })?;
+    let before_dpc_counters = (
+        machine.dpc_clock_counter_state().clone(),
+        machine.dpc_command_busy_counter_state().clone(),
+        machine.dpc_pipe_busy_counter_state().clone(),
+        machine.dpc_tmem_load_counter_state().clone(),
+    );
+    require(
+        CASE,
+        [
+            machine.dpc_clock_counter_state(),
+            machine.dpc_command_busy_counter_state(),
+            machine.dpc_pipe_busy_counter_state(),
+            machine.dpc_tmem_load_counter_state(),
+        ]
+        .into_iter()
+        .all(|counter| {
+            counter.value().is_none()
+                && counter.unavailable_source()
+                    == Some(MachineDpcCounterUnavailableSource::ConstructionOrResetUndefined)
+        }),
+        "all four DPC counters remain undefined-value truth before the command",
+    )?;
     let before_dpc_sp = (
         machine.sp_memory_address_state(),
         machine.sp_dram_address_state(),
@@ -8538,28 +8560,64 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         machine.sp_dma_record(2),
     );
     let before_dpc_destination = destination;
-    let error = machine.step().err().ok_or(StepProbeError::Assertion {
-        case: CASE,
-        check: "DPC_STATUS frontier must reject",
-    })?;
+    let dpc_status = step(&mut machine, CASE)?;
+    let clock_clear = machine
+        .dpc_clock_counter_state()
+        .source()
+        .and_then(|source| source.rsp_mtc0_status_clear().cloned())
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "DPC clock clear provenance must exist",
+        })?;
+    let tmem_clear = machine
+        .dpc_tmem_load_counter_state()
+        .source()
+        .and_then(|source| source.rsp_mtc0_status_clear().cloned())
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "DPC TMEM clear provenance must exist",
+        })?;
     require(
         CASE,
-        error.rsp_rejection().is_some_and(|rejection| {
-            rejection.reason()
-                == MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
-                    register_index: 11,
-                }
-        }) && before_dpc_execution
-            == (
-                machine.cpu().pc(),
-                machine.cpu().next_pc(),
-                machine.cpu().cop0_count(),
-                machine.processor_turn(),
-                machine.sp_pc_state(),
-                machine.rsp_next_pc(),
-                machine.rsp_delay_slot_context(),
-                machine.rsp_committed_instruction_count(),
-            )
+        matches!(
+            dpc_status,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0x098,
+                    source_gpr: 3,
+                    source_value: DPC_STATUS_X105_COUNTER_CLEAR_COMMAND,
+                    control_register: MachineRspControlRegister::DpcStatus,
+                    source_index: 9,
+                },
+            }
+        ) && machine.dpc_clock_counter_state().value() == Some(0)
+            && machine.dpc_tmem_load_counter_state().value() == Some(0)
+            && machine.dpc_command_busy_counter_state() == &before_dpc_counters.1
+            && machine.dpc_pipe_busy_counter_state() == &before_dpc_counters.2
+            && [
+                (
+                    &clock_clear,
+                    MachineDpcCounterIdentity::Clock,
+                    DPC_STATUS_CLEAR_CLOCK_COUNTER,
+                ),
+                (
+                    &tmem_clear,
+                    MachineDpcCounterIdentity::TmemLoad,
+                    DPC_STATUS_CLEAR_TMEM_COUNTER,
+                ),
+            ]
+            .into_iter()
+            .all(|(source, counter, clear_bit)| {
+                source.instruction_pc() == 0x098
+                    && source.instruction_source() == MachineRspInstructionSource::CpuStoreWord
+                    && source.source_gpr() == 3
+                    && source.source_value() == DPC_STATUS_X105_COUNTER_CLEAR_COMMAND
+                    && source.source() == before_dpc_r3_source
+                    && source.control_register_index() == 11
+                    && source.raw_command_word() == DPC_STATUS_X105_COUNTER_CLEAR_COMMAND
+                    && source.counter_clear_bit() == clear_bit
+                    && source.counter() == counter
+            })
             && before_dpc_rsp
                 == (
                     machine.rsp_scalar_register(3),
@@ -8579,11 +8637,143 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
                     .expect("preflighted public write-DMA destinations remain readable")
             && machine
                 .sp_pc_state()
-                .is_some_and(|state| state.raw_low_field() == 0x098)
-            && machine.rsp_next_pc() == Some(0x09c)
-            && machine.rsp_committed_instruction_count() == 1058
+                .is_some_and(|state| state.raw_low_field() == 0x09c)
+            && machine.rsp_next_pc() == Some(0x0a0)
+            && machine.rsp_committed_instruction_count() == 1059
             && machine.sp_dma_record_count() == 3,
-        "DPC_STATUS rejects atomically without fallback or DP owner",
+        "DPC_STATUS clears only the TMEM and clock counters with exact provenance",
+    )?;
+
+    let post_dpc_cpu_inspection = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    let post_dpc_cpu_fields = post_dpc_cpu_inspection.fields();
+    let post_dpc_cpu_pre = (
+        post_dpc_cpu_inspection.cpu_address(),
+        post_dpc_cpu_fields.raw().bits(),
+        post_dpc_cpu_inspection.identity(),
+        post_dpc_cpu_fields.rs(),
+        machine
+            .cpu()
+            .gpr(usize::from(post_dpc_cpu_fields.rs()))
+            .unwrap(),
+        post_dpc_cpu_fields.rt(),
+        machine
+            .cpu()
+            .gpr(usize::from(post_dpc_cpu_fields.rt()))
+            .unwrap(),
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+    );
+    let dpc_after_command = (
+        machine.dpc_clock_counter_state().clone(),
+        machine.dpc_command_busy_counter_state().clone(),
+        machine.dpc_pipe_busy_counter_state().clone(),
+        machine.dpc_tmem_load_counter_state().clone(),
+    );
+    rotate_with_cpu_instruction(&mut machine)?;
+    let post_dpc_cpu_post = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        machine.processor_turn(),
+    );
+    eprintln!("{CASE}: post_dpc_cpu pre={post_dpc_cpu_pre:?} post={post_dpc_cpu_post:?}");
+    require(
+        CASE,
+        dpc_after_command
+            == (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            )
+            && machine.processor_turn() == MachineStepProcessor::Rsp,
+        "one actual CPU commit preserves DPC counter truth and returns the token to RSP",
+    )?;
+
+    let before_break_execution = (
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        machine.processor_turn(),
+        machine.sp_pc_state(),
+        machine.rsp_next_pc(),
+        machine.rsp_delay_slot_context(),
+        machine.rsp_committed_instruction_count(),
+    );
+    let before_break_rsp = (
+        machine.rsp_scalar_register(3),
+        machine.rsp_vector_unit_state().clone(),
+        machine.rsp_accumulator_and_flags_state(),
+    );
+    let before_break_sp = (
+        machine.sp_status_state(),
+        machine.sp_memory_address_state(),
+        machine.sp_dram_address_state(),
+        machine.sp_dma_record(0),
+        machine.sp_dma_record(1),
+        machine.sp_dma_record(2),
+    );
+    let before_break_mi = machine.mi_interrupt_state();
+    let before_break_destination = read_write_destination(&machine)
+        .map_err(|source| StepProbeError::Rdram { case: CASE, source })?;
+    let error = machine.step().err().ok_or(StepProbeError::Assertion {
+        case: CASE,
+        check: "Break frontier must reject",
+    })?;
+    require(
+        CASE,
+        error.rsp_rejection().is_some_and(|rejection| {
+            rejection.reason() == MachineRspStepRejectionReason::BreakUnsupported
+        }) && before_break_execution
+            == (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.processor_turn(),
+                machine.sp_pc_state(),
+                machine.rsp_next_pc(),
+                machine.rsp_delay_slot_context(),
+                machine.rsp_committed_instruction_count(),
+            )
+            && before_break_rsp
+                == (
+                    machine.rsp_scalar_register(3),
+                    machine.rsp_vector_unit_state().clone(),
+                    machine.rsp_accumulator_and_flags_state(),
+                )
+            && before_break_sp
+                == (
+                    machine.sp_status_state(),
+                    machine.sp_memory_address_state(),
+                    machine.sp_dram_address_state(),
+                    machine.sp_dma_record(0),
+                    machine.sp_dma_record(1),
+                    machine.sp_dma_record(2),
+                )
+            && before_break_mi == machine.mi_interrupt_state()
+            && dpc_after_command
+                == (
+                    machine.dpc_clock_counter_state().clone(),
+                    machine.dpc_command_busy_counter_state().clone(),
+                    machine.dpc_pipe_busy_counter_state().clone(),
+                    machine.dpc_tmem_load_counter_state().clone(),
+                )
+            && before_break_destination
+                == read_write_destination(&machine)
+                    .expect("completed public write-DMA destinations remain readable")
+            && machine
+                .sp_pc_state()
+                .is_some_and(|state| state.raw_low_field() == 0x09c)
+            && machine.rsp_next_pc() == Some(0x0a0)
+            && machine.rsp_committed_instruction_count() == 1059
+            && machine.processor_turn() == MachineStepProcessor::Rsp,
+        "Break is identified and rejects atomically after one real CPU interleave",
     )
 }
 
