@@ -13,8 +13,8 @@ use fn64_core::{
     MachineRdramBroadcastRefreshRowAperture, MachineRdramCalibrationStatus,
     MachineRdramFirstResponderDeviceIdAperture, MachineRdramInitialModeAperture,
     MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRiModeSource,
-    MachineRiSelectSource, MachineRspControlRegister, MachineRspInstructionSource,
-    MachineRspStepOutcome, MachineRspStepRejectionReason, MachineSpDmaDirection,
+    MachineRiSelectSource, MachineRspControlRegister, MachineRspInstructionIdentity,
+    MachineRspInstructionSource, MachineRspStepOutcome, MachineSpDmaDirection,
     MachineSpDmaSpMemory, MachineSpDmemByteKnowledge, MachineSpDmemByteSource,
     MachineSpDmemLoadWordProvenance, MachineSpDramAddressSource, MachineSpRegisterWriteSource,
     MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
@@ -237,7 +237,7 @@ const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: rsp-vsub-committed ok\
 \ncase: rsp-vector-sum-loop-committed ok\
 \ncase: rsp-post-sum-scalar-setup ok\
-\ncase: rsp-dpc-status-counter-clear-break-frontier ok\
+\ncase: rsp-break-halt-broke-cpu-frontier ok\
 \ncase: beql-taken-delay-slot ok\
 \ncase: beql-not-taken-annul ok\
 \ncase: beql-unknown-source-rejection ok\
@@ -6886,7 +6886,7 @@ fn probe_generated_x105_post_mtc0_trio_frontier() -> Result<(), StepProbeError> 
 }
 
 fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
-    const CASE: &str = "rsp-dpc-status-counter-clear-and-break-frontier";
+    const CASE: &str = "rsp-break-halt-broke-and-cpu-frontier";
     const RSP_MFC0_SEMAPHORE: u32 = 0x4008_3800;
     const RSP_MFC0_DRAM_ADDRESS: u32 = 0x400b_0800;
     const RSP_LQV: u32 = 0xc80c_2000;
@@ -8700,7 +8700,7 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         machine.cpu().pc(),
         machine.cpu().next_pc(),
         machine.cpu().cop0_count(),
-        machine.processor_turn(),
+        machine.cpu_delay_slot_context(),
         machine.sp_pc_state(),
         machine.rsp_next_pc(),
         machine.rsp_delay_slot_context(),
@@ -8713,6 +8713,7 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
     );
     let before_break_sp = (
         machine.sp_status_state(),
+        machine.sp_semaphore_state(),
         machine.sp_memory_address_state(),
         machine.sp_dram_address_state(),
         machine.sp_dma_record(0),
@@ -8720,43 +8721,96 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
         machine.sp_dma_record(2),
     );
     let before_break_mi = machine.mi_interrupt_state();
-    let before_break_destination = read_write_destination(&machine)
-        .map_err(|source| StepProbeError::Rdram { case: CASE, source })?;
-    let error = machine.step().err().ok_or(StepProbeError::Assertion {
-        case: CASE,
-        check: "Break frontier must reject",
-    })?;
+    let before_break_run_start = machine.rsp_run_start_state();
+    let before_break_last_instruction = machine.rsp_last_instruction();
     require(
         CASE,
-        error.rsp_rejection().is_some_and(|rejection| {
-            rejection.reason() == MachineRspStepRejectionReason::BreakUnsupported
-        }) && before_break_execution
+        before_break_sp.0.is_some_and(|status| {
+            !status.halt()
+                && !status.broke()
+                && !status.single_step()
+                && !status.interrupt_on_break()
+        }) && !before_break_mi.pending(MachineMiInterruptSource::Sp)
+            && machine.rsp_last_break_source().is_none(),
+        "public pre-Break Sp and Mi truth is exact",
+    )?;
+    let before_break_destination = read_write_destination(&machine)
+        .map_err(|source| StepProbeError::Rdram { case: CASE, source })?;
+    let break_outcome = step(&mut machine, CASE)?;
+    let break_source = machine
+        .rsp_last_break_source()
+        .ok_or(StepProbeError::Assertion {
+            case: CASE,
+            check: "committed Break must retain exact provenance",
+        })?;
+    let post_break_cpu_frontier = machine
+        .inspect_current_cpu_instruction()
+        .map_err(|source| StepProbeError::Step {
+            case: CASE,
+            source: MachineRepresentedStepError::FetchRejected(source),
+        })?;
+    eprintln!(
+        "{CASE}: break={break_outcome:?} source={break_source:?} \
+         status={:?} mi={:?} rsp_pc={:?} rsp_next={:?} rsp_count={} turn={:?} \
+         cpu_pc=0x{:08x} cpu_next=0x{:08x} cpu_count={} \
+         cpu_frontier_pc=0x{:08x} cpu_frontier_word=0x{:08x} \
+         cpu_frontier_identity={:?} cpu_frontier_executed=false rsp_nops_executed=false",
+        machine.sp_status_state(),
+        machine.mi_interrupt_state(),
+        machine.sp_pc_state(),
+        machine.rsp_next_pc(),
+        machine.rsp_committed_instruction_count(),
+        machine.processor_turn(),
+        machine.cpu().pc(),
+        machine.cpu().next_pc(),
+        machine.cpu().cop0_count(),
+        post_break_cpu_frontier.cpu_address().value(),
+        post_break_cpu_frontier.fields().raw().bits(),
+        post_break_cpu_frontier.identity(),
+    );
+    require(
+        CASE,
+        matches!(
+            break_outcome,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::BreakCommitted {
+                    instruction_pc: 0x09c,
+                    interrupt_on_break: false,
+                    interrupt_signaled: false,
+                },
+            }
+        ) && (
+            before_break_execution.0,
+            before_break_execution.1,
+            before_break_execution.2,
+            before_break_execution.3,
+        ) == (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        ) && before_break_rsp
             == (
-                machine.cpu().pc(),
-                machine.cpu().next_pc(),
-                machine.cpu().cop0_count(),
-                machine.processor_turn(),
-                machine.sp_pc_state(),
-                machine.rsp_next_pc(),
-                machine.rsp_delay_slot_context(),
-                machine.rsp_committed_instruction_count(),
+                machine.rsp_scalar_register(3),
+                machine.rsp_vector_unit_state().clone(),
+                machine.rsp_accumulator_and_flags_state(),
             )
-            && before_break_rsp
-                == (
-                    machine.rsp_scalar_register(3),
-                    machine.rsp_vector_unit_state().clone(),
-                    machine.rsp_accumulator_and_flags_state(),
-                )
-            && before_break_sp
-                == (
-                    machine.sp_status_state(),
-                    machine.sp_memory_address_state(),
-                    machine.sp_dram_address_state(),
-                    machine.sp_dma_record(0),
-                    machine.sp_dma_record(1),
-                    machine.sp_dma_record(2),
-                )
+            && before_break_sp.1 == machine.sp_semaphore_state()
+            && (
+                before_break_sp.2,
+                before_break_sp.3,
+                before_break_sp.4,
+                before_break_sp.5,
+                before_break_sp.6,
+            ) == (
+                machine.sp_memory_address_state(),
+                machine.sp_dram_address_state(),
+                machine.sp_dma_record(0),
+                machine.sp_dma_record(1),
+                machine.sp_dma_record(2),
+            )
             && before_break_mi == machine.mi_interrupt_state()
+            && before_break_run_start == machine.rsp_run_start_state()
             && dpc_after_command
                 == (
                     machine.dpc_clock_counter_state().clone(),
@@ -8769,11 +8823,40 @@ fn probe_rsp_mfc0_and_lqv_frontier() -> Result<(), StepProbeError> {
                     .expect("completed public write-DMA destinations remain readable")
             && machine
                 .sp_pc_state()
-                .is_some_and(|state| state.raw_low_field() == 0x09c)
-            && machine.rsp_next_pc() == Some(0x0a0)
-            && machine.rsp_committed_instruction_count() == 1059
-            && machine.processor_turn() == MachineStepProcessor::Rsp,
-        "Break is identified and rejects atomically after one real CPU interleave",
+                .is_some_and(|state| state.raw_low_field() == 0x0a0)
+            && machine.rsp_next_pc() == Some(0x0a4)
+            && machine.rsp_delay_slot_context().is_none()
+            && machine.rsp_committed_instruction_count() == 1060
+            && machine.processor_turn() == MachineStepProcessor::Cpu
+            && machine.sp_status_state().is_some_and(|status| {
+                let before = before_break_sp.0.expect("pre-Break status exists");
+                status.halt()
+                    && status.broke()
+                    && status.single_step() == before.single_step()
+                    && status.interrupt_on_break() == before.interrupt_on_break()
+                    && status.signals() == before.signals()
+                    && status.interrupt_pending() == before.interrupt_pending()
+                    && status.source() == before.source()
+                    && status.command_word() == before.command_word()
+            })
+            && break_source.instruction_pc() == 0x09c
+            && break_source.prior_next_pc() == 0x0a0
+            && break_source.instruction_source() == MachineRspInstructionSource::CpuStoreWord
+            && break_source.raw_word() == 0x0000_000d
+            && break_source.pre_break_status() == before_break_sp.0.unwrap()
+            && !break_source.pre_break_mi_sp_pending()
+            && break_source.pre_break_mi_sp_pending_source().is_none()
+            && !break_source.interrupt_on_break()
+            && !break_source.interrupt_signaled()
+            && machine.rsp_last_instruction().is_some_and(|last| {
+                last.instruction_pc() == 0x09c
+                    && last.identity() == MachineRspInstructionIdentity::Break
+            })
+            && before_break_last_instruction != machine.rsp_last_instruction()
+            && post_break_cpu_frontier.cpu_address() == CpuAddress::new(0xa000_2000)
+            && post_break_cpu_frontier.fields().raw().bits() == 0x1000_ffff
+            && post_break_cpu_frontier.identity() == CpuInstructionIdentity::Beq,
+        "Break commits exact halt, broke, successor, preservation, and CPU-frontier truth",
     )
 }
 
