@@ -25723,10 +25723,8 @@ mod tests {
                 MachineRspStepRejectionReason::MalformedMtc0Encoding,
             ),
             (
-                staged_rsp_running_machine(&[(0, rsp_mtc0_word(0, 11))], true),
-                MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
-                    register_index: 11,
-                },
+                staged_rsp_running_machine(&[(0, rsp_mtc0_word(0, 4))], true),
+                MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 4 },
             ),
             (
                 staged_rsp_running_machine(&[(0, immediate_word(0x0e, 1, 3, 0x0180))], true),
