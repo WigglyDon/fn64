@@ -717,6 +717,7 @@ impl Machine {
         self.sp_dmem = replacement_sp_dmem;
         *self.sp_imem = replacement_sp_imem;
         self.sp = crate::sp::Sp::default();
+        self.dpc = crate::dpc::Dpc::default();
         self.ri = replacement_ri;
         self.mi = crate::mi::Mi::default();
         self.pi = replacement_pi;

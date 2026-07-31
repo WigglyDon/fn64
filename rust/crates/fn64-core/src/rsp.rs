@@ -1,6 +1,7 @@
 use core::fmt;
 use std::sync::Arc;
 
+use crate::dpc::MachineDpcCounterIdentity;
 use crate::sp::{MachineSpDramAddressSource, MachineSpSemaphoreSource};
 use crate::sp_dmem::{
     MachineSpDmemByteKnowledge, MachineSpDmemByteKnowledgeDescriptor,
@@ -23,6 +24,8 @@ pub const RSP_COP0_SP_WRITE_LENGTH_INDEX: u8 = 3;
 pub const RSP_COP0_SP_DMA_FULL_INDEX: u8 = 5;
 pub const RSP_COP0_SP_DMA_BUSY_INDEX: u8 = 6;
 pub const RSP_COP0_SP_SEMAPHORE_INDEX: u8 = 7;
+pub const RSP_COP0_DPC_STATUS_INDEX: u8 = 11;
+pub const RSP_SCALAR_BREAK_WORD: u32 = 0x0000_000d;
 pub const RSP_SCALAR_REGIMM_OPCODE: u8 = 0x01;
 pub const RSP_SCALAR_BLTZ_SELECTOR: u8 = 0;
 pub const RSP_SCALAR_BGEZ_SELECTOR: u8 = 1;
@@ -52,6 +55,7 @@ pub enum MachineRspControlRegister {
     SpWriteLength,
     SpDmaBusy,
     SpSemaphore,
+    DpcStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1508,6 +1512,14 @@ pub enum MachineRspStepRejectionReason {
     Mtc0WriteDmaRdramRangeRejected {
         physical_address: u32,
     },
+    DpcStatusCommandUnsupported {
+        raw_command_word: u32,
+    },
+    DpcCounterInvariantMalformed {
+        counter: MachineDpcCounterIdentity,
+        value: u32,
+    },
+    BreakUnsupported,
     XoriSourceUnavailable {
         source_gpr: u8,
     },
@@ -1698,6 +1710,22 @@ impl fmt::Display for MachineRspStepRejection {
                 f,
                 "RSP Mtc0 SP_WR_LEN rejected because RDRAM destination address 0x{physical_address:08x} is outside represented memory"
             ),
+            MachineRspStepRejectionReason::DpcStatusCommandUnsupported {
+                raw_command_word,
+            } => write!(
+                f,
+                "RSP Mtc0 DPC_STATUS command 0x{raw_command_word:08x} is outside the exact represented counter-clear command"
+            ),
+            MachineRspStepRejectionReason::DpcCounterInvariantMalformed {
+                counter,
+                value,
+            } => write!(
+                f,
+                "RSP Mtc0 DPC_STATUS rejected malformed {counter:?} counter value 0x{value:08x}"
+            ),
+            MachineRspStepRejectionReason::BreakUnsupported => {
+                write!(f, "RSP Break is identified but not represented")
+            }
             MachineRspStepRejectionReason::XoriSourceUnavailable { source_gpr } => {
                 write!(f, "RSP Xori scalar source r{source_gpr} is unavailable")
             }
@@ -1852,6 +1880,22 @@ impl MachineRspMtc0Plan {
 
     pub(crate) const fn source_value(&self) -> u32 {
         self.source_value
+    }
+
+    pub(crate) const fn source_gpr(&self) -> u8 {
+        self.source_gpr
+    }
+
+    pub(crate) fn source(&self) -> MachineRspScalarRegisterSource {
+        self.source.clone()
+    }
+
+    pub(crate) const fn control_register(&self) -> MachineRspControlRegister {
+        self.control_register
+    }
+
+    pub(crate) const fn instruction_provenance(&self) -> [SpImemByteProvenance; 4] {
+        self.byte_provenance
     }
 
     pub(crate) const fn source_index(&self) -> usize {
@@ -2203,6 +2247,11 @@ impl MachineRspExecutionState {
         if raw_word == 0 {
             return Ok(MachineRspDecodedInstruction::Nop);
         }
+        if raw_word == RSP_SCALAR_BREAK_WORD {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::BreakUnsupported,
+            ));
+        }
         let opcode = (raw_word >> 26) as u8;
         if opcode == RSP_COP0_OPCODE {
             let transfer_selector = ((raw_word >> 21) & 0x1f) as u8;
@@ -2218,6 +2267,7 @@ impl MachineRspExecutionState {
                     RSP_COP0_SP_DRAM_ADDRESS_INDEX => MachineRspControlRegister::SpDramAddress,
                     RSP_COP0_SP_READ_LENGTH_INDEX => MachineRspControlRegister::SpReadLength,
                     RSP_COP0_SP_WRITE_LENGTH_INDEX => MachineRspControlRegister::SpWriteLength,
+                    RSP_COP0_DPC_STATUS_INDEX => MachineRspControlRegister::DpcStatus,
                     _ => {
                         return Err(MachineRspStepRejection::new(
                             MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
@@ -3591,7 +3641,7 @@ pub(crate) fn branch_target_local_pc(delay_slot_pc: u16, signed_offset: i16) -> 
         & !RSP_INSTRUCTION_ALIGNMENT_MASK
 }
 
-fn classify_instruction_source(
+pub(crate) fn classify_instruction_source(
     provenance: [SpImemByteProvenance; 4],
 ) -> MachineRspInstructionSource {
     let first = provenance[0];
@@ -3967,6 +4017,13 @@ mod tests {
             })
         );
         assert_eq!(
+            rsp.decode(0x4083_5800),
+            Ok(MachineRspDecodedInstruction::Mtc0 {
+                source_gpr: 3,
+                control_register: MachineRspControlRegister::DpcStatus,
+            })
+        );
+        assert_eq!(
             rsp.decode(0x3803_0180),
             Ok(MachineRspDecodedInstruction::Xori {
                 source_gpr: 0,
@@ -3980,8 +4037,8 @@ mod tests {
             MachineRspStepRejectionReason::ScalarSllUnsupported
         );
         assert_eq!(
-            rsp.decode(mtc0_word(0, 11)).unwrap_err().reason(),
-            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 11 }
+            rsp.decode(mtc0_word(0, 10)).unwrap_err().reason(),
+            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 10 }
         );
         assert_eq!(
             rsp.decode(mtc0_word(0, 0) | 1).unwrap_err().reason(),
@@ -3993,6 +4050,10 @@ mod tests {
                 destination_gpr: 5,
                 immediate: 0x0020,
             })
+        );
+        assert_eq!(
+            rsp.decode(RSP_SCALAR_BREAK_WORD).unwrap_err().reason(),
+            MachineRspStepRejectionReason::BreakUnsupported
         );
     }
 

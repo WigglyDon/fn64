@@ -1094,7 +1094,8 @@ impl Sp {
             }
             MachineRspControlRegister::SpMemoryAddress
             | MachineRspControlRegister::SpReadLength
-            | MachineRspControlRegister::SpWriteLength => {
+            | MachineRspControlRegister::SpWriteLength
+            | MachineRspControlRegister::DpcStatus => {
                 unreachable!("Mfc0 decoder does not admit write-only packet destinations")
             }
         }
