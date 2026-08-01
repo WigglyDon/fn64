@@ -43,8 +43,13 @@ supported combination, complete plan, state production, lineage, and
 fail-closed behavior.
 
 `fn64_user_cartridge_probe` is a separate optional local runtime-proof shell.
-It accepts one explicit user cartridge path, reads the file, transfers owned
-bytes, prints a bounded redacted dashboard, and enforces a step ceiling.
+It accepts one explicit user cartridge path plus one optional literal
+`--pif-rom` path. The host reads each explicit path and transfers owned bytes;
+both identities are fixed redacted placeholders in diagnostics. The probe
+prints a bounded redacted dashboard and enforces a step ceiling only after
+explicit PIF bootstrap material is present. With no `--pif-rom`, it names the
+PIF material owner as unavailable and stops before execution. It never selects
+the public-synthetic PIF profile as a fallback.
 Cartridge normalization and every CPU/device transition remain Machine truth.
 The shell neither searches for inputs nor branches on filename, title, ID,
 region, checksum, digest, strings, observed PCs, or known code patterns. It

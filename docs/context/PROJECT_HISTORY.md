@@ -922,6 +922,30 @@ product or reference lane requires a new explicit product decision.
   executed, no emulated truth changed, and no boot or compatibility checkpoint
   advanced.
 
+## Era 48 — Explicit PIF material boundary for authentic composition (2026-08-01)
+
+- Architecture correction: the first x105 IPL3 CPU `SpecialAdd` is
+  `X105_IPL3_CPU_ENTRY`, not BOOT-2. BOOT-2 denotes the first genuine
+  user-cartridge RSP task submission. The historical task-start observation used
+  an implicit public-synthetic PIF input and therefore is not a current authentic
+  BOOT-2 reproduction.
+- Ownership result: existing `PifFirmware` retains accepted bytes and
+  explicit-versus-public-synthetic classification; Machine bootstrap retains
+  composition; `SpImem` retains copied bytes, knownness, opacity, and provenance;
+  inspection retains only paths, reads, CLI parsing, and redacted diagnostics.
+  Absent firmware remains unavailable, with no transition to synthetic material.
+- Product result: `fn64_user_cartridge_probe` accepts one optional literal
+  `--pif-rom` path, transfers only its owned bytes through existing public core
+  APIs, and stops at `PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT` before execution
+  when material is absent. Generated CLI proofs cover explicit material,
+  unavailable material, no search/fallback, malformed input atomicity, and path
+  redaction. No Machine, CPU, RSP, SP, MI, DPC, RDP, or memory-owner semantics
+  changed.
+- Runtime boundary: no configured explicit local PIF reference was available.
+  Authentic x105 transformation, public RSP start/Break, cartridge entry,
+  BOOT-2, and the user-RSP pressure ladder were not run. No firmware was copied,
+  hashed, committed, or packaged.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

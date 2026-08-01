@@ -33,6 +33,14 @@ unsupported, and rejects other lengths as malformed. Acceptance does not prove
 authenticity. Firmware and profile installation remain independent and neither
 alone produces SP IMEM state.
 
+Material ownership has three source-clear states. A structurally accepted
+explicit byte vector is user-provided `PifFirmware`; generated public bytes are
+public-synthetic `PifFirmware` only when a proof selects that constructor; and
+no supplied bytes leave firmware unavailable. The authentic user-cartridge
+composition accepts only the first state. It never promotes unavailable
+material to public synthetic, treats unavailable backing as zero, or attaches a
+host path to Machine or `SpImem` provenance.
+
 Cold-x105 coupled handoff adds four independent explicit host spellings for
 family, reset kind, boot medium, and PIF-version bit. They are transferred as
 typed Machine inputs and never inferred from a filename, game identity,

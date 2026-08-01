@@ -28,6 +28,7 @@ Current durable integration records:
 - [SP IMEM and aligned-Lw partial integration](master-integrate-sp-imem-lw-partial-and-provision-wave-2/README.md)
 - [SP IMEM bootstrap provenance evidence](sp-imem-bootstrap-provenance-v1/README.md)
 - [User-supplied PIF input-boundary evidence](user-supplied-pif-boot-source-v1/README.md)
+- [Explicit PIF material and authentic-bootstrap boundary](explicit-pif-authentic-bootstrap-boundary-v1/README.md)
 - [Ordinary control flow and one delay slot](ordinary-control-flow-delay-slot-v1/README.md)
 - [Profile-specific PIF IPL2 source mapping](pif-ipl2-source-mapping-v1/README.md)
 - [Profiled PIF IPL2 copy materialization](pif-ipl2-profiled-copy-materialization-v1/README.md)

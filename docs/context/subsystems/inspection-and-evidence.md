@@ -56,11 +56,12 @@ verify the final conflicting clean line. The
 probe ends deterministically.
 `fn64_boot_probe` is a separate bounded ROM-path inspection shell: it reads one
 authorized local file, passes owned bytes into public core APIs, and reports
-Machine-owned provenance, mutation lineage, and the first frontier. The
-accepted run proves BOOT-2 only—one `SpecialAdd` commit followed by an
-aligned `Lw` that rejects before mutation because SP IMEM offset zero is
-unknown. None proves BOOT-3, full ISA, timing, window/audio/runtime,
-performance, or game compatibility.
+Machine-owned provenance, mutation lineage, and the first frontier. The earlier
+no-firmware run proved only x105 IPL3 CPU entry—one `SpecialAdd` commit followed
+by an aligned `Lw` that rejects before mutation because SP IMEM offset zero is
+unknown. It did not prove BOOT-2, which now consistently names the first genuine
+user-task RSP submission. None proves BOOT-3, full ISA, timing,
+window/audio/runtime, performance, or game compatibility.
 
 The same existing probe now accepts one optional literal `--pif-rom` path and a
 separate explicit `--pif-profile` value. The inspection shell owns only CLI
@@ -85,6 +86,14 @@ An explicit user-supplied PIF firmware path is an implemented bounded host
 input. Inspection must not search, download, bundle, reconstruct, dump, or
 select game behavior; Machine validation and state production remain core
 authority. Structural acceptance is not authentic firmware validation.
+
+The optional `fn64_user_cartridge_probe` exposes the same literal `--pif-rom`
+boundary. Its authentic composition requires explicit bytes; absence produces
+one deterministic PIF-material-unavailable diagnostic before stepping. Public
+synthetic firmware is not reachable from this host path. Generated process tests
+prove explicit input, absence, malformed/unsupported input, no current-directory
+or environment search, no fallback, and fixed redaction without using private
+material.
 
 Integrated public-source evidence records profile-qualified IPL1 copy ranges
 without copying firmware or external source. The probe may select an explicit

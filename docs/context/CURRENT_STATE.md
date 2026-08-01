@@ -37,9 +37,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   behavior, and no ROM content may enter source, tests, evidence, patches, or
   artifacts.
 - `LIVE_REPO_FACT`: `fn64_user_cartridge_probe` is the optional explicit-path
-  shell for that proof. It reports a bounded redacted dashboard and
-  first-occurrence architectural ledger, has a positive step ceiling, and is
-  not a standard CI input.
+  shell for that proof. It accepts an optional literal `--pif-rom` path, reports
+  both private input identities through fixed placeholders, and requires
+  explicitly supplied PIF bytes before authentic bootstrap composition. It has
+  no firmware search, default, environment discovery, or public-synthetic
+  fallback. Missing PIF material stops at the named firmware owner before
+  execution. The probe reports a bounded redacted dashboard and first-occurrence
+  architectural ledger, has a positive step ceiling, and is not a standard CI
+  input.
 
 ## Forward machine truth
 
@@ -62,10 +67,13 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   CPU interrupt recognition, and VI remain CPU-selected cadence only; RSP owns
   a separate committed-instruction count. This cadence is deterministic,
   host-independent, and explicitly not cycle-accurate.
-- `RUNTIME_FACT`: BOOT-2 is the highest earned cartridge checkpoint. One
-  authentic private-ROM-derived `SpecialAdd` committed through `Machine::step`
-  with complete represented value, provenance, `pc` / `next_pc`, and Count
-  lineage.
+- `USER_DECISION`: `BOOT-2` means the first genuine user-cartridge RSP task
+  submission. The earlier use of `BOOT-2` for the first x105 IPL3 CPU
+  `SpecialAdd` is rejected; that instruction marks `X105_IPL3_CPU_ENTRY` only.
+  A historical local run reached the first task-start request, but its implicit
+  public-synthetic PIF input makes it inadmissible as an authentic BOOT-2
+  reproduction under current material law. Authentic BOOT-2 is awaiting one
+  explicit user-provided PIF input and a fresh cold run.
 - `LIVE_REPO_FACT`: each Machine now owns 4 KiB of SP IMEM with explicit
   construction/reset, byte knownness independent of zero backing, and a narrow
   CPU-data route for the represented physical range. Complete aligned `Lw`
@@ -85,18 +93,22 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   mutation. Unaligned stores enter AdES code 5 through the existing COP0 owner,
   including exact BadVAddr and delay-slot EPC/BD; success advances Count once
   and faults advance it zero times.
-- `RUNTIME_FACT`: the authentic trace still stops at `Lw` at `0xA4000044`.
-  Known r9 produces CPU address `0xA4001000`, but SP IMEM offset zero is
-  `Unknown`, so the load rejects before mutation.
+- `HISTORICAL_RUNTIME_FACT`: the earlier no-firmware x105 entry trace committed
+  `SpecialAdd` and then stopped at `Lw` at `0xA4000044`. Known r9 produces CPU
+  address `0xA4001000`, but SP IMEM offset zero is `Unknown`, so the load rejects
+  before mutation. This is a PIF-material boundary after x105 IPL3 CPU entry,
+  not BOOT-2.
 - `INFERENCE`: integrated source-qualified evidence identifies the hardware
   producer chain: IPL1 copies proprietary IPL2 firmware content into SP IMEM,
   CPU control enters IPL2 there, IPL2 stages cartridge IPL3 in SP DMEM, and the
   observed x105 entry consumes `[0x000, 0x020)` and initially mutates
   `[0x000, 0x02c)`. External observability does not authorize embedding the
   values or make them current Machine truth.
-- `LIVE_REPO_FACT`: represented execution remains incomplete and headless.
-  One authorized user-provided cartridge now executes through CPU-side
-  initialization to its first genuine RSP task-start request. The earlier
+- `LIVE_REPO_FACT`: represented execution remains incomplete and headless. One
+  historical user-provided-cartridge run executed through CPU-side
+  initialization to its first genuine RSP task-start request, but it used the
+  now-rejected implicit public-synthetic PIF composition and is not current
+  authentic-boot evidence. The earlier
   public generated x105 path now commits exactly two scalar RSP `Mfc0`
   instructions, one aligned element-zero full-register vector `Lqv`, one
   aligned scalar `Lw`, two exact raw-zero `Nop` instructions, three exact
@@ -165,6 +177,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   unsupported, and classifies other lengths as malformed. Acceptance proves no
   authenticity, revision, executability, or compatibility. Accepted bytes are
   immutable Machine input that survives reset and repeated bootstrap staging.
+- `LIVE_REPO_FACT`: PIF material has three explicit states. User-provided bytes
+  are structurally classified and Machine-owned; generated public synthetic
+  bytes exist only behind an explicit synthetic proof selector; and absent bytes
+  remain unavailable. No authentic user-cartridge composition may transition
+  from unavailable to public synthetic. `PifFirmware` owns accepted bytes and
+  classification, Machine bootstrap owns composition, and `SpImem` owns copied
+  bytes, knownness, opacity, and explicit-versus-synthetic provenance. No
+  filesystem path enters these owners.
 - `LIVE_REPO_FACT`: the no-window probe accepts a separate explicit
   `--pif-profile` value of `ntsc-pinned`, `pal-pinned`, or `mpal-pinned`.
   Inspection owns those spellings; Machine owns the three distinct profile
@@ -409,7 +429,7 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   status/PC command truth, and atomic RDRAM-to-DMEM/IMEM DMA records. Existing
   Cartridge, Rdram, SpDmem, and SpImem owners retain all bytes; neither DMA
   snoops CPU caches or creates timing/progress truth.
-- `RUNTIME_FACT`: an explicit local no-window run selected user-owned
+- `HISTORICAL_RUNTIME_FACT`: an explicit local no-window run selected user-owned
   `<REDACTED_USER_CARTRIDGE>`, detected big-endian `.z64` order, normalized 33,554,432 bytes into <!-- intentional literal redaction, not an executable placeholder -->
   one Machine-owned Cartridge, and executed its first word `<REDACTED_PRIVATE_CPU_WORD>` at <!-- intentional literal redaction, not an executable placeholder -->
   `0x80000400` once. Through public `Machine::step`, 21,382,817 attempts
@@ -419,8 +439,10 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `0x800D5A98` committed SP_STATUS command `0x00000125`, changing halt from
   true to false with SP PC zero. The proof stopped at CPU PC/next-PC
   `0x800CF97C / 0x800CF980`, Count 21,382,107, before any RSP instruction.
-  This earns milestone `USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK`, not BOOT-3
-  or compatibility.
+  This observed milestone `USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK`, not
+  BOOT-3 or compatibility. Because the old inspection composition silently
+  selected public synthetic PIF material, it is not an admissible authentic
+  BOOT-2 reproduction under current material law.
 - `LIVE_REPO_FACT`: current-tree user-cartridge evidence now uses fixed
   placeholders for private input identity and cartridge-derived raw instruction
   fields. The optional inspection probe emits the same fixed input identity and
@@ -695,10 +717,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   host-runtime presentation remain unmeasured or unavailable.
 - `LIVE_REPO_FACT`: fn64 has an explicit PIF-firmware input, structural
   validation, immutable Machine ownership, and reset/bootstrap persistence. It
-  still has no authentic firmware classification or firmware execution.
-  Explicit profile selection now permits a source-backed copy effect, but no
-  private PIF was used, so the authentic `Lw` result and BOOT-2 checkpoint are
-  unchanged.
+  still has no firmware authenticity/revision classifier or firmware execution.
+  Both no-window input shells can transfer only explicitly named PIF bytes; the
+  user-cartridge shell stops with PIF material unavailable when they are absent
+  and never substitutes public synthetic bytes. No configured local explicit
+  PIF reference was available for this pass, so authentic x105 reconnection,
+  cartridge entry, and BOOT-2 remain unrerun.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI
