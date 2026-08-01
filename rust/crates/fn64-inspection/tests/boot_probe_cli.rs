@@ -63,6 +63,22 @@ fn generated_fixture_directory(label: &str) -> PathBuf {
     ))
 }
 
+fn stdout_contains_authentic_semantic_claim(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .any(|line| !line.starts_with("input_path: ") && line.contains("authentic"))
+}
+
+#[test]
+fn boot_probe_cli_authenticity_guard_distinguishes_path_data_from_semantic_claims() {
+    assert!(!stdout_contains_authentic_semantic_claim(
+        "input_path: /generated/authentic-parent/fixture\nclassification: synthetic\n"
+    ));
+    assert!(stdout_contains_authentic_semantic_claim(
+        "input_path: /generated/fixture\nclassification: authentic-cartridge\n"
+    ));
+}
+
 #[test]
 fn boot_probe_cli_generated_local_fixture_reaches_expected_frontier_with_success_exit() {
     let path = generated_fixture_path("success");
@@ -208,8 +224,14 @@ fn boot_probe_cli_unreadable_explicit_pif_path_fails_without_search() {
 
 #[test]
 fn boot_probe_cli_accepts_unprofiled_pif_input_without_materialization_or_inference() {
-    let rom_path = generated_fixture_path("accepted-unprofiled-pif-rom");
-    let pif_path = generated_fixture_path("pal-pinned-filename-must-not-select");
+    let fixture_directory = generated_fixture_directory("authentic-path-data-unprofiled");
+    std::fs::create_dir(&fixture_directory).unwrap();
+    let rom_path = fixture_directory.join("accepted-unprofiled-pif-rom.fixture");
+    let pif_path = fixture_directory.join("pal-pinned-filename-must-not-select.fixture");
+    assert!(fixture_directory
+        .display()
+        .to_string()
+        .contains("authentic"));
     std::fs::write(&rom_path, make_generated_boot_fixture()).unwrap();
     std::fs::write(
         &pif_path,
@@ -228,6 +250,7 @@ fn boot_probe_cli_accepts_unprofiled_pif_input_without_materialization_or_infere
 
     std::fs::remove_file(&rom_path).unwrap();
     std::fs::remove_file(&pif_path).unwrap();
+    std::fs::remove_dir(&fixture_directory).unwrap();
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -246,13 +269,19 @@ fn boot_probe_cli_accepts_unprofiled_pif_input_without_materialization_or_infere
     assert!(stdout.contains("compatibility_claim: none"));
     assert!(!stdout.contains("FN64_GENERATED_PIF_BYTES_MUST_NOT_BE_LOGGED"));
     assert!(!stdout.contains(&pif_path.display().to_string()));
-    assert!(!stdout.contains("authentic"));
+    assert!(!stdout_contains_authentic_semantic_claim(&stdout));
 }
 
 #[test]
 fn boot_probe_cli_materializes_every_explicit_profile_without_dumping_bytes_or_path() {
-    let rom_path = generated_fixture_path("accepted-pif-rom");
-    let pif_path = generated_fixture_path("accepted-pif-source");
+    let fixture_directory = generated_fixture_directory("authentic-path-data-profiled");
+    std::fs::create_dir(&fixture_directory).unwrap();
+    let rom_path = fixture_directory.join("accepted-pif-rom.fixture");
+    let pif_path = fixture_directory.join("accepted-pif-source.fixture");
+    assert!(fixture_directory
+        .display()
+        .to_string()
+        .contains("authentic"));
     std::fs::write(&rom_path, make_generated_boot_fixture()).unwrap();
     std::fs::write(
         &pif_path,
@@ -297,11 +326,12 @@ fn boot_probe_cli_materializes_every_explicit_profile_without_dumping_bytes_or_p
         assert!(stdout.contains("compatibility_claim: none"));
         assert!(!stdout.contains("FN64_GENERATED_PIF_BYTES_MUST_NOT_BE_LOGGED"));
         assert!(!stdout.contains(&pif_path.display().to_string()));
-        assert!(!stdout.contains("authentic"));
+        assert!(!stdout_contains_authentic_semantic_claim(&stdout));
     }
 
     std::fs::remove_file(&rom_path).unwrap();
     std::fs::remove_file(&pif_path).unwrap();
+    std::fs::remove_dir(&fixture_directory).unwrap();
 }
 
 #[test]

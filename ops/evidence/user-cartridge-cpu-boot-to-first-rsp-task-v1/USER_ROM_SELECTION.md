@@ -4,7 +4,10 @@ The originally supplied packet named a stale singular directory. Don corrected
 the local input boundary and explicitly directed this pass to the existing
 plural ROM directory.
 
-Selected basename: `oot.z64`
+The basename is intentionally redacted from current-tree evidence. No filename,
+title, or cartridge identity is emulator policy.
+
+Selected basename: `<REDACTED_USER_CARTRIDGE>`
 
 Source length: `33,554,432` bytes
 

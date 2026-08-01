@@ -410,8 +410,8 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   Cartridge, Rdram, SpDmem, and SpImem owners retain all bytes; neither DMA
   snoops CPU caches or creates timing/progress truth.
 - `RUNTIME_FACT`: an explicit local no-window run selected user-owned
-  `oot.z64`, detected big-endian `.z64` order, normalized 33,554,432 bytes into
-  one Machine-owned Cartridge, and executed its first word `0x3C088000` at
+  `<REDACTED_USER_CARTRIDGE>`, detected big-endian `.z64` order, normalized 33,554,432 bytes into <!-- intentional literal redaction, not an executable placeholder -->
+  one Machine-owned Cartridge, and executed its first word `<REDACTED_PRIVATE_CPU_WORD>` at <!-- intentional literal redaction, not an executable placeholder -->
   `0x80000400` once. Through public `Machine::step`, 21,382,817 attempts
   produced 21,382,123 commits, including 13,988,271 user-cartridge commits.
   Two atomic RDRAM-to-SP DMAs populated DMEM `[0x0FC0,0x1000)` with 64 bytes
@@ -421,6 +421,13 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `0x800CF97C / 0x800CF980`, Count 21,382,107, before any RSP instruction.
   This earns milestone `USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK`, not BOOT-3
   or compatibility.
+- `LIVE_REPO_FACT`: current-tree user-cartridge evidence now uses fixed
+  placeholders for private input identity and cartridge-derived raw instruction
+  fields. The optional inspection probe emits the same fixed input identity and
+  decoded architecture identities without raw instruction fields. Boot-probe
+  tests distinguish the explicit `input_path` field from semantic authority
+  claims and pass from an adversarial parent path containing `authentic`. This
+  changes inspection and evidence only; no emulated truth or checkpoint changes.
 - `RUNTIME_FACT`: the public generated cold-x105 path reaches the earlier
   general halt-to-run transition at CPU `0xA4000508`. Command `0x000000AD`
   commits alone at Count 252,345 / CPU commit 252,361 and selects RSP. Public

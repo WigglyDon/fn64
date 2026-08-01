@@ -897,7 +897,7 @@ execution, or compatibility.
 One separately authorized local proof loads a user-owned cartridge through an
 explicit no-window host path, then uses the public deterministic x105 bootstrap
 and `Machine::step` exclusively. The input normalizes as 33,554,432
-big-endian bytes; entry word `0x3C088000` at `0x80000400` executes once.
+big-endian bytes; entry word `<REDACTED_PRIVATE_CPU_WORD>` at `0x80000400` executes once.
 General CPU/COP0/cache/interrupt/device execution commits 13,988,271
 user-cartridge instructions. Two atomic RDRAM-to-SP DMAs populate 64 DMEM bytes
 and 1,000 IMEM bytes; `Sw` at `0x800D5A98` commits SP_STATUS `0x00000125` and
@@ -1060,11 +1060,12 @@ claim BOOT-3 or game compatibility.
 requires one explicit cartridge path, reads and transfers owned bytes into
 `Cartridge`, executes only public `Machine::step`, enforces a positive ceiling,
 and stops after the first SP_STATUS commit that changes halt true to false
-after represented SP DMA preparation. Its output is redacted to basename,
-sizes/layout, bounded first-occurrence architecture facts, endpoint
-register/control facts, and step counts. It does not print or retain the parent
-path, hash, title, ID, strings, bytes, disassembly, or microcode, and standard
-CI never requires the private input.
+after represented SP DMA preparation. Its output uses the fixed
+`<REDACTED_USER_CARTRIDGE>` identity, sizes/layout, decoded architecture
+identities without raw instruction fields, bounded first-occurrence architecture
+facts, endpoint register/control facts, and step counts. It does not print or
+retain the path, basename, hash, title, ID, strings, bytes, disassembly, or
+microcode, and standard CI never requires the private input.
 
 ## Required gate
 

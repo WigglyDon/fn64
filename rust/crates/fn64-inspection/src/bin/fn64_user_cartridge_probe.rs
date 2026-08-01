@@ -50,12 +50,12 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let (input_path, max_steps) = parse_arguments(std::env::args_os().skip(1))?;
-    let basename = redacted_basename(&input_path);
+    let input_identity = redacted_input_identity(&input_path);
     let source_bytes = std::fs::read(&input_path)
-        .map_err(|error| format!("input read failed for {basename}: {error}"))?;
+        .map_err(|error| format!("input read failed for {input_identity}: {error}"))?;
     let source_size = source_bytes.len();
     let cartridge = load_cartridge(source_bytes)
-        .map_err(|error| format!("input normalization failed for {basename}: {error}"))?;
+        .map_err(|error| format!("input normalization failed for {input_identity}: {error}"))?;
     let source_layout = cartridge.source_layout();
     let normalized_size = cartridge.size_bytes();
     let entrypoint = cartridge.metadata().entry_point;
@@ -285,7 +285,7 @@ fn run() -> Result<(), String> {
     println!("fn64 user cartridge probe");
     println!("result: ok");
     println!("classification: USER_PROVIDED_CARTRIDGE_MACHINE_STEP_COMPOSITION");
-    println!("input.basename: {basename}");
+    println!("input.identity: {input_identity}");
     println!("input.source_bytes: {source_size}");
     println!(
         "input.byte_order: {}",
@@ -293,10 +293,6 @@ fn run() -> Result<(), String> {
     );
     println!("input.normalized_bytes: {normalized_size}");
     println!("cartridge.entrypoint: 0x{entrypoint:08X}");
-    println!(
-        "cartridge.first_instruction.word: 0x{:08X}",
-        first_entry.fields().raw().bits()
-    );
     println!(
         "cartridge.first_instruction.identity: {:?}",
         first_entry.identity()
@@ -321,10 +317,6 @@ fn run() -> Result<(), String> {
     println!(
         "rsp_task.start_instruction_pc: 0x{:08X}",
         task_instruction.cpu_address().value()
-    );
-    println!(
-        "rsp_task.start_instruction_word: 0x{:08X}",
-        task_instruction.fields().raw().bits()
     );
     println!(
         "rsp_task.start_instruction_identity: {:?}",
@@ -421,11 +413,8 @@ fn parse_arguments(
     Ok((input_path, max_steps))
 }
 
-fn redacted_basename(path: &Path) -> String {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("<non-utf8-basename>")
-        .to_owned()
+fn redacted_input_identity(_path: &Path) -> &'static str {
+    "<REDACTED_USER_CARTRIDGE>"
 }
 
 #[cfg(test)]
@@ -452,10 +441,25 @@ mod tests {
     }
 
     #[test]
-    fn redacted_input_name_never_exposes_parent_directories() {
+    fn redacted_input_identity_never_exposes_path_components() {
         assert_eq!(
-            redacted_basename(Path::new("/private/collection/input.z64")),
-            "input.z64"
+            redacted_input_identity(Path::new("/private/collection/input.z64")),
+            "<REDACTED_USER_CARTRIDGE>"
         );
+    }
+
+    #[test]
+    fn output_contract_omits_raw_instruction_fields_and_retains_identities() {
+        let source = include_str!("fn64_user_cartridge_probe.rs");
+        for forbidden_field in [
+            ["input", ".basename: "].concat(),
+            ["cartridge.first_instruction", ".word: "].concat(),
+            ["rsp_task.start_instruction", "_word: "].concat(),
+        ] {
+            assert!(!source.contains(&forbidden_field));
+        }
+        assert!(source.contains("input.identity: {input_identity}"));
+        assert!(source.contains("cartridge.first_instruction.identity: {:?}"));
+        assert!(source.contains("rsp_task.start_instruction_identity: {:?}"));
     }
 }

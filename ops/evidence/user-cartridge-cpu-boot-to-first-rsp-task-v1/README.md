@@ -2,9 +2,13 @@
 
 This evidence records one no-window run of a user-owned cartridge through the
 public source-derived x105 bootstrap and public `Machine::step`. The selected
-input was `oot.z64`, a 33,554,432-byte big-endian `.z64` image. The host supplied
+input was `<REDACTED_USER_CARTRIDGE>`, a 33,554,432-byte big-endian `.z64` image. The host supplied
 only an explicit path and owned-byte read; `Cartridge` normalized and owned the
 bytes after construction.
+
+Private input identity and cartridge-derived raw instruction values are
+intentionally redacted from current-tree evidence. The retained fields record
+only the architecture-level execution facts needed by the repository.
 
 The first cartridge instruction committed once at `0x80000400`. CPU-side
 execution then committed 13,988,271 cartridge-runtime instructions and reached

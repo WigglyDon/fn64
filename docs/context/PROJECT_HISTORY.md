@@ -744,7 +744,7 @@ product or reference lane requires a new explicit product decision.
   primary-cache runtime operations, variable atomic PI DMA, concrete AI/VI/SI
   register truth, and atomic RDRAM-to-SP DMA advanced the CPU-side runtime.
   Public synthetic regression remained independent of the local input.
-- Runtime result: the first cartridge word `0x3C088000` at `0x80000400`
+- Runtime result: the first cartridge word `<REDACTED_PRIVATE_CPU_WORD>` at `0x80000400` <!-- intentional literal redaction, not an executable placeholder -->
   executed once. Two SP DMAs prepared 64 DMEM bytes and 1,000 IMEM bytes.
   SP_STATUS `Sw` at `0x800D5A98` committed command `0x00000125`, changing halt
   true to false. The proof stopped with PC/next-PC
@@ -907,6 +907,20 @@ product or reference lane requires a new explicit product decision.
 - Boundary: CPU continuation, generic task completion, DPC cadence/readback,
   RDP execution, graphics, audio, BOOT-3, and compatibility remain
   unavailable.
+
+## Era 47 — Redaction-safe audit admission (2026-07-31)
+
+- Evidence repair: current-tree private input identity and cartridge-derived raw
+  instruction fields are fixed placeholders. Architecture-level execution facts
+  remain, and ancestor history is not rewritten.
+- Inspection repair: the optional user-cartridge probe emits a fixed redacted
+  identity plus decoded architecture identities and omits raw instruction fields.
+  Boot-probe CLI tests treat `input_path` as path data while continuing to reject
+  semantic authenticity claims, including an explicit negative fixture.
+- Verification boundary: generated tests and the complete Rust forward gate pass
+  with `authentic` present in the temporary parent path. No private cartridge was
+  executed, no emulated truth changed, and no boot or compatibility checkpoint
+  advanced.
 
 ## Unresolved history
 
