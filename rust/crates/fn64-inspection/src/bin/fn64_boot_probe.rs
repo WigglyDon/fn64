@@ -34,9 +34,8 @@ fn main() -> ExitCode {
                 eprintln!("fn64 boot probe");
                 eprintln!("result: fail");
                 eprintln!(
-                    "error: local PIF firmware read failed: path={} detail={}",
-                    path.display(),
-                    error
+                    "error: local PIF firmware read failed: input=<REDACTED_USER_PIF_FIRMWARE> kind={:?}",
+                    error.kind()
                 );
                 return ExitCode::from(1);
             }

@@ -219,7 +219,8 @@ fn boot_probe_cli_unreadable_explicit_pif_path_fails_without_search() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("result: fail"));
     assert!(stderr.contains("local PIF firmware read failed"));
-    assert!(stderr.contains(&missing_pif_path.display().to_string()));
+    assert!(stderr.contains("input=<REDACTED_USER_PIF_FIRMWARE>"));
+    assert!(!stderr.contains(&missing_pif_path.display().to_string()));
 }
 
 #[test]

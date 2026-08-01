@@ -4,11 +4,22 @@ use std::process::ExitCode;
 
 use fn64_core::{
     load_cartridge, rom_source_layout_name, CpuInstructionIdentity, Machine,
-    MachineCpuInstructionInspection, MachineRepresentedStepOutcome, MachineSpStatusState,
+    MachineCartridgeBootstrapError, MachineCpuInstructionInspection,
+    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
+    MachinePifVersionBit, MachineRepresentedStepOutcome, MachineSpStatusState,
+    PifFirmwareClassification, PifIpl2Profile,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
 const MAX_RUNTIME_FRONTIERS: usize = 128;
+const REDACTED_USER_PIF_FIRMWARE: &str = "<REDACTED_USER_PIF_FIRMWARE>";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UserCartridgeProbeArguments {
+    input_path: PathBuf,
+    pif_rom_path: Option<PathBuf>,
+    max_steps: u64,
+}
 
 struct RuntimeFrontier {
     class: String,
@@ -49,9 +60,9 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let (input_path, max_steps) = parse_arguments(std::env::args_os().skip(1))?;
-    let input_identity = redacted_input_identity(&input_path);
-    let source_bytes = std::fs::read(&input_path)
+    let arguments = parse_arguments(std::env::args_os().skip(1))?;
+    let input_identity = redacted_input_identity(&arguments.input_path);
+    let source_bytes = std::fs::read(&arguments.input_path)
         .map_err(|error| format!("input read failed for {input_identity}: {error}"))?;
     let source_size = source_bytes.len();
     let cartridge = load_cartridge(source_bytes)
@@ -59,12 +70,11 @@ fn run() -> Result<(), String> {
     let source_layout = cartridge.source_layout();
     let normalized_size = cartridge.size_bytes();
     let entrypoint = cartridge.metadata().entry_point;
+    let owned_pif_firmware = read_explicit_pif_firmware(arguments.pif_rom_path.as_deref())?;
 
     let mut machine = Machine::from_cartridge(cartridge);
-    machine.install_public_synthetic_cold_x105_bootstrap();
-    machine
-        .stage_cartridge_bootstrap()
-        .map_err(|error| format!("cold x105 bootstrap staging failed: {error}"))?;
+    let pif_firmware_classification =
+        stage_explicit_pif_cold_x105_bootstrap(&mut machine, owned_pif_firmware)?;
 
     let mut attempted_steps = 0_u64;
     let mut committed_steps = 0_u64;
@@ -76,7 +86,7 @@ fn run() -> Result<(), String> {
     let mut runtime_frontiers = Vec::new();
     let mut prior_sp_dma_records = machine.sp_dma_record_count();
 
-    while attempted_steps < max_steps {
+    while attempted_steps < arguments.max_steps {
         let pc = machine.cpu().pc();
         let previous_halt = machine.sp_status_state().map(MachineSpStatusState::halt);
         let needs_inspection = pc == entrypoint
@@ -279,13 +289,23 @@ fn run() -> Result<(), String> {
     let first_entry =
         first_entry.ok_or_else(|| "cartridge entrypoint was not executed".to_owned())?;
     let (task_instruction, task_status, halt_before) = task_boundary.ok_or_else(|| {
-        format!("step ceiling {max_steps} reached before the first RSP task submission")
+        format!(
+            "step ceiling {} reached before the first RSP task submission",
+            arguments.max_steps
+        )
     })?;
 
     println!("fn64 user cartridge probe");
     println!("result: ok");
     println!("classification: USER_PROVIDED_CARTRIDGE_MACHINE_STEP_COMPOSITION");
     println!("input.identity: {input_identity}");
+    println!("pif_firmware.identity: {REDACTED_USER_PIF_FIRMWARE}");
+    println!("pif_firmware.material: explicit-user-provided");
+    println!(
+        "pif_firmware.classification: {}",
+        pif_firmware_classification.name()
+    );
+    println!("pif_firmware.synthetic_fallback: none");
     println!("input.source_bytes: {source_size}");
     println!(
         "input.byte_order: {}",
@@ -392,25 +412,110 @@ fn run() -> Result<(), String> {
 
 fn parse_arguments(
     mut arguments: impl Iterator<Item = OsString>,
-) -> Result<(PathBuf, u64), String> {
+) -> Result<UserCartridgeProbeArguments, String> {
     let input_path = arguments.next().map(PathBuf::from).ok_or_else(|| {
-        "usage: fn64_user_cartridge_probe <cartridge-path> [max-steps]".to_owned()
+        "usage: fn64_user_cartridge_probe <cartridge-path> [max-steps | --max-steps <positive-integer>] [--pif-rom <path>]".to_owned()
     })?;
-    let max_steps = match arguments.next() {
-        Some(raw) => raw
-            .to_str()
-            .ok_or_else(|| "max-steps must be UTF-8 decimal".to_owned())?
-            .parse::<u64>()
-            .map_err(|_| "max-steps must be a positive decimal integer".to_owned())?,
-        None => DEFAULT_MAX_STEPS,
-    };
+    let mut pif_rom_path = None;
+    let mut max_steps = DEFAULT_MAX_STEPS;
+    let mut max_steps_seen = false;
+
+    while let Some(argument) = arguments.next() {
+        if argument == "--pif-rom" {
+            if pif_rom_path.is_some() {
+                return Err(user_cartridge_probe_usage());
+            }
+            let path = arguments
+                .next()
+                .filter(|value| !value.is_empty() && !is_user_cartridge_probe_flag(value))
+                .ok_or_else(|| "--pif-rom requires an explicit path".to_owned())?;
+            pif_rom_path = Some(PathBuf::from(path));
+        } else if argument == "--max-steps" {
+            if max_steps_seen {
+                return Err(user_cartridge_probe_usage());
+            }
+            let raw = arguments
+                .next()
+                .ok_or_else(|| "--max-steps requires a positive decimal integer".to_owned())?;
+            max_steps = parse_max_steps(&raw)?;
+            max_steps_seen = true;
+        } else if !max_steps_seen {
+            max_steps = parse_max_steps(&argument)?;
+            max_steps_seen = true;
+        } else {
+            return Err(user_cartridge_probe_usage());
+        }
+    }
+
     if max_steps == 0 {
         return Err("max-steps must be greater than zero".to_owned());
     }
-    if arguments.next().is_some() {
-        return Err("usage: fn64_user_cartridge_probe <cartridge-path> [max-steps]".to_owned());
+    Ok(UserCartridgeProbeArguments {
+        input_path,
+        pif_rom_path,
+        max_steps,
+    })
+}
+
+fn parse_max_steps(raw: &OsString) -> Result<u64, String> {
+    raw.to_str()
+        .ok_or_else(|| "max-steps must be UTF-8 decimal".to_owned())?
+        .parse::<u64>()
+        .map_err(|_| "max-steps must be a positive decimal integer".to_owned())
+}
+
+fn is_user_cartridge_probe_flag(value: &OsString) -> bool {
+    matches!(value.to_str(), Some("--pif-rom" | "--max-steps"))
+}
+
+fn user_cartridge_probe_usage() -> String {
+    "usage: fn64_user_cartridge_probe <cartridge-path> [max-steps | --max-steps <positive-integer>] [--pif-rom <path>]".to_owned()
+}
+
+fn read_explicit_pif_firmware(path: Option<&Path>) -> Result<Option<Vec<u8>>, String> {
+    path.map(|path| {
+        std::fs::read(path).map_err(|error| {
+            format!(
+                "explicit PIF firmware read failed for {REDACTED_USER_PIF_FIRMWARE}: kind={:?}",
+                error.kind()
+            )
+        })
+    })
+    .transpose()
+}
+
+fn stage_explicit_pif_cold_x105_bootstrap(
+    machine: &mut Machine,
+    owned_pif_firmware: Option<Vec<u8>>,
+) -> Result<PifFirmwareClassification, String> {
+    if let Some(owned_bytes) = owned_pif_firmware {
+        machine
+            .install_pif_firmware(owned_bytes)
+            .map_err(|error| format!("explicit PIF firmware input rejected: {error}"))?;
     }
-    Ok((input_path, max_steps))
+
+    machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
+    machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
+    machine.install_pif_ipl2_handoff_reset_kind(MachinePifIpl2HandoffResetKind::Cold);
+    machine.install_pif_ipl2_handoff_boot_medium(MachinePifIpl2HandoffBootMedium::Cartridge);
+    machine.install_pif_version_bit(MachinePifVersionBit::Zero);
+    machine
+        .stage_cartridge_bootstrap()
+        .map_err(explicit_pif_bootstrap_error)?;
+
+    machine
+        .pif_firmware_state()
+        .classification()
+        .ok_or_else(|| "explicit PIF firmware ownership missing after bootstrap".to_owned())
+}
+
+fn explicit_pif_bootstrap_error(error: MachineCartridgeBootstrapError) -> String {
+    match error {
+        MachineCartridgeBootstrapError::PifIpl2ProfileRequiresFirmware { .. } => {
+            "PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT: owner=PifFirmware material=unavailable synthetic_fallback=none".to_owned()
+        }
+        other => format!("explicit PIF cold x105 bootstrap staging failed: {other}"),
+    }
 }
 
 fn redacted_input_identity(_path: &Path) -> &'static str {
@@ -428,14 +533,48 @@ mod tests {
                 [OsString::from("/private/input.z64"), OsString::from("1234"),].into_iter(),
             )
             .unwrap(),
-            (PathBuf::from("/private/input.z64"), 1234)
+            UserCartridgeProbeArguments {
+                input_path: PathBuf::from("/private/input.z64"),
+                pif_rom_path: None,
+                max_steps: 1234,
+            }
         );
         assert_eq!(
             parse_arguments([OsString::from("/private/input.z64")].into_iter()).unwrap(),
-            (PathBuf::from("/private/input.z64"), DEFAULT_MAX_STEPS)
+            UserCartridgeProbeArguments {
+                input_path: PathBuf::from("/private/input.z64"),
+                pif_rom_path: None,
+                max_steps: DEFAULT_MAX_STEPS,
+            }
+        );
+        assert_eq!(
+            parse_arguments(
+                [
+                    OsString::from("/private/input.z64"),
+                    OsString::from("--pif-rom"),
+                    OsString::from("/private/pif.bin"),
+                    OsString::from("--max-steps"),
+                    OsString::from("4321"),
+                ]
+                .into_iter()
+            )
+            .unwrap(),
+            UserCartridgeProbeArguments {
+                input_path: PathBuf::from("/private/input.z64"),
+                pif_rom_path: Some(PathBuf::from("/private/pif.bin")),
+                max_steps: 4321,
+            }
         );
         assert!(parse_arguments(
             [OsString::from("/private/input.z64"), OsString::from("0")].into_iter()
+        )
+        .is_err());
+        assert!(parse_arguments(
+            [
+                OsString::from("/private/input.z64"),
+                OsString::from("--pif-rom"),
+            ]
+            .into_iter()
         )
         .is_err());
     }
@@ -446,6 +585,7 @@ mod tests {
             redacted_input_identity(Path::new("/private/collection/input.z64")),
             "<REDACTED_USER_CARTRIDGE>"
         );
+        assert_eq!(REDACTED_USER_PIF_FIRMWARE, "<REDACTED_USER_PIF_FIRMWARE>");
     }
 
     #[test]
@@ -459,7 +599,25 @@ mod tests {
             assert!(!source.contains(&forbidden_field));
         }
         assert!(source.contains("input.identity: {input_identity}"));
+        assert!(source.contains("pif_firmware.identity: {REDACTED_USER_PIF_FIRMWARE}"));
+        assert!(source.contains("pif_firmware.synthetic_fallback: none"));
         assert!(source.contains("cartridge.first_instruction.identity: {:?}"));
         assert!(source.contains("rsp_task.start_instruction_identity: {:?}"));
+        let forbidden_synthetic_install =
+            ["install_public_synthetic_cold_", "x105_bootstrap"].concat();
+        assert!(!source.contains(&forbidden_synthetic_install));
+    }
+
+    #[test]
+    fn unavailable_pif_material_fails_before_bootstrap_without_synthetic_fallback() {
+        let mut machine = Machine::from_cartridge(Default::default());
+
+        let error = stage_explicit_pif_cold_x105_bootstrap(&mut machine, None).unwrap_err();
+
+        assert!(error.contains("PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT"));
+        assert!(error.contains("owner=PifFirmware"));
+        assert!(error.contains("synthetic_fallback=none"));
+        assert!(machine.pif_firmware_state().is_absent());
+        assert!(machine.cartridge_bootstrap_state().is_none());
     }
 }
