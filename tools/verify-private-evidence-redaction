@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+
+cpu_placeholder='<REDACTED_PRIVATE_CPU_WORD>'
+rsp_placeholder='<REDACTED_PRIVATE_RSP_WORD>'
+pif_word_placeholder='<REDACTED_PRIVATE_PIF_WORD>'
+cartridge_placeholder='<REDACTED_USER_CARTRIDGE>'
+pif_placeholder='<REDACTED_USER_PIF_FIRMWARE>'
+
+check_file() {
+  local path=$1
+
+  awk \
+    -v path="$path" \
+    -v cpu_placeholder="$cpu_placeholder" \
+    -v rsp_placeholder="$rsp_placeholder" \
+    -v pif_word_placeholder="$pif_word_placeholder" \
+    -v cartridge_placeholder="$cartridge_placeholder" \
+    -v pif_placeholder="$pif_placeholder" '
+      function trim(value) {
+        sub(/^[[:space:]]+/, "", value)
+        sub(/[[:space:]]+$/, "", value)
+        return value
+      }
+
+      function reject(category) {
+        printf "%s:%d:%s\n", path, NR, category > "/dev/stderr"
+        rejected = 1
+      }
+
+      {
+        line = $0
+        lower = tolower(line)
+
+        if (match(lower, /^[[:space:]]*(-[[:space:]]*)?(private[[:space:]_-]+)?cpu[[:space:]_-]+instruction[[:space:]_-]+word:[[:space:]]*/)) {
+          value = trim(substr(line, RLENGTH + 1))
+          if (value != cpu_placeholder) {
+            reject("private_cpu_instruction_word")
+          }
+          next
+        }
+
+        if (match(lower, /^[[:space:]]*(-[[:space:]]*)?(private[[:space:]_-]+)?rsp[[:space:]_-]+instruction[[:space:]_-]+word:[[:space:]]*/)) {
+          value = trim(substr(line, RLENGTH + 1))
+          if (value != rsp_placeholder) {
+            reject("private_rsp_instruction_word")
+          }
+          next
+        }
+
+        if (match(lower, /^[[:space:]]*(-[[:space:]]*)?(private[[:space:]_-]+)?pif[[:space:]_-]+instruction[[:space:]_-]+word:[[:space:]]*/)) {
+          value = trim(substr(line, RLENGTH + 1))
+          if (value != pif_word_placeholder) {
+            reject("private_pif_instruction_word")
+          }
+          next
+        }
+
+        if (match(lower, /^[[:space:]]*(-[[:space:]]*)?instruction[[:space:]_-]+word:[[:space:]]*/)) {
+          value = trim(substr(line, RLENGTH + 1))
+          if (value != cpu_placeholder && value != rsp_placeholder && value != pif_word_placeholder) {
+            reject("private_instruction_word")
+          }
+          next
+        }
+
+        if (match(lower, /^[[:space:]]*(-[[:space:]]*)?(private[[:space:]_-]+)?(cartridge|rom)[[:space:]_-]+(input[[:space:]_-]+)?(path|basename):[[:space:]]*/)) {
+          value = trim(substr(line, RLENGTH + 1))
+          if (value != cartridge_placeholder) {
+            reject("private_cartridge_identity")
+          }
+          next
+        }
+
+        if (match(lower, /^[[:space:]]*(-[[:space:]]*)?(private[[:space:]_-]+)?pif[[:space:]_-]+(firmware[[:space:]_-]+)?(path|basename):[[:space:]]*/)) {
+          value = trim(substr(line, RLENGTH + 1))
+          if (value != pif_placeholder) {
+            reject("private_pif_identity")
+          }
+        }
+      }
+
+      END {
+        if (rejected) {
+          exit 1
+        }
+      }
+    ' "$path"
+}
+
+run_failure_case() {
+  local case_name=$1
+  local line=$2
+  local category=$3
+  local forbidden=$4
+  local fixture=$self_test_root/$case_name.txt
+  local output=$self_test_root/$case_name.output
+
+  printf '%s\n' "$line" > "$fixture"
+  if check_file "$fixture" > "$output" 2>&1; then
+    printf '%s\n' "guard-self-test: $case_name fail"
+    return 1
+  fi
+  if ! grep -Fq ":$category" "$output"; then
+    printf '%s\n' "guard-self-test: $case_name fail"
+    return 1
+  fi
+  if grep -Fq "$forbidden" "$output"; then
+    printf '%s\n' "guard-self-test: $case_name fail"
+    return 1
+  fi
+  printf '%s\n' "guard-self-test: $case_name pass"
+}
+
+run_success_case() {
+  local case_name=$1
+  shift
+  local fixture=$self_test_root/$case_name.txt
+  local output=$self_test_root/$case_name.output
+
+  printf '%s\n' "$@" > "$fixture"
+  if ! check_file "$fixture" > "$output" 2>&1; then
+    printf '%s\n' "guard-self-test: $case_name fail"
+    return 1
+  fi
+  if test -s "$output"; then
+    printf '%s\n' "guard-self-test: $case_name fail"
+    return 1
+  fi
+  printf '%s\n' "guard-self-test: $case_name pass"
+}
+
+run_self_tests() {
+  self_test_root=$(mktemp -d "${TMPDIR:-/tmp}/fn64-private-evidence-guard.XXXXXX")
+
+  run_failure_case \
+    private_cpu_word \
+    'CPU instruction word: 0x13579BDF' \
+    private_cpu_instruction_word \
+    '0x13579BDF'
+  run_failure_case \
+    private_rsp_word \
+    'RSP instruction word: 0x2468ACE0' \
+    private_rsp_instruction_word \
+    '0x2468ACE0'
+  run_failure_case \
+    private_cartridge_path \
+    'Cartridge path: /generated/private/input.z64' \
+    private_cartridge_identity \
+    '/generated/private/input.z64'
+  run_success_case \
+    established_placeholders \
+    'CPU instruction word: <REDACTED_PRIVATE_CPU_WORD>' \
+    'RSP instruction word: <REDACTED_PRIVATE_RSP_WORD>' \
+    'PIF instruction word: <REDACTED_PRIVATE_PIF_WORD>' \
+    'Cartridge path: <REDACTED_USER_CARTRIDGE>' \
+    'PIF firmware path: <REDACTED_USER_PIF_FIRMWARE>'
+  run_success_case \
+    public_synthetic_instruction \
+    'Evidence class: PUBLIC_SYNTHETIC' \
+    'Synthetic generated instruction word: 0x10203040'
+}
+
+scan_tracked_tree() {
+  local failures=0
+  local relative_path
+  local tracked_paths=()
+
+  mapfile -d '' tracked_paths < <(
+    git -C "$repo_root" ls-files -z -- \
+      'ops/evidence/user-cartridge-*/*' \
+      'ops/evidence/README.md' \
+      'docs/context/CURRENT_STATE.md' \
+      'docs/context/PROJECT_HISTORY.md' \
+      'docs/context/DECISION_LOG.md' \
+      'rust/PARITY.md'
+  )
+
+  for relative_path in "${tracked_paths[@]}"; do
+    if ! check_file "$repo_root/$relative_path"; then
+      failures=1
+    fi
+  done
+
+  if test "$failures" -ne 0; then
+    printf '%s\n' 'private-evidence-redaction: fail'
+    return 1
+  fi
+
+  printf '%s\n' 'private-evidence-redaction: tracked-tree pass'
+}
+
+case "${1:-}" in
+  --self-test)
+    run_self_tests
+    ;;
+  --check-file)
+    test "$#" -eq 2
+    check_file "$2"
+    ;;
+  '')
+    scan_tracked_tree
+    ;;
+  *)
+    printf '%s\n' 'usage: verify-private-evidence-redaction [--self-test | --check-file PATH]' >&2
+    exit 2
+    ;;
+esac

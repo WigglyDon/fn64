@@ -2,7 +2,8 @@
 
 Start instruction PC: `0x800D5A98`
 
-Instruction word: `0xADC40010`
+Instruction word: <REDACTED_PRIVATE_CPU_WORD>
+Private-value handling: the instruction value was intentionally removed because it derives from private cartridge execution.
 
 Identity: `Sw`
 

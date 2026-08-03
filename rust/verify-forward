@@ -2,7 +2,12 @@
 set -eu
 
 workspace_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_dir=$(CDPATH= cd -- "$workspace_dir/.." && pwd)
 cd "$workspace_dir"
+
+printf '%s\n' 'stage: private evidence redaction guard'
+bash "$repo_dir/tools/verify-private-evidence-redaction" --self-test
+bash "$repo_dir/tools/verify-private-evidence-redaction"
 
 printf '%s\n' 'stage: rust format'
 cargo fmt --check
