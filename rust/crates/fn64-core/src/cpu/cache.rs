@@ -11,6 +11,11 @@ pub const PRIMARY_DATA_CACHE_LINE_SIZE_BYTES: usize = 0x10;
 pub const PRIMARY_DATA_CACHE_LINE_COUNT: usize =
     PRIMARY_DATA_CACHE_SIZE_BYTES / PRIMARY_DATA_CACHE_LINE_SIZE_BYTES;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachinePrimaryCacheCleanRoomHleSource {
+    NtscX105Pinned,
+}
+
 const PRIMARY_CACHE_TAG_LO_PHYSICAL_TAG_MASK: u32 = 0x0fff_ff00;
 const PRIMARY_CACHE_TAG_LO_STATE_SHIFT: u32 = 6;
 const PRIMARY_CACHE_TAG_LO_STATE_MASK: u32 = 0x3;
@@ -557,6 +562,9 @@ impl MachinePrimaryInstructionCacheFillProvenance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachinePrimaryInstructionCacheLineState {
     Unavailable,
+    CleanRoomHleInvalid {
+        source: MachinePrimaryCacheCleanRoomHleSource,
+    },
     Invalid {
         provenance: MachinePrimaryCacheOperationProvenance,
     },
@@ -578,6 +586,13 @@ pub enum MachinePrimaryInstructionCacheLineState {
 }
 
 impl MachinePrimaryInstructionCacheLineState {
+    pub const fn clean_room_hle_source(self) -> Option<MachinePrimaryCacheCleanRoomHleSource> {
+        match self {
+            Self::CleanRoomHleInvalid { source } => Some(source),
+            _ => None,
+        }
+    }
+
     pub const fn is_unavailable(self) -> bool {
         matches!(self, Self::Unavailable)
     }
@@ -585,7 +600,10 @@ impl MachinePrimaryInstructionCacheLineState {
     pub const fn is_invalid(self) -> bool {
         matches!(
             self,
-            Self::Invalid { .. } | Self::IndexInvalid { .. } | Self::HitInvalid { .. }
+            Self::CleanRoomHleInvalid { .. }
+                | Self::Invalid { .. }
+                | Self::IndexInvalid { .. }
+                | Self::HitInvalid { .. }
         )
     }
 
@@ -599,6 +617,7 @@ impl MachinePrimaryInstructionCacheLineState {
                 Some(physical_tag)
             }
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. } => None,
@@ -611,6 +630,7 @@ impl MachinePrimaryInstructionCacheLineState {
                 Some(provenance)
             }
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. }
             | Self::Valid { .. } => None,
@@ -623,6 +643,7 @@ impl MachinePrimaryInstructionCacheLineState {
         match self {
             Self::IndexInvalid { provenance } => Some(provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::HitInvalid { .. }
             | Self::ValidDataUnavailable { .. }
@@ -636,6 +657,7 @@ impl MachinePrimaryInstructionCacheLineState {
         match self {
             Self::HitInvalid { provenance } => Some(provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::ValidDataUnavailable { .. }
@@ -647,6 +669,7 @@ impl MachinePrimaryInstructionCacheLineState {
         match self {
             Self::Valid { provenance, .. } => Some(provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. }
@@ -658,6 +681,7 @@ impl MachinePrimaryInstructionCacheLineState {
         match self {
             Self::Valid { data, .. } => Some(data),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. }
@@ -669,6 +693,9 @@ impl MachinePrimaryInstructionCacheLineState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachinePrimaryDataCacheLineState {
     Unavailable,
+    CleanRoomHleInvalid {
+        source: MachinePrimaryCacheCleanRoomHleSource,
+    },
     Invalid {
         provenance: MachinePrimaryCacheOperationProvenance,
     },
@@ -700,6 +727,13 @@ pub enum MachinePrimaryDataCacheLineState {
 }
 
 impl MachinePrimaryDataCacheLineState {
+    pub const fn clean_room_hle_source(self) -> Option<MachinePrimaryCacheCleanRoomHleSource> {
+        match self {
+            Self::CleanRoomHleInvalid { source } => Some(source),
+            _ => None,
+        }
+    }
+
     pub const fn is_unavailable(self) -> bool {
         matches!(self, Self::Unavailable)
     }
@@ -707,7 +741,10 @@ impl MachinePrimaryDataCacheLineState {
     pub const fn is_invalid(self) -> bool {
         matches!(
             self,
-            Self::Invalid { .. } | Self::IndexInvalid { .. } | Self::HitInvalid { .. }
+            Self::CleanRoomHleInvalid { .. }
+                | Self::Invalid { .. }
+                | Self::IndexInvalid { .. }
+                | Self::HitInvalid { .. }
         )
     }
 
@@ -732,6 +769,7 @@ impl MachinePrimaryDataCacheLineState {
             | Self::ValidClean { physical_tag, .. }
             | Self::ValidDirty { physical_tag, .. } => Some(physical_tag),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. } => None,
@@ -744,6 +782,7 @@ impl MachinePrimaryDataCacheLineState {
             | Self::ValidCleanDataUnavailable { provenance, .. }
             | Self::ValidDirtyDataUnavailable { provenance, .. } => Some(provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. }
             | Self::ValidClean { .. }
@@ -757,6 +796,7 @@ impl MachinePrimaryDataCacheLineState {
         match self {
             Self::IndexInvalid { provenance } => Some(provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::HitInvalid { .. }
             | Self::ValidCleanDataUnavailable { .. }
@@ -772,6 +812,7 @@ impl MachinePrimaryDataCacheLineState {
         match self {
             Self::HitInvalid { provenance } => Some(provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::ValidCleanDataUnavailable { .. }
@@ -788,6 +829,7 @@ impl MachinePrimaryDataCacheLineState {
                 fill_provenance, ..
             } => Some(fill_provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. }
@@ -800,6 +842,7 @@ impl MachinePrimaryDataCacheLineState {
         match self {
             Self::ValidClean { data, .. } | Self::ValidDirty { data, .. } => Some(data),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. }
@@ -814,6 +857,7 @@ impl MachinePrimaryDataCacheLineState {
                 store_provenance, ..
             } => Some(store_provenance),
             Self::Unavailable
+            | Self::CleanRoomHleInvalid { .. }
             | Self::Invalid { .. }
             | Self::IndexInvalid { .. }
             | Self::HitInvalid { .. }
@@ -837,6 +881,18 @@ impl MachinePrimaryCaches {
             instruction_lines: [MachinePrimaryInstructionCacheLineState::Unavailable;
                 PRIMARY_INSTRUCTION_CACHE_LINE_COUNT],
             data_lines: [MachinePrimaryDataCacheLineState::Unavailable;
+                PRIMARY_DATA_CACHE_LINE_COUNT],
+        }
+    }
+
+    pub(crate) const fn clean_room_hle_invalid(
+        source: MachinePrimaryCacheCleanRoomHleSource,
+    ) -> Self {
+        Self {
+            instruction_lines: [MachinePrimaryInstructionCacheLineState::CleanRoomHleInvalid {
+                source,
+            }; PRIMARY_INSTRUCTION_CACHE_LINE_COUNT],
+            data_lines: [MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { source };
                 PRIMARY_DATA_CACHE_LINE_COUNT],
         }
     }
@@ -940,7 +996,8 @@ impl MachinePrimaryCaches {
             | MachinePrimaryDataCacheLineState::ValidDirtyDataUnavailable { .. } => {
                 return Err(MachinePrimaryDataCacheAccessError { line_index, state });
             }
-            MachinePrimaryDataCacheLineState::Invalid { .. }
+            MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
+            | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
             | MachinePrimaryDataCacheLineState::ValidCleanDataUnavailable { .. }
@@ -1012,6 +1069,7 @@ impl MachinePrimaryCaches {
                 physical_tag, data, ..
             } => (physical_tag, data),
             MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
             | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
@@ -1040,6 +1098,7 @@ impl MachinePrimaryCaches {
                 physical_tag, data, ..
             } => (physical_tag, data),
             MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
             | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
@@ -1069,6 +1128,7 @@ impl MachinePrimaryCaches {
                 physical_tag, data, ..
             } => (physical_tag, data),
             MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
             | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
@@ -1097,6 +1157,7 @@ impl MachinePrimaryCaches {
                 physical_tag, data, ..
             } => (physical_tag, data),
             MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
             | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
@@ -1141,6 +1202,7 @@ impl MachinePrimaryCaches {
                 )))
             }
             MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
             | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
@@ -1274,6 +1336,7 @@ impl MachinePrimaryCaches {
                 false,
             ),
             MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
             | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
@@ -1373,6 +1436,7 @@ impl MachinePrimaryCaches {
                 (true, None, None)
             }
             MachinePrimaryDataCacheLineState::Unavailable
+            | MachinePrimaryDataCacheLineState::CleanRoomHleInvalid { .. }
             | MachinePrimaryDataCacheLineState::Invalid { .. }
             | MachinePrimaryDataCacheLineState::IndexInvalid { .. }
             | MachinePrimaryDataCacheLineState::HitInvalid { .. }
@@ -1753,6 +1817,13 @@ const fn primary_data_cache_physical_tag(physical_address: u32) -> u32 {
 impl Cpu {
     pub fn primary_caches(&self) -> &MachinePrimaryCaches {
         &self.primary_caches
+    }
+
+    pub(crate) fn stage_clean_room_hle_primary_caches(
+        &mut self,
+        source: MachinePrimaryCacheCleanRoomHleSource,
+    ) {
+        *self.primary_caches = MachinePrimaryCaches::clean_room_hle_invalid(source);
     }
 
     pub(crate) fn apply_primary_cache_index_store_tag(

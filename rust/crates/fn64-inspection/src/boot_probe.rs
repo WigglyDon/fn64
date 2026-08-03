@@ -1188,6 +1188,15 @@ fn format_gpr_source(source: MachineBootstrapGprSource) -> String {
     match source {
         MachineBootstrapGprSource::UnknownPifProduced => "unknown-pif-produced".to_owned(),
         MachineBootstrapGprSource::ArchitecturalZero => "architectural-zero".to_owned(),
+        MachineBootstrapGprSource::CleanRoomHlePublicProfile => {
+            "clean-room-hle-public-profile".to_owned()
+        }
+        MachineBootstrapGprSource::CleanRoomHleCartridgeEntry => {
+            "clean-room-hle-cartridge-entry".to_owned()
+        }
+        MachineBootstrapGprSource::CleanRoomHleCartridgePayload => {
+            "clean-room-hle-cartridge-payload".to_owned()
+        }
         MachineBootstrapGprSource::PifIpl2HandoffEntryPointer => {
             "pif-ipl2-handoff-entry-pointer".to_owned()
         }
@@ -1486,6 +1495,9 @@ fn format_report(facts: ReportFacts<'_>) -> String {
             MachineBootstrapCop0StatusSource::UnknownPifProduced => "unknown-pif-produced",
             MachineBootstrapCop0StatusSource::PifIpl1ColdBootStatus => {
                 "pif-ipl1-cold-boot-status"
+            }
+            MachineBootstrapCop0StatusSource::CleanRoomHlePublicProfile => {
+                "clean-room-hle-public-profile"
             }
         }
     )

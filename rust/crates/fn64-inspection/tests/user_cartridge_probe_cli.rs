@@ -1,18 +1,22 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use fn64_core::{PIF_BOOT_ROM_SIZE_BYTES, PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES};
+use fn64_core::{
+    MACHINE_CLEAN_ROOM_CARTRIDGE_SOURCE_END_OFFSET_EXCLUSIVE, PIF_BOOT_ROM_SIZE_BYTES,
+    PIF_PHYSICAL_ADDRESS_SPACE_SIZE_BYTES,
+};
 
 fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
 }
 
 fn make_generated_cartridge() -> Vec<u8> {
-    let mut bytes = vec![0; 0x1000];
+    let mut bytes = vec![0; MACHINE_CLEAN_ROOM_CARTRIDGE_SOURCE_END_OFFSET_EXCLUSIVE as usize];
     write_be_u32(&mut bytes, 0, 0x8037_1240);
-    write_be_u32(&mut bytes, 8, 0xa400_0040);
+    write_be_u32(&mut bytes, 8, 0x8000_1000);
     bytes[0x20..0x34].copy_from_slice(b"FN64 GENERATED INPUT");
     write_be_u32(&mut bytes, 0x40, 0x03a0_4820);
+    write_be_u32(&mut bytes, 0x1000, 0x2402_0042);
     bytes
 }
 
@@ -34,7 +38,7 @@ fn remove_if_present(path: &Path) {
 }
 
 #[test]
-fn user_cartridge_probe_without_explicit_pif_stops_at_material_owner() {
+fn user_cartridge_probe_without_explicit_pif_selects_clean_room_hle() {
     let cartridge_path = fixture_path("missing-explicit-pif");
     std::fs::write(&cartridge_path, make_generated_cartridge()).unwrap();
 
@@ -49,10 +53,9 @@ fn user_cartridge_probe_without_explicit_pif_stops_at_material_owner() {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT"));
-    assert!(stderr.contains("owner=PifFirmware"));
-    assert!(stderr.contains("material=unavailable"));
-    assert!(stderr.contains("synthetic_fallback=none"));
+    assert!(stderr.contains("step ceiling 1 reached"), "{stderr}");
+    assert!(stderr.contains("boot_source=clean_room_hle"));
+    assert!(!stderr.contains("PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT"));
     assert!(!stderr.contains(&cartridge_path.display().to_string()));
     assert!(!stderr.contains("public-synthetic-cold-x105-bootstrap"));
 }
@@ -78,7 +81,10 @@ fn user_cartridge_probe_reads_only_an_explicit_redacted_pif_path() {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("step ceiling 1 reached"));
+    assert!(
+        stderr.contains("boot_source=explicit_pif_firmware"),
+        "{stderr}"
+    );
     assert!(!stderr.contains("PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT"));
     assert!(!stderr.contains(&cartridge_path.display().to_string()));
     assert!(!stderr.contains(&pif_path.display().to_string()));
@@ -162,6 +168,8 @@ fn user_cartridge_probe_does_not_search_for_pif_material() {
     std::fs::remove_dir(&directory).unwrap();
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT"));
-    assert!(stderr.contains("synthetic_fallback=none"));
+    assert!(stderr.contains("step ceiling 1 reached"));
+    assert!(stderr.contains("boot_source=clean_room_hle"));
+    assert!(!stderr.contains("PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT"));
+    assert!(!stderr.contains("public-synthetic-cold-x105-bootstrap"));
 }

@@ -122,12 +122,18 @@ pub enum MachineBootstrapCpuStateKind {
     /// The complete source-backed cold cartridge x105 handoff for the pinned
     /// NTSC PIF layout. PAL and MPAL remain explicitly unsupported.
     CoupledColdX105NtscPinned,
+    /// One atomic, firmware-free public-profile handoff immediately before
+    /// the first cartridge-entry instruction is attempted.
+    CleanRoomCartridgeEntryNtscX105Pinned,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineBootstrapGprSource {
     UnknownPifProduced,
     ArchitecturalZero,
+    CleanRoomHlePublicProfile,
+    CleanRoomHleCartridgeEntry,
+    CleanRoomHleCartridgePayload,
     PifIpl2HandoffEntryPointer,
     PifIpl2RestoredStackPointer,
     PifIpl2RetainedLink {
@@ -156,6 +162,7 @@ pub enum MachineBootstrapGprSource {
 pub enum MachineBootstrapCop0StatusSource {
     UnknownPifProduced,
     PifIpl1ColdBootStatus,
+    CleanRoomHlePublicProfile,
 }
 
 impl MachineBootstrapCop0StatusSource {
@@ -725,6 +732,7 @@ impl Machine {
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.powered_on = true;
         self.cartridge_bootstrap = Some(state);
+        self.clean_room_hle = None;
 
         Ok(state)
     }
@@ -739,14 +747,14 @@ impl Machine {
         fields: CpuInstructionFields,
         identity: CpuInstructionIdentity,
     ) -> Result<(), MachineBootstrapCpuStateUnavailable> {
-        let Some(state) = self.cartridge_bootstrap else {
+        if self.cartridge_bootstrap.is_none() && self.clean_room_hle.is_none() {
             return Ok(());
-        };
+        }
         let access = bootstrap_gpr_access(fields, identity);
 
         for register_index in access.sources().into_iter().flatten() {
-            let source = state
-                .gpr_source(usize::from(register_index))
+            let source = self
+                .active_bootstrap_gpr_source(register_index)
                 .unwrap_or(MachineBootstrapGprSource::UnknownPifProduced);
             if !source.is_known() {
                 return Err(MachineBootstrapCpuStateUnavailable {
@@ -767,25 +775,35 @@ impl Machine {
         fields: CpuInstructionFields,
         identity: CpuInstructionIdentity,
     ) {
-        let Some(state) = self.cartridge_bootstrap.as_mut() else {
+        if self.cartridge_bootstrap.is_none() && self.clean_room_hle.is_none() {
             return;
-        };
+        }
         let access = bootstrap_gpr_access(fields, identity);
         let Some(destination) = access.destination else {
+            return;
+        };
+        let source = if destination == 0 {
+            MachineBootstrapGprSource::ArchitecturalZero
+        } else {
+            MachineBootstrapGprSource::KnownInstructionResult {
+                execution_address: cpu_address,
+                identity,
+                source_gpr_a: access.source_a,
+                source_gpr_b: access.source_b,
+            }
+        };
+        if let Some(state) = self.clean_room_hle.as_mut() {
+            state.record_gpr_source(destination, source);
+            return;
+        }
+        let Some(state) = self.cartridge_bootstrap.as_mut() else {
             return;
         };
         if destination == 0 {
             state.gpr_sources[0] = MachineBootstrapGprSource::ArchitecturalZero;
             return;
         }
-
-        state.gpr_sources[usize::from(destination)] =
-            MachineBootstrapGprSource::KnownInstructionResult {
-                execution_address: cpu_address,
-                identity,
-                source_gpr_a: access.source_a,
-                source_gpr_b: access.source_b,
-            };
+        state.gpr_sources[usize::from(destination)] = source;
     }
 
     pub(crate) fn record_bootstrap_gpr_source(
@@ -793,6 +811,10 @@ impl Machine {
         register_index: u8,
         source: MachineBootstrapGprSource,
     ) {
+        if let Some(state) = self.clean_room_hle.as_mut() {
+            state.record_gpr_source(register_index, source);
+            return;
+        }
         let Some(state) = self.cartridge_bootstrap.as_mut() else {
             return;
         };

@@ -962,6 +962,46 @@ impl MachineRdramPrimaryDataCacheWritebackState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramCartridgeStagingCause {
+    CleanRoomHle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRdramCartridgeStagingState {
+    cartridge_start_offset: u32,
+    cartridge_end_offset_exclusive: u32,
+    rdram_start_offset: u32,
+    rdram_end_offset_exclusive: u32,
+    cause: MachineRdramCartridgeStagingCause,
+}
+
+impl MachineRdramCartridgeStagingState {
+    pub const fn cartridge_start_offset(self) -> u32 {
+        self.cartridge_start_offset
+    }
+
+    pub const fn cartridge_end_offset_exclusive(self) -> u32 {
+        self.cartridge_end_offset_exclusive
+    }
+
+    pub const fn rdram_start_offset(self) -> u32 {
+        self.rdram_start_offset
+    }
+
+    pub const fn rdram_end_offset_exclusive(self) -> u32 {
+        self.rdram_end_offset_exclusive
+    }
+
+    pub const fn byte_count(self) -> u32 {
+        self.rdram_end_offset_exclusive - self.rdram_start_offset
+    }
+
+    pub const fn cause(self) -> MachineRdramCartridgeStagingCause {
+        self.cause
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rdram {
     bytes: Vec<u8>,
@@ -976,6 +1016,7 @@ pub struct Rdram {
     finalization_started: bool,
     active_calibration: Option<MachineRdramCalibrationTarget>,
     primary_data_cache_writebacks: Vec<MachineRdramPrimaryDataCacheWritebackState>,
+    cartridge_staging: Option<MachineRdramCartridgeStagingState>,
 }
 
 impl Rdram {
@@ -997,6 +1038,7 @@ impl Rdram {
             finalization_started: false,
             active_calibration: None,
             primary_data_cache_writebacks: Vec::new(),
+            cartridge_staging: None,
         })
     }
 
@@ -1014,6 +1056,37 @@ impl Rdram {
 
     pub fn primary_data_cache_writebacks(&self) -> &[MachineRdramPrimaryDataCacheWritebackState] {
         &self.primary_data_cache_writebacks
+    }
+
+    pub(crate) const fn cartridge_staging_state(
+        &self,
+    ) -> Option<MachineRdramCartridgeStagingState> {
+        self.cartridge_staging
+    }
+
+    pub(crate) fn from_clean_room_hle_cartridge_payload(
+        rdram_start_offset: u32,
+        payload: &[u8],
+        cartridge_start_offset: u32,
+    ) -> Result<Self, RdramAccessError> {
+        let mut replacement = Self::default();
+        let start = rdram_start_offset as usize;
+        if start > replacement.bytes.len() || payload.len() > replacement.bytes.len() - start {
+            return Err(RdramAccessError {
+                offset: start,
+                width: payload.len(),
+            });
+        }
+        let end = start + payload.len();
+        replacement.bytes[start..end].copy_from_slice(payload);
+        replacement.cartridge_staging = Some(MachineRdramCartridgeStagingState {
+            cartridge_start_offset,
+            cartridge_end_offset_exclusive: cartridge_start_offset + payload.len() as u32,
+            rdram_start_offset,
+            rdram_end_offset_exclusive: rdram_start_offset + payload.len() as u32,
+            cause: MachineRdramCartridgeStagingCause::CleanRoomHle,
+        });
+        Ok(replacement)
     }
 
     pub(crate) fn apply_primary_data_cache_writeback(

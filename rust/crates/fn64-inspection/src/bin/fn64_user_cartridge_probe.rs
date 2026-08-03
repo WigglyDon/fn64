@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use fn64_core::{
-    load_cartridge, rom_source_layout_name, CpuInstructionIdentity, Machine,
-    MachineCartridgeBootstrapError, MachineCpuInstructionInspection,
-    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRepresentedStepOutcome, MachineSpStatusState,
-    PifFirmwareClassification, PifIpl2Profile,
+    load_cartridge, rom_source_layout_name, CpuInstructionIdentity, Machine, MachineBootSource,
+    MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCpuInstructionFetchError,
+    MachineCpuInstructionInspection, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspStepRejectionReason,
+    MachineSpStatusState, PifFirmwareClassification, PifIpl2Profile,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -19,6 +20,71 @@ struct UserCartridgeProbeArguments {
     input_path: PathBuf,
     pif_rom_path: Option<PathBuf>,
     max_steps: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UserCartridgeBootMode {
+    CleanRoomHle {
+        profile: MachineCleanRoomBootProfile,
+    },
+    ExplicitPifFirmware {
+        classification: PifFirmwareClassification,
+    },
+}
+
+impl UserCartridgeBootMode {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::CleanRoomHle { .. } => "clean_room_hle",
+            Self::ExplicitPifFirmware { .. } => "explicit_pif_firmware",
+        }
+    }
+
+    const fn pif_identity(self) -> &'static str {
+        match self {
+            Self::CleanRoomHle { .. } => "not_used",
+            Self::ExplicitPifFirmware { .. } => REDACTED_USER_PIF_FIRMWARE,
+        }
+    }
+
+    const fn pif_material(self) -> &'static str {
+        match self {
+            Self::CleanRoomHle { .. } => "not_used",
+            Self::ExplicitPifFirmware { .. } => "explicit-user-provided",
+        }
+    }
+
+    fn pif_classification(self) -> &'static str {
+        match self {
+            Self::CleanRoomHle { .. } => "not_used",
+            Self::ExplicitPifFirmware { classification } => classification.name(),
+        }
+    }
+
+    const fn pif_execution(self) -> &'static str {
+        "not_performed"
+    }
+
+    const fn x105_boot_rsp_execution(self) -> &'static str {
+        match self {
+            Self::CleanRoomHle { .. } => "not_performed",
+            Self::ExplicitPifFirmware { .. } => "machine_step",
+        }
+    }
+
+    const fn cartridge_entry_staged(self) -> &'static str {
+        match self {
+            Self::CleanRoomHle { .. } => "yes",
+            Self::ExplicitPifFirmware { .. } => "no",
+        }
+    }
+
+    const fn provenance(self) -> &'static str {
+        match self {
+            Self::CleanRoomHle { .. } => "clean_room_hle",
+            Self::ExplicitPifFirmware { .. } => "explicit_pif_firmware",
+        }
+    }
 }
 
 struct RuntimeFrontier {
@@ -73,8 +139,7 @@ fn run() -> Result<(), String> {
     let owned_pif_firmware = read_explicit_pif_firmware(arguments.pif_rom_path.as_deref())?;
 
     let mut machine = Machine::from_cartridge(cartridge);
-    let pif_firmware_classification =
-        stage_explicit_pif_cold_x105_bootstrap(&mut machine, owned_pif_firmware)?;
+    let boot_mode = stage_user_cartridge_boot(&mut machine, owned_pif_firmware)?;
 
     let mut attempted_steps = 0_u64;
     let mut committed_steps = 0_u64;
@@ -88,21 +153,20 @@ fn run() -> Result<(), String> {
 
     while attempted_steps < arguments.max_steps {
         let pc = machine.cpu().pc();
-        let previous_halt = machine.sp_status_state().map(MachineSpStatusState::halt);
+        let previous_halt = machine
+            .sp_status_state()
+            .is_none_or(MachineSpStatusState::halt);
         let needs_inspection = pc == entrypoint
-            || (entry_executions != 0
-                && machine.sp_dma_record_count() != 0
-                && previous_halt == Some(true));
+            || (entry_executions != 0 && machine.sp_dma_record_count() != 0 && previous_halt);
         let inspection = needs_inspection
             .then(|| machine.inspect_current_cpu_instruction())
             .transpose()
-            .map_err(|error| {
-                format!("bounded instruction inspection failed at PC 0x{pc:08X}: {error}")
-            })?;
+            .map_err(|error| redacted_cpu_inspection_error(pc, error))?;
 
-        let outcome = machine.step().map_err(|error| {
-            format!("Machine::step stopped before the first RSP task at PC 0x{pc:08X}: {error}")
-        })?;
+        let rsp_pc = machine.sp_pc_state().map(|state| state.raw_low_field());
+        let outcome = machine
+            .step()
+            .map_err(|error| redacted_machine_step_error(pc, rsp_pc, error))?;
         attempted_steps += 1;
         let committed = outcome
             .cadence_plan()
@@ -273,7 +337,7 @@ fn run() -> Result<(), String> {
 
         if let MachineRepresentedStepOutcome::SpStatusStoreCommitted { state, .. } = outcome {
             if entry_executions != 0
-                && previous_halt == Some(true)
+                && previous_halt
                 && !state.halt()
                 && machine.sp_dma_record_count() != 0
             {
@@ -286,12 +350,17 @@ fn run() -> Result<(), String> {
         }
     }
 
-    let first_entry =
-        first_entry.ok_or_else(|| "cartridge entrypoint was not executed".to_owned())?;
+    let first_entry = first_entry.ok_or_else(|| {
+        format!(
+            "cartridge entrypoint was not executed: boot_source={}",
+            boot_mode.name()
+        )
+    })?;
     let (task_instruction, task_status, halt_before) = task_boundary.ok_or_else(|| {
         format!(
-            "step ceiling {} reached before the first RSP task submission",
-            arguments.max_steps
+            "step ceiling {} reached before the first RSP task submission: boot_source={}",
+            arguments.max_steps,
+            boot_mode.name()
         )
     })?;
 
@@ -299,12 +368,24 @@ fn run() -> Result<(), String> {
     println!("result: ok");
     println!("classification: USER_PROVIDED_CARTRIDGE_MACHINE_STEP_COMPOSITION");
     println!("input.identity: {input_identity}");
-    println!("pif_firmware.identity: {REDACTED_USER_PIF_FIRMWARE}");
-    println!("pif_firmware.material: explicit-user-provided");
+    println!("boot_source: {}", boot_mode.name());
+    println!("pif_firmware.identity: {}", boot_mode.pif_identity());
+    println!("pif_firmware.material: {}", boot_mode.pif_material());
     println!(
         "pif_firmware.classification: {}",
-        pif_firmware_classification.name()
+        boot_mode.pif_classification()
     );
+    println!("pif_execution: {}", boot_mode.pif_execution());
+    println!(
+        "x105_boot_rsp_execution: {}",
+        boot_mode.x105_boot_rsp_execution()
+    );
+    println!(
+        "cartridge_entry_staged: {}",
+        boot_mode.cartridge_entry_staged()
+    );
+    println!("cartridge_execution: machine_step");
+    println!("boot_provenance: {}", boot_mode.provenance());
     println!("pif_firmware.synthetic_fallback: none");
     println!("input.source_bytes: {source_size}");
     println!(
@@ -350,10 +431,7 @@ fn run() -> Result<(), String> {
         "rsp_task.status_source_lineage: {:?}",
         task_status.source().source_lineage()
     );
-    println!(
-        "rsp_task.status_command: 0x{:08X}",
-        task_status.command_word()
-    );
+    println!("rsp_task.status_command_class: halt-cleared");
     println!("rsp_task.halt_before: {halt_before}");
     println!("rsp_task.halt_after: {}", task_status.halt());
     println!(
@@ -484,15 +562,42 @@ fn read_explicit_pif_firmware(path: Option<&Path>) -> Result<Option<Vec<u8>>, St
     .transpose()
 }
 
-fn stage_explicit_pif_cold_x105_bootstrap(
+fn stage_user_cartridge_boot(
     machine: &mut Machine,
     owned_pif_firmware: Option<Vec<u8>>,
-) -> Result<PifFirmwareClassification, String> {
-    if let Some(owned_bytes) = owned_pif_firmware {
-        machine
-            .install_pif_firmware(owned_bytes)
-            .map_err(|error| format!("explicit PIF firmware input rejected: {error}"))?;
+) -> Result<UserCartridgeBootMode, String> {
+    match owned_pif_firmware {
+        Some(owned_bytes) => {
+            let classification = stage_explicit_pif_cold_x105_bootstrap(machine, owned_bytes)?;
+            if machine.boot_source() != Some(MachineBootSource::ExplicitPifFirmware) {
+                return Err(
+                    "explicit PIF boot source was not retained by Machine ownership".to_owned(),
+                );
+            }
+            Ok(UserCartridgeBootMode::ExplicitPifFirmware { classification })
+        }
+        None => {
+            let profile = MachineCleanRoomBootProfile::NtscX105Pinned;
+            machine
+                .stage_clean_room_cartridge_entry(profile)
+                .map_err(|error| format!("clean-room cartridge-entry staging failed: {error}"))?;
+            if machine.boot_source() != Some(MachineBootSource::CleanRoomHle { profile }) {
+                return Err(
+                    "clean-room HLE boot source was not retained by Machine ownership".to_owned(),
+                );
+            }
+            Ok(UserCartridgeBootMode::CleanRoomHle { profile })
+        }
     }
+}
+
+fn stage_explicit_pif_cold_x105_bootstrap(
+    machine: &mut Machine,
+    owned_pif_firmware: Vec<u8>,
+) -> Result<PifFirmwareClassification, String> {
+    machine
+        .install_pif_firmware(owned_pif_firmware)
+        .map_err(|error| format!("explicit PIF firmware input rejected: {error}"))?;
 
     machine.install_pif_ipl2_profile(PifIpl2Profile::NtscPinned);
     machine.install_pif_ipl3_family(MachinePifIpl3Family::X105);
@@ -518,6 +623,227 @@ fn explicit_pif_bootstrap_error(error: MachineCartridgeBootstrapError) -> String
     }
 }
 
+fn redacted_cpu_inspection_error(pc: u32, error: MachineCpuInstructionFetchError) -> String {
+    let category = match error {
+        MachineCpuInstructionFetchError::Unaligned { .. } => "unaligned",
+        MachineCpuInstructionFetchError::NonDirectUnsupported { .. } => "non-direct-unsupported",
+        MachineCpuInstructionFetchError::DirectTargetMiss { .. } => "direct-target-miss",
+        MachineCpuInstructionFetchError::PifResetUnavailable { .. } => "pif-reset-unavailable",
+        MachineCpuInstructionFetchError::PrimaryInstructionCacheLineUnavailable { .. } => {
+            "instruction-cache-line-unavailable"
+        }
+        MachineCpuInstructionFetchError::PrimaryInstructionCacheDataUnavailable { .. } => {
+            "instruction-cache-data-unavailable"
+        }
+        MachineCpuInstructionFetchError::DirectRdram { .. } => "rdram-fetch-rejected",
+        MachineCpuInstructionFetchError::SpDmem { .. } => "sp-dmem-fetch-rejected",
+    };
+    format!(
+        "bounded instruction inspection failed: selected_processor=CPU pc=0x{pc:08X} category={category}"
+    )
+}
+
+fn redacted_machine_step_error(
+    cpu_pc: u32,
+    rsp_pc: Option<u32>,
+    error: MachineRepresentedStepError,
+) -> String {
+    match error {
+        MachineRepresentedStepError::RspRejected(rejection) => {
+            let local_pc = rsp_pc
+                .map(|pc| format!("0x{pc:03X}"))
+                .unwrap_or_else(|| "unavailable".to_owned());
+            format!(
+                "Machine::step stopped before the first RSP task: selected_processor=RSP local_pc={local_pc} category={}",
+                redacted_rsp_rejection_category(rejection.reason())
+            )
+        }
+        cpu_error => {
+            let category = match cpu_error {
+                MachineRepresentedStepError::FetchRejected(_) => "fetch-rejected",
+                MachineRepresentedStepError::BootstrapCpuStateUnavailable(_) => {
+                    "bootstrap-cpu-state-unavailable"
+                }
+                MachineRepresentedStepError::OrdinaryControlFlowRejected(_) => {
+                    "ordinary-control-flow-rejected"
+                }
+                MachineRepresentedStepError::LoadWordRejected(_) => "load-word-rejected",
+                MachineRepresentedStepError::StoreWordRejected(_) => "store-word-rejected",
+                MachineRepresentedStepError::Mfc0Rejected(_) => "mfc0-rejected",
+                MachineRepresentedStepError::Mtc0Rejected(_) => "mtc0-rejected",
+                MachineRepresentedStepError::Cop1ControlTransferRejected(_) => {
+                    "cop1-control-transfer-rejected"
+                }
+                MachineRepresentedStepError::CacheRejected(_) => "cache-rejected",
+                MachineRepresentedStepError::CpuLocalInvocationRejected(_) => {
+                    "cpu-local-invocation-rejected"
+                }
+                MachineRepresentedStepError::UnrepresentedInstruction { .. } => {
+                    "unrepresented-instruction"
+                }
+                MachineRepresentedStepError::ArithmeticOverflowExceptionEntryRejected(_) => {
+                    "arithmetic-overflow-entry-rejected"
+                }
+                MachineRepresentedStepError::DataAddressErrorExceptionEntryRejected(_) => {
+                    "data-address-error-entry-rejected"
+                }
+                MachineRepresentedStepError::InstructionFetchAddressErrorEntryRejected(_) => {
+                    "instruction-fetch-address-error-entry-rejected"
+                }
+                MachineRepresentedStepError::CompositionInvariantRejected => {
+                    "composition-invariant-rejected"
+                }
+                MachineRepresentedStepError::RspRejected(_) => {
+                    unreachable!("RSP rejection was handled before CPU structural classification")
+                }
+            };
+            let identity = cpu_error
+                .identity()
+                .map(|identity| format!("{identity:?}"))
+                .unwrap_or_else(|| "unavailable".to_owned());
+            format!(
+                "Machine::step stopped before the first RSP task: selected_processor=CPU pc=0x{cpu_pc:08X} identity={identity} category={category}"
+            )
+        }
+    }
+}
+
+fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> String {
+    match reason {
+        MachineRspStepRejectionReason::SingleStepUnsupported => {
+            "single-step-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::Fetch(_) => "fetch-rejected".to_owned(),
+        MachineRspStepRejectionReason::MalformedMfc0Encoding => "mfc0-malformed".to_owned(),
+        MachineRspStepRejectionReason::UnsupportedCop0Register { .. } => {
+            "mfc0-control-source-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::SpDmaFullUnsupported => {
+            "mfc0-sp-dma-full-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::MalformedMtc0Encoding => "mtc0-malformed".to_owned(),
+        MachineRspStepRejectionReason::Mtc0SourceUnavailable { .. } => {
+            "mtc0-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { .. } => {
+            "mtc0-control-destination-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0DmaRecordCapacityExhausted => {
+            "mtc0-read-dma-capacity-exhausted".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0DmaAddressUnavailable => {
+            "mtc0-read-dma-address-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0DmaRdramRangeRejected { .. } => {
+            "mtc0-read-dma-rdram-range-rejected".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0WriteDmaRecordCapacityExhausted => {
+            "mtc0-write-dma-capacity-exhausted".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0WriteDmaAddressUnavailable => {
+            "mtc0-write-dma-address-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0WriteDmaSourceRangeRejected { .. } => {
+            "mtc0-write-dma-source-range-rejected".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0WriteDmaSourceUnavailable { .. } => {
+            "mtc0-write-dma-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0WriteDmaSourceOpaque { .. } => {
+            "mtc0-write-dma-source-opaque".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0WriteDmaSourceKnowledgeInconsistent { .. } => {
+            "mtc0-write-dma-source-knowledge-inconsistent".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0WriteDmaRdramRangeRejected { .. } => {
+            "mtc0-write-dma-rdram-range-rejected".to_owned()
+        }
+        MachineRspStepRejectionReason::DpcStatusCommandUnsupported { .. } => {
+            "mtc0-dpc-status-command-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::DpcCounterInvariantMalformed { .. } => {
+            "mtc0-dpc-counter-invariant-malformed".to_owned()
+        }
+        MachineRspStepRejectionReason::BreakCodeUnsupported { .. } => {
+            "break-code-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::BreakInDelaySlotUnsupported { .. } => {
+            "break-in-delay-slot-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::XoriSourceUnavailable { .. } => {
+            "xori-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::MalformedLuiEncoding => "lui-malformed".to_owned(),
+        MachineRspStepRejectionReason::AddiSourceUnavailable { .. } => {
+            "addi-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::UnsupportedRegimmSelector { .. } => {
+            "regimm-selector-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::BltzSourceUnavailable { .. } => {
+            "bltz-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::BgezSourceUnavailable { .. } => {
+            "bgez-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::BneSourceAUnavailable { .. } => {
+            "bne-source-a-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::BneSourceBUnavailable { .. } => {
+            "bne-source-b-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::ControlFlowInDelaySlot { .. } => {
+            "control-flow-in-delay-slot".to_owned()
+        }
+        MachineRspStepRejectionReason::LqvScalarBaseUnavailable { .. } => {
+            "lqv-scalar-base-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::LqvElementUnsupported { .. } => {
+            "lqv-element-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::LqvAddressMisaligned { .. } => {
+            "lqv-address-misaligned".to_owned()
+        }
+        MachineRspStepRejectionReason::LqvDmemKnowledgeMalformed { .. } => {
+            "lqv-dmem-knowledge-malformed".to_owned()
+        }
+        MachineRspStepRejectionReason::VectorLoadUnsupported { .. } => {
+            "vector-load-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::VectorStoreUnsupported => {
+            "vector-store-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarLwBaseUnavailable { .. } => {
+            "lw-base-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarLwAddressMisaligned { .. } => {
+            "lw-address-misaligned".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarLwDmemByteUnavailable { .. } => {
+            "lw-dmem-byte-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarLwDmemKnowledgeMalformed { .. } => {
+            "lw-dmem-knowledge-malformed".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarLoadUnsupported { .. } => {
+            "scalar-load-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarStoreUnsupported { .. } => {
+            "scalar-store-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarSllUnsupported => "sll-unsupported".to_owned(),
+        MachineRspStepRejectionReason::VsubElementUnsupported { .. } => {
+            "vsub-element-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::VaddcElementUnsupported { .. } => {
+            "vaddc-element-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::UnrepresentedInstruction { class } => {
+            format!("unrepresented-{class:?}-instruction")
+        }
+    }
+}
+
 fn redacted_input_identity(_path: &Path) -> &'static str {
     "<REDACTED_USER_CARTRIDGE>"
 }
@@ -525,6 +851,15 @@ fn redacted_input_identity(_path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn generated_hle_machine() -> Machine {
+        let mut bytes =
+            vec![0; fn64_core::MACHINE_CLEAN_ROOM_CARTRIDGE_SOURCE_END_OFFSET_EXCLUSIVE as usize];
+        bytes[0..4].copy_from_slice(&0x8037_1240_u32.to_be_bytes());
+        bytes[8..12].copy_from_slice(&0x8000_1000_u32.to_be_bytes());
+        bytes[0x1000..0x1004].copy_from_slice(&0x2402_0042_u32.to_be_bytes());
+        Machine::from_cartridge(load_cartridge(bytes).unwrap())
+    }
 
     #[test]
     fn explicit_path_parser_owns_only_path_and_positive_step_ceiling() {
@@ -599,25 +934,47 @@ mod tests {
             assert!(!source.contains(&forbidden_field));
         }
         assert!(source.contains("input.identity: {input_identity}"));
-        assert!(source.contains("pif_firmware.identity: {REDACTED_USER_PIF_FIRMWARE}"));
+        assert!(source.contains("boot_source: {}"));
+        assert!(source.contains("pif_firmware.identity: {}"));
+        assert!(source.contains("pif_execution: {}"));
+        assert!(source.contains("x105_boot_rsp_execution: {}"));
+        assert!(source.contains("cartridge_entry_staged: {}"));
+        assert!(source.contains("cartridge_execution: machine_step"));
+        assert!(source.contains("boot_provenance: {}"));
         assert!(source.contains("pif_firmware.synthetic_fallback: none"));
         assert!(source.contains("cartridge.first_instruction.identity: {:?}"));
         assert!(source.contains("rsp_task.start_instruction_identity: {:?}"));
+        assert!(source.contains("rsp_task.status_command_class: halt-cleared"));
+        let forbidden_status_command_field = ["rsp_task.status_", "command: 0x"].concat();
+        assert!(!source.contains(&forbidden_status_command_field));
+        let forbidden_raw_step_display =
+            ["Machine::step stopped before the first RSP task ", "at PC"].concat();
+        assert!(!source.contains(&forbidden_raw_step_display));
         let forbidden_synthetic_install =
             ["install_public_synthetic_cold_", "x105_bootstrap"].concat();
         assert!(!source.contains(&forbidden_synthetic_install));
     }
 
     #[test]
-    fn unavailable_pif_material_fails_before_bootstrap_without_synthetic_fallback() {
-        let mut machine = Machine::from_cartridge(Default::default());
+    fn absent_pif_material_selects_clean_room_hle_without_synthetic_fallback() {
+        let mut machine = generated_hle_machine();
 
-        let error = stage_explicit_pif_cold_x105_bootstrap(&mut machine, None).unwrap_err();
+        let mode = stage_user_cartridge_boot(&mut machine, None).unwrap();
 
-        assert!(error.contains("PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT"));
-        assert!(error.contains("owner=PifFirmware"));
-        assert!(error.contains("synthetic_fallback=none"));
+        assert_eq!(
+            mode,
+            UserCartridgeBootMode::CleanRoomHle {
+                profile: MachineCleanRoomBootProfile::NtscX105Pinned,
+            }
+        );
+        assert_eq!(
+            machine.boot_source(),
+            Some(MachineBootSource::CleanRoomHle {
+                profile: MachineCleanRoomBootProfile::NtscX105Pinned,
+            })
+        );
         assert!(machine.pif_firmware_state().is_absent());
         assert!(machine.cartridge_bootstrap_state().is_none());
+        assert!(machine.clean_room_hle_state().is_some());
     }
 }

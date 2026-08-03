@@ -122,6 +122,7 @@ use crate::vi::{
 };
 
 mod cartridge_bootstrap;
+mod clean_room_hle;
 mod rdram_reservation;
 
 pub use cartridge_bootstrap::{
@@ -141,6 +142,12 @@ pub use cartridge_bootstrap::{
     MACHINE_PIF_IPL2_HANDOFF_SP_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_SP_VALUE,
     MACHINE_PIF_IPL2_HANDOFF_T3_GPR_INDEX, MACHINE_PIF_IPL2_HANDOFF_T3_VALUE,
     MACHINE_PIF_IPL2_HANDOFF_X105_SEED,
+};
+pub use clean_room_hle::{
+    MachineBootSource, MachineCleanRoomBootProfile, MachineCleanRoomHleError,
+    MachineCleanRoomHleState, MACHINE_CLEAN_ROOM_CARTRIDGE_BYTE_COUNT,
+    MACHINE_CLEAN_ROOM_CARTRIDGE_SOURCE_END_OFFSET_EXCLUSIVE,
+    MACHINE_CLEAN_ROOM_CARTRIDGE_SOURCE_START_OFFSET,
 };
 
 use rdram_reservation::CpuRdramReservation;
@@ -5572,6 +5579,7 @@ pub struct Machine {
     processor_turn: MachineStepProcessor,
     cpu_rdram_reservation: CpuRdramReservation,
     cartridge_bootstrap: Option<MachineCartridgeBootstrapState>,
+    clean_room_hle: Option<MachineCleanRoomHleState>,
     powered_on: bool,
 }
 
@@ -5600,6 +5608,7 @@ impl Machine {
             processor_turn: MachineStepProcessor::Cpu,
             cpu_rdram_reservation: CpuRdramReservation::new(),
             cartridge_bootstrap: None,
+            clean_room_hle: None,
             powered_on: true,
         }
     }
@@ -5620,7 +5629,35 @@ impl Machine {
         self.processor_turn = MachineStepProcessor::Cpu;
         self.cpu_rdram_reservation = CpuRdramReservation::new();
         self.cartridge_bootstrap = None;
+        self.clean_room_hle = None;
         self.powered_on = true;
+    }
+
+    fn active_bootstrap_cpu_state_kind(&self) -> Option<MachineBootstrapCpuStateKind> {
+        self.clean_room_hle
+            .map(MachineCleanRoomHleState::cpu_state_kind)
+            .or_else(|| {
+                self.cartridge_bootstrap
+                    .map(MachineCartridgeBootstrapState::cpu_state_kind)
+            })
+    }
+
+    fn active_bootstrap_cop0_status_source(&self) -> Option<MachineBootstrapCop0StatusSource> {
+        self.clean_room_hle
+            .map(MachineCleanRoomHleState::cop0_status_source)
+            .or_else(|| {
+                self.cartridge_bootstrap
+                    .map(MachineCartridgeBootstrapState::cop0_status_source)
+            })
+    }
+
+    fn active_bootstrap_gpr_source(&self, register_index: u8) -> Option<MachineBootstrapGprSource> {
+        self.clean_room_hle
+            .and_then(|state| state.gpr_source(usize::from(register_index)))
+            .or_else(|| {
+                self.cartridge_bootstrap
+                    .and_then(|state| state.gpr_source(usize::from(register_index)))
+            })
     }
 
     pub const fn ri_select_state(&self) -> Option<MachineRiSelectState> {
@@ -6749,11 +6786,7 @@ impl Machine {
             return Some(MachineBootstrapGprSource::ArchitecturalZero);
         }
 
-        self.cartridge_bootstrap.map(|state| {
-            state
-                .gpr_source(usize::from(register_index))
-                .unwrap_or(MachineBootstrapGprSource::UnknownPifProduced)
-        })
+        self.active_bootstrap_gpr_source(register_index)
     }
 
     fn ordinary_control_flow_rejection(
@@ -8309,8 +8342,7 @@ impl Machine {
             return MachineBootstrapGprSource::ArchitecturalZero;
         }
 
-        self.cartridge_bootstrap
-            .and_then(|state| state.gpr_source(usize::from(register_index)))
+        self.active_bootstrap_gpr_source(register_index)
             .unwrap_or(MachineBootstrapGprSource::UnknownPifProduced)
     }
 
@@ -10079,15 +10111,19 @@ impl Machine {
             }
         };
 
-        let cpu_state_kind = self
-            .cartridge_bootstrap
-            .map(MachineCartridgeBootstrapState::cpu_state_kind);
-        let status_source = self
-            .cartridge_bootstrap
-            .map(MachineCartridgeBootstrapState::cop0_status_source);
-        if cpu_state_kind != Some(MachineBootstrapCpuStateKind::CoupledColdX105NtscPinned)
-            || status_source != Some(MachineBootstrapCop0StatusSource::PifIpl1ColdBootStatus)
-        {
+        let cpu_state_kind = self.active_bootstrap_cpu_state_kind();
+        let status_source = self.active_bootstrap_cop0_status_source();
+        let access_source_backed = matches!(
+            (cpu_state_kind, status_source),
+            (
+                Some(MachineBootstrapCpuStateKind::CoupledColdX105NtscPinned),
+                Some(MachineBootstrapCop0StatusSource::PifIpl1ColdBootStatus)
+            ) | (
+                Some(MachineBootstrapCpuStateKind::CleanRoomCartridgeEntryNtscX105Pinned),
+                Some(MachineBootstrapCop0StatusSource::CleanRoomHlePublicProfile)
+            )
+        );
+        if !access_source_backed {
             return Err(MachineMtc0Rejection::new(
                 fields,
                 MachineMtc0RejectionReason::ColdX105AccessUnavailable {
@@ -10100,8 +10136,7 @@ impl Machine {
         let source = if fields.rt() == 0 {
             MachineBootstrapGprSource::ArchitecturalZero
         } else {
-            self.cartridge_bootstrap
-                .and_then(|state| state.gpr_source(usize::from(fields.rt())))
+            self.active_bootstrap_gpr_source(fields.rt())
                 .unwrap_or(MachineBootstrapGprSource::UnknownPifProduced)
         };
         if !source.is_known() {
@@ -10218,8 +10253,8 @@ impl Machine {
 
         if source == MachineMfc0Source::Status
             && self
-                .cartridge_bootstrap
-                .is_some_and(|state| !state.cop0_status_source().is_known())
+                .active_bootstrap_cop0_status_source()
+                .is_some_and(|source| !source.is_known())
         {
             return Err(MachineMfc0Rejection::new(
                 fields,
@@ -11758,7 +11793,8 @@ impl Machine {
                             },
                         );
                     }
-                    MachinePrimaryInstructionCacheLineState::Invalid { .. }
+                    MachinePrimaryInstructionCacheLineState::CleanRoomHleInvalid { .. }
+                    | MachinePrimaryInstructionCacheLineState::Invalid { .. }
                     | MachinePrimaryInstructionCacheLineState::IndexInvalid { .. }
                     | MachinePrimaryInstructionCacheLineState::HitInvalid { .. }
                     | MachinePrimaryInstructionCacheLineState::ValidDataUnavailable { .. }
