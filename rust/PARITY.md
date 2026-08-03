@@ -27,8 +27,9 @@ history.
 - The product is incomplete and headless. `BOOT-2` means the first genuine
   user-cartridge RSP task submission; it is not x105 IPL3 CPU entry, bootstrap
   handoff, game boot, compatibility, timing accuracy, or host-runtime support.
-  Its historical task-start observation requires a fresh explicit-PIF cold run
-  before it can be classified as current authentic reproduction.
+  Its historical task-start observation requires a fresh user-cartridge run
+  after the clean-room cartridge-entry handoff before it can be classified as
+  a current reproduction. That route makes no authentic-PIF execution claim.
 
 ## Represented owners
 
@@ -37,8 +38,8 @@ history.
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads; explicit local user-cartridge bytes remain immutable Machine input | no filesystem path, title/ID/region/digest policy, cartridge writes, or compatibility claim |
 | `PifFirmware` | absent material, private immutable owned bytes for one structurally accepted explicit raw-Boot-ROM-shaped input, or deliberately selected public-synthetic bytes; accepted bytes source explicit profiled copy materialization | no path, implicit absent-to-synthetic fallback, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
-| `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general register array, generic bus, or MMIO framework |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
+| `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance; one atomic MiB cartridge-derived clean-room entry payload with typed source/destination range and cause | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general cartridge mapping, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB private backing with explicit per-byte Available/Unavailable knowledge, checked truth-bearing observations, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, unavailable backing exposure as value truth, RSP fetch, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
 | `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP and selected-SP-memory-to-RDRAM DMA records with CPU or exact RSP-MTC0 trigger provenance, general run-start lineage, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, eight sliced accumulator lanes, independent VCO halves and VCC/VCE truth, exact aligned element-zero full-register LQV, exact element-zero VSUB/VADDC, exact aligned Available-DMEM scalar LW, exact raw-zero NOP, scalar XORI/LUI/ADDI, scalar BLTZ/BGEZ/BNE with independent delay context, MFC0 for SP_SEMAPHORE/SP_DRAM_ADDR/SP_DMA_BUSY, exact MTC0 dispatch for SP_MEM_ADDR/SP_DRAM_ADDR/SP_RD_LEN/SP_WR_LEN and the sole exact DPC_STATUS command, exact zero-code Break with Sp halt/broke and conditional Mi SP-pending effects, and separate committed count | no DMA timing/queue, partial/misaligned/nonzero-element vector operations, unavailable/misaligned/other scalar loads, scalar stores, nonzero SLL, other branches or J-family control flow, other RSP MFC0/MTC0 destinations or DPC_STATUS commands, broader vector arithmetic, nonzero-code/delay-slot Break, generic task completion, or CPU continuation after Break |
@@ -49,8 +50,8 @@ history.
 | `Ai` | reached control, DAC-rate, and bitrate raw request words plus CPU provenance | no audio DMA, samples, clock, mixer, or host audio |
 | `Si` | 64-byte PIF RAM, cold-idle status, CPU provenance, and a fixed hostless no-controller profile | no SI DMA, controller protocol/UI, or private PIF execution |
 | `Vi` | reached raw register words/provenance plus deterministic half-line/current state and MI-owned interrupt assertion/clear relationship | no rendering, framebuffer presentation, scan timing accuracy, or host display |
-| `Machine` | Cartridge, optional accepted or public synthetic PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Dpc, Ri, Mi, Pi, Ai, Si, Vi, bootstrap lineage, powered/reset state, represented fetch/data/device composition, one private CPU/RSP turn, and processor-tagged public step composition | no hidden global machine, platform clock, file path, renderer, audio/output, host input, event loop, public RSP-only step, or cycle-accuracy claim |
-| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV/LW/NOP/MTC0/XORI/LUI/ADDI/BLTZ/BGEZ/BNE/VSUB/VADDC/Break, guest-semaphore, two-read-DMA, idle-busy-read, 256-iteration vector sum, exact SP write DMA, exact DPC counter clear, real CPU interleave, halted-RSP preservation, and read-only CPU-frontier proof, plus one optional explicit-cartridge and explicit-PIF redacted probe over public core APIs | no emulated truth, synthetic fallback in authentic mode, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
+| `Machine` | Cartridge, optional accepted or public synthetic PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Dpc, Ri, Mi, Pi, Ai, Si, Vi, low-level bootstrap lineage, one atomic `CleanRoomHle` cartridge-entry generation point, powered/reset state, represented fetch/data/device composition, one private CPU/RSP turn, and processor-tagged public step composition | no hidden global machine, platform clock, file path, renderer, audio/output, host input, event loop, hidden boot interpreter, public RSP-only step, or cycle-accuracy claim |
+| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV/LW/NOP/MTC0/XORI/LUI/ADDI/BLTZ/BGEZ/BNE/VSUB/VADDC/Break, guest-semaphore, two-read-DMA, idle-busy-read, 256-iteration vector sum, exact SP write DMA, exact DPC counter clear, real CPU interleave, halted-RSP preservation, and read-only CPU-frontier proof, plus one optional redacted user-cartridge probe whose default boot source is clean-room HLE and whose optional `--pif-rom` route remains separate | no emulated truth, public-synthetic fallback in user-cartridge mode, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
 
 ## RSP execution foundation
 
@@ -250,6 +251,42 @@ same SP DMEM offsets, and records cartridge provenance. This is a narrow
 bootstrap path, not a general cartridge mapping, PI DMA, CIC model, direct game
 entry, or complete boot.
 
+## Clean-room cartridge-entry HLE
+
+`Machine::stage_clean_room_cartridge_entry` is one concrete post-boot
+generation point for `MachineCleanRoomBootProfile::NtscX105Pinned`. It is the
+default ordinary user-cartridge boot source and is structurally distinct from
+`ExplicitPifFirmware` and `PublicSyntheticProof`.
+
+The method consumes only the already normalized `Cartridge` plus the typed
+public profile. Before mutation it verifies that no PIF boot input is installed,
+that cartridge source `[0x1000, 0x101000)` is present, that the declared entry is
+in the represented KSEG0 range, and that the one-MiB physical destination fits
+RDRAM. It reads the complete payload and bounded profile side data, computes the
+public/profile- and cartridge-derived CPU plan, and constructs replacement CPU
+and RDRAM owners before committing one transition. A failed preflight leaves
+all Machine state unchanged.
+
+Successful staging records `CleanRoomHle` boot provenance and one
+`MachineRdramCartridgeStagingState` whose source offsets, destination offsets,
+byte count, and cause remain inspectable. `Rdram` owns every destination byte.
+`Cpu` owns the entry `pc` / sequential `next_pc`, cleared delay context,
+architectural zero, the exact profile-required GPR/HI/LO/COP0 state, and
+HLE-invalid I/D cache lines. Count and Compare remain zero because no skipped
+instruction executed. SP DMEM and IMEM return to unavailable boot-local truth;
+no public X105 program, proprietary boot bytes, or hidden instruction sequence
+is installed. Represented devices return to their existing construction facts,
+and processor eligibility is CPU.
+
+The staging method calls no execution entrance and changes neither CPU nor RSP
+committed-instruction count. The next public `Machine::step` naturally fetches,
+identifies, and attempts the cartridge-entry CPU instruction. Generated proof
+covers exact payload lineage, entry cadence, zero-register behavior, cache
+knownness, reset, atomic invalid/truncated rejection, boot-source separation,
+and independent Machines. This is high-level emulation of an externally visible
+completed handoff, not evidence that PIF, IPL2, public X105 RSP, or IPL3
+instructions executed.
+
 ## Explicit PIF firmware input boundary
 
 The existing no-window `fn64_boot_probe` accepts one optional literal
@@ -260,13 +297,13 @@ It performs no automatic search, default lookup, fallback, download, profile
 inference, or variant selection. The core never receives the path or CLI text.
 
 The optional `fn64_user_cartridge_probe` exposes the same direct `--pif-rom`
-read boundary for its user-cartridge composition. It fixes both input identities
-to redacted placeholders, passes only owned bytes to existing core APIs, and
-selects the already represented NTSC cold-cartridge x105 handoff inputs. If PIF
-material is absent, the existing typed profile-requires-firmware error becomes a
-deterministic `PIF_FIRMWARE_REQUIRED_FOR_AUTHENTIC_BOOT` stop before any
-`Machine::step`. It performs no path search, environment discovery, default
-lookup, or public-synthetic fallback.
+read boundary as a separate low-level verification mode. It fixes both input
+identities to redacted placeholders, passes only owned bytes to existing core
+APIs, and selects the already represented NTSC cold-cartridge x105 handoff
+inputs when that option is present. If the option is absent, the probe selects
+`CleanRoomHle`; it does not install unavailable or public-synthetic PIF bytes.
+It performs no path search, environment discovery, default firmware lookup, or
+public-synthetic fallback.
 
 `Machine::install_pif_firmware` validates before replacing the private input
 owner. Exactly 1,984 bytes are accepted as structurally shaped raw Boot ROM
@@ -1070,17 +1107,20 @@ claim BOOT-3 or game compatibility.
 `fn64_user_cartridge_probe` is a separate optional local instrument. It
 requires one explicit cartridge path and accepts one optional explicit
 `--pif-rom` path. It reads and transfers owned bytes into `Cartridge` and
-`PifFirmware`, requires explicit PIF material before bootstrap, executes only
-public `Machine::step`, enforces a positive ceiling, and stops after the first
-SP_STATUS commit that changes halt true to false
-after represented SP DMA preparation. Its output uses the fixed
+`PifFirmware` when supplied. Without that option it stages the default
+clean-room cartridge-entry handoff; with it, the low-level explicit-PIF path is
+preserved. After either staging route, execution uses only public
+`Machine::step`, enforces a positive ceiling, and stops after the first
+SP_STATUS commit that changes halt true to false after represented SP DMA
+preparation. Its output uses the fixed
 `<REDACTED_USER_CARTRIDGE>` identity, sizes/layout, decoded architecture
 identities without raw instruction fields, bounded first-occurrence architecture
-facts, endpoint register/control facts, and step counts. It does not print or
-retain the path, basename, hash, title, ID, strings, bytes, disassembly, or
-microcode, and standard CI never requires the private input.
-With no PIF input it stops before stepping with the named material owner;
-public-synthetic firmware is never an authentic-mode fallback.
+facts, typed boot-source/provenance classifications, endpoint register/control
+facts, and step counts. Machine/RSP failures are rendered by structural category
+without calling their value-bearing `Display` implementations. It does not
+print or retain the path, basename, hash, title, ID, strings, bytes,
+disassembly, or microcode, and standard CI never requires the private input.
+Public-synthetic firmware is never reachable from this user-cartridge route.
 
 ## Required gate
 
@@ -1090,8 +1130,9 @@ From repository root:
 ./rust/verify-forward
 ```
 
-The gate owns the required order: formatting, warnings-denied clippy, complete
-Rust tests, the machine probe, and the step probe. It ends with
+The gate owns the required order: generated private-evidence-guard regressions,
+a value-free current-tree evidence check, formatting, warnings-denied clippy,
+complete Rust tests, the machine probe, and the step probe. It ends with
 `forward gate: ok` on success.
 
 A green gate proves the bounded current Rust source at the tested commit. It

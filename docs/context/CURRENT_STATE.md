@@ -14,7 +14,7 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
 - `LIVE_REPO_FACT`: fn64 is one Git repository whose sole current product implementation is the tracked Cargo workspace under `rust/`.
 - `LIVE_REPO_FACT`: no active C/C++ source, header, CMake build owner, C++ proof binary, C++ host shell, or C++-only launch script remains in the current tree.
 - `USER_DECISION`: the former C++ machine, host, proof, and build lane is retired without semantic-equivalence or inventory prerequisites. Git history is its only archive; unported behavior is intentionally absent.
-- `LIVE_REPO_FACT`: `./rust/verify-forward` is the sole required product gate and has no CMake, C++, ROM, SDL/window/audio, or Git dependency.
+- `LIVE_REPO_FACT`: `./rust/verify-forward` is the sole required product gate and has no CMake, C++, ROM, SDL/window/audio, or Git dependency. It begins with generated regressions for the private-evidence redaction guard and a value-free check of the current tracked evidence tree.
 - `USER_DECISION`: the active delivery loop is Don -> Master GPT -> Master
   Codex -> Master GPT. Master GPT owns architecture, sequencing, scope, and
   interpretation; Master Codex directly owns repository inspection,
@@ -37,14 +37,13 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   behavior, and no ROM content may enter source, tests, evidence, patches, or
   artifacts.
 - `LIVE_REPO_FACT`: `fn64_user_cartridge_probe` is the optional explicit-path
-  shell for that proof. It accepts an optional literal `--pif-rom` path, reports
-  both private input identities through fixed placeholders, and requires
-  explicitly supplied PIF bytes before authentic bootstrap composition. It has
-  no firmware search, default, environment discovery, or public-synthetic
-  fallback. Missing PIF material stops at the named firmware owner before
-  execution. The probe reports a bounded redacted dashboard and first-occurrence
-  architectural ledger, has a positive step ceiling, and is not a standard CI
-  input.
+  shell for that proof. With no `--pif-rom` it selects the Machine-owned
+  `CleanRoomHle` cartridge-entry handoff; with an explicit path it preserves the
+  separate `ExplicitPifFirmware` low-level verification route.
+  `PublicSyntheticProof` is unreachable from this user-cartridge shell. The
+  probe reports fixed redacted input identities, typed boot-source and
+  provenance classifications, decoded architecture identities without raw
+  words, and a positive step ceiling. It is not a standard CI input.
 
 ## Forward machine truth
 
@@ -71,9 +70,19 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   submission. The earlier use of `BOOT-2` for the first x105 IPL3 CPU
   `SpecialAdd` is rejected; that instruction marks `X105_IPL3_CPU_ENTRY` only.
   A historical local run reached the first task-start request, but its implicit
-  public-synthetic PIF input makes it inadmissible as an authentic BOOT-2
-  reproduction under current material law. Authentic BOOT-2 is awaiting one
-  explicit user-provided PIF input and a fresh cold run.
+  public-synthetic PIF input makes it inadmissible as a current reproduction.
+  Ordinary execution now begins from one explicit `CleanRoomHle` post-boot
+  cartridge-entry transition and makes no PIF/IPL/X105 execution claim. BOOT-2
+  still requires a fresh user-cartridge run through that handoff and remains
+  unrerun.
+- `LIVE_REPO_FACT`: `Machine::stage_clean_room_cartridge_entry` owns one atomic
+  firmware-free generation point for the pinned NTSC/X105-derived public boot
+  profile. It preflights normalized cartridge spans, stages exactly one MiB
+  from cartridge offset `0x1000` into RDRAM at the physical cartridge entry,
+  records cartridge-plus-HLE provenance, installs the public/profile- and
+  cartridge-derived CPU entry state, invalidates primary caches with typed HLE
+  provenance, leaves boot-local SP memory unavailable, commits no CPU or RSP
+  instruction, and makes the next public `Machine::step` select CPU.
 - `LIVE_REPO_FACT`: each Machine now owns 4 KiB of SP IMEM with explicit
   construction/reset, byte knownness independent of zero backing, and a narrow
   CPU-data route for the represented physical range. Complete aligned `Lw`
@@ -715,14 +724,15 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 - `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, RSP task
   execution, behavior after first task submission, graphics/audio output, and
   host-runtime presentation remain unmeasured or unavailable.
-- `LIVE_REPO_FACT`: fn64 has an explicit PIF-firmware input, structural
-  validation, immutable Machine ownership, and reset/bootstrap persistence. It
-  still has no firmware authenticity/revision classifier or firmware execution.
-  Both no-window input shells can transfer only explicitly named PIF bytes; the
-  user-cartridge shell stops with PIF material unavailable when they are absent
-  and never substitutes public synthetic bytes. No configured local explicit
-  PIF reference was available for this pass, so authentic x105 reconnection,
-  cartridge entry, and BOOT-2 remain unrerun.
+- `LIVE_REPO_FACT`: fn64 retains an optional explicit PIF-firmware input,
+  structural validation, immutable Machine ownership, and reset/bootstrap
+  persistence for low-level verification. It still has no firmware
+  authenticity/revision classifier or firmware execution. Ordinary
+  user-cartridge mode requires no PIF file, never substitutes public synthetic
+  bytes, and performs no X105 program injection. The current operation could
+  not obtain the established private-cartridge reference through an authorized
+  non-disclosing configuration mechanism, so private cartridge entry, BOOT-2,
+  and the user-RSP pressure ladder were not rerun.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI

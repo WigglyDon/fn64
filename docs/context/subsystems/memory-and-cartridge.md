@@ -36,10 +36,11 @@ alone produces SP IMEM state.
 Material ownership has three source-clear states. A structurally accepted
 explicit byte vector is user-provided `PifFirmware`; generated public bytes are
 public-synthetic `PifFirmware` only when a proof selects that constructor; and
-no supplied bytes leave firmware unavailable. The authentic user-cartridge
-composition accepts only the first state. It never promotes unavailable
-material to public synthetic, treats unavailable backing as zero, or attaches a
-host path to Machine or `SpImem` provenance.
+no supplied bytes leave firmware unavailable. The optional low-level
+user-cartridge composition accepts only the first state. Ordinary cartridge
+execution instead selects `CleanRoomHle` and consumes no PIF state. Neither
+route promotes unavailable material to public synthetic, treats unavailable
+backing as zero, or attaches a host path to Machine or `SpImem` provenance.
 
 Cold-x105 coupled handoff adds four independent explicit host spellings for
 family, reset kind, boot medium, and PIF-version bit. They are transferred as
@@ -62,6 +63,14 @@ normalized cartridge span `[0x40, 0x1000)`, stages it into the same SP DMEM
 offsets, and records cartridge provenance. The bounded inspection host supplies
 owned bytes; it never gives the core a file path. This narrow path is not PI
 DMA, a general cartridge mapping, or a PIF/CIC implementation.
+
+The separate default `Machine::stage_clean_room_cartridge_entry` path
+preflights normalized cartridge source `[0x1000, 0x101000)`, the pinned KSEG0
+entry, and the complete one-MiB physical RDRAM destination before mutation. It
+constructs replacement RDRAM whose staging record owns exact cartridge and
+destination spans plus `CleanRoomHle` cause. It stages no PIF/IPL/X105 bytes and
+does not generalize cartridge mapping; later guest writes and DMA remain their
+own causes.
 
 Aligned CPU `Lw` now reuses that exact bootstrap span as the sole production
 knownness owner for direct SP-DMEM data reads. A complete word within

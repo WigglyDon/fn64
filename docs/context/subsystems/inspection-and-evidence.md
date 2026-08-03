@@ -88,12 +88,22 @@ select game behavior; Machine validation and state production remain core
 authority. Structural acceptance is not authentic firmware validation.
 
 The optional `fn64_user_cartridge_probe` exposes the same literal `--pif-rom`
-boundary. Its authentic composition requires explicit bytes; absence produces
-one deterministic PIF-material-unavailable diagnostic before stepping. Public
-synthetic firmware is not reachable from this host path. Generated process tests
-prove explicit input, absence, malformed/unsupported input, no current-directory
+boundary as an optional low-level verification route. Absence now selects the
+typed `CleanRoomHle` cartridge-entry handoff; presence selects
+`ExplicitPifFirmware`. Public synthetic firmware is not reachable from this
+host path. Generated core/process tests prove atomic HLE staging, first CPU
+selection through `Machine::step`, entry lineage, independent Machines,
+explicit input preservation, malformed/unsupported input, no current-directory
 or environment search, no fallback, and fixed redaction without using private
-material.
+material. Machine and RSP errors are classified structurally without emitting
+raw instruction words or private operands.
+
+`tools/verify-private-evidence-redaction` is the narrow current-tree evidence
+guard. Its generated self-test distinguishes designated private CPU/RSP words
+and cartridge path fields from explicitly public synthetic instruction evidence.
+It prints only path, line, and field category on failure, checks the tracked
+evidence tree without private input, and runs before all other forward-gate
+stages.
 
 Integrated public-source evidence records profile-qualified IPL1 copy ranges
 without copying firmware or external source. The probe may select an explicit

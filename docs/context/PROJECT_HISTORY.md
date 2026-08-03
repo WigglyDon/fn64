@@ -946,6 +946,39 @@ product or reference lane requires a new explicit product decision.
   BOOT-2, and the user-RSP pressure ladder were not run. No firmware was copied,
   hashed, committed, or packaged.
 
+## Era 49 — Private-evidence seal and default clean-room cartridge entry (2026-08-03)
+
+- Evidence seal: the remaining committed private CPU-word field was replaced by
+  `<REDACTED_PRIVATE_CPU_WORD>` without emitting its prior value. <!-- intentional literal redaction, not an executable placeholder --> A narrow
+  repository guard now distinguishes private/authentic-run fields from public
+  synthetic instruction evidence, proves value-free failures with generated
+  fixtures, validates the tracked evidence tree, and runs first in the forward
+  gate.
+- Boot decision: ordinary user-cartridge execution now uses
+  `CLEAN_ROOM_CARTRIDGE_ENTRY_HANDOFF`. Explicit user-supplied PIF input remains
+  an optional low-level verification route, while public synthetic PIF/X105
+  remains proof-only and unreachable from ordinary cartridge mode.
+- Product result: `Machine::stage_clean_room_cartridge_entry` atomically stages
+  one public-profile CPU entry state and one bounded cartridge-derived RDRAM
+  payload, records typed HLE lineage, leaves SP boot memory unavailable, and
+  executes no instruction. The next public `Machine::step` naturally selects
+  CPU. Generated tests cover atomic rejection, entry cadence, zero-register and
+  cache state, RDRAM lineage, boot-source separation, reset, and independent
+  Machines.
+- Host result: `fn64_user_cartridge_probe` selects HLE when `--pif-rom` is
+  absent, preserves the explicit-PIF route when present, reports structural
+  boot provenance, and formats Machine/RSP rejection categories without
+  serializing raw instruction words or private operands.
+- Verification boundary: 654 core tests, 16 inspection-library tests, both
+  four-test user-cartridge targets, boot CLI tests, machine/step probes,
+  explicit-PIF proofs, public synthetic X105 proof, and the full forward gate
+  pass. No private input or proprietary material entered routine verification.
+- Runtime boundary: the current operation found no named configured environment
+  reference, and safety policy denied nonessential historical or filesystem
+  discovery. It did not ask for or guess a path. The cold private HLE run,
+  cartridge execution, BOOT-2 reproduction, and user-RSP pressure ladder remain
+  unrun; no CPU or RSP identity was added.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

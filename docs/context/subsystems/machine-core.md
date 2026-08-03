@@ -23,9 +23,13 @@ PIF firmware input, optional explicit PIF IPL2 copy profile, explicit narrow
 cold-handoff selector inputs, and narrow
 machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
-ledger that earned BOOT-2. `SpImem` owns backing bytes, per-byte knowledge and
-provenance, and coherent opaque aligned-word records. Concrete reset zero and
-private opaque sentinel zero are not architecturally known values.
+ledger. A separate `Machine::stage_clean_room_cartridge_entry` generation point
+now owns the default post-boot HLE transition: one pinned public profile, one
+bounded cartridge-derived RDRAM payload, typed CPU/cache state, unavailable
+boot-local SP memory, device construction facts, CPU eligibility, and explicit
+HLE provenance. `SpImem` owns backing bytes, per-byte knowledge and provenance,
+and coherent opaque aligned-word records. Concrete reset zero and private opaque
+sentinel zero are not architecturally known values.
 Long-term ownership stays with the smallest
 host-independent core that actual hardware work earns.
 
@@ -44,6 +48,12 @@ For bootstrap execution, source provenance and consumed-GPR knownness precede
 helper invocation. Unknown-source rejection restores staged control flow and
 mutates no GPR, HI/LO, COP0, memory, or Count. A successful GPR write records
 its producing instruction lineage.
+
+Clean-room entry staging is a distinct atomic composition event, not bootstrap
+instruction execution. It preflights every source and destination, builds
+replacement CPU/RDRAM state before mutation, installs no PIF/X105 bytes, and
+changes no committed instruction count. The next public `Machine::step` owns
+the first cartridge instruction through ordinary fetch/decode/execute cadence.
 
 Control-flow snapshots, staged sequential cadence, Count advancement, rollback,
 and exception entry remain distinct owners. Ordinary control flow adds one
