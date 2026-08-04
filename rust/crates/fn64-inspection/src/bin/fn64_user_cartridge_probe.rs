@@ -6,11 +6,11 @@ use fn64_core::{
     load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource, MachineBootstrapGprSource,
     MachineCartridgeBootstrapError, MachineCleanRoomBootProfile,
     MachineCop1ControlTransferRejectionReason, MachineCpuInstructionFetchError,
-    MachineCpuInstructionInspection, MachineLoadWordRejectionReason,
-    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineRspStepRejectionReason, MachineSpStatusState, PifFirmwareClassification, PifIpl2Profile,
-    RDRAM_SIZE_BYTES,
+    MachineCpuInstructionInspection, MachineLoadWordRejectionReason, MachinePiDomain,
+    MachinePiDomainTimingField, MachinePiDomainTimingRegister, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspStepRejectionReason,
+    MachineSpStatusState, PifFirmwareClassification, PifIpl2Profile, RDRAM_SIZE_BYTES,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -746,30 +746,48 @@ fn redacted_machine_step_error(
     }
 }
 
-fn redacted_load_word_rejection_category(reason: MachineLoadWordRejectionReason) -> &'static str {
+fn redacted_load_word_rejection_category(reason: MachineLoadWordRejectionReason) -> String {
     match reason {
-        MachineLoadWordRejectionReason::NonDirectUnsupported => "non-direct-unsupported",
-        MachineLoadWordRejectionReason::DirectTargetMiss => "direct-target-miss",
-        MachineLoadWordRejectionReason::DirectRdramReadRejected => "rdram-read-rejected",
-        MachineLoadWordRejectionReason::CartridgeReadRejected => "cartridge-read-rejected",
-        MachineLoadWordRejectionReason::SpDmemUnknown { .. } => "sp-dmem-unknown",
-        MachineLoadWordRejectionReason::SpDmemReadRejected => "sp-dmem-read-rejected",
-        MachineLoadWordRejectionReason::SpImemUnknown { .. } => "sp-imem-unknown",
-        MachineLoadWordRejectionReason::SpImemWordOpaque { .. } => "sp-imem-opaque",
-        MachineLoadWordRejectionReason::SpImemReadRejected => "sp-imem-read-rejected",
-        MachineLoadWordRejectionReason::RiSelectUnavailable => "ri-select-unavailable",
-        MachineLoadWordRejectionReason::RdramRegisterModeDisabled => "rdram-register-mode-disabled",
-        MachineLoadWordRejectionReason::RdramModuleRegisterUnavailable => {
-            "rdram-module-register-unavailable"
+        MachineLoadWordRejectionReason::NonDirectUnsupported => "non-direct-unsupported".to_owned(),
+        MachineLoadWordRejectionReason::DirectTargetMiss => "direct-target-miss".to_owned(),
+        MachineLoadWordRejectionReason::DirectRdramReadRejected => "rdram-read-rejected".to_owned(),
+        MachineLoadWordRejectionReason::CartridgeReadRejected => {
+            "cartridge-read-rejected".to_owned()
         }
-        MachineLoadWordRejectionReason::RiRefreshUnavailable => "ri-refresh-unavailable",
-        MachineLoadWordRejectionReason::PiDomainTimingUnavailable { .. } => {
-            "pi-domain-timing-unavailable"
+        MachineLoadWordRejectionReason::SpDmemUnknown { .. } => "sp-dmem-unknown".to_owned(),
+        MachineLoadWordRejectionReason::SpDmemReadRejected => "sp-dmem-read-rejected".to_owned(),
+        MachineLoadWordRejectionReason::SpImemUnknown { .. } => "sp-imem-unknown".to_owned(),
+        MachineLoadWordRejectionReason::SpImemWordOpaque { .. } => "sp-imem-opaque".to_owned(),
+        MachineLoadWordRejectionReason::SpImemReadRejected => "sp-imem-read-rejected".to_owned(),
+        MachineLoadWordRejectionReason::RiSelectUnavailable => "ri-select-unavailable".to_owned(),
+        MachineLoadWordRejectionReason::RdramRegisterModeDisabled => {
+            "rdram-register-mode-disabled".to_owned()
+        }
+        MachineLoadWordRejectionReason::RdramModuleRegisterUnavailable => {
+            "rdram-module-register-unavailable".to_owned()
+        }
+        MachineLoadWordRejectionReason::RiRefreshUnavailable => "ri-refresh-unavailable".to_owned(),
+        MachineLoadWordRejectionReason::PiDomainTimingUnavailable { register } => {
+            redacted_pi_timing_register_category(register)
         }
         MachineLoadWordRejectionReason::PrimaryDataCacheStateUnavailable => {
-            "primary-data-cache-state-unavailable"
+            "primary-data-cache-state-unavailable".to_owned()
         }
     }
+}
+
+fn redacted_pi_timing_register_category(register: MachinePiDomainTimingRegister) -> String {
+    let domain = match register.domain() {
+        MachinePiDomain::One => "one",
+        MachinePiDomain::Two => "two",
+    };
+    let field = match register.field() {
+        MachinePiDomainTimingField::Latency => "latency",
+        MachinePiDomainTimingField::PulseWidth => "pulse-width",
+        MachinePiDomainTimingField::PageSize => "page-size",
+        MachinePiDomainTimingField::Release => "release",
+    };
+    format!("pi-domain-{domain}-{field}-unavailable")
 }
 
 fn redacted_cop1_control_rejection_category(
@@ -1198,6 +1216,39 @@ mod tests {
             ),
             "source-unavailable"
         );
+    }
+
+    #[test]
+    fn pi_timing_pressure_names_only_public_domain_and_field() {
+        for (domain, field, expected) in [
+            (
+                MachinePiDomain::One,
+                MachinePiDomainTimingField::Latency,
+                "pi-domain-one-latency-unavailable",
+            ),
+            (
+                MachinePiDomain::One,
+                MachinePiDomainTimingField::PulseWidth,
+                "pi-domain-one-pulse-width-unavailable",
+            ),
+            (
+                MachinePiDomain::Two,
+                MachinePiDomainTimingField::PageSize,
+                "pi-domain-two-page-size-unavailable",
+            ),
+            (
+                MachinePiDomain::Two,
+                MachinePiDomainTimingField::Release,
+                "pi-domain-two-release-unavailable",
+            ),
+        ] {
+            assert_eq!(
+                redacted_pi_timing_register_category(MachinePiDomainTimingRegister::new(
+                    domain, field
+                )),
+                expected
+            );
+        }
     }
 
     #[test]
