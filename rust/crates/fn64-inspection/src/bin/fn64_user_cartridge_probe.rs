@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use fn64_core::{
-    load_cartridge, rom_source_layout_name, CpuInstructionIdentity, Machine, MachineBootSource,
+    load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource,
     MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCpuInstructionFetchError,
     MachineCpuInstructionInspection, MachinePifIpl2HandoffBootMedium,
     MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
@@ -130,11 +130,8 @@ fn run() -> Result<(), String> {
     let input_identity = redacted_input_identity(&arguments.input_path);
     let source_bytes = std::fs::read(&arguments.input_path)
         .map_err(|error| format!("input read failed for {input_identity}: {error}"))?;
-    let source_size = source_bytes.len();
     let cartridge = load_cartridge(source_bytes)
         .map_err(|error| format!("input normalization failed for {input_identity}: {error}"))?;
-    let source_layout = cartridge.source_layout();
-    let normalized_size = cartridge.size_bytes();
     let entrypoint = cartridge.metadata().entry_point;
     let owned_pif_firmware = read_explicit_pif_firmware(arguments.pif_rom_path.as_deref())?;
 
@@ -387,12 +384,6 @@ fn run() -> Result<(), String> {
     println!("cartridge_execution: machine_step");
     println!("boot_provenance: {}", boot_mode.provenance());
     println!("pif_firmware.synthetic_fallback: none");
-    println!("input.source_bytes: {source_size}");
-    println!(
-        "input.byte_order: {}",
-        rom_source_layout_name(source_layout)
-    );
-    println!("input.normalized_bytes: {normalized_size}");
     println!("cartridge.entrypoint: 0x{entrypoint:08X}");
     println!(
         "cartridge.first_instruction.identity: {:?}",
@@ -924,10 +915,13 @@ mod tests {
     }
 
     #[test]
-    fn output_contract_omits_raw_instruction_fields_and_retains_identities() {
+    fn output_contract_omits_private_identity_shape_and_raw_instruction_fields() {
         let source = include_str!("fn64_user_cartridge_probe.rs");
         for forbidden_field in [
             ["input", ".basename: "].concat(),
+            ["input", ".source_bytes: "].concat(),
+            ["input", ".byte_order: "].concat(),
+            ["input", ".normalized_bytes: "].concat(),
             ["cartridge.first_instruction", ".word: "].concat(),
             ["rsp_task.start_instruction", "_word: "].concat(),
         ] {
