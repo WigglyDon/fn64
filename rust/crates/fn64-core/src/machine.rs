@@ -65,15 +65,15 @@ use crate::rdram::{
     MachineRdramBroadcastDeviceIdSource, MachineRdramBroadcastRefreshRowSource,
     MachineRdramBroadcastRefreshRowState, MachineRdramCpuRegisterWriteSource,
     MachineRdramFirstResponderDeviceIdRequestState, MachineRdramFirstResponderDeviceIdSource,
-    MachineRdramInitialModeRequestState, MachineRdramInitialModeSource, MachineRdramModeState,
-    MachineRdramModuleState, MachineRdramProfile, MachineRdramRegisterWordState, Rdram,
-    RdramAccessError, RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS,
-    RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS, RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS,
-    RDRAM_DELAY_X105_CPU_TRANSFER_WORD, RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD,
-    RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS, RDRAM_GLOBAL_MODE_PHYSICAL_ADDRESS,
-    RDRAM_GLOBAL_MODE_X105_WRITE_WORD, RDRAM_INITIAL_MODE_PHYSICAL_ADDRESS,
-    RDRAM_INITIAL_MODE_X105_FIRST_MANUAL_WRITE_WORD, RDRAM_MODE_REGISTER_OFFSET,
-    RDRAM_RAS_INTERVAL_REGISTER_OFFSET, RDRAM_REF_ROW_X105_WRITE_WORD,
+    MachineRdramInitialModeRequestState, MachineRdramInitialModeSource,
+    MachineRdramInitializationSource, MachineRdramModeState, MachineRdramModuleState,
+    MachineRdramProfile, MachineRdramRegisterWordState, Rdram, RdramAccessError,
+    RDRAM_BROADCAST_DELAY_PHYSICAL_ADDRESS, RDRAM_BROADCAST_DEVICE_ID_PHYSICAL_ADDRESS,
+    RDRAM_BROADCAST_REFRESH_ROW_PHYSICAL_ADDRESS, RDRAM_DELAY_X105_CPU_TRANSFER_WORD,
+    RDRAM_DEVICE_ID_X105_CPU_TRANSFER_WORD, RDRAM_FIRST_RESPONDER_DEVICE_ID_PHYSICAL_ADDRESS,
+    RDRAM_GLOBAL_MODE_PHYSICAL_ADDRESS, RDRAM_GLOBAL_MODE_X105_WRITE_WORD,
+    RDRAM_INITIAL_MODE_PHYSICAL_ADDRESS, RDRAM_INITIAL_MODE_X105_FIRST_MANUAL_WRITE_WORD,
+    RDRAM_MODE_REGISTER_OFFSET, RDRAM_RAS_INTERVAL_REGISTER_OFFSET, RDRAM_REF_ROW_X105_WRITE_WORD,
     RDRAM_STANDARD_RETAIL_RAS_INTERVAL_WORD,
 };
 use crate::ri::{
@@ -5832,6 +5832,10 @@ impl Machine {
 
     pub fn rdram_initialization_complete(&self) -> bool {
         self.rdram.initialization_complete()
+    }
+
+    pub fn rdram_initialization_source(&self) -> Option<MachineRdramInitializationSource> {
+        self.rdram.initialization_source()
     }
 
     pub fn sp_imem_opaque_word_state(

@@ -503,8 +503,10 @@ mod tests {
     use crate::cartridge::{load_cartridge, Cartridge};
     use crate::cpu::CpuInstructionIdentity;
     use crate::pif_firmware::{MachinePifFirmwareState, PIF_BOOT_ROM_SIZE_BYTES};
-    use crate::rdram::MachineRdramCartridgeStagingCause;
-    use crate::MachineRepresentedStepOutcome;
+    use crate::rdram::{
+        MachineRdramCartridgeStagingCause, MachineRdramInitializationSource, RDRAM_SIZE_BYTES,
+    };
+    use crate::{MachineLoadWordTarget, MachineRepresentedStepOutcome};
 
     const GENERATED_ENTRY: u32 = 0x8000_1000;
     const GENERATED_ENTRY_INSTRUCTION: u32 = 0x2402_0042;
@@ -575,6 +577,7 @@ mod tests {
         clean_room: Option<MachineCleanRoomHleState>,
         rdram_staging: Option<MachineRdramCartridgeStagingState>,
         first_rdram_word: u32,
+        rdram_initialization_source: Option<MachineRdramInitializationSource>,
         sp_status_present: bool,
         sp_pc_present: bool,
         rsp_committed: u64,
@@ -596,6 +599,7 @@ mod tests {
             clean_room: machine.clean_room_hle_state(),
             rdram_staging: machine.rdram_cartridge_staging_state(),
             first_rdram_word: machine.rdram().read_u32_be(0).unwrap(),
+            rdram_initialization_source: machine.rdram_initialization_source(),
             sp_status_present: machine.sp_status_state().is_some(),
             sp_pc_present: machine.sp_pc_state().is_some(),
             rsp_committed: machine.rsp_committed_instruction_count(),
@@ -633,6 +637,11 @@ mod tests {
             MachinePifFirmwareState::Absent
         );
         assert_eq!(machine.cartridge_bootstrap_state(), None);
+        assert_eq!(
+            machine.rdram_initialization_source(),
+            Some(MachineRdramInitializationSource::CleanRoomHleNtscX105Pinned)
+        );
+        assert!(machine.rdram_initialization_complete());
 
         let staging = machine.rdram_cartridge_staging_state().unwrap();
         assert_eq!(staging.cartridge_start_offset(), 0x1000);
@@ -761,6 +770,39 @@ mod tests {
     }
 
     #[test]
+    fn clean_room_hle_uses_public_initialized_4_mib_profile_for_absent_memory_loads() {
+        let mut bytes = generated_cartridge(GENERATED_ENTRY, 0);
+        write_be_u32(&mut bytes, 0x1000, 0x3c01_a040);
+        write_be_u32(&mut bytes, 0x1004, 0x8c22_0000);
+        let mut machine = Machine::from_cartridge(load_cartridge(bytes).unwrap());
+        machine
+            .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
+            .unwrap();
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Lui,
+                ..
+            })
+        ));
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                target: MachineLoadWordTarget::RdramAbsentModuleMemory { physical_address },
+                loaded_word: 0,
+                result_value: 0,
+                data_cache_hit: None,
+                cadence_plan,
+                ..
+            }) if physical_address == RDRAM_SIZE_BYTES as u32 && cadence_plan.advances_count()
+        ));
+        assert_eq!(machine.cpu().gpr(2), Some(0));
+        assert_eq!(machine.cpu().cop0_count(), 2);
+        assert_eq!(machine.rsp_committed_instruction_count(), 0);
+    }
+
+    #[test]
     fn unavailable_or_invalid_clean_room_handoff_rejects_before_machine_mutation() {
         let mut short_bytes = generated_cartridge(GENERATED_ENTRY, 0);
         short_bytes.truncate(0x1000);
@@ -859,6 +901,8 @@ mod tests {
         assert_eq!(machine.boot_source(), None);
         assert_eq!(machine.clean_room_hle_state(), None);
         assert_eq!(machine.rdram_cartridge_staging_state(), None);
+        assert_eq!(machine.rdram_initialization_source(), None);
+        assert!(!machine.rdram_initialization_complete());
         assert_eq!(machine.cpu().pc(), crate::cpu::NON_BOOT_RESET_VECTOR_PC);
         assert_eq!(machine.sp_imem_opaque_word_state(0), None);
         assert_eq!(machine.sp_status_state(), None);

@@ -968,6 +968,12 @@ pub enum MachineRdramCartridgeStagingCause {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineRdramInitializationSource {
+    CompletedLowLevelModuleState,
+    CleanRoomHleNtscX105Pinned,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineRdramCartridgeStagingState {
     cartridge_start_offset: u32,
     cartridge_end_offset_exclusive: u32,
@@ -1017,6 +1023,7 @@ pub struct Rdram {
     active_calibration: Option<MachineRdramCalibrationTarget>,
     primary_data_cache_writebacks: Vec<MachineRdramPrimaryDataCacheWritebackState>,
     cartridge_staging: Option<MachineRdramCartridgeStagingState>,
+    clean_room_initialization_source: Option<MachineRdramInitializationSource>,
 }
 
 impl Rdram {
@@ -1039,6 +1046,7 @@ impl Rdram {
             active_calibration: None,
             primary_data_cache_writebacks: Vec::new(),
             cartridge_staging: None,
+            clean_room_initialization_source: None,
         })
     }
 
@@ -1086,6 +1094,8 @@ impl Rdram {
             rdram_end_offset_exclusive: rdram_start_offset + payload.len() as u32,
             cause: MachineRdramCartridgeStagingCause::CleanRoomHle,
         });
+        replacement.clean_room_initialization_source =
+            Some(MachineRdramInitializationSource::CleanRoomHleNtscX105Pinned);
         Ok(replacement)
     }
 
@@ -1106,7 +1116,19 @@ impl Rdram {
         self.global_mode_request
     }
 
+    pub(crate) fn initialization_source(&self) -> Option<MachineRdramInitializationSource> {
+        if let Some(source) = self.clean_room_initialization_source {
+            return Some(source);
+        }
+        self.low_level_module_initialization_complete()
+            .then_some(MachineRdramInitializationSource::CompletedLowLevelModuleState)
+    }
+
     pub(crate) fn initialization_complete(&self) -> bool {
+        self.initialization_source().is_some()
+    }
+
+    fn low_level_module_initialization_complete(&self) -> bool {
         self.modules.iter().enumerate().all(|(index, module)| {
             module.final_device_id_request.is_some()
                 && module.mapped_physical_base == index as u32 * RDRAM_MODULE_SIZE_BYTES
