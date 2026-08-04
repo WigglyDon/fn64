@@ -3,12 +3,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use fn64_core::{
-    load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource,
+    load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource, MachineBootstrapGprSource,
     MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCpuInstructionFetchError,
     MachineCpuInstructionInspection, MachineLoadWordRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
     MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
     MachineRspStepRejectionReason, MachineSpStatusState, PifFirmwareClassification, PifIpl2Profile,
+    RDRAM_SIZE_BYTES,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -161,9 +162,20 @@ fn run() -> Result<(), String> {
             .map_err(|error| redacted_cpu_inspection_error(pc, error))?;
 
         let rsp_pc = machine.sp_pc_state().map(|state| state.raw_low_field());
-        let outcome = machine
-            .step()
-            .map_err(|error| redacted_machine_step_error(pc, rsp_pc, error))?;
+        let outcome = match machine.step() {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return Err(redacted_machine_step_error(
+                    &machine,
+                    pc,
+                    rsp_pc,
+                    attempted_steps.saturating_add(1),
+                    committed_steps,
+                    entry_executions,
+                    error,
+                ));
+            }
+        };
         attempted_steps += 1;
         let committed = outcome
             .cadence_plan()
@@ -634,30 +646,43 @@ fn redacted_cpu_inspection_error(pc: u32, error: MachineCpuInstructionFetchError
 }
 
 fn redacted_machine_step_error(
+    machine: &Machine,
     cpu_pc: u32,
     rsp_pc: Option<u32>,
+    attempted_step: u64,
+    committed_steps: u64,
+    entry_executions: u64,
     error: MachineRepresentedStepError,
 ) -> String {
+    let progress = format!(
+        "attempt={attempted_step} committed_steps={committed_steps} entry_commits={entry_executions}"
+    );
     match error {
         MachineRepresentedStepError::RspRejected(rejection) => {
             let local_pc = rsp_pc
                 .map(|pc| format!("0x{pc:03X}"))
                 .unwrap_or_else(|| "unavailable".to_owned());
             format!(
-                "Machine::step stopped before the first RSP task: selected_processor=RSP local_pc={local_pc} category={}",
+                "Machine::step stopped before the first RSP task: {progress} selected_processor=RSP local_pc={local_pc} category={}",
                 redacted_rsp_rejection_category(rejection.reason())
             )
         }
         MachineRepresentedStepError::LoadWordRejected(rejection) => {
-            let owner_region = match rejection.reason() {
-                MachineLoadWordRejectionReason::DirectTargetMiss => format!(
-                    " owner_region={}",
-                    redacted_direct_cpu_owner_region(rejection.cpu_address().value())
-                ),
+            let direct_context = match rejection.reason() {
+                MachineLoadWordRejectionReason::DirectTargetMiss => {
+                    let cpu_address = rejection.cpu_address().value();
+                    format!(
+                        " owner_region={} direct_segment={} rdram_capacity_relation={} base_source={}",
+                        redacted_direct_cpu_owner_region(cpu_address),
+                        redacted_direct_cpu_segment(cpu_address),
+                        redacted_rdram_capacity_relation(cpu_address),
+                        redacted_load_base_source(machine, rejection.fields().rs())
+                    )
+                }
                 _ => String::new(),
             };
             format!(
-                "Machine::step stopped before the first RSP task: selected_processor=CPU identity={:?} category=load-word-{}{owner_region}",
+                "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity={:?} category=load-word-{}{direct_context}",
                 rejection.identity(),
                 redacted_load_word_rejection_category(rejection.reason())
             )
@@ -709,7 +734,7 @@ fn redacted_machine_step_error(
                 .unwrap_or_else(|| "unavailable".to_owned());
             let _ = cpu_pc;
             format!(
-                "Machine::step stopped before the first RSP task: selected_processor=CPU identity={identity} category={category}"
+                "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity={identity} category={category}"
             )
         }
     }
@@ -759,6 +784,49 @@ fn redacted_direct_cpu_owner_region(cpu_address: u32) -> &'static str {
         0x0500_0000..=0x1fbf_ffff => "cartridge",
         0x1fc0_0000..=0x1fcf_ffff => "pif",
         _ => "unassigned",
+    }
+}
+
+fn redacted_direct_cpu_segment(cpu_address: u32) -> &'static str {
+    match cpu_address & 0xe000_0000 {
+        0x8000_0000 => "kseg0",
+        0xa000_0000 => "kseg1",
+        _ => "non-direct",
+    }
+}
+
+fn redacted_rdram_capacity_relation(cpu_address: u32) -> &'static str {
+    if (cpu_address & 0x1fff_ffff) < RDRAM_SIZE_BYTES as u32 {
+        "within-represented-capacity"
+    } else {
+        "outside-represented-capacity"
+    }
+}
+
+fn redacted_load_base_source(machine: &Machine, register_index: u8) -> &'static str {
+    match machine
+        .clean_room_hle_state()
+        .and_then(|state| state.gpr_source(usize::from(register_index)))
+    {
+        Some(MachineBootstrapGprSource::UnknownPifProduced) => "unavailable",
+        Some(MachineBootstrapGprSource::ArchitecturalZero) => "architectural-zero",
+        Some(MachineBootstrapGprSource::CleanRoomHlePublicProfile) => "clean-room-public-profile",
+        Some(MachineBootstrapGprSource::CleanRoomHleCartridgeEntry) => "cartridge-entry-derived",
+        Some(MachineBootstrapGprSource::CleanRoomHleCartridgePayload) => {
+            "cartridge-payload-derived"
+        }
+        Some(MachineBootstrapGprSource::KnownInstructionResult { .. }) => "instruction-result",
+        Some(
+            MachineBootstrapGprSource::PifIpl2HandoffEntryPointer
+            | MachineBootstrapGprSource::PifIpl2RestoredStackPointer
+            | MachineBootstrapGprSource::PifIpl2RetainedLink { .. }
+            | MachineBootstrapGprSource::CartridgeBootMedium
+            | MachineBootstrapGprSource::PifProfileTvType { .. }
+            | MachineBootstrapGprSource::ColdResetKind
+            | MachineBootstrapGprSource::X105Seed
+            | MachineBootstrapGprSource::PifVersionRegionalState { .. },
+        ) => "low-level-boot-source",
+        None => "unavailable",
     }
 }
 
@@ -1011,6 +1079,9 @@ mod tests {
         assert!(!source.contains(&forbidden_cpu_pc_field));
         assert!(source.contains("category=load-word-{}"));
         assert!(source.contains(" owner_region={}"));
+        assert!(source.contains(" direct_segment={}"));
+        assert!(source.contains(" rdram_capacity_relation={}"));
+        assert!(source.contains(" base_source={}"));
         let forbidden_load_address_field = ["load-word-", " cpu_address="].concat();
         assert!(!source.contains(&forbidden_load_address_field));
         let forbidden_synthetic_install =
@@ -1030,6 +1101,41 @@ mod tests {
         assert_eq!(redacted_direct_cpu_owner_region(0xa450_0000), "ai");
         assert_eq!(redacted_direct_cpu_owner_region(0xb000_0000), "cartridge");
         assert_eq!(redacted_direct_cpu_owner_region(0xbfc0_0000), "pif");
+        assert_eq!(redacted_direct_cpu_segment(0x8000_1000), "kseg0");
+        assert_eq!(redacted_direct_cpu_segment(0xa000_1000), "kseg1");
+        assert_eq!(
+            redacted_rdram_capacity_relation(0x8000_1000),
+            "within-represented-capacity"
+        );
+        assert_eq!(
+            redacted_rdram_capacity_relation(0x8040_0000),
+            "outside-represented-capacity"
+        );
+    }
+
+    #[test]
+    fn clean_room_load_base_source_reports_lineage_without_register_values() {
+        let mut machine = generated_hle_machine();
+        machine
+            .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
+            .unwrap();
+
+        assert_eq!(redacted_load_base_source(&machine, 0), "architectural-zero");
+        assert_eq!(
+            redacted_load_base_source(&machine, 1),
+            "clean-room-public-profile"
+        );
+        assert_eq!(
+            redacted_load_base_source(&machine, 2),
+            "cartridge-payload-derived"
+        );
+        assert_eq!(
+            redacted_load_base_source(&machine, 9),
+            "cartridge-entry-derived"
+        );
+
+        machine.step().unwrap();
+        assert_eq!(redacted_load_base_source(&machine, 2), "instruction-result");
     }
 
     #[test]
