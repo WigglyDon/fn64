@@ -69,8 +69,11 @@ preflights normalized cartridge source `[0x1000, 0x101000)`, the pinned KSEG0
 entry, and the complete one-MiB physical RDRAM destination before mutation. It
 constructs replacement RDRAM whose staging record owns exact cartridge and
 destination spans plus `CleanRoomHle` cause. It stages no PIF/IPL/X105 bytes and
-does not generalize cartridge mapping; later guest writes and DMA remain their
-own causes.
+does not generalize cartridge mapping. A separate typed
+`CleanRoomHleNtscX105Pinned` initialization fact owns the fixed 4 MiB profile
+and permits the existing uncached absent-module read result without adding
+timing, detailed low-level register provenance, or general memory policy. Later
+guest writes and DMA remain their own causes.
 
 Aligned CPU `Lw` now reuses that exact bootstrap span as the sole production
 knownness owner for direct SP-DMEM data reads. A complete word within

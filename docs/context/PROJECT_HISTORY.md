@@ -979,6 +979,25 @@ product or reference lane requires a new explicit product decision.
   cartridge execution, BOOT-2 reproduction, and user-RSP pressure ladder remain
   unrun; no CPU or RSP identity was added.
 
+## Era 50 — Historical-BOOT-2 cartridge clean-room pressure (2026-08-04)
+
+- Operational admission: one Master-selected user cartridge entered through an
+  excluded reference and is identified persistently only as
+  `HISTORICAL_BOOT2_USER_CARTRIDGE`. No path, basename, content, or hash entered
+  product state, tests, commits, context, or evidence.
+- Runtime result: every fresh run used one clean-room staging transition and
+  then only `Machine::step`. The entry `Lui` committed. The first pressure
+  exposed missing fixed-profile RDRAM initialization; the second exposed
+  unavailable FCR31. Both facts now have distinct clean-room provenance and
+  generated public proofs.
+- Ending frontier: a fresh run committed 1,308,711 cartridge CPU instructions.
+  The next `Lw` rejected atomically because PI domain-one latency handoff truth
+  remains unavailable. Both authorized HLE correction clusters were consumed,
+  so the PI owner was not changed.
+- Scope result: no CPU or RSP instruction identity was added. BOOT-2, the first
+  user-task RSP instruction, user-task Break, DPC/RDP execution, rendering, and
+  compatibility remain unearned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

@@ -27,9 +27,10 @@ history.
 - The product is incomplete and headless. `BOOT-2` means the first genuine
   user-cartridge RSP task submission; it is not x105 IPL3 CPU entry, bootstrap
   handoff, game boot, compatibility, timing accuracy, or host-runtime support.
-  Its historical task-start observation requires a fresh user-cartridge run
-  after the clean-room cartridge-entry handoff before it can be classified as
-  a current reproduction. That route makes no authentic-PIF execution claim.
+  A fresh `HISTORICAL_BOOT2_USER_CARTRIDGE` clean-room run now commits
+  1,308,711 cartridge CPU instructions and stops before BOOT-2 at unavailable
+  PI domain-one latency handoff truth. That route makes no authentic-PIF
+  execution claim.
 
 ## Represented owners
 
@@ -38,15 +39,15 @@ history.
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads; explicit local user-cartridge bytes remain immutable Machine input | no filesystem path, title/ID/region/digest policy, cartridge writes, or compatibility claim |
 | `PifFirmware` | absent material, private immutable owned bytes for one structurally accepted explicit raw-Boot-ROM-shaped input, or deliberately selected public-synthetic bytes; accepted bytes source explicit profiled copy materialization | no path, implicit absent-to-synthetic fallback, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
-| `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance; one atomic MiB cartridge-derived clean-room entry payload with typed source/destination range and cause | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general cartridge mapping, generic bus, or MMIO framework |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches and zero FCR31 under distinct HLE provenance | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
+| `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance; one atomic MiB cartridge-derived clean-room entry payload plus a typed initialized-profile HLE fact that reuses existing uncached absent-module reads | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general cartridge mapping, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB private backing with explicit per-byte Available/Unavailable knowledge, checked truth-bearing observations, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, unavailable backing exposure as value truth, RSP fetch, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
 | `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP and selected-SP-memory-to-RDRAM DMA records with CPU or exact RSP-MTC0 trigger provenance, general run-start lineage, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, eight sliced accumulator lanes, independent VCO halves and VCC/VCE truth, exact aligned element-zero full-register LQV, exact element-zero VSUB/VADDC, exact aligned Available-DMEM scalar LW, exact raw-zero NOP, scalar XORI/LUI/ADDI, scalar BLTZ/BGEZ/BNE with independent delay context, MFC0 for SP_SEMAPHORE/SP_DRAM_ADDR/SP_DMA_BUSY, exact MTC0 dispatch for SP_MEM_ADDR/SP_DRAM_ADDR/SP_RD_LEN/SP_WR_LEN and the sole exact DPC_STATUS command, exact zero-code Break with Sp halt/broke and conditional Mi SP-pending effects, and separate committed count | no DMA timing/queue, partial/misaligned/nonzero-element vector operations, unavailable/misaligned/other scalar loads, scalar stores, nonzero SLL, other branches or J-family control flow, other RSP MFC0/MTC0 destinations or DPC_STATUS commands, broader vector arithmetic, nonzero-code/delay-slot Break, generic task completion, or CPU continuation after Break |
 | `Dpc` | one private per-Machine owner with independent Available-or-Unavailable 24-bit clock, command-busy, pipe-busy, and TMEM-load counters; undefined construction/reset/bootstrap values remain unavailable; exact RSP DPC_STATUS command `0x240` clears only TMEM-load and clock counters with immutable provenance | no status readback or mode bits, counter reads/cadence, command buffer, Rdp owner, rasterization, timing, clock, generic device registry, bus, or MMIO |
 | `Ri` | optional RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD, and exact RI_REFRESH raw/provenance state with source-clear derived fields | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, refresh timing/electrical effect, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Mi` | immutable MI_VERSION `0x02020102`, initialization and RDRAM-register mode, one bounded transfer, and general reached SP/SI/AI/VI/PI/DP pending/mask command truth with CPU provenance | no unrelated MI bank, device timing, generic interrupt-controller framework, MMIO framework, or bus |
-| `Pi` | programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, source-defined domain timing registers, and fully preflighted atomic cart-to-RDRAM DMA records for reached lengths | no PI_RD_LEN, cartridge writes, timing/progress, FIFO, controller reset, generic PI bank, or byte ownership |
+| `Pi` | programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, source-defined domain timing registers, and fully preflighted atomic cart-to-RDRAM DMA records for reached lengths | no clean-room post-boot domain-timing handoff values, PI_RD_LEN, cartridge writes, timing/progress, FIFO, controller reset, generic PI bank, or byte ownership |
 | `Ai` | reached control, DAC-rate, and bitrate raw request words plus CPU provenance | no audio DMA, samples, clock, mixer, or host audio |
 | `Si` | 64-byte PIF RAM, cold-idle status, CPU provenance, and a fixed hostless no-controller profile | no SI DMA, controller protocol/UI, or private PIF execution |
 | `Vi` | reached raw register words/provenance plus deterministic half-line/current state and MI-owned interrupt assertion/clear relationship | no rendering, framebuffer presentation, scan timing accuracy, or host display |
@@ -271,9 +272,13 @@ Successful staging records `CleanRoomHle` boot provenance and one
 `MachineRdramCartridgeStagingState` whose source offsets, destination offsets,
 byte count, and cause remain inspectable. `Rdram` owns every destination byte.
 `Cpu` owns the entry `pc` / sequential `next_pc`, cleared delay context,
-architectural zero, the exact profile-required GPR/HI/LO/COP0 state, and
-HLE-invalid I/D cache lines. Count and Compare remain zero because no skipped
-instruction executed. SP DMEM and IMEM return to unavailable boot-local truth;
+architectural zero, the exact profile-required GPR/HI/LO/COP0 state, zero
+FCR31 with `CleanRoomHleNtscX105Pinned` provenance, and HLE-invalid I/D cache
+lines. `Rdram` separately records `CleanRoomHleNtscX105Pinned` initialization
+for the fixed 4 MiB profile, allowing its existing uncached absent-module read
+result without inventing timing or detailed low-level register provenance.
+Count and Compare remain zero because no skipped instruction executed. SP DMEM
+and IMEM return to unavailable boot-local truth;
 no public X105 program, proprietary boot bytes, or hidden instruction sequence
 is installed. Represented devices return to their existing construction facts,
 and processor eligibility is CPU.
@@ -281,11 +286,12 @@ and processor eligibility is CPU.
 The staging method calls no execution entrance and changes neither CPU nor RSP
 committed-instruction count. The next public `Machine::step` naturally fetches,
 identifies, and attempts the cartridge-entry CPU instruction. Generated proof
-covers exact payload lineage, entry cadence, zero-register behavior, cache
-knownness, reset, atomic invalid/truncated rejection, boot-source separation,
-and independent Machines. This is high-level emulation of an externally visible
-completed handoff, not evidence that PIF, IPL2, public X105 RSP, or IPL3
-instructions executed.
+covers exact payload lineage, initialized-profile absent-memory loads, the
+first FCR31 read, entry cadence, zero-register behavior, cache knownness, reset,
+atomic invalid/truncated rejection, boot-source separation, and independent
+Machines. This is high-level emulation of an externally visible completed
+handoff, not evidence that PIF, IPL2, public X105 RSP, or IPL3 instructions
+executed.
 
 ## Explicit PIF firmware input boundary
 
@@ -1113,14 +1119,23 @@ preserved. After either staging route, execution uses only public
 `Machine::step`, enforces a positive ceiling, and stops after the first
 SP_STATUS commit that changes halt true to false after represented SP DMA
 preparation. Its output uses the fixed
-`<REDACTED_USER_CARTRIDGE>` identity, sizes/layout, decoded architecture
-identities without raw instruction fields, bounded first-occurrence architecture
-facts, typed boot-source/provenance classifications, endpoint register/control
-facts, and step counts. Machine/RSP failures are rendered by structural category
+`<REDACTED_USER_CARTRIDGE>` identity, decoded architecture identities without
+raw instruction fields, bounded first-occurrence architecture facts, typed
+boot-source/provenance classifications, endpoint register/control facts, and
+step counts. Machine/RSP failures are rendered by structural category
 without calling their value-bearing `Display` implementations. It does not
-print or retain the path, basename, hash, title, ID, strings, bytes,
+print or retain input shape, path, basename, hash, title, ID, strings, bytes,
 disassembly, or microcode, and standard CI never requires the private input.
 Public-synthetic firmware is never reachable from this user-cartridge route.
+
+One excluded workbench reference selected `HISTORICAL_BOOT2_USER_CARTRIDGE`
+without entering product state or output. Fresh HLE execution committed the
+entry `Lui` and reached 1,308,711 CPU commits. Value-free pressure output names
+only attempt/commit cadence, decoded identity, public owner region, direct
+segment/capacity relation, source-lineage class, and exact public COP1/PI
+rejection category. The ending `Lw` rejects atomically because PI domain-one
+latency handoff state is unavailable. BOOT-2 and RSP task execution were not
+reached.
 
 ## Required gate
 

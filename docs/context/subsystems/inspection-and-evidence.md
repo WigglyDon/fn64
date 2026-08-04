@@ -105,6 +105,14 @@ It prints only path, line, and field category on failure, checks the tracked
 evidence tree without private input, and runs before all other forward-gate
 stages.
 
+One excluded workbench reference selected
+`HISTORICAL_BOOT2_USER_CARTRIDGE` without entering product state, context, or
+output. The probe omits input shape and renders live rejection through
+value-free architecture categories. Fresh clean-room execution committed the
+entry `Lui`, advanced to 1,308,711 CPU commits, and then rejected atomically on
+an `Lw` because PI domain-one latency handoff truth remains unavailable.
+BOOT-2 and RSP task execution were not reached.
+
 Integrated public-source evidence records profile-qualified IPL1 copy ranges
 without copying firmware or external source. The probe may select an explicit
 profile and report the resulting Machine-owned effect, but it does not author

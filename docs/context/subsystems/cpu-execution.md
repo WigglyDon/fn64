@@ -124,6 +124,9 @@ The user-cartridge path adds general BLEZ/BGEZ control flow; signed word DIV;
 unsigned 64-bit DMULTU/DDIVU; aligned LB/LH/LHU/LD/SH/SD; and CFC1/CTC1 for
 the represented FCR31 control word. Existing multiply and scalar identities
 retain architectural HI/LO, sign-extension, alias, and zero-register behavior.
+Clean-room cartridge-entry staging owns an independently sourced zero FCR31
+under `CleanRoomHleNtscX105Pinned` provenance; reset still makes FCR31
+unavailable, and CTC1 retains its own instruction-derived provenance.
 `LBU` and `SB` retain their direct SP-IMEM route and also use CPU-owned KSEG0
 D-cache byte semantics over Machine-owned RDRAM; KSEG1 remains uncached.
 Aligned opaque-word `Lw`

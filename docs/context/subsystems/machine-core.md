@@ -25,9 +25,11 @@ machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
 ledger. A separate `Machine::stage_clean_room_cartridge_entry` generation point
 now owns the default post-boot HLE transition: one pinned public profile, one
-bounded cartridge-derived RDRAM payload, typed CPU/cache state, unavailable
-boot-local SP memory, device construction facts, CPU eligibility, and explicit
-HLE provenance. `SpImem` owns backing bytes, per-byte knowledge and provenance,
+bounded cartridge-derived RDRAM payload, typed CPU/cache/FCR31 state, an
+initialized fixed-profile RDRAM fact, unavailable boot-local SP memory, existing
+device construction facts, CPU eligibility, and explicit HLE provenance. PI
+domain-one latency handoff truth remains unavailable. `SpImem` owns backing
+bytes, per-byte knowledge and provenance,
 and coherent opaque aligned-word records. Concrete reset zero and private opaque
 sentinel zero are not architecturally known values.
 Long-term ownership stays with the smallest
@@ -54,6 +56,9 @@ instruction execution. It preflights every source and destination, builds
 replacement CPU/RDRAM state before mutation, installs no PIF/X105 bytes, and
 changes no committed instruction count. The next public `Machine::step` owns
 the first cartridge instruction through ordinary fetch/decode/execute cadence.
+The pinned profile separately owns zero FCR31 and fixed 4 MiB RDRAM
+initialization under clean-room provenance; the latter reuses the existing
+uncached absent-module read law and adds no timing or general memory policy.
 
 Control-flow snapshots, staged sequential cadence, Count advancement, rollback,
 and exception entry remain distinct owners. Ordinary control flow adds one
