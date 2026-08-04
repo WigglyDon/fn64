@@ -5,10 +5,10 @@ use std::process::ExitCode;
 use fn64_core::{
     load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource,
     MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCpuInstructionFetchError,
-    MachineCpuInstructionInspection, MachinePifIpl2HandoffBootMedium,
-    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspStepRejectionReason,
-    MachineSpStatusState, PifFirmwareClassification, PifIpl2Profile,
+    MachineCpuInstructionInspection, MachineLoadWordRejectionReason,
+    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
+    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineRspStepRejectionReason, MachineSpStatusState, PifFirmwareClassification, PifIpl2Profile,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -629,9 +629,8 @@ fn redacted_cpu_inspection_error(pc: u32, error: MachineCpuInstructionFetchError
         MachineCpuInstructionFetchError::DirectRdram { .. } => "rdram-fetch-rejected",
         MachineCpuInstructionFetchError::SpDmem { .. } => "sp-dmem-fetch-rejected",
     };
-    format!(
-        "bounded instruction inspection failed: selected_processor=CPU pc=0x{pc:08X} category={category}"
-    )
+    let _ = pc;
+    format!("bounded instruction inspection failed: selected_processor=CPU category={category}")
 }
 
 fn redacted_machine_step_error(
@@ -649,6 +648,11 @@ fn redacted_machine_step_error(
                 redacted_rsp_rejection_category(rejection.reason())
             )
         }
+        MachineRepresentedStepError::LoadWordRejected(rejection) => format!(
+            "Machine::step stopped before the first RSP task: selected_processor=CPU identity={:?} category=load-word-{}",
+            rejection.identity(),
+            redacted_load_word_rejection_category(rejection.reason())
+        ),
         cpu_error => {
             let category = match cpu_error {
                 MachineRepresentedStepError::FetchRejected(_) => "fetch-rejected",
@@ -658,7 +662,9 @@ fn redacted_machine_step_error(
                 MachineRepresentedStepError::OrdinaryControlFlowRejected(_) => {
                     "ordinary-control-flow-rejected"
                 }
-                MachineRepresentedStepError::LoadWordRejected(_) => "load-word-rejected",
+                MachineRepresentedStepError::LoadWordRejected(_) => {
+                    unreachable!("load-word rejection was structurally classified above")
+                }
                 MachineRepresentedStepError::StoreWordRejected(_) => "store-word-rejected",
                 MachineRepresentedStepError::Mfc0Rejected(_) => "mfc0-rejected",
                 MachineRepresentedStepError::Mtc0Rejected(_) => "mtc0-rejected",
@@ -692,9 +698,36 @@ fn redacted_machine_step_error(
                 .identity()
                 .map(|identity| format!("{identity:?}"))
                 .unwrap_or_else(|| "unavailable".to_owned());
+            let _ = cpu_pc;
             format!(
-                "Machine::step stopped before the first RSP task: selected_processor=CPU pc=0x{cpu_pc:08X} identity={identity} category={category}"
+                "Machine::step stopped before the first RSP task: selected_processor=CPU identity={identity} category={category}"
             )
+        }
+    }
+}
+
+fn redacted_load_word_rejection_category(reason: MachineLoadWordRejectionReason) -> &'static str {
+    match reason {
+        MachineLoadWordRejectionReason::NonDirectUnsupported => "non-direct-unsupported",
+        MachineLoadWordRejectionReason::DirectTargetMiss => "direct-target-miss",
+        MachineLoadWordRejectionReason::DirectRdramReadRejected => "rdram-read-rejected",
+        MachineLoadWordRejectionReason::CartridgeReadRejected => "cartridge-read-rejected",
+        MachineLoadWordRejectionReason::SpDmemUnknown { .. } => "sp-dmem-unknown",
+        MachineLoadWordRejectionReason::SpDmemReadRejected => "sp-dmem-read-rejected",
+        MachineLoadWordRejectionReason::SpImemUnknown { .. } => "sp-imem-unknown",
+        MachineLoadWordRejectionReason::SpImemWordOpaque { .. } => "sp-imem-opaque",
+        MachineLoadWordRejectionReason::SpImemReadRejected => "sp-imem-read-rejected",
+        MachineLoadWordRejectionReason::RiSelectUnavailable => "ri-select-unavailable",
+        MachineLoadWordRejectionReason::RdramRegisterModeDisabled => "rdram-register-mode-disabled",
+        MachineLoadWordRejectionReason::RdramModuleRegisterUnavailable => {
+            "rdram-module-register-unavailable"
+        }
+        MachineLoadWordRejectionReason::RiRefreshUnavailable => "ri-refresh-unavailable",
+        MachineLoadWordRejectionReason::PiDomainTimingUnavailable { .. } => {
+            "pi-domain-timing-unavailable"
+        }
+        MachineLoadWordRejectionReason::PrimaryDataCacheStateUnavailable => {
+            "primary-data-cache-state-unavailable"
         }
     }
 }
@@ -944,6 +977,9 @@ mod tests {
         let forbidden_raw_step_display =
             ["Machine::step stopped before the first RSP task ", "at PC"].concat();
         assert!(!source.contains(&forbidden_raw_step_display));
+        let forbidden_cpu_pc_field = ["selected_processor=CPU", " pc="].concat();
+        assert!(!source.contains(&forbidden_cpu_pc_field));
+        assert!(source.contains("category=load-word-{}"));
         let forbidden_synthetic_install =
             ["install_public_synthetic_cold_", "x105_bootstrap"].concat();
         assert!(!source.contains(&forbidden_synthetic_install));
