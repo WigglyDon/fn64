@@ -289,6 +289,7 @@ impl Machine {
         replacement_cpu.stage_hi(cpu_plan.hi);
         replacement_cpu.stage_lo(cpu_plan.lo);
         replacement_cpu.stage_clean_room_cartridge_entry_cop0(MACHINE_CLEAN_ROOM_COP0_STATUS);
+        replacement_cpu.stage_clean_room_hle_fcr31();
         replacement_cpu.stage_clean_room_hle_primary_caches(
             MachinePrimaryCacheCleanRoomHleSource::NtscX105Pinned,
         );
@@ -506,7 +507,10 @@ mod tests {
     use crate::rdram::{
         MachineRdramCartridgeStagingCause, MachineRdramInitializationSource, RDRAM_SIZE_BYTES,
     };
-    use crate::{MachineLoadWordTarget, MachineRepresentedStepOutcome};
+    use crate::{
+        MachineCop1ControlTransferKind, MachineCop1Fcr31Source, MachineCop1Fcr31State,
+        MachineLoadWordTarget, MachineRepresentedStepOutcome,
+    };
 
     const GENERATED_ENTRY: u32 = 0x8000_1000;
     const GENERATED_ENTRY_INSTRUCTION: u32 = 0x2402_0042;
@@ -572,6 +576,7 @@ mod tests {
         count: u32,
         status: u32,
         cause: Option<u32>,
+        fcr31: Option<MachineCop1Fcr31State>,
         processor: MachineStepProcessor,
         boot_source: Option<MachineBootSource>,
         clean_room: Option<MachineCleanRoomHleState>,
@@ -594,6 +599,7 @@ mod tests {
             count: machine.cpu().cop0_count(),
             status: machine.cpu().cop0_status(),
             cause: machine.cpu().cop0_cause_word(),
+            fcr31: machine.cpu().cop1_fcr31_state(),
             processor: machine.processor_turn(),
             boot_source: machine.boot_source(),
             clean_room: machine.clean_room_hle_state(),
@@ -678,6 +684,17 @@ mod tests {
         assert_eq!(machine.cpu().cop0_compare(), 0);
         assert_eq!(machine.cpu().cop0_status(), MACHINE_CLEAN_ROOM_COP0_STATUS);
         assert_eq!(machine.cpu().cop0_cause_word(), Some(0));
+        assert_eq!(
+            machine
+                .cpu()
+                .cop1_fcr31_state()
+                .map(|state| state.raw_word()),
+            Some(0)
+        );
+        assert_eq!(
+            machine.cpu().cop1_fcr31_state().map(|state| state.source()),
+            Some(MachineCop1Fcr31Source::CleanRoomHleNtscX105Pinned)
+        );
         assert_eq!(
             gprs(&machine),
             [
@@ -803,6 +820,32 @@ mod tests {
     }
 
     #[test]
+    fn clean_room_hle_stages_public_fcr31_for_first_cfc1_read() {
+        let mut bytes = generated_cartridge(GENERATED_ENTRY, 0);
+        write_be_u32(&mut bytes, 0x1000, 0x4442_f800);
+        let mut machine = Machine::from_cartridge(load_cartridge(bytes).unwrap());
+        machine
+            .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
+            .unwrap();
+
+        assert!(matches!(
+            machine.step(),
+            Ok(MachineRepresentedStepOutcome::Cop1ControlTransferCommitted {
+                kind: MachineCop1ControlTransferKind::Cfc1,
+                transfer_gpr: 2,
+                transfer_word: 0,
+                result_value: Some(0),
+                state,
+                cadence_plan,
+            }) if state.source() == MachineCop1Fcr31Source::CleanRoomHleNtscX105Pinned
+                && cadence_plan.advances_count()
+        ));
+        assert_eq!(machine.cpu().gpr(2), Some(0));
+        assert_eq!(machine.cpu().cop0_count(), 1);
+        assert_eq!(machine.rsp_committed_instruction_count(), 0);
+    }
+
+    #[test]
     fn unavailable_or_invalid_clean_room_handoff_rejects_before_machine_mutation() {
         let mut short_bytes = generated_cartridge(GENERATED_ENTRY, 0);
         short_bytes.truncate(0x1000);
@@ -904,6 +947,7 @@ mod tests {
         assert_eq!(machine.rdram_initialization_source(), None);
         assert!(!machine.rdram_initialization_complete());
         assert_eq!(machine.cpu().pc(), crate::cpu::NON_BOOT_RESET_VECTOR_PC);
+        assert_eq!(machine.cpu().cop1_fcr31_state(), None);
         assert_eq!(machine.sp_imem_opaque_word_state(0), None);
         assert_eq!(machine.sp_status_state(), None);
         assert_eq!(machine.rsp_committed_instruction_count(), 0);

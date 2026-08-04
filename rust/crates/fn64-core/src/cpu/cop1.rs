@@ -40,6 +40,7 @@ impl MachineCop1Fcr31WriteProvenance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineCop1Fcr31Source {
     PublicSyntheticColdX105Bootstrap,
+    CleanRoomHleNtscX105Pinned,
     CpuControlTransfer(MachineCop1Fcr31WriteProvenance),
 }
 
@@ -54,6 +55,13 @@ impl MachineCop1Fcr31State {
         Self {
             raw_word: 0,
             source: MachineCop1Fcr31Source::PublicSyntheticColdX105Bootstrap,
+        }
+    }
+
+    pub(crate) const fn clean_room_hle_ntsc_x105_pinned() -> Self {
+        Self {
+            raw_word: 0,
+            source: MachineCop1Fcr31Source::CleanRoomHleNtscX105Pinned,
         }
     }
 
@@ -93,6 +101,10 @@ impl Cpu {
 
     pub(crate) fn stage_public_synthetic_cold_x105_fcr31(&mut self) {
         self.cop1.fcr31 = Some(MachineCop1Fcr31State::public_synthetic_cold_x105());
+    }
+
+    pub(crate) fn stage_clean_room_hle_fcr31(&mut self) {
+        self.cop1.fcr31 = Some(MachineCop1Fcr31State::clean_room_hle_ntsc_x105_pinned());
     }
 
     pub(crate) fn write_cop1_fcr31(&mut self, state: MachineCop1Fcr31State) {
