@@ -648,11 +648,20 @@ fn redacted_machine_step_error(
                 redacted_rsp_rejection_category(rejection.reason())
             )
         }
-        MachineRepresentedStepError::LoadWordRejected(rejection) => format!(
-            "Machine::step stopped before the first RSP task: selected_processor=CPU identity={:?} category=load-word-{}",
-            rejection.identity(),
-            redacted_load_word_rejection_category(rejection.reason())
-        ),
+        MachineRepresentedStepError::LoadWordRejected(rejection) => {
+            let owner_region = match rejection.reason() {
+                MachineLoadWordRejectionReason::DirectTargetMiss => format!(
+                    " owner_region={}",
+                    redacted_direct_cpu_owner_region(rejection.cpu_address().value())
+                ),
+                _ => String::new(),
+            };
+            format!(
+                "Machine::step stopped before the first RSP task: selected_processor=CPU identity={:?} category=load-word-{}{owner_region}",
+                rejection.identity(),
+                redacted_load_word_rejection_category(rejection.reason())
+            )
+        }
         cpu_error => {
             let category = match cpu_error {
                 MachineRepresentedStepError::FetchRejected(_) => "fetch-rejected",
@@ -729,6 +738,27 @@ fn redacted_load_word_rejection_category(reason: MachineLoadWordRejectionReason)
         MachineLoadWordRejectionReason::PrimaryDataCacheStateUnavailable => {
             "primary-data-cache-state-unavailable"
         }
+    }
+}
+
+fn redacted_direct_cpu_owner_region(cpu_address: u32) -> &'static str {
+    let physical_address = cpu_address & 0x1fff_ffff;
+    match physical_address {
+        0x0000_0000..=0x03ef_ffff => "rdram",
+        0x03f0_0000..=0x03ff_ffff => "rdram-registers",
+        0x0400_0000..=0x040f_ffff => "sp",
+        0x0410_0000..=0x041f_ffff => "dpc",
+        0x0420_0000..=0x042f_ffff => "dps",
+        0x0430_0000..=0x043f_ffff => "mi",
+        0x0440_0000..=0x044f_ffff => "vi",
+        0x0450_0000..=0x045f_ffff => "ai",
+        0x0460_0000..=0x046f_ffff => "pi",
+        0x0470_0000..=0x047f_ffff => "ri",
+        0x0480_0000..=0x048f_ffff => "si",
+        0x0490_0000..=0x04ff_ffff => "unassigned-rcp",
+        0x0500_0000..=0x1fbf_ffff => "cartridge",
+        0x1fc0_0000..=0x1fcf_ffff => "pif",
+        _ => "unassigned",
     }
 }
 
@@ -980,9 +1010,26 @@ mod tests {
         let forbidden_cpu_pc_field = ["selected_processor=CPU", " pc="].concat();
         assert!(!source.contains(&forbidden_cpu_pc_field));
         assert!(source.contains("category=load-word-{}"));
+        assert!(source.contains(" owner_region={}"));
+        let forbidden_load_address_field = ["load-word-", " cpu_address="].concat();
+        assert!(!source.contains(&forbidden_load_address_field));
         let forbidden_synthetic_install =
             ["install_public_synthetic_cold_", "x105_bootstrap"].concat();
         assert!(!source.contains(&forbidden_synthetic_install));
+    }
+
+    #[test]
+    fn direct_load_owner_region_is_value_free_and_architecture_bounded() {
+        assert_eq!(redacted_direct_cpu_owner_region(0x8000_0400), "rdram");
+        assert_eq!(
+            redacted_direct_cpu_owner_region(0xa3f0_0000),
+            "rdram-registers"
+        );
+        assert_eq!(redacted_direct_cpu_owner_region(0xa400_0000), "sp");
+        assert_eq!(redacted_direct_cpu_owner_region(0xa410_0000), "dpc");
+        assert_eq!(redacted_direct_cpu_owner_region(0xa450_0000), "ai");
+        assert_eq!(redacted_direct_cpu_owner_region(0xb000_0000), "cartridge");
+        assert_eq!(redacted_direct_cpu_owner_region(0xbfc0_0000), "pif");
     }
 
     #[test]
