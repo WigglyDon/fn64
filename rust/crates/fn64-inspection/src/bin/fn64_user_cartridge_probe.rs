@@ -4,7 +4,8 @@ use std::process::ExitCode;
 
 use fn64_core::{
     load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource, MachineBootstrapGprSource,
-    MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCpuInstructionFetchError,
+    MachineCartridgeBootstrapError, MachineCleanRoomBootProfile,
+    MachineCop1ControlTransferRejectionReason, MachineCpuInstructionFetchError,
     MachineCpuInstructionInspection, MachineLoadWordRejectionReason,
     MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
     MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
@@ -687,6 +688,11 @@ fn redacted_machine_step_error(
                 redacted_load_word_rejection_category(rejection.reason())
             )
         }
+        MachineRepresentedStepError::Cop1ControlTransferRejected(rejection) => format!(
+            "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity={:?} category=cop1-control-{}",
+            rejection.kind().identity(),
+            redacted_cop1_control_rejection_category(rejection.reason())
+        ),
         cpu_error => {
             let category = match cpu_error {
                 MachineRepresentedStepError::FetchRejected(_) => "fetch-rejected",
@@ -702,9 +708,9 @@ fn redacted_machine_step_error(
                 MachineRepresentedStepError::StoreWordRejected(_) => "store-word-rejected",
                 MachineRepresentedStepError::Mfc0Rejected(_) => "mfc0-rejected",
                 MachineRepresentedStepError::Mtc0Rejected(_) => "mtc0-rejected",
-                MachineRepresentedStepError::Cop1ControlTransferRejected(_) => {
-                    "cop1-control-transfer-rejected"
-                }
+                MachineRepresentedStepError::Cop1ControlTransferRejected(_) => unreachable!(
+                    "COP1 control-transfer rejection was structurally classified above"
+                ),
                 MachineRepresentedStepError::CacheRejected(_) => "cache-rejected",
                 MachineRepresentedStepError::CpuLocalInvocationRejected(_) => {
                     "cpu-local-invocation-rejected"
@@ -763,6 +769,22 @@ fn redacted_load_word_rejection_category(reason: MachineLoadWordRejectionReason)
         MachineLoadWordRejectionReason::PrimaryDataCacheStateUnavailable => {
             "primary-data-cache-state-unavailable"
         }
+    }
+}
+
+fn redacted_cop1_control_rejection_category(
+    reason: MachineCop1ControlTransferRejectionReason,
+) -> &'static str {
+    match reason {
+        MachineCop1ControlTransferRejectionReason::CoprocessorUnusable { .. } => {
+            "coprocessor-unusable"
+        }
+        MachineCop1ControlTransferRejectionReason::MalformedEncoding { .. } => "malformed-encoding",
+        MachineCop1ControlTransferRejectionReason::UnsupportedControlRegister { .. } => {
+            "unsupported-control-register"
+        }
+        MachineCop1ControlTransferRejectionReason::StateUnavailable => "state-unavailable",
+        MachineCop1ControlTransferRejectionReason::SourceUnavailable { .. } => "source-unavailable",
     }
 }
 
@@ -1082,6 +1104,7 @@ mod tests {
         assert!(source.contains(" direct_segment={}"));
         assert!(source.contains(" rdram_capacity_relation={}"));
         assert!(source.contains(" base_source={}"));
+        assert!(source.contains("category=cop1-control-{}"));
         let forbidden_load_address_field = ["load-word-", " cpu_address="].concat();
         assert!(!source.contains(&forbidden_load_address_field));
         let forbidden_synthetic_install =
@@ -1136,6 +1159,45 @@ mod tests {
 
         machine.step().unwrap();
         assert_eq!(redacted_load_base_source(&machine, 2), "instruction-result");
+    }
+
+    #[test]
+    fn cop1_control_rejections_are_value_free_categories() {
+        assert_eq!(
+            redacted_cop1_control_rejection_category(
+                MachineCop1ControlTransferRejectionReason::CoprocessorUnusable { status: u32::MAX }
+            ),
+            "coprocessor-unusable"
+        );
+        assert_eq!(
+            redacted_cop1_control_rejection_category(
+                MachineCop1ControlTransferRejectionReason::MalformedEncoding { low_bits: u16::MAX }
+            ),
+            "malformed-encoding"
+        );
+        assert_eq!(
+            redacted_cop1_control_rejection_category(
+                MachineCop1ControlTransferRejectionReason::UnsupportedControlRegister {
+                    register_index: 31,
+                }
+            ),
+            "unsupported-control-register"
+        );
+        assert_eq!(
+            redacted_cop1_control_rejection_category(
+                MachineCop1ControlTransferRejectionReason::StateUnavailable
+            ),
+            "state-unavailable"
+        );
+        assert_eq!(
+            redacted_cop1_control_rejection_category(
+                MachineCop1ControlTransferRejectionReason::SourceUnavailable {
+                    register_index: 1,
+                    source: MachineBootstrapGprSource::ArchitecturalZero,
+                }
+            ),
+            "source-unavailable"
+        );
     }
 
     #[test]
