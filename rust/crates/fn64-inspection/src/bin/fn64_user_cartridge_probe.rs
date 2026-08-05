@@ -1017,6 +1017,9 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::XoriSourceUnavailable { .. } => {
             "xori-source-unavailable".to_owned()
         }
+        MachineRspStepRejectionReason::OriSourceUnavailable { .. } => {
+            "ori-source-unavailable".to_owned()
+        }
         MachineRspStepRejectionReason::MalformedLuiEncoding => "lui-malformed".to_owned(),
         MachineRspStepRejectionReason::AddiSourceUnavailable { .. } => {
             "addi-source-unavailable".to_owned()

@@ -6360,6 +6360,14 @@ impl Machine {
                     .map_err(MachineRepresentedStepError::RspRejected)?;
                 self.sp.apply_rsp_xori(plan)
             }
+            MachineRspDecodedInstruction::Ori { .. } => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_ori(pc, decoded, fetched.byte_provenance())
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                self.sp.apply_rsp_ori(plan)
+            }
             MachineRspDecodedInstruction::Lqv { .. } => {
                 let address = self
                     .sp
@@ -26390,6 +26398,102 @@ mod tests {
         assert_eq!(machine.rsp_delay_slot_context(), None);
         assert_eq!(machine.rsp_committed_instruction_count(), 2);
         assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+    }
+
+    #[test]
+    fn machine_step_rsp_ori_reads_old_source_and_commits_once_without_other_owner_effects() {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (
+                    0,
+                    immediate_word(crate::rsp::RSP_SCALAR_XORI_OPCODE, 0, 3, 0x8000),
+                ),
+                (
+                    4,
+                    immediate_word(crate::rsp::RSP_SCALAR_ORI_OPCODE, 3, 3, 0x0180),
+                ),
+            ],
+            true,
+        );
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0,
+                    destination_gpr: 3,
+                    result_value: 0x8000,
+                },
+            }
+        ));
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarOriCommitted {
+                    instruction_pc: 4,
+                    destination_gpr: 3,
+                    result_value: 0x8180,
+                },
+            }
+        );
+        let result = machine.rsp_scalar_register(3).unwrap();
+        assert_eq!(result.value(), Some(0x8180));
+        let source = match result.source() {
+            Some(MachineRspScalarRegisterSource::Ori(source)) => source,
+            other => panic!("RSP Ori result lacks exact source: {other:?}"),
+        };
+        assert_eq!(source.source_gpr(), 3);
+        assert_eq!(source.source_value(), 0x8000);
+        assert_eq!(source.immediate(), 0x0180);
+        assert!(matches!(
+            source.source(),
+            MachineRspScalarRegisterSource::Xori(_)
+        ));
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 8);
+        assert_eq!(machine.rsp_next_pc(), Some(12));
+        assert_eq!(machine.rsp_committed_instruction_count(), 2);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+
+        let mut unavailable = staged_rsp_running_machine(
+            &[(
+                0,
+                immediate_word(crate::rsp::RSP_SCALAR_ORI_OPCODE, 2, 4, 1),
+            )],
+            true,
+        );
+        let before_rejection = lw_snapshot(&unavailable);
+        assert_eq!(
+            unavailable
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::OriSourceUnavailable { source_gpr: 2 }
+        );
+        assert_eq!(lw_snapshot(&unavailable), before_rejection);
     }
 
     #[test]
