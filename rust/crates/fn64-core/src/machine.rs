@@ -6345,8 +6345,9 @@ impl Machine {
                     MachineRspControlRegister::SpSemaphore => {
                         unreachable!("Mtc0 decoder does not admit SP_SEMAPHORE")
                     }
-                    MachineRspControlRegister::SpDmaBusy => {
-                        unreachable!("Mtc0 decoder does not admit read-only SP_DMA_BUSY")
+                    MachineRspControlRegister::SpDmaFull
+                    | MachineRspControlRegister::SpDmaBusy => {
+                        unreachable!("Mtc0 decoder does not admit read-only SP DMA status")
                     }
                 }
                 self.sp.apply_rsp_mtc0(plan)
@@ -25249,6 +25250,74 @@ mod tests {
             Some(0x00ff_fff8)
         );
         assert_eq!(dram.sp_dram_address_state(), Some(source_before));
+    }
+
+    #[test]
+    fn rsp_mfc0_sp_dma_full_reads_false_from_the_existing_atomic_dma_model() {
+        let full_word = rsp_mfc0_word(3, crate::rsp::RSP_COP0_SP_DMA_FULL_INDEX);
+        let mut first = staged_rsp_running_machine(&[(0, full_word)], true);
+        let second = staged_rsp_running_machine(&[(0, full_word)], true);
+        let cpu_before = (
+            first.cpu().pc(),
+            first.cpu().next_pc(),
+            first.cpu().cop0_count(),
+            first.cpu_delay_slot_context(),
+            first.vi_current_state(),
+        );
+        let status_before = first.sp_status_state();
+        let mi_before = first.mi_interrupt_state();
+        let dma_count_before = first.sp_dma_record_count();
+
+        assert_eq!(
+            first.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 0,
+                    destination_gpr: 3,
+                    control_register: MachineRspControlRegister::SpDmaFull,
+                    result_value: 0,
+                },
+            }
+        );
+        assert_eq!(first.rsp_scalar_register(3).unwrap().value(), Some(0));
+        let result_source = match first.rsp_scalar_register(3).unwrap().source() {
+            Some(crate::rsp::MachineRspScalarRegisterSource::Mfc0(source)) => source,
+            other => panic!("DMA_FULL result lacks exact Mfc0 source: {other:?}"),
+        };
+        assert_eq!(result_source.instruction_pc(), 0);
+        assert_eq!(
+            result_source.control_source(),
+            crate::rsp::MachineRspMfc0ControlSource::SpDmaFull { full: false }
+        );
+        assert_eq!(first.sp_dma_record_count(), dma_count_before);
+        assert_eq!(first.sp_status_state(), status_before);
+        assert_eq!(first.mi_interrupt_state(), mi_before);
+        assert_eq!(first.sp_pc_state().unwrap().raw_low_field(), 4);
+        assert_eq!(first.rsp_next_pc(), Some(8));
+        assert_eq!(first.rsp_committed_instruction_count(), 1);
+        assert_eq!(first.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            (
+                first.cpu().pc(),
+                first.cpu().next_pc(),
+                first.cpu().cop0_count(),
+                first.cpu_delay_slot_context(),
+                first.vi_current_state(),
+            ),
+            cpu_before
+        );
+        assert_eq!(second.rsp_scalar_register(3).unwrap().value(), None);
+        assert_eq!(second.rsp_committed_instruction_count(), 0);
+
+        let mut r0 = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mfc0_word(0, crate::rsp::RSP_COP0_SP_DMA_FULL_INDEX),
+            )],
+            false,
+        );
+        assert!(r0.step().is_ok());
+        assert_eq!(r0.rsp_scalar_register(0).unwrap().value(), Some(0));
     }
 
     #[test]

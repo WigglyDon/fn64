@@ -966,9 +966,6 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::UnsupportedCop0Register { .. } => {
             "mfc0-control-source-unsupported".to_owned()
         }
-        MachineRspStepRejectionReason::SpDmaFullUnsupported => {
-            "mfc0-sp-dma-full-unsupported".to_owned()
-        }
         MachineRspStepRejectionReason::MalformedMtc0Encoding => "mtc0-malformed".to_owned(),
         MachineRspStepRejectionReason::Mtc0SourceUnavailable { .. } => {
             "mtc0-source-unavailable".to_owned()

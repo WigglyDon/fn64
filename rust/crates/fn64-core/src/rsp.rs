@@ -65,6 +65,7 @@ pub enum MachineRspControlRegister {
     SpReadLength,
     SpWriteLength,
     SpStatus,
+    SpDmaFull,
     SpDmaBusy,
     SpSemaphore,
     DpcStatus,
@@ -79,6 +80,9 @@ pub enum MachineRspMfc0ControlSource {
     SpDmaBusy {
         busy: bool,
     },
+    SpDmaFull {
+        full: bool,
+    },
     SpSemaphore {
         old_set: bool,
         source: MachineSpSemaphoreSource,
@@ -90,6 +94,7 @@ impl MachineRspMfc0ControlSource {
         match self {
             Self::SpDramAddress { .. } => MachineRspControlRegister::SpDramAddress,
             Self::SpDmaBusy { .. } => MachineRspControlRegister::SpDmaBusy,
+            Self::SpDmaFull { .. } => MachineRspControlRegister::SpDmaFull,
             Self::SpSemaphore { .. } => MachineRspControlRegister::SpSemaphore,
         }
     }
@@ -98,6 +103,7 @@ impl MachineRspMfc0ControlSource {
         match self {
             Self::SpDramAddress { value, .. } => value,
             Self::SpDmaBusy { busy } => busy as u32,
+            Self::SpDmaFull { full } => full as u32,
             Self::SpSemaphore { old_set, .. } => old_set as u32,
         }
     }
@@ -1698,7 +1704,6 @@ pub enum MachineRspStepRejectionReason {
     UnsupportedCop0Register {
         register_index: u8,
     },
-    SpDmaFullUnsupported,
     MalformedMtc0Encoding,
     Mtc0SourceUnavailable {
         source_gpr: u8,
@@ -1873,9 +1878,6 @@ impl fmt::Display for MachineRspStepRejection {
                 f,
                 "RSP Mfc0 control-register index {register_index} is not represented"
             ),
-            MachineRspStepRejectionReason::SpDmaFullUnsupported => {
-                write!(f, "RSP Mfc0 SP_DMA_FULL is not represented")
-            }
             MachineRspStepRejectionReason::MalformedMtc0Encoding => {
                 write!(f, "RSP Mtc0 encoding is malformed")
             }
@@ -2607,11 +2609,7 @@ impl MachineRspExecutionState {
             let register_index = ((raw_word >> 11) & 0x1f) as u8;
             let control_register = match register_index {
                 RSP_COP0_SP_DRAM_ADDRESS_INDEX => MachineRspControlRegister::SpDramAddress,
-                RSP_COP0_SP_DMA_FULL_INDEX => {
-                    return Err(MachineRspStepRejection::new(
-                        MachineRspStepRejectionReason::SpDmaFullUnsupported,
-                    ))
-                }
+                RSP_COP0_SP_DMA_FULL_INDEX => MachineRspControlRegister::SpDmaFull,
                 RSP_COP0_SP_DMA_BUSY_INDEX => MachineRspControlRegister::SpDmaBusy,
                 RSP_COP0_SP_SEMAPHORE_INDEX => MachineRspControlRegister::SpSemaphore,
                 _ => {
@@ -5245,7 +5243,7 @@ mod tests {
     }
 
     #[test]
-    fn rsp_mfc0_sp_dma_busy_idle_read_and_vsub_frontier_are_exact() {
+    fn rsp_mfc0_sp_dma_busy_and_full_read_atomic_idle_truth_before_vsub_frontier() {
         let mut rsp = MachineRspExecutionState::default();
         rsp.synchronize_pc_write(0x054);
         assert_eq!(
@@ -5283,10 +5281,35 @@ mod tests {
             MachineRspMfc0ControlSource::SpDmaBusy { busy: false }
         );
         assert_eq!(
-            rsp.decode(mfc0_word(3, RSP_COP0_SP_DMA_FULL_INDEX))
-                .unwrap_err()
-                .reason(),
-            MachineRspStepRejectionReason::SpDmaFullUnsupported
+            rsp.decode(mfc0_word(4, RSP_COP0_SP_DMA_FULL_INDEX)),
+            Ok(MachineRspDecodedInstruction::Mfc0 {
+                destination_gpr: 4,
+                control_register: MachineRspControlRegister::SpDmaFull,
+            })
+        );
+        let plan = rsp.plan_mfc0(
+            0x058,
+            rsp.decode(mfc0_word(4, RSP_COP0_SP_DMA_FULL_INDEX))
+                .unwrap(),
+            MachineRspMfc0ControlSource::SpDmaFull { full: false },
+            TEST_INSTRUCTION_PROVENANCE,
+        );
+        assert_eq!(
+            rsp.apply_mfc0(plan),
+            MachineRspStepOutcome::ScalarMfc0Committed {
+                instruction_pc: 0x058,
+                destination_gpr: 4,
+                control_register: MachineRspControlRegister::SpDmaFull,
+                result_value: 0,
+            }
+        );
+        let source = match rsp.scalar_register(4).unwrap().source().unwrap() {
+            MachineRspScalarRegisterSource::Mfc0(source) => source,
+            other => panic!("DMA_FULL result lacks exact Mfc0 provenance: {other:?}"),
+        };
+        assert_eq!(
+            source.control_source(),
+            MachineRspMfc0ControlSource::SpDmaFull { full: false }
         );
         assert_eq!(
             rsp.decode(0x4a0d_6b51),

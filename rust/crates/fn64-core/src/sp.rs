@@ -1182,6 +1182,9 @@ impl Sp {
             MachineRspControlRegister::SpDmaBusy => {
                 MachineRspMfc0ControlSource::SpDmaBusy { busy: false }
             }
+            MachineRspControlRegister::SpDmaFull => {
+                MachineRspMfc0ControlSource::SpDmaFull { full: false }
+            }
             MachineRspControlRegister::SpMemoryAddress
             | MachineRspControlRegister::SpReadLength
             | MachineRspControlRegister::SpWriteLength
