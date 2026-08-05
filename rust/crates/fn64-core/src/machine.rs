@@ -3986,6 +3986,15 @@ impl MachineStepCpuLocalInvocationRejection {
             | Self::Cop0ExceptionReturn(_) => None,
         }
     }
+
+    pub const fn cop0_tlb_error(self) -> Option<crate::cpu::MachineCop0TlbOperationError> {
+        match self {
+            Self::Cop0Tlb { error, .. } => Some(error),
+            Self::HelperRejectedSelection { .. }
+            | Self::RegisterIndex(_)
+            | Self::Cop0ExceptionReturn(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

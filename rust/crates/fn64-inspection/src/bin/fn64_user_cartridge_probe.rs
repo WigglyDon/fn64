@@ -4,13 +4,14 @@ use std::process::ExitCode;
 
 use fn64_core::{
     load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource, MachineBootstrapGprSource,
-    MachineCartridgeBootstrapError, MachineCleanRoomBootProfile,
+    MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCop0TlbOperationError,
     MachineCop1ControlTransferRejectionReason, MachineCpuInstructionFetchError,
     MachineCpuInstructionInspection, MachineLoadWordRejectionReason, MachinePiDomain,
     MachinePiDomainTimingField, MachinePiDomainTimingRegister, MachinePifIpl2HandoffBootMedium,
     MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
     MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspStepRejectionReason,
-    MachineSpStatusState, PifFirmwareClassification, PifIpl2Profile, RDRAM_SIZE_BYTES,
+    MachineSpStatusState, MachineStepCpuLocalInvocationRejection, PifFirmwareClassification,
+    PifIpl2Profile, RDRAM_SIZE_BYTES,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -712,8 +713,8 @@ fn redacted_machine_step_error(
                     "COP1 control-transfer rejection was structurally classified above"
                 ),
                 MachineRepresentedStepError::CacheRejected(_) => "cache-rejected",
-                MachineRepresentedStepError::CpuLocalInvocationRejected(_) => {
-                    "cpu-local-invocation-rejected"
+                MachineRepresentedStepError::CpuLocalInvocationRejected(rejection) => {
+                    redacted_cpu_local_invocation_rejection_category(machine, rejection)
                 }
                 MachineRepresentedStepError::UnrepresentedInstruction { .. } => {
                     "unrepresented-instruction"
@@ -743,6 +744,42 @@ fn redacted_machine_step_error(
                 "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity={identity} category={category}"
             )
         }
+    }
+}
+
+fn redacted_cpu_local_invocation_rejection_category(
+    machine: &Machine,
+    rejection: MachineStepCpuLocalInvocationRejection,
+) -> &'static str {
+    match rejection.cop0_tlb_error() {
+        Some(MachineCop0TlbOperationError::IndexUnavailable) => {
+            "cpu-local-cop0-tlb-index-unavailable"
+        }
+        Some(MachineCop0TlbOperationError::IndexOutOfRange { .. }) => {
+            "cpu-local-cop0-tlb-index-out-of-range"
+        }
+        Some(MachineCop0TlbOperationError::EntryUnavailable { .. }) => {
+            "cpu-local-cop0-tlb-entry-unavailable"
+        }
+        Some(MachineCop0TlbOperationError::WorkingRegistersUnavailable)
+            if machine.cpu().cop0_page_mask().is_none() =>
+        {
+            "cpu-local-cop0-tlb-page-mask-unavailable"
+        }
+        Some(MachineCop0TlbOperationError::WorkingRegistersUnavailable)
+            if machine.cpu().cop0_entry_lo0().is_none() =>
+        {
+            "cpu-local-cop0-tlb-entry-lo0-unavailable"
+        }
+        Some(MachineCop0TlbOperationError::WorkingRegistersUnavailable)
+            if machine.cpu().cop0_entry_lo1().is_none() =>
+        {
+            "cpu-local-cop0-tlb-entry-lo1-unavailable"
+        }
+        Some(MachineCop0TlbOperationError::WorkingRegistersUnavailable) => {
+            "cpu-local-cop0-tlb-working-registers-unavailable"
+        }
+        None => "cpu-local-invocation-rejected",
     }
 }
 
@@ -1216,6 +1253,41 @@ mod tests {
             ),
             "source-unavailable"
         );
+    }
+
+    #[test]
+    fn cop0_tlb_rejections_are_value_free_categories() {
+        let machine = generated_hle_machine();
+        for (error, expected) in [
+            (
+                MachineCop0TlbOperationError::IndexUnavailable,
+                "cpu-local-cop0-tlb-index-unavailable",
+            ),
+            (
+                MachineCop0TlbOperationError::IndexOutOfRange { index: u8::MAX },
+                "cpu-local-cop0-tlb-index-out-of-range",
+            ),
+            (
+                MachineCop0TlbOperationError::EntryUnavailable { index: u8::MAX },
+                "cpu-local-cop0-tlb-entry-unavailable",
+            ),
+            (
+                MachineCop0TlbOperationError::WorkingRegistersUnavailable,
+                "cpu-local-cop0-tlb-page-mask-unavailable",
+            ),
+        ] {
+            assert_eq!(
+                redacted_cpu_local_invocation_rejection_category(
+                    &machine,
+                    MachineStepCpuLocalInvocationRejection::Cop0Tlb {
+                        identity: CpuInstructionIdentity::Cop0Tlbwi,
+                        error,
+                    }
+                ),
+                expected
+            );
+            assert!(!expected.contains("255"));
+        }
     }
 
     #[test]

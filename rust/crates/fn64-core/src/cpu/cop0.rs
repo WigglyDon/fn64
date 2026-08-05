@@ -540,10 +540,11 @@ impl Cpu {
         self.cop0.status = status;
     }
 
-    pub(crate) fn stage_clean_room_cartridge_entry_cop0(&mut self, status: u32) {
+    pub(crate) fn stage_clean_room_cartridge_entry_cop0(&mut self, status: u32, page_mask: u32) {
         self.cop0.status = status;
         self.cop0.software_interrupt_pending = 0;
         self.cop0.software_interrupt_pending_known = true;
+        self.cop0.write_page_mask(page_mask);
     }
 
     pub(crate) fn stage_public_synthetic_cold_x105_page_mask(&mut self) {

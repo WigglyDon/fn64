@@ -31,6 +31,7 @@ const MACHINE_CLEAN_ROOM_SIDE_DATA_BYTE_COUNT: usize = 0x100;
 const MACHINE_CLEAN_ROOM_NTSC_X105_SEED: u32 = 0x91;
 const MACHINE_CLEAN_ROOM_X105_MULTIPLIER: u32 = 0x5d58_8b65;
 const MACHINE_CLEAN_ROOM_COP0_STATUS: u32 = 0x3400_0000;
+const MACHINE_CLEAN_ROOM_COP0_PAGE_MASK: u32 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineCleanRoomBootProfile {
@@ -290,7 +291,10 @@ impl Machine {
         }
         replacement_cpu.stage_hi(cpu_plan.hi);
         replacement_cpu.stage_lo(cpu_plan.lo);
-        replacement_cpu.stage_clean_room_cartridge_entry_cop0(MACHINE_CLEAN_ROOM_COP0_STATUS);
+        replacement_cpu.stage_clean_room_cartridge_entry_cop0(
+            MACHINE_CLEAN_ROOM_COP0_STATUS,
+            MACHINE_CLEAN_ROOM_COP0_PAGE_MASK,
+        );
         replacement_cpu.stage_clean_room_hle_fcr31();
         replacement_cpu.stage_clean_room_hle_primary_caches(
             MachinePrimaryCacheCleanRoomHleSource::NtscX105Pinned,
@@ -660,6 +664,7 @@ mod tests {
         let cartridge_bytes = generated_cartridge(GENERATED_ENTRY, 0);
         let cartridge = load_cartridge(cartridge_bytes.clone()).unwrap();
         let mut machine = Machine::from_cartridge(cartridge);
+        assert_eq!(machine.cpu().cop0_page_mask(), None);
 
         let state = machine
             .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
@@ -725,6 +730,10 @@ mod tests {
         assert_eq!(machine.cpu().cop0_count(), 0);
         assert_eq!(machine.cpu().cop0_compare(), 0);
         assert_eq!(machine.cpu().cop0_status(), MACHINE_CLEAN_ROOM_COP0_STATUS);
+        assert_eq!(
+            machine.cpu().cop0_page_mask(),
+            Some(MACHINE_CLEAN_ROOM_COP0_PAGE_MASK)
+        );
         assert_eq!(machine.cpu().cop0_cause_word(), Some(0));
         assert_eq!(
             machine
