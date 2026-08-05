@@ -726,6 +726,13 @@ pub(crate) struct Sp {
 }
 
 impl Sp {
+    pub(crate) fn clean_room_ntsc_x105_post_boot() -> Self {
+        Self {
+            rsp: MachineRspExecutionState::clean_room_ntsc_x105_post_boot(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) const fn status_state(&self) -> Option<MachineSpStatusState> {
         self.status
     }

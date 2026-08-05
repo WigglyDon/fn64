@@ -48,6 +48,8 @@ pub const RSP_VECTOR_LQV_SUBOPCODE: u8 = 4;
 pub const RSP_VECTOR_COMPUTE_OPCODE: u8 = 0x12;
 pub const RSP_VECTOR_VSUB_FUNCTION: u8 = 0x11;
 pub const RSP_VECTOR_VADDC_FUNCTION: u8 = 0x14;
+pub(crate) const RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX: usize = 11;
+pub(crate) const RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE: u32 = 0;
 pub const RSP_VECTOR_LANE_COUNT: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +134,7 @@ impl MachineRspMfc0ResultSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineRspScalarRegisterSource {
     ArchitecturalZero,
+    CleanRoomHleNtscX105PinnedPostBoot,
     Mfc0(MachineRspMfc0ResultSource),
     Lui(Box<MachineRspLuiSource>),
     Addi(Box<MachineRspAddiSource>),
@@ -2477,6 +2480,16 @@ pub(crate) struct MachineRspExecutionState {
 }
 
 impl MachineRspExecutionState {
+    pub(crate) fn clean_room_ntsc_x105_post_boot() -> Self {
+        let mut state = Self::default();
+        state.scalar_registers[RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX] =
+            MachineRspScalarRegisterState::Available {
+                value: RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE,
+                source: MachineRspScalarRegisterSource::CleanRoomHleNtscX105PinnedPostBoot,
+            };
+        state
+    }
+
     pub(crate) fn scalar_register(&self, index: usize) -> Option<MachineRspScalarRegisterState> {
         self.scalar_registers.get(index).cloned()
     }
@@ -4398,6 +4411,22 @@ mod tests {
                 source: MachineRspVceSource::ConstructionOrReset,
             }
         );
+    }
+
+    #[test]
+    fn clean_room_ntsc_x105_post_boot_stages_only_public_gpr_11_truth() {
+        let mut expected = MachineRspExecutionState::default();
+        expected.scalar_registers[RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX] =
+            MachineRspScalarRegisterState::Available {
+                value: RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE,
+                source: MachineRspScalarRegisterSource::CleanRoomHleNtscX105PinnedPostBoot,
+            };
+        let staged = MachineRspExecutionState::clean_room_ntsc_x105_post_boot();
+        assert_eq!(staged, expected);
+        assert_eq!(staged.committed_instruction_count(), 0);
+        assert_eq!(staged.next_pc(), None);
+        assert_eq!(staged.delay_slot_context(), None);
+        assert_eq!(staged.last_instruction(), None);
     }
 
     #[test]

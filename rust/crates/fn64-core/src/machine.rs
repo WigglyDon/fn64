@@ -41013,6 +41013,14 @@ mod tests {
         assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x09c);
         assert_eq!(machine.rsp_next_pc(), Some(0x0a0));
         assert_eq!(machine.rsp_committed_instruction_count(), 1_091);
+        assert_eq!(
+            machine
+                .rsp_scalar_register(crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX)
+                .unwrap()
+                .value(),
+            Some(crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE),
+            "the generated public X105 proof owns the clean-room post-boot GPR 11 fact"
+        );
 
         assert_eq!(
             machine.step().unwrap(),

@@ -276,6 +276,11 @@ impl Machine {
         let cpu_plan = clean_room_cpu_plan(profile, entry_address, &payload, &side_data);
         let replacement_pi =
             Pi::clean_room_hle_cartridge_entry(self.cartridge.pi_domain_one_timing());
+        let replacement_sp = match profile {
+            MachineCleanRoomBootProfile::NtscX105Pinned => {
+                crate::sp::Sp::clean_room_ntsc_x105_post_boot()
+            }
+        };
 
         let replacement_rdram = Rdram::from_clean_room_hle_cartridge_payload(
             rdram_start_offset,
@@ -320,7 +325,7 @@ impl Machine {
         self.rdram = replacement_rdram;
         self.sp_dmem = SpDmem::default();
         *self.sp_imem = SpImem::default();
-        self.sp = crate::sp::Sp::default();
+        self.sp = replacement_sp;
         self.dpc = Dpc::default();
         self.ri = Ri::default();
         self.mi = Mi::default();
@@ -629,6 +634,8 @@ mod tests {
         rdram_initialization_source: Option<MachineRdramInitializationSource>,
         sp_status_present: bool,
         sp_pc_present: bool,
+        rsp_scalar_registers:
+            [crate::rsp::MachineRspScalarRegisterState; crate::rsp::RSP_SCALAR_REGISTER_COUNT],
         rsp_committed: u64,
         first_sp_imem_word_present: bool,
         pi_domain_one_timing: [Option<MachinePiDomainTimingRegisterState>; 4],
@@ -653,6 +660,11 @@ mod tests {
             rdram_initialization_source: machine.rdram_initialization_source(),
             sp_status_present: machine.sp_status_state().is_some(),
             sp_pc_present: machine.sp_pc_state().is_some(),
+            rsp_scalar_registers: core::array::from_fn(|index| {
+                machine
+                    .rsp_scalar_register(index)
+                    .expect("all architectural RSP scalar-register slots exist")
+            }),
             rsp_committed: machine.rsp_committed_instruction_count(),
             first_sp_imem_word_present: machine.sp_imem_opaque_word_state(0).is_some(),
             pi_domain_one_timing: domain_one_timing_states(machine),
@@ -810,6 +822,22 @@ mod tests {
         assert_eq!(machine.sp_pc_state(), None);
         assert_eq!(machine.sp_imem_opaque_word_state(0), None);
         assert_eq!(machine.rsp_committed_instruction_count(), 0);
+        assert_eq!(machine.rsp_scalar_register(0).unwrap().value(), Some(0));
+        assert_eq!(
+            machine
+                .rsp_scalar_register(crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX)
+                .unwrap(),
+            crate::rsp::MachineRspScalarRegisterState::Available {
+                value: crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE,
+                source:
+                    crate::rsp::MachineRspScalarRegisterSource::CleanRoomHleNtscX105PinnedPostBoot,
+            }
+        );
+        for index in 1..crate::rsp::RSP_SCALAR_REGISTER_COUNT {
+            if index != crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX {
+                assert_eq!(machine.rsp_scalar_register(index).unwrap().value(), None);
+            }
+        }
         for (field, expected) in [
             (MachinePiDomainTimingField::Latency, 0x80),
             (MachinePiDomainTimingField::PulseWidth, 0x12),
