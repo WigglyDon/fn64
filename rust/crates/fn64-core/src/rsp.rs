@@ -33,6 +33,7 @@ pub const RSP_SCALAR_BREAK_WORD: u32 = 0x0000_000d;
 pub const RSP_SCALAR_BREAK_FUNCTION: u8 = 0x0d;
 pub const RSP_SCALAR_BREAK_CODE_MASK: u32 = 0x000f_ffff;
 pub const RSP_SCALAR_REGIMM_OPCODE: u8 = 0x01;
+pub const RSP_SCALAR_J_OPCODE: u8 = 0x02;
 pub const RSP_SCALAR_BLTZ_SELECTOR: u8 = 0;
 pub const RSP_SCALAR_BGEZ_SELECTOR: u8 = 1;
 pub const RSP_SCALAR_BNE_OPCODE: u8 = 0x05;
@@ -820,6 +821,12 @@ impl MachineRspAccumulatorAndFlagsState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MachineRspBranchSource {
+    J {
+        instruction_pc: u16,
+        instruction_provenance: [SpImemByteProvenance; 4],
+        delay_slot_pc: u16,
+        target_pc: u16,
+    },
     Bltz {
         instruction_pc: u16,
         instruction_provenance: [SpImemByteProvenance; 4],
@@ -861,7 +868,8 @@ pub(crate) enum MachineRspBranchSource {
 impl MachineRspBranchSource {
     pub const fn instruction_pc(&self) -> u16 {
         match self {
-            Self::Bltz { instruction_pc, .. }
+            Self::J { instruction_pc, .. }
+            | Self::Bltz { instruction_pc, .. }
             | Self::Bgez { instruction_pc, .. }
             | Self::Bne { instruction_pc, .. } => *instruction_pc,
         }
@@ -869,6 +877,7 @@ impl MachineRspBranchSource {
 
     pub const fn identity(&self) -> MachineRspInstructionIdentity {
         match self {
+            Self::J { .. } => MachineRspInstructionIdentity::J,
             Self::Bltz { .. } => MachineRspInstructionIdentity::Bltz,
             Self::Bgez { .. } => MachineRspInstructionIdentity::Bgez,
             Self::Bne { .. } => MachineRspInstructionIdentity::Bne,
@@ -877,7 +886,11 @@ impl MachineRspBranchSource {
 
     pub fn instruction_source(&self) -> MachineRspInstructionSource {
         classify_instruction_source(match self {
-            Self::Bltz {
+            Self::J {
+                instruction_provenance,
+                ..
+            }
+            | Self::Bltz {
                 instruction_provenance,
                 ..
             }
@@ -892,59 +905,66 @@ impl MachineRspBranchSource {
         })
     }
 
-    pub const fn source_gpr_a(&self) -> u8 {
+    pub const fn source_gpr_a(&self) -> Option<u8> {
         match self {
-            Self::Bltz { source_gpr, .. } | Self::Bgez { source_gpr, .. } => *source_gpr,
-            Self::Bne { source_gpr_a, .. } => *source_gpr_a,
+            Self::J { .. } => None,
+            Self::Bltz { source_gpr, .. } | Self::Bgez { source_gpr, .. } => Some(*source_gpr),
+            Self::Bne { source_gpr_a, .. } => Some(*source_gpr_a),
         }
     }
 
-    pub const fn source_value_a(&self) -> u32 {
+    pub const fn source_value_a(&self) -> Option<u32> {
         match self {
-            Self::Bltz { source_value, .. } | Self::Bgez { source_value, .. } => *source_value,
-            Self::Bne { source_value_a, .. } => *source_value_a,
+            Self::J { .. } => None,
+            Self::Bltz { source_value, .. } | Self::Bgez { source_value, .. } => {
+                Some(*source_value)
+            }
+            Self::Bne { source_value_a, .. } => Some(*source_value_a),
         }
     }
 
-    pub fn source_a(&self) -> MachineRspScalarRegisterSource {
+    pub fn source_a(&self) -> Option<MachineRspScalarRegisterSource> {
         match self {
-            Self::Bltz { source, .. } | Self::Bgez { source, .. } => source.clone(),
-            Self::Bne { source_a, .. } => source_a.clone(),
+            Self::J { .. } => None,
+            Self::Bltz { source, .. } | Self::Bgez { source, .. } => Some(source.clone()),
+            Self::Bne { source_a, .. } => Some(source_a.clone()),
         }
     }
 
     pub const fn source_gpr_b(&self) -> Option<u8> {
         match self {
-            Self::Bltz { .. } | Self::Bgez { .. } => None,
+            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } => None,
             Self::Bne { source_gpr_b, .. } => Some(*source_gpr_b),
         }
     }
 
     pub const fn source_value_b(&self) -> Option<u32> {
         match self {
-            Self::Bltz { .. } | Self::Bgez { .. } => None,
+            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } => None,
             Self::Bne { source_value_b, .. } => Some(*source_value_b),
         }
     }
 
     pub fn source_b(&self) -> Option<MachineRspScalarRegisterSource> {
         match self {
-            Self::Bltz { .. } | Self::Bgez { .. } => None,
+            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } => None,
             Self::Bne { source_b, .. } => Some(source_b.clone()),
         }
     }
 
-    pub const fn signed_offset(&self) -> i16 {
+    pub const fn signed_offset(&self) -> Option<i16> {
         match self {
+            Self::J { .. } => None,
             Self::Bltz { signed_offset, .. }
             | Self::Bgez { signed_offset, .. }
-            | Self::Bne { signed_offset, .. } => *signed_offset,
+            | Self::Bne { signed_offset, .. } => Some(*signed_offset),
         }
     }
 
     pub const fn delay_slot_pc(&self) -> u16 {
         match self {
-            Self::Bltz { delay_slot_pc, .. }
+            Self::J { delay_slot_pc, .. }
+            | Self::Bltz { delay_slot_pc, .. }
             | Self::Bgez { delay_slot_pc, .. }
             | Self::Bne { delay_slot_pc, .. } => *delay_slot_pc,
         }
@@ -952,7 +972,8 @@ impl MachineRspBranchSource {
 
     pub const fn target_pc(&self) -> u16 {
         match self {
-            Self::Bltz { target_pc, .. }
+            Self::J { target_pc, .. }
+            | Self::Bltz { target_pc, .. }
             | Self::Bgez { target_pc, .. }
             | Self::Bne { target_pc, .. } => *target_pc,
         }
@@ -960,13 +981,18 @@ impl MachineRspBranchSource {
 
     pub const fn taken(&self) -> bool {
         match self {
+            Self::J { .. } => true,
             Self::Bltz { taken, .. } | Self::Bgez { taken, .. } | Self::Bne { taken, .. } => *taken,
         }
     }
 
     const fn instruction_provenance(&self) -> [SpImemByteProvenance; 4] {
         match self {
-            Self::Bltz {
+            Self::J {
+                instruction_provenance,
+                ..
+            }
+            | Self::Bltz {
                 instruction_provenance,
                 ..
             }
@@ -1016,15 +1042,15 @@ impl MachineRspDelaySlotContext {
         self.branch.instruction_source()
     }
 
-    pub const fn source_gpr_a(&self) -> u8 {
+    pub const fn source_gpr_a(&self) -> Option<u8> {
         self.branch.source_gpr_a()
     }
 
-    pub const fn source_value_a(&self) -> u32 {
+    pub const fn source_value_a(&self) -> Option<u32> {
         self.branch.source_value_a()
     }
 
-    pub fn source_a(&self) -> MachineRspScalarRegisterSource {
+    pub fn source_a(&self) -> Option<MachineRspScalarRegisterSource> {
         self.branch.source_a()
     }
 
@@ -1040,7 +1066,7 @@ impl MachineRspDelaySlotContext {
         self.branch.source_b()
     }
 
-    pub const fn signed_offset(&self) -> i16 {
+    pub const fn signed_offset(&self) -> Option<i16> {
         self.branch.signed_offset()
     }
 }
@@ -1051,6 +1077,7 @@ pub enum MachineRspInstructionIdentity {
     Mtc0,
     Lui,
     Addi,
+    J,
     Bltz,
     Bgez,
     Bne,
@@ -1318,6 +1345,11 @@ pub enum MachineRspStepOutcome {
         destination_gpr: u8,
         result_value: u32,
     },
+    ScalarJCommitted {
+        instruction_pc: u16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+    },
     ScalarBltzCommitted {
         instruction_pc: u16,
         delay_slot_pc: u16,
@@ -1368,6 +1400,7 @@ impl MachineRspStepOutcome {
             Self::ScalarMtc0Committed { .. } => MachineRspInstructionIdentity::Mtc0,
             Self::ScalarLuiCommitted { .. } => MachineRspInstructionIdentity::Lui,
             Self::ScalarAddiCommitted { .. } => MachineRspInstructionIdentity::Addi,
+            Self::ScalarJCommitted { .. } => MachineRspInstructionIdentity::J,
             Self::ScalarBltzCommitted { .. } => MachineRspInstructionIdentity::Bltz,
             Self::ScalarBgezCommitted { .. } => MachineRspInstructionIdentity::Bgez,
             Self::ScalarBneCommitted { .. } => MachineRspInstructionIdentity::Bne,
@@ -1387,6 +1420,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarMtc0Committed { instruction_pc, .. }
             | Self::ScalarLuiCommitted { instruction_pc, .. }
             | Self::ScalarAddiCommitted { instruction_pc, .. }
+            | Self::ScalarJCommitted { instruction_pc, .. }
             | Self::ScalarBltzCommitted { instruction_pc, .. }
             | Self::ScalarBgezCommitted { instruction_pc, .. }
             | Self::ScalarBneCommitted { instruction_pc, .. }
@@ -1418,6 +1452,7 @@ impl MachineRspStepOutcome {
                 destination_gpr, ..
             } => Some(destination_gpr),
             Self::ScalarMtc0Committed { .. }
+            | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
@@ -1442,6 +1477,7 @@ impl MachineRspStepOutcome {
             | Self::VectorVaddcCommitted { .. }
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
@@ -1460,6 +1496,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarAddiCommitted { result_value, .. }
             | Self::ScalarXoriCommitted { result_value, .. } => Some(result_value),
             Self::ScalarMtc0Committed { .. }
+            | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
@@ -1477,6 +1514,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarMtc0Committed { .. }
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
@@ -1502,6 +1540,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarMtc0Committed { .. }
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
@@ -1525,6 +1564,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarMtc0Committed { .. }
             | Self::ScalarLuiCommitted { .. }
             | Self::ScalarAddiCommitted { .. }
+            | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBneCommitted { .. }
@@ -2277,6 +2317,9 @@ pub(crate) enum MachineRspDecodedInstruction {
         destination_gpr: u8,
         signed_immediate: i16,
     },
+    J {
+        target_pc: u16,
+    },
     Bltz {
         source_gpr: u8,
         signed_offset: i16,
@@ -2393,6 +2436,11 @@ impl MachineRspExecutionState {
             ));
         }
         let opcode = (raw_word >> 26) as u8;
+        if opcode == RSP_SCALAR_J_OPCODE {
+            return Ok(MachineRspDecodedInstruction::J {
+                target_pc: jump_target_local_pc(raw_word & 0x03ff_ffff),
+            });
+        }
         if opcode == RSP_COP0_OPCODE {
             let transfer_selector = ((raw_word >> 21) & 0x1f) as u8;
             if transfer_selector == RSP_COP0_MTC0_TRANSFER_SELECTOR {
@@ -2889,6 +2937,12 @@ impl MachineRspExecutionState {
             .next_pc
             .unwrap_or_else(|| sequential_local_pc(instruction_pc));
         let source = match decoded {
+            MachineRspDecodedInstruction::J { target_pc } => MachineRspBranchSource::J {
+                instruction_pc,
+                instruction_provenance: byte_provenance,
+                delay_slot_pc,
+                target_pc,
+            },
             MachineRspDecodedInstruction::Bltz {
                 source_gpr,
                 signed_offset,
@@ -2984,7 +3038,7 @@ impl MachineRspExecutionState {
                     taken: source_value_a != source_value_b,
                 }
             }
-            _ => unreachable!("branch planner receives only decoded Bltz, Bgez, or Bne"),
+            _ => unreachable!("branch planner receives only decoded J, Bltz, Bgez, or Bne"),
         };
         let selected_next_pc = if source.taken() {
             source.target_pc()
@@ -3014,6 +3068,11 @@ impl MachineRspExecutionState {
             byte_provenance,
         });
         match identity {
+            MachineRspInstructionIdentity::J => MachineRspStepOutcome::ScalarJCommitted {
+                instruction_pc,
+                delay_slot_pc,
+                target_pc,
+            },
             MachineRspInstructionIdentity::Bltz => MachineRspStepOutcome::ScalarBltzCommitted {
                 instruction_pc,
                 delay_slot_pc,
@@ -3032,7 +3091,7 @@ impl MachineRspExecutionState {
                 target_pc,
                 taken,
             },
-            _ => unreachable!("branch plan identity is exactly Bltz, Bgez, or Bne"),
+            _ => unreachable!("branch plan identity is exactly J, Bltz, Bgez, or Bne"),
         }
     }
 
@@ -3836,6 +3895,10 @@ pub(crate) fn branch_target_local_pc(delay_slot_pc: u16, signed_offset: i16) -> 
         & !RSP_INSTRUCTION_ALIGNMENT_MASK
 }
 
+pub(crate) const fn jump_target_local_pc(encoded_target: u32) -> u16 {
+    ((encoded_target << 2) as u16) & RSP_LOCAL_ADDRESS_MASK & !RSP_INSTRUCTION_ALIGNMENT_MASK
+}
+
 pub(crate) fn classify_instruction_source(
     provenance: [SpImemByteProvenance; 4],
 ) -> MachineRspInstructionSource {
@@ -3911,6 +3974,10 @@ mod tests {
             | ((source_gpr as u32) << 21)
             | ((destination_gpr as u32) << 16)
             | signed_immediate as u16 as u32
+    }
+
+    const fn j_word(target_pc: u16) -> u32 {
+        ((RSP_SCALAR_J_OPCODE as u32) << 26) | ((target_pc as u32) >> 2)
     }
 
     const fn bltz_word(source_gpr: u8, signed_offset: i16) -> u32 {
@@ -4604,10 +4671,10 @@ mod tests {
         assert_eq!(context.delay_slot_pc(), 0x030);
         assert_eq!(context.target_pc(), 0x09c);
         assert!(!context.taken());
-        assert_eq!(context.source_gpr_a(), 5);
-        assert_eq!(context.source_value_a(), 0x0020_0000);
+        assert_eq!(context.source_gpr_a(), Some(5));
+        assert_eq!(context.source_value_a(), Some(0x0020_0000));
         assert_eq!(context.source_gpr_b(), None);
-        assert_eq!(context.signed_offset(), 0x001b);
+        assert_eq!(context.signed_offset(), Some(0x001b));
         let context_before_cpu_interleave = context.clone();
         assert_eq!(
             not_taken.delay_slot_context(),
@@ -4679,11 +4746,11 @@ mod tests {
             }
         );
         let context = bne.delay_slot_context().unwrap();
-        assert_eq!(context.source_gpr_a(), 3);
-        assert_eq!(context.source_value_a(), 1);
+        assert_eq!(context.source_gpr_a(), Some(3));
+        assert_eq!(context.source_value_a(), Some(1));
         assert_eq!(context.source_gpr_b(), Some(0));
         assert_eq!(context.source_value_b(), Some(0));
-        assert_eq!(context.signed_offset(), -3);
+        assert_eq!(context.signed_offset(), Some(-3));
 
         let mut full_width = MachineRspExecutionState::default();
         full_width.synchronize_pc_write(0x058);
@@ -4706,6 +4773,91 @@ mod tests {
             },
             "Bne compares all 32 bits rather than only the low half"
         );
+    }
+
+    #[test]
+    fn rsp_j_uses_exact_local_target_and_one_delay_slot_without_register_inputs() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x120);
+        assert_eq!(
+            rsp.decode(j_word(0x3a0)),
+            Ok(MachineRspDecodedInstruction::J { target_pc: 0x3a0 })
+        );
+        assert_eq!(
+            jump_target_local_pc((0x0015_a3a0_u32 >> 2) & 0x03ff_ffff),
+            0x3a0,
+            "only the aligned low twelve local-PC bits survive"
+        );
+
+        let scalar_before = rsp.scalar_registers.clone();
+        let vector_before = rsp.vector_unit.clone();
+        let accumulator_before = rsp.accumulator_and_flags.clone();
+        let plan = rsp
+            .plan_branch(
+                0x120,
+                rsp.decode(j_word(0x3a0)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_branch(plan),
+            MachineRspStepOutcome::ScalarJCommitted {
+                instruction_pc: 0x120,
+                delay_slot_pc: 0x124,
+                target_pc: 0x3a0,
+            }
+        );
+        assert_eq!(rsp.scalar_registers, scalar_before);
+        assert_eq!(rsp.vector_unit, vector_before);
+        assert_eq!(rsp.accumulator_and_flags, accumulator_before);
+        assert_eq!(rsp.next_pc(), Some(0x3a0));
+        assert_eq!(rsp.committed_instruction_count(), 1);
+        assert_eq!(
+            rsp.last_instruction().unwrap().identity(),
+            MachineRspInstructionIdentity::J
+        );
+
+        let context = rsp.delay_slot_context().unwrap();
+        assert_eq!(context.owner_pc(), 0x120);
+        assert_eq!(context.identity(), MachineRspInstructionIdentity::J);
+        assert_eq!(context.delay_slot_pc(), 0x124);
+        assert_eq!(context.target_pc(), 0x3a0);
+        assert!(context.taken());
+        assert_eq!(context.source_gpr_a(), None);
+        assert_eq!(context.source_value_a(), None);
+        assert_eq!(context.source_a(), None);
+        assert_eq!(context.source_gpr_b(), None);
+        assert_eq!(context.source_value_b(), None);
+        assert_eq!(context.source_b(), None);
+        assert_eq!(context.signed_offset(), None);
+        assert_eq!(
+            context.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+
+        let rejection_before = rsp.clone();
+        assert_eq!(
+            rsp.plan_branch(
+                0x124,
+                rsp.decode(j_word(0x200)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::ControlFlowInDelaySlot { owner_pc: 0x120 }
+        );
+        assert_eq!(rsp, rejection_before);
+
+        let slot = rsp.plan_nop(0x124, rsp.decode(0).unwrap(), TEST_INSTRUCTION_PROVENANCE);
+        assert_eq!(
+            rsp.apply_nop(slot),
+            MachineRspStepOutcome::NopCommitted {
+                instruction_pc: 0x124,
+            }
+        );
+        assert_eq!(rsp.delay_slot_context(), None);
+        assert_eq!(rsp.next_pc(), Some(0x3a4));
+        assert_eq!(rsp.committed_instruction_count(), 2);
     }
 
     #[test]

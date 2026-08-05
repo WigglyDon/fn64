@@ -9,9 +9,9 @@ use fn64_core::{
     MachineCpuInstructionInspection, MachineLoadWordRejectionReason, MachinePiDomain,
     MachinePiDomainTimingField, MachinePiDomainTimingRegister, MachinePifIpl2HandoffBootMedium,
     MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspStepRejectionReason,
-    MachineSpStatusState, MachineStepCpuLocalInvocationRejection, PifFirmwareClassification,
-    PifIpl2Profile, RDRAM_SIZE_BYTES,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspInstructionIdentity,
+    MachineRspStepRejectionReason, MachineSpStatusState, MachineStepCpuLocalInvocationRejection,
+    MachineStepProcessor, PifFirmwareClassification, PifIpl2Profile, RDRAM_SIZE_BYTES,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -23,6 +23,7 @@ struct UserCartridgeProbeArguments {
     input_path: PathBuf,
     pif_rom_path: Option<PathBuf>,
     max_steps: u64,
+    observe_rsp_pressure: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +151,10 @@ fn run() -> Result<(), String> {
         None;
     let mut runtime_frontiers = Vec::new();
     let mut prior_sp_dma_records = machine.sp_dma_record_count();
+    let mut rsp_committed_steps = 0_u64;
+    let mut first_rsp_identity: Option<MachineRspInstructionIdentity> = None;
+    let mut rsp_break_committed = false;
+    let mut post_break_processor: Option<MachineStepProcessor> = None;
 
     while attempted_steps < arguments.max_steps {
         let pc = machine.cpu().pc();
@@ -163,17 +168,17 @@ fn run() -> Result<(), String> {
             .transpose()
             .map_err(|error| redacted_cpu_inspection_error(pc, error))?;
 
-        let rsp_pc = machine.sp_pc_state().map(|state| state.raw_low_field());
+        let post_break_followup = rsp_break_committed;
         let outcome = match machine.step() {
             Ok(outcome) => outcome,
             Err(error) => {
                 return Err(redacted_machine_step_error(
                     &machine,
-                    pc,
-                    rsp_pc,
                     attempted_steps.saturating_add(1),
                     committed_steps,
                     entry_executions,
+                    rsp_committed_steps,
+                    first_rsp_identity,
                     error,
                 ));
             }
@@ -194,6 +199,14 @@ fn run() -> Result<(), String> {
         }
         if entry_executions != 0 && committed {
             cartridge_runtime_committed_steps += 1;
+        }
+
+        if let MachineRepresentedStepOutcome::RspCommitted { outcome } = outcome {
+            rsp_committed_steps += 1;
+            first_rsp_identity.get_or_insert(outcome.identity());
+            if outcome.identity() == MachineRspInstructionIdentity::Break {
+                rsp_break_committed = true;
+            }
         }
 
         if entry_executions != 0 {
@@ -356,8 +369,15 @@ fn run() -> Result<(), String> {
                     "task start committed without one bounded pre-step inspection".to_owned()
                 })?;
                 task_boundary = Some((inspection, state, true));
-                break;
+                if !arguments.observe_rsp_pressure {
+                    break;
+                }
             }
+        }
+
+        if post_break_followup {
+            post_break_processor = Some(outcome.processor());
+            break;
         }
     }
 
@@ -487,7 +507,22 @@ fn run() -> Result<(), String> {
     println!("final.pc: 0x{:08X}", machine.cpu().pc());
     println!("final.next_pc: 0x{:08X}", machine.cpu().next_pc());
     println!("final.count: {}", machine.cpu().cop0_count());
-    println!("rsp.instructions_executed: 0");
+    println!("rsp.instructions_executed: {rsp_committed_steps}");
+    println!(
+        "rsp.first_instruction_identity: {}",
+        first_rsp_identity.map_or_else(
+            || "not_attempted".to_owned(),
+            |identity| format!("{identity:?}")
+        )
+    );
+    println!("rsp.break_committed: {rsp_break_committed}");
+    println!(
+        "rsp.post_break_step_processor: {}",
+        post_break_processor.map_or_else(
+            || "not_attempted".to_owned(),
+            |processor| format!("{processor:?}")
+        )
+    );
     println!("window: none");
 
     Ok(())
@@ -502,6 +537,7 @@ fn parse_arguments(
     let mut pif_rom_path = None;
     let mut max_steps = DEFAULT_MAX_STEPS;
     let mut max_steps_seen = false;
+    let mut observe_rsp_pressure = false;
 
     while let Some(argument) = arguments.next() {
         if argument == "--pif-rom" {
@@ -522,6 +558,11 @@ fn parse_arguments(
                 .ok_or_else(|| "--max-steps requires a positive decimal integer".to_owned())?;
             max_steps = parse_max_steps(&raw)?;
             max_steps_seen = true;
+        } else if argument == "--rsp-pressure" {
+            if observe_rsp_pressure {
+                return Err(user_cartridge_probe_usage());
+            }
+            observe_rsp_pressure = true;
         } else if !max_steps_seen {
             max_steps = parse_max_steps(&argument)?;
             max_steps_seen = true;
@@ -537,6 +578,7 @@ fn parse_arguments(
         input_path,
         pif_rom_path,
         max_steps,
+        observe_rsp_pressure,
     })
 }
 
@@ -548,11 +590,14 @@ fn parse_max_steps(raw: &OsString) -> Result<u64, String> {
 }
 
 fn is_user_cartridge_probe_flag(value: &OsString) -> bool {
-    matches!(value.to_str(), Some("--pif-rom" | "--max-steps"))
+    matches!(
+        value.to_str(),
+        Some("--pif-rom" | "--max-steps" | "--rsp-pressure")
+    )
 }
 
 fn user_cartridge_probe_usage() -> String {
-    "usage: fn64_user_cartridge_probe <cartridge-path> [max-steps | --max-steps <positive-integer>] [--pif-rom <path>]".to_owned()
+    "usage: fn64_user_cartridge_probe <cartridge-path> [max-steps | --max-steps <positive-integer>] [--pif-rom <path>] [--rsp-pressure]".to_owned()
 }
 
 fn read_explicit_pif_firmware(path: Option<&Path>) -> Result<Option<Vec<u8>>, String> {
@@ -649,23 +694,24 @@ fn redacted_cpu_inspection_error(pc: u32, error: MachineCpuInstructionFetchError
 
 fn redacted_machine_step_error(
     machine: &Machine,
-    cpu_pc: u32,
-    rsp_pc: Option<u32>,
     attempted_step: u64,
     committed_steps: u64,
     entry_executions: u64,
+    rsp_committed_steps: u64,
+    first_rsp_identity: Option<MachineRspInstructionIdentity>,
     error: MachineRepresentedStepError,
 ) -> String {
     let progress = format!(
-        "attempt={attempted_step} committed_steps={committed_steps} entry_commits={entry_executions}"
+        "attempt={attempted_step} committed_steps={committed_steps} entry_commits={entry_executions} rsp_committed={rsp_committed_steps} rsp_first_identity={}",
+        first_rsp_identity.map_or_else(
+            || "not_committed".to_owned(),
+            |identity| format!("{identity:?}")
+        )
     );
     match error {
         MachineRepresentedStepError::RspRejected(rejection) => {
-            let local_pc = rsp_pc
-                .map(|pc| format!("0x{pc:03X}"))
-                .unwrap_or_else(|| "unavailable".to_owned());
             format!(
-                "Machine::step stopped before the first RSP task: {progress} selected_processor=RSP local_pc={local_pc} category={}",
+                "Machine::step stopped at the first RSP pressure: {progress} selected_processor=RSP local_pc=redacted category={}",
                 redacted_rsp_rejection_category(rejection.reason())
             )
         }
@@ -739,7 +785,6 @@ fn redacted_machine_step_error(
                 .identity()
                 .map(|identity| format!("{identity:?}"))
                 .unwrap_or_else(|| "unavailable".to_owned());
-            let _ = cpu_pc;
             format!(
                 "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity={identity} category={category}"
             )
@@ -1071,6 +1116,7 @@ mod tests {
                 input_path: PathBuf::from("/private/input.z64"),
                 pif_rom_path: None,
                 max_steps: 1234,
+                observe_rsp_pressure: false,
             }
         );
         assert_eq!(
@@ -1079,6 +1125,7 @@ mod tests {
                 input_path: PathBuf::from("/private/input.z64"),
                 pif_rom_path: None,
                 max_steps: DEFAULT_MAX_STEPS,
+                observe_rsp_pressure: false,
             }
         );
         assert_eq!(
@@ -1089,6 +1136,7 @@ mod tests {
                     OsString::from("/private/pif.bin"),
                     OsString::from("--max-steps"),
                     OsString::from("4321"),
+                    OsString::from("--rsp-pressure"),
                 ]
                 .into_iter()
             )
@@ -1097,6 +1145,7 @@ mod tests {
                 input_path: PathBuf::from("/private/input.z64"),
                 pif_rom_path: Some(PathBuf::from("/private/pif.bin")),
                 max_steps: 4321,
+                observe_rsp_pressure: true,
             }
         );
         assert!(parse_arguments(
