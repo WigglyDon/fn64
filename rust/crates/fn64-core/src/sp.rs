@@ -112,13 +112,37 @@ pub struct MachineSpStatusState {
     single_step: bool,
     interrupt_on_break: bool,
     signals: [bool; 8],
-    source: MachineSpCpuStoreProvenance,
+    source: MachineSpRegisterWriteSource,
 }
 
 impl MachineSpStatusState {
     pub(crate) fn from_command(
         command_word: u32,
         source: MachineSpCpuStoreProvenance,
+        previous: Option<Self>,
+    ) -> Option<Self> {
+        Self::from_register_command(
+            command_word,
+            MachineSpRegisterWriteSource::CpuStore(source),
+            previous,
+        )
+    }
+
+    pub(crate) fn from_rsp_mtc0_command(
+        command_word: u32,
+        source_index: usize,
+        previous: Option<Self>,
+    ) -> Option<Self> {
+        Self::from_register_command(
+            command_word,
+            MachineSpRegisterWriteSource::RspMtc0 { source_index },
+            previous,
+        )
+    }
+
+    fn from_register_command(
+        command_word: u32,
+        source: MachineSpRegisterWriteSource,
         previous: Option<Self>,
     ) -> Option<Self> {
         if command_word & !SP_STATUS_DEFINED_COMMAND_MASK != 0
@@ -209,7 +233,7 @@ impl MachineSpStatusState {
         self.signals
     }
 
-    pub const fn source(self) -> MachineSpCpuStoreProvenance {
+    pub const fn source(self) -> MachineSpRegisterWriteSource {
         self.source
     }
 
@@ -845,9 +869,13 @@ impl Sp {
         let previous_halt = self.status.is_none_or(MachineSpStatusState::halt);
         self.status = Some(state);
         if previous_halt && !state.halt() {
+            let source = state
+                .source()
+                .cpu_store()
+                .expect("only a CPU status store can make a halted RSP eligible");
             self.rsp_run_start = Some(MachineRspRunStartState::Pending {
                 provenance: MachineRspRunStartProvenance {
-                    source: state.source(),
+                    source,
                     status_command: state.command_word(),
                     start_pc: self.pc.map(|pc| pc.raw_low_field() as u16),
                 },
@@ -1157,6 +1185,7 @@ impl Sp {
             MachineRspControlRegister::SpMemoryAddress
             | MachineRspControlRegister::SpReadLength
             | MachineRspControlRegister::SpWriteLength
+            | MachineRspControlRegister::SpStatus
             | MachineRspControlRegister::DpcStatus => {
                 unreachable!("Mfc0 decoder does not admit write-only packet destinations")
             }

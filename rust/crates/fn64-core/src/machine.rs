@@ -6282,6 +6282,31 @@ impl Machine {
                             })?;
                         self.apply_sp_write_dma(dma_plan);
                     }
+                    MachineRspControlRegister::SpStatus => {
+                        if source_value
+                            & (SP_STATUS_CLEAR_INTERRUPT_COMMAND
+                                | SP_STATUS_SET_INTERRUPT_COMMAND)
+                            != 0
+                        {
+                            return Err(MachineRepresentedStepError::RspRejected(
+                                MachineRspStepRejection::new(
+                                    MachineRspStepRejectionReason::Mtc0SpStatusInterruptCommandUnsupported,
+                                ),
+                            ));
+                        }
+                        let Some(status) = MachineSpStatusState::from_rsp_mtc0_command(
+                            source_value,
+                            source_index,
+                            self.sp.status_state(),
+                        ) else {
+                            return Err(MachineRepresentedStepError::RspRejected(
+                                MachineRspStepRejection::new(
+                                    MachineRspStepRejectionReason::Mtc0SpStatusCommandMalformed,
+                                ),
+                            ));
+                        };
+                        self.sp.apply_status_store(status);
+                    }
                     MachineRspControlRegister::DpcStatus => {
                         debug_assert_eq!(
                             plan.control_register(),
@@ -9911,7 +9936,10 @@ impl Machine {
                     } => self.sp_imem.apply_cpu_store_opaque_word(sp_imem_plan),
                     MachineStoreWordMutationPlan::SpStatus { state } => {
                         self.sp.apply_status_store(state);
-                        let source = state.source();
+                        let source = state
+                            .source()
+                            .cpu_store()
+                            .expect("CPU SP_STATUS store retains CPU provenance");
                         if state.command_word() & SP_STATUS_CLEAR_INTERRUPT_COMMAND != 0 {
                             self.mi.clear_pending_interrupt(
                                 MachineMiInterruptSource::Sp,
@@ -24375,6 +24403,29 @@ mod tests {
         machine
     }
 
+    fn staged_rsp_sp_status_command_machine(command: u16) -> Machine {
+        let words = [
+            (0, immediate_word(crate::rsp::RSP_SCALAR_ORI_OPCODE, 0, 3, command)),
+            (
+                4,
+                rsp_mtc0_word(3, crate::rsp::RSP_COP0_SP_STATUS_INDEX),
+            ),
+        ];
+        let mut machine = staged_rsp_running_machine(&words, false);
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarOriCommitted {
+                    destination_gpr: 3,
+                    result_value,
+                    ..
+                },
+            } if result_value == u32::from(command)
+        ));
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        machine
+    }
+
     #[test]
     fn dpc_reset_bootstrap_failed_bootstrap_sp_pc_run_start_and_independent_machines_are_exact() {
         let mut first = staged_lw_bootstrap_machine(0, 0);
@@ -26168,8 +26219,10 @@ mod tests {
                 MachineRspStepRejectionReason::MalformedMtc0Encoding,
             ),
             (
-                staged_rsp_running_machine(&[(0, rsp_mtc0_word(0, 4))], true),
-                MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { register_index: 4 },
+                staged_rsp_running_machine(&[(0, rsp_mtc0_word(0, 10))], true),
+                MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
+                    register_index: 10,
+                },
             ),
             (
                 staged_rsp_running_machine(&[(0, immediate_word(0x0e, 1, 3, 0x0180))], true),
@@ -26275,6 +26328,125 @@ mod tests {
             MachineRspStepRejectionReason::Mtc0DmaRecordCapacityExhausted
         );
         assert_eq!(lw_snapshot(&capacity), before_capacity);
+    }
+
+    #[test]
+    fn rsp_mtc0_sp_status_uses_existing_sp_commands_with_exact_provenance_and_atomic_rejection() {
+        let mut no_effect = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_STATUS_INDEX),
+            )],
+            true,
+        );
+        let status_before = no_effect.sp_status_state().unwrap();
+        let mi_before = no_effect.mi_interrupt_state();
+        let cpu_before = (
+            no_effect.cpu().pc(),
+            no_effect.cpu().next_pc(),
+            no_effect.cpu().cop0_count(),
+            no_effect.cpu_delay_slot_context(),
+            no_effect.vi_current_state(),
+        );
+        assert_eq!(
+            no_effect.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 0,
+                    source_gpr: 0,
+                    source_value: 0,
+                    control_register: MachineRspControlRegister::SpStatus,
+                    source_index: 0,
+                },
+            }
+        );
+        let status_after = no_effect.sp_status_state().unwrap();
+        assert_eq!(status_after.command_word(), 0);
+        assert_eq!(status_after.halt(), status_before.halt());
+        assert_eq!(status_after.broke(), status_before.broke());
+        assert_eq!(status_after.single_step(), status_before.single_step());
+        assert_eq!(
+            status_after.interrupt_on_break(),
+            status_before.interrupt_on_break()
+        );
+        assert_eq!(status_after.signals(), status_before.signals());
+        assert_eq!(
+            status_after.source(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
+        );
+        let transfer = no_effect.rsp_mtc0_source(0).unwrap();
+        assert_eq!(transfer.instruction_pc(), 0);
+        assert_eq!(transfer.source_gpr(), 0);
+        assert_eq!(transfer.source_value(), 0);
+        assert_eq!(
+            transfer.source(),
+            crate::rsp::MachineRspScalarRegisterSource::ArchitecturalZero
+        );
+        assert_eq!(transfer.control_register(), MachineRspControlRegister::SpStatus);
+        assert_eq!(no_effect.mi_interrupt_state(), mi_before);
+        assert_eq!(no_effect.sp_pc_state().unwrap().raw_low_field(), 4);
+        assert_eq!(no_effect.rsp_next_pc(), Some(8));
+        assert_eq!(no_effect.rsp_committed_instruction_count(), 1);
+        assert_eq!(no_effect.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            (
+                no_effect.cpu().pc(),
+                no_effect.cpu().next_pc(),
+                no_effect.cpu().cop0_count(),
+                no_effect.cpu_delay_slot_context(),
+                no_effect.vi_current_state(),
+            ),
+            cpu_before
+        );
+
+        let mut halt_and_signal = staged_rsp_sp_status_command_machine((1 << 1) | (1 << 10));
+        let mi_before = halt_and_signal.mi_interrupt_state();
+        assert!(matches!(
+            halt_and_signal.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 4,
+                    source_gpr: 3,
+                    source_value,
+                    control_register: MachineRspControlRegister::SpStatus,
+                    source_index: 0,
+                },
+            } if source_value == (1 << 1) | (1 << 10)
+        ));
+        let status = halt_and_signal.sp_status_state().unwrap();
+        assert!(status.halt());
+        assert_eq!(status.signals(), [true, false, false, false, false, false, false, false]);
+        assert_eq!(
+            status.source(),
+            MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
+        );
+        assert_eq!(halt_and_signal.mi_interrupt_state(), mi_before);
+        assert_eq!(halt_and_signal.rsp_committed_instruction_count(), 2);
+        assert_eq!(halt_and_signal.processor_turn(), MachineStepProcessor::Cpu);
+
+        for (command, expected) in [
+            (3, MachineRspStepRejectionReason::Mtc0SpStatusCommandMalformed),
+            (
+                SP_STATUS_CLEAR_INTERRUPT_COMMAND as u16,
+                MachineRspStepRejectionReason::Mtc0SpStatusInterruptCommandUnsupported,
+            ),
+        ] {
+            let mut rejected = staged_rsp_sp_status_command_machine(command);
+            let before = lw_snapshot(&rejected);
+            assert_eq!(
+                rejected.step().unwrap_err().rsp_rejection().unwrap().reason(),
+                expected
+            );
+            assert_eq!(lw_snapshot(&rejected), before);
+            assert_eq!(rejected.processor_turn(), MachineStepProcessor::Rsp);
+        }
+
+        let untouched = staged_rsp_running_machine(&[], false);
+        assert_ne!(
+            halt_and_signal.sp_status_state(),
+            untouched.sp_status_state(),
+            "independent Machines retain distinct SP status truth"
+        );
     }
 
     #[test]
@@ -26917,9 +27089,10 @@ mod tests {
                 if state.command_word() == SP_STATUS_X105_HALT_CONFIGURE_WORD
                     && state.halt()
                     && state.single_step()
-                    && state.source().instruction_pc() == CpuAddress::new(0xa400_0048)
-                    && state.source().cpu_address() == CpuAddress::new(0xa404_0010)
-                    && state.source().physical_address() == SP_STATUS_PHYSICAL_ADDRESS
+                    && state.source().cpu_store().is_some_and(|source|
+                        source.instruction_pc() == CpuAddress::new(0xa400_0048)
+                            && source.cpu_address() == CpuAddress::new(0xa404_0010)
+                            && source.physical_address() == SP_STATUS_PHYSICAL_ADDRESS)
         ));
         machine.step().unwrap();
         assert!(matches!(
@@ -26938,7 +27111,8 @@ mod tests {
                 if state.command_word() == SP_STATUS_X105_START_WORD
                     && !state.halt()
                     && !state.single_step()
-                    && state.source().instruction_pc() == CpuAddress::new(0xa400_005c)
+                    && state.source().cpu_store().is_some_and(|source|
+                        source.instruction_pc() == CpuAddress::new(0xa400_005c))
         ));
         assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
         assert!(machine.rsp_run_start_state().unwrap().is_pending());
@@ -38083,9 +38257,10 @@ mod tests {
                 } if pc == 0x8000_0008 => {}
                 MachineRepresentedStepOutcome::SpStatusStoreCommitted { state, .. } => {
                     assert!(matches!(pc, 0xa400_0490 | 0xa400_0508));
-                    assert_eq!(state.source().instruction_pc(), CpuAddress::new(pc));
+                    let source = state.source().cpu_store().unwrap();
+                    assert_eq!(source.instruction_pc(), CpuAddress::new(pc));
                     assert_eq!(
-                        state.source().physical_address(),
+                        source.physical_address(),
                         SP_STATUS_PHYSICAL_ADDRESS
                     );
                     if pc == 0xa400_0490 {
@@ -38242,13 +38417,14 @@ mod tests {
         assert!(!status.single_step());
         assert!(!status.interrupt_on_break());
         assert_eq!(status.signals(), [false; 8]);
+        let status_source = status.source().cpu_store().unwrap();
         assert_eq!(
-            status.source().instruction_pc(),
+            status_source.instruction_pc(),
             CpuAddress::new(0xa400_0508)
         );
-        assert_eq!(status.source().source_gpr(), 10);
+        assert_eq!(status_source.source_gpr(), 10);
         assert_eq!(
-            status.source().source_lineage(),
+            status_source.source_lineage(),
             MachineBootstrapGprSource::KnownInstructionResult {
                 execution_address: CpuAddress::new(0xa400_04f8),
                 identity: CpuInstructionIdentity::Addiu,
@@ -38256,10 +38432,10 @@ mod tests {
                 source_gpr_b: None,
             }
         );
-        assert_eq!(status.source().effective_address(), 0xffff_ffff_a404_0010);
-        assert_eq!(status.source().cpu_address(), CpuAddress::new(0xa404_0010));
+        assert_eq!(status_source.effective_address(), 0xffff_ffff_a404_0010);
+        assert_eq!(status_source.cpu_address(), CpuAddress::new(0xa404_0010));
         assert_eq!(
-            status.source().physical_address(),
+            status_source.physical_address(),
             SP_STATUS_PHYSICAL_ADDRESS
         );
         let sp_pc = machine.sp_pc_state().unwrap();

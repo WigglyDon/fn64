@@ -25,6 +25,7 @@ pub const RSP_COP0_SP_MEMORY_ADDRESS_INDEX: u8 = 0;
 pub const RSP_COP0_SP_DRAM_ADDRESS_INDEX: u8 = 1;
 pub const RSP_COP0_SP_READ_LENGTH_INDEX: u8 = 2;
 pub const RSP_COP0_SP_WRITE_LENGTH_INDEX: u8 = 3;
+pub const RSP_COP0_SP_STATUS_INDEX: u8 = 4;
 pub const RSP_COP0_SP_DMA_FULL_INDEX: u8 = 5;
 pub const RSP_COP0_SP_DMA_BUSY_INDEX: u8 = 6;
 pub const RSP_COP0_SP_SEMAPHORE_INDEX: u8 = 7;
@@ -63,6 +64,7 @@ pub enum MachineRspControlRegister {
     SpDramAddress,
     SpReadLength,
     SpWriteLength,
+    SpStatus,
     SpDmaBusy,
     SpSemaphore,
     DpcStatus,
@@ -1704,6 +1706,8 @@ pub enum MachineRspStepRejectionReason {
     UnsupportedMtc0ControlRegister {
         register_index: u8,
     },
+    Mtc0SpStatusCommandMalformed,
+    Mtc0SpStatusInterruptCommandUnsupported,
     Mtc0DmaRecordCapacityExhausted,
     Mtc0DmaAddressUnavailable,
     Mtc0DmaRdramRangeRejected {
@@ -1884,6 +1888,12 @@ impl fmt::Display for MachineRspStepRejection {
                 f,
                 "RSP Mtc0 control-register index {register_index} is not represented"
             ),
+            MachineRspStepRejectionReason::Mtc0SpStatusCommandMalformed => {
+                write!(f, "RSP Mtc0 SP_STATUS command is malformed")
+            }
+            MachineRspStepRejectionReason::Mtc0SpStatusInterruptCommandUnsupported => {
+                write!(f, "RSP Mtc0 SP_STATUS interrupt command is not represented")
+            }
             MachineRspStepRejectionReason::Mtc0DmaRecordCapacityExhausted => {
                 write!(f, "RSP Mtc0 SP_RD_LEN rejected because SP DMA record capacity is exhausted")
             }
@@ -2567,6 +2577,7 @@ impl MachineRspExecutionState {
                     RSP_COP0_SP_DRAM_ADDRESS_INDEX => MachineRspControlRegister::SpDramAddress,
                     RSP_COP0_SP_READ_LENGTH_INDEX => MachineRspControlRegister::SpReadLength,
                     RSP_COP0_SP_WRITE_LENGTH_INDEX => MachineRspControlRegister::SpWriteLength,
+                    RSP_COP0_SP_STATUS_INDEX => MachineRspControlRegister::SpStatus,
                     RSP_COP0_DPC_STATUS_INDEX => MachineRspControlRegister::DpcStatus,
                     _ => {
                         return Err(MachineRspStepRejection::new(
@@ -4489,6 +4500,13 @@ mod tests {
             Ok(MachineRspDecodedInstruction::Mtc0 {
                 source_gpr: 3,
                 control_register: MachineRspControlRegister::SpWriteLength,
+            })
+        );
+        assert_eq!(
+            rsp.decode(mtc0_word(3, RSP_COP0_SP_STATUS_INDEX)),
+            Ok(MachineRspDecodedInstruction::Mtc0 {
+                source_gpr: 3,
+                control_register: MachineRspControlRegister::SpStatus,
             })
         );
         assert_eq!(

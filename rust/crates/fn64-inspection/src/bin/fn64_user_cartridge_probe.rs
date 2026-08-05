@@ -448,13 +448,17 @@ fn run() -> Result<(), String> {
         "rsp_task.start_instruction_identity: {:?}",
         task_instruction.identity()
     );
+    let task_status_source = task_status
+        .source()
+        .cpu_store()
+        .ok_or_else(|| "guest RSP task start lacks CPU-store provenance".to_owned())?;
     println!(
         "rsp_task.status_source_gpr: r{}",
-        task_status.source().source_gpr()
+        task_status_source.source_gpr()
     );
     println!(
         "rsp_task.status_source_lineage: {:?}",
-        task_status.source().source_lineage()
+        task_status_source.source_lineage()
     );
     println!("rsp_task.status_command_class: halt-cleared");
     println!("rsp_task.halt_before: {halt_before}");
@@ -971,6 +975,12 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         }
         MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister { .. } => {
             "mtc0-control-destination-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0SpStatusCommandMalformed => {
+            "mtc0-sp-status-command-malformed".to_owned()
+        }
+        MachineRspStepRejectionReason::Mtc0SpStatusInterruptCommandUnsupported => {
+            "mtc0-sp-status-interrupt-command-unsupported".to_owned()
         }
         MachineRspStepRejectionReason::Mtc0DmaRecordCapacityExhausted => {
             "mtc0-read-dma-capacity-exhausted".to_owned()
