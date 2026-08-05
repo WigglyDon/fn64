@@ -25,10 +25,10 @@ pub use ai::{
 };
 pub use cartridge::{
     inspect_cartridge_entry, load_cartridge, normalize_rom_image, rom_source_layout_name,
-    Cartridge, CartridgeEntryInspection, CartridgeLoadError, CartridgeReadError,
-    NormalizedRomImage, RomMetadata, RomSourceLayout, CARTRIDGE_CANDIDATE_IPL3_BYTE_COUNT,
-    CARTRIDGE_CANDIDATE_IPL3_END_OFFSET_EXCLUSIVE, CARTRIDGE_CANDIDATE_IPL3_START_OFFSET,
-    CARTRIDGE_HEADER_ENTRY_WORD_OFFSET,
+    Cartridge, CartridgeEntryInspection, CartridgeLoadError, CartridgePiDomain1Timing,
+    CartridgeReadError, NormalizedRomImage, RomMetadata, RomSourceLayout,
+    CARTRIDGE_CANDIDATE_IPL3_BYTE_COUNT, CARTRIDGE_CANDIDATE_IPL3_END_OFFSET_EXCLUSIVE,
+    CARTRIDGE_CANDIDATE_IPL3_START_OFFSET, CARTRIDGE_HEADER_ENTRY_WORD_OFFSET,
 };
 pub use cpu::{
     decode_cpu_instruction_word, identify_cpu_instruction, Cpu, CpuAddressErrorExceptionEntryError,

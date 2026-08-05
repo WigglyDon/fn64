@@ -273,6 +273,8 @@ impl Machine {
             .try_into()
             .expect("preflighted side-data span has one exact public-profile width");
         let cpu_plan = clean_room_cpu_plan(profile, entry_address, &payload, &side_data);
+        let replacement_pi =
+            Pi::clean_room_hle_cartridge_entry(self.cartridge.pi_domain_one_timing());
 
         let replacement_rdram = Rdram::from_clean_room_hle_cartridge_payload(
             rdram_start_offset,
@@ -318,7 +320,7 @@ impl Machine {
         self.dpc = Dpc::default();
         self.ri = Ri::default();
         self.mi = Mi::default();
-        self.pi = Pi::default();
+        self.pi = replacement_pi;
         self.si = Si::default();
         self.ai = Ai::default();
         self.vi = Vi::default();
@@ -501,7 +503,7 @@ const fn sign_extend_word(value: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cartridge::{load_cartridge, Cartridge};
+    use crate::cartridge::{load_cartridge, Cartridge, CartridgePiDomain1Timing};
     use crate::cpu::CpuInstructionIdentity;
     use crate::pif_firmware::{MachinePifFirmwareState, PIF_BOOT_ROM_SIZE_BYTES};
     use crate::rdram::{
@@ -509,7 +511,9 @@ mod tests {
     };
     use crate::{
         MachineCop1ControlTransferKind, MachineCop1Fcr31Source, MachineCop1Fcr31State,
-        MachineLoadWordTarget, MachineRepresentedStepOutcome,
+        MachineLoadWordTarget, MachinePiDomain, MachinePiDomainTimingField,
+        MachinePiDomainTimingRegister, MachinePiDomainTimingRegisterState,
+        MachinePiDomainTimingSource, MachineRepresentedStepOutcome,
     };
 
     const GENERATED_ENTRY: u32 = 0x8000_1000;
@@ -557,6 +561,42 @@ mod tests {
         Machine::from_cartridge(cartridge)
     }
 
+    fn generated_machine_with_pi_timing(
+        entry: u32,
+        payload_variant: u32,
+        timing: CartridgePiDomain1Timing,
+    ) -> Machine {
+        let cartridge = load_cartridge(generated_cartridge(entry, payload_variant))
+            .expect("generated cartridge should normalize")
+            .with_generated_public_pi_domain_one_timing(timing);
+        Machine::from_cartridge(cartridge)
+    }
+
+    const fn domain_one_register(
+        field: MachinePiDomainTimingField,
+    ) -> MachinePiDomainTimingRegister {
+        MachinePiDomainTimingRegister::new(MachinePiDomain::One, field)
+    }
+
+    fn domain_one_timing_states(
+        machine: &Machine,
+    ) -> [Option<MachinePiDomainTimingRegisterState>; 4] {
+        [
+            machine.pi_domain_timing_register_state(domain_one_register(
+                MachinePiDomainTimingField::Latency,
+            )),
+            machine.pi_domain_timing_register_state(domain_one_register(
+                MachinePiDomainTimingField::PulseWidth,
+            )),
+            machine.pi_domain_timing_register_state(domain_one_register(
+                MachinePiDomainTimingField::PageSize,
+            )),
+            machine.pi_domain_timing_register_state(domain_one_register(
+                MachinePiDomainTimingField::Release,
+            )),
+        ]
+    }
+
     fn gprs(machine: &Machine) -> [u64; CPU_GPR_COUNT] {
         core::array::from_fn(|index| {
             machine
@@ -587,6 +627,7 @@ mod tests {
         sp_pc_present: bool,
         rsp_committed: u64,
         first_sp_imem_word_present: bool,
+        pi_domain_one_timing: [Option<MachinePiDomainTimingRegisterState>; 4],
     }
 
     fn rejection_snapshot(machine: &Machine) -> RejectionSnapshot {
@@ -610,6 +651,7 @@ mod tests {
             sp_pc_present: machine.sp_pc_state().is_some(),
             rsp_committed: machine.rsp_committed_instruction_count(),
             first_sp_imem_word_present: machine.sp_imem_opaque_word_state(0).is_some(),
+            pi_domain_one_timing: domain_one_timing_states(machine),
         }
     }
 
@@ -759,6 +801,21 @@ mod tests {
         assert_eq!(machine.sp_pc_state(), None);
         assert_eq!(machine.sp_imem_opaque_word_state(0), None);
         assert_eq!(machine.rsp_committed_instruction_count(), 0);
+        for (field, expected) in [
+            (MachinePiDomainTimingField::Latency, 0x80),
+            (MachinePiDomainTimingField::PulseWidth, 0x12),
+            (MachinePiDomainTimingField::PageSize, 0x07),
+            (MachinePiDomainTimingField::Release, 0x00),
+        ] {
+            let state = machine
+                .pi_domain_timing_register_state(domain_one_register(field))
+                .unwrap();
+            assert_eq!(state.raw_word(), expected);
+            assert_eq!(
+                state.source(),
+                MachinePiDomainTimingSource::CleanRoomHleCartridgeHeaderConfiguration
+            );
+        }
     }
 
     #[test]
@@ -846,6 +903,51 @@ mod tests {
     }
 
     #[test]
+    fn clean_room_hle_pi_domain_one_tuple_reads_through_existing_cpu_loads() {
+        let mut bytes = generated_cartridge(GENERATED_ENTRY, 0);
+        for (offset, word) in [
+            (0x1000, 0x8c22_0014),
+            (0x1004, 0x8c23_0018),
+            (0x1008, 0x8c24_001c),
+            (0x100c, 0x8c25_0020),
+        ] {
+            write_be_u32(&mut bytes, offset, word);
+        }
+        let mut machine = Machine::from_cartridge(load_cartridge(bytes).unwrap());
+        machine
+            .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
+            .unwrap();
+        let pi_before = domain_one_timing_states(&machine);
+
+        for (destination_gpr, field, expected) in [
+            (2, MachinePiDomainTimingField::Latency, 0x80),
+            (3, MachinePiDomainTimingField::PulseWidth, 0x12),
+            (4, MachinePiDomainTimingField::PageSize, 0x07),
+            (5, MachinePiDomainTimingField::Release, 0x00),
+        ] {
+            assert!(matches!(
+                machine.step(),
+                Ok(MachineRepresentedStepOutcome::LoadWordCommitted {
+                    target: MachineLoadWordTarget::PiDomainTiming { register },
+                    destination_gpr: actual_destination,
+                    loaded_word,
+                    result_value,
+                    cadence_plan,
+                    ..
+                }) if register == domain_one_register(field)
+                    && actual_destination == destination_gpr
+                    && loaded_word == expected
+                    && result_value == expected as u64
+                    && cadence_plan.advances_count()
+            ));
+        }
+
+        assert_eq!(machine.cpu().cop0_count(), 4);
+        assert_eq!(machine.rsp_committed_instruction_count(), 0);
+        assert_eq!(domain_one_timing_states(&machine), pi_before);
+    }
+
+    #[test]
     fn unavailable_or_invalid_clean_room_handoff_rejects_before_machine_mutation() {
         let mut short_bytes = generated_cartridge(GENERATED_ENTRY, 0);
         short_bytes.truncate(0x1000);
@@ -910,8 +1012,10 @@ mod tests {
 
     #[test]
     fn clean_room_hle_staging_and_execution_are_machine_local() {
-        let mut first = generated_machine(GENERATED_ENTRY, 0);
-        let mut second = generated_machine(GENERATED_ENTRY, 1);
+        let first_timing = CartridgePiDomain1Timing::from_header_configuration_word(0x9135_27c2);
+        let second_timing = CartridgePiDomain1Timing::from_header_configuration_word(0xa64a_18fd);
+        let mut first = generated_machine_with_pi_timing(GENERATED_ENTRY, 0, first_timing);
+        let mut second = generated_machine_with_pi_timing(GENERATED_ENTRY, 1, second_timing);
 
         first
             .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
@@ -923,6 +1027,10 @@ mod tests {
         second
             .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
             .unwrap();
+        assert_ne!(
+            domain_one_timing_states(&first),
+            domain_one_timing_states(&second)
+        );
         let second_before = rejection_snapshot(&second);
         first.step().unwrap();
         assert_eq!(rejection_snapshot(&second), second_before);
@@ -953,6 +1061,7 @@ mod tests {
         assert_eq!(machine.rsp_committed_instruction_count(), 0);
         assert_eq!(machine.rdram().read_u32_be(0x1000), Ok(0));
         assert_eq!(machine.cartridge().size_bytes(), 0x0010_1000);
+        assert_eq!(domain_one_timing_states(&machine), [None; 4]);
     }
 
     #[test]

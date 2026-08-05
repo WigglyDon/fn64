@@ -7,7 +7,7 @@ use byte_order::{detect_rom_source_layout, normalize_rom_bytes};
 use metadata::{parse_rom_metadata, ROM_HEADER_SIZE};
 
 pub use byte_order::{rom_source_layout_name, RomSourceLayout};
-pub use metadata::RomMetadata;
+pub use metadata::{CartridgePiDomain1Timing, RomMetadata};
 
 pub const CARTRIDGE_HEADER_ENTRY_WORD_OFFSET: u32 = 0x0000_0008;
 pub const CARTRIDGE_CANDIDATE_IPL3_START_OFFSET: u32 = 0x0000_0040;
@@ -121,6 +121,19 @@ impl Cartridge {
 
     pub fn metadata(&self) -> &RomMetadata {
         &self.metadata
+    }
+
+    pub const fn pi_domain_one_timing(&self) -> CartridgePiDomain1Timing {
+        self.metadata.pi_domain_one_timing
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_generated_public_pi_domain_one_timing(
+        mut self,
+        timing: CartridgePiDomain1Timing,
+    ) -> Self {
+        self.metadata.pi_domain_one_timing = timing;
+        self
     }
 
     pub fn size_bytes(&self) -> usize {
@@ -360,6 +373,10 @@ mod tests {
 
     fn assert_metadata_matches(metadata: &RomMetadata) {
         assert_eq!(metadata.header_magic, 0x8037_1240);
+        assert_eq!(metadata.pi_domain_one_timing.latency(), 0x80);
+        assert_eq!(metadata.pi_domain_one_timing.pulse_width(), 0x12);
+        assert_eq!(metadata.pi_domain_one_timing.page_size(), 0x07);
+        assert_eq!(metadata.pi_domain_one_timing.release_duration(), 0x00);
         assert_eq!(metadata.clock_rate, 0x1234_5678);
         assert_eq!(metadata.entry_point, 0x8024_6000);
         assert_eq!(metadata.release_address, 0x0040_0000);
@@ -395,6 +412,16 @@ mod tests {
                 assert_eq!(cartridge.read_u8(offset as u32).unwrap(), *expected);
             }
         }
+    }
+
+    #[test]
+    fn normalized_header_configuration_extracts_exact_pi_domain_one_widths() {
+        let timing = CartridgePiDomain1Timing::from_header_configuration_word(0xabfc_deff);
+
+        assert_eq!(timing.latency(), 0xab);
+        assert_eq!(timing.pulse_width(), 0xde);
+        assert_eq!(timing.page_size(), 0x0c);
+        assert_eq!(timing.release_duration(), 0x03);
     }
 
     #[test]

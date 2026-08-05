@@ -1,5 +1,6 @@
 use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
+use crate::CartridgePiDomain1Timing;
 
 pub const PI_DRAM_ADDR_PHYSICAL_ADDRESS: u32 = 0x0460_0000;
 pub const PI_CART_ADDR_PHYSICAL_ADDRESS: u32 = 0x0460_0004;
@@ -202,6 +203,7 @@ impl MachinePiCpuStoreProvenance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachinePiDomainTimingSource {
     ColdCartridgeHeaderConfiguration,
+    CleanRoomHleCartridgeHeaderConfiguration,
     ColdMachineResetZero,
     CpuStore(MachinePiCpuStoreProvenance),
 }
@@ -257,15 +259,17 @@ impl MachinePiDomainTimingState {
         }
     }
 
-    const fn cold_domain_one(header_configuration_word: u32) -> Self {
-        let source = MachinePiDomainTimingSource::ColdCartridgeHeaderConfiguration;
+    const fn cartridge_domain_one(
+        timing: CartridgePiDomain1Timing,
+        source: MachinePiDomainTimingSource,
+    ) -> Self {
         Self {
             latency: Some(MachinePiDomainTimingRegisterState::new(
                 MachinePiDomainTimingRegister::new(
                     MachinePiDomain::One,
                     MachinePiDomainTimingField::Latency,
                 ),
-                header_configuration_word >> 24,
+                timing.latency() as u32,
                 source,
             )),
             pulse_width: Some(MachinePiDomainTimingRegisterState::new(
@@ -273,7 +277,7 @@ impl MachinePiDomainTimingState {
                     MachinePiDomain::One,
                     MachinePiDomainTimingField::PulseWidth,
                 ),
-                header_configuration_word >> 8,
+                timing.pulse_width() as u32,
                 source,
             )),
             page_size: Some(MachinePiDomainTimingRegisterState::new(
@@ -281,7 +285,7 @@ impl MachinePiDomainTimingState {
                     MachinePiDomain::One,
                     MachinePiDomainTimingField::PageSize,
                 ),
-                header_configuration_word >> 16,
+                timing.page_size() as u32,
                 source,
             )),
             release: Some(MachinePiDomainTimingRegisterState::new(
@@ -289,7 +293,7 @@ impl MachinePiDomainTimingState {
                     MachinePiDomain::One,
                     MachinePiDomainTimingField::Release,
                 ),
-                header_configuration_word,
+                timing.release_duration() as u32,
                 source,
             )),
         }
@@ -493,7 +497,24 @@ pub(crate) struct Pi {
 }
 
 impl Pi {
-    pub(crate) const fn cold_cartridge_entry(header_configuration_word: u32) -> Self {
+    pub(crate) const fn cold_cartridge_entry(timing: CartridgePiDomain1Timing) -> Self {
+        Self::cartridge_entry(
+            timing,
+            MachinePiDomainTimingSource::ColdCartridgeHeaderConfiguration,
+        )
+    }
+
+    pub(crate) const fn clean_room_hle_cartridge_entry(timing: CartridgePiDomain1Timing) -> Self {
+        Self::cartridge_entry(
+            timing,
+            MachinePiDomainTimingSource::CleanRoomHleCartridgeHeaderConfiguration,
+        )
+    }
+
+    const fn cartridge_entry(
+        timing: CartridgePiDomain1Timing,
+        source: MachinePiDomainTimingSource,
+    ) -> Self {
         Self {
             dram_address: None,
             cartridge_address: None,
@@ -504,9 +525,7 @@ impl Pi {
             completed_dma: None,
             last_status_clear: None,
             domain_one_address_one_profile: MachinePiDomainOneAddressOneProfile::NoBulkDevice,
-            domain_one_timing: MachinePiDomainTimingState::cold_domain_one(
-                header_configuration_word,
-            ),
+            domain_one_timing: MachinePiDomainTimingState::cartridge_domain_one(timing, source),
             domain_two_timing: MachinePiDomainTimingState::cold_domain_two_zero(),
         }
     }
@@ -601,7 +620,8 @@ mod tests {
 
     #[test]
     fn cold_cartridge_domain_one_fields_and_cpu_defined_bit_masks_are_exact() {
-        let mut pi = Pi::cold_cartridge_entry(0x8037_1240);
+        let timing = CartridgePiDomain1Timing::from_header_configuration_word(0x8037_1240);
+        let mut pi = Pi::cold_cartridge_entry(timing);
         let register = |domain, field| MachinePiDomainTimingRegister::new(domain, field);
 
         for (field, expected) in [
@@ -660,6 +680,22 @@ mod tests {
             .raw_word(),
             0
         );
+
+        let clean_room = Pi::clean_room_hle_cartridge_entry(timing);
+        for field in [
+            MachinePiDomainTimingField::Latency,
+            MachinePiDomainTimingField::PulseWidth,
+            MachinePiDomainTimingField::PageSize,
+            MachinePiDomainTimingField::Release,
+        ] {
+            assert_eq!(
+                clean_room
+                    .domain_timing_register_state(register(MachinePiDomain::One, field))
+                    .unwrap()
+                    .source(),
+                MachinePiDomainTimingSource::CleanRoomHleCartridgeHeaderConfiguration
+            );
+        }
     }
 
     #[test]

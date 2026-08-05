@@ -714,7 +714,7 @@ impl Machine {
             crate::ri::Ri::default()
         };
         let replacement_pi = if handoff_plan.is_some() {
-            crate::pi::Pi::cold_cartridge_entry(self.cartridge.metadata().header_magic)
+            crate::pi::Pi::cold_cartridge_entry(self.cartridge.pi_domain_one_timing())
         } else {
             crate::pi::Pi::default()
         };
