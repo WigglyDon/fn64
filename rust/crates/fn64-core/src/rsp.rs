@@ -40,6 +40,7 @@ pub const RSP_SCALAR_BGEZ_SELECTOR: u8 = 1;
 pub const RSP_SCALAR_BGEZAL_SELECTOR: u8 = 0x11;
 pub const RSP_SCALAR_BNE_OPCODE: u8 = 0x05;
 pub const RSP_SCALAR_ADDI_OPCODE: u8 = 0x08;
+pub const RSP_SCALAR_ANDI_OPCODE: u8 = 0x0c;
 pub const RSP_SCALAR_ORI_OPCODE: u8 = 0x0d;
 pub const RSP_SCALAR_XORI_OPCODE: u8 = 0x0e;
 pub const RSP_SCALAR_LUI_OPCODE: u8 = 0x0f;
@@ -163,6 +164,7 @@ pub enum MachineRspScalarRegisterSource {
     Lui(Box<MachineRspLuiSource>),
     Addi(Box<MachineRspAddiSource>),
     Lw(Box<MachineRspScalarLwSource>),
+    Andi(Box<MachineRspAndiSource>),
     Ori(Box<MachineRspOriSource>),
     Xori(Box<MachineRspXoriSource>),
     Sll(Box<MachineRspSllSource>),
@@ -316,6 +318,47 @@ pub struct MachineRspXoriSource {
     source_value: u32,
     source: MachineRspScalarRegisterSource,
     immediate: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspAndiSource {
+    instruction_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    source_gpr: u8,
+    source_value: u32,
+    source: MachineRspScalarRegisterSource,
+    immediate: u16,
+}
+
+impl MachineRspAndiSource {
+    pub const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    pub const fn source_gpr(&self) -> u8 {
+        self.source_gpr
+    }
+
+    pub const fn source_value(&self) -> u32 {
+        self.source_value
+    }
+
+    pub fn source(&self) -> MachineRspScalarRegisterSource {
+        self.source.clone()
+    }
+
+    pub const fn immediate(&self) -> u16 {
+        self.immediate
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn instruction_provenance(&self) -> [SpImemByteProvenance; 4] {
+        self.instruction_provenance
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1356,6 +1399,7 @@ pub enum MachineRspInstructionIdentity {
     Bgez,
     Bgezal,
     Bne,
+    Andi,
     Ori,
     Xori,
     Sll,
@@ -1490,6 +1534,9 @@ enum MachineRspLastInstructionDestination {
     ScalarOri {
         destination_gpr: u8,
     },
+    ScalarAndi {
+        destination_gpr: u8,
+    },
     ScalarXori {
         destination_gpr: u8,
     },
@@ -1528,7 +1575,8 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::ScalarAddi { destination_gpr } => {
                 Some(destination_gpr)
             }
-            MachineRspLastInstructionDestination::ScalarOri { destination_gpr }
+            MachineRspLastInstructionDestination::ScalarAndi { destination_gpr }
+            | MachineRspLastInstructionDestination::ScalarOri { destination_gpr }
             | MachineRspLastInstructionDestination::ScalarXori { destination_gpr }
             | MachineRspLastInstructionDestination::ScalarSll { destination_gpr } => {
                 Some(destination_gpr)
@@ -1563,6 +1611,7 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::ScalarAddi { .. }
             | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::BranchAndLink { .. }
+            | MachineRspLastInstructionDestination::ScalarAndi { .. }
             | MachineRspLastInstructionDestination::ScalarOri { .. }
             | MachineRspLastInstructionDestination::ScalarXori { .. }
             | MachineRspLastInstructionDestination::ScalarSll { .. }
@@ -1606,6 +1655,7 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::ScalarAddi { .. }
             | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::BranchAndLink { .. }
+            | MachineRspLastInstructionDestination::ScalarAndi { .. }
             | MachineRspLastInstructionDestination::ScalarOri { .. }
             | MachineRspLastInstructionDestination::ScalarXori { .. }
             | MachineRspLastInstructionDestination::ScalarSll { .. }
@@ -1705,6 +1755,11 @@ pub enum MachineRspStepOutcome {
         target_pc: u16,
         taken: bool,
     },
+    ScalarAndiCommitted {
+        instruction_pc: u16,
+        destination_gpr: u8,
+        result_value: u32,
+    },
     ScalarOriCommitted {
         instruction_pc: u16,
         destination_gpr: u8,
@@ -1757,6 +1812,7 @@ impl MachineRspStepOutcome {
             Self::ScalarBgezCommitted { .. } => MachineRspInstructionIdentity::Bgez,
             Self::ScalarBgezalCommitted { .. } => MachineRspInstructionIdentity::Bgezal,
             Self::ScalarBneCommitted { .. } => MachineRspInstructionIdentity::Bne,
+            Self::ScalarAndiCommitted { .. } => MachineRspInstructionIdentity::Andi,
             Self::ScalarOriCommitted { .. } => MachineRspInstructionIdentity::Ori,
             Self::ScalarXoriCommitted { .. } => MachineRspInstructionIdentity::Xori,
             Self::ScalarSllCommitted { .. } => MachineRspInstructionIdentity::Sll,
@@ -1782,6 +1838,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBgezCommitted { instruction_pc, .. }
             | Self::ScalarBgezalCommitted { instruction_pc, .. }
             | Self::ScalarBneCommitted { instruction_pc, .. }
+            | Self::ScalarAndiCommitted { instruction_pc, .. }
             | Self::ScalarOriCommitted { instruction_pc, .. }
             | Self::ScalarXoriCommitted { instruction_pc, .. }
             | Self::ScalarSllCommitted { instruction_pc, .. }
@@ -1808,6 +1865,9 @@ impl MachineRspStepOutcome {
                 destination_gpr, ..
             }
             | Self::ScalarAddiCommitted {
+                destination_gpr, ..
+            }
+            | Self::ScalarAndiCommitted {
                 destination_gpr, ..
             }
             | Self::ScalarOriCommitted {
@@ -1860,6 +1920,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
+            | Self::ScalarAndiCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarSllCommitted { .. }
@@ -1876,6 +1937,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarLwCommitted { result_value, .. }
             | Self::ScalarLuiCommitted { result_value, .. }
             | Self::ScalarAddiCommitted { result_value, .. }
+            | Self::ScalarAndiCommitted { result_value, .. }
             | Self::ScalarOriCommitted { result_value, .. }
             | Self::ScalarXoriCommitted { result_value, .. } => Some(result_value),
             Self::ScalarSllCommitted { result_value, .. } => Some(result_value),
@@ -1912,6 +1974,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
+            | Self::ScalarAndiCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarSllCommitted { .. }
@@ -1945,6 +2008,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
+            | Self::ScalarAndiCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
             | Self::ScalarSllCommitted { .. }
@@ -1976,6 +2040,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBgezCommitted { .. }
             | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
+            | Self::ScalarAndiCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. } => None,
             Self::ScalarSllCommitted { .. } => None,
@@ -2092,6 +2157,9 @@ pub enum MachineRspStepRejectionReason {
     OriSourceUnavailable {
         source_gpr: u8,
     },
+    AndiSourceUnavailable {
+        source_gpr: u8,
+    },
     MalformedLuiEncoding,
     AddiSourceUnavailable {
         source_gpr: u8,
@@ -2167,6 +2235,12 @@ pub enum MachineRspStepRejectionReason {
     MalformedSllEncoding,
     SllSourceUnavailable {
         source_gpr: u8,
+    },
+    ScalarFunctionUnsupported {
+        function: u8,
+    },
+    ScalarOpcodeUnsupported {
+        opcode: u8,
     },
     VsubElementUnsupported {
         element: u8,
@@ -2334,6 +2408,9 @@ impl fmt::Display for MachineRspStepRejection {
             MachineRspStepRejectionReason::OriSourceUnavailable { source_gpr } => {
                 write!(f, "RSP Ori scalar source r{source_gpr} is unavailable")
             }
+            MachineRspStepRejectionReason::AndiSourceUnavailable { source_gpr } => {
+                write!(f, "RSP Andi scalar source r{source_gpr} is unavailable")
+            }
             MachineRspStepRejectionReason::MalformedLuiEncoding => {
                 write!(f, "RSP scalar Lui encoding is malformed")
             }
@@ -2441,6 +2518,12 @@ impl fmt::Display for MachineRspStepRejection {
             }
             MachineRspStepRejectionReason::SllSourceUnavailable { source_gpr } => {
                 write!(f, "RSP scalar Sll source r{source_gpr} is unavailable")
+            }
+            MachineRspStepRejectionReason::ScalarFunctionUnsupported { function } => {
+                write!(f, "RSP scalar function 0x{function:02x} is not represented")
+            }
+            MachineRspStepRejectionReason::ScalarOpcodeUnsupported { opcode } => {
+                write!(f, "RSP scalar opcode 0x{opcode:02x} is not represented")
             }
             MachineRspStepRejectionReason::VsubElementUnsupported { element } => write!(
                 f,
@@ -2632,6 +2715,19 @@ pub(crate) struct MachineRspOriPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MachineRspAndiPlan {
+    instruction_pc: u16,
+    old_next_pc: u16,
+    source_gpr: u8,
+    source_value: u32,
+    source: MachineRspScalarRegisterSource,
+    destination_gpr: u8,
+    immediate: u16,
+    result_value: u32,
+    byte_provenance: [SpImemByteProvenance; 4],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MachineRspSllPlan {
     instruction_pc: u16,
     old_next_pc: u16,
@@ -2655,6 +2751,16 @@ impl MachineRspSllPlan {
 }
 
 impl MachineRspOriPlan {
+    pub(crate) const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub(crate) const fn old_next_pc(&self) -> u16 {
+        self.old_next_pc
+    }
+}
+
+impl MachineRspAndiPlan {
     pub(crate) const fn instruction_pc(&self) -> u16 {
         self.instruction_pc
     }
@@ -2944,6 +3050,11 @@ pub(crate) enum MachineRspDecodedInstruction {
         destination_gpr: u8,
         immediate: u16,
     },
+    Andi {
+        source_gpr: u8,
+        destination_gpr: u8,
+        immediate: u16,
+    },
     Sll {
         source_gpr: u8,
         destination_gpr: u8,
@@ -3177,6 +3288,13 @@ impl MachineRspExecutionState {
                 signed_immediate: raw_word as u16 as i16,
             });
         }
+        if opcode == RSP_SCALAR_ANDI_OPCODE {
+            return Ok(MachineRspDecodedInstruction::Andi {
+                source_gpr: ((raw_word >> 21) & 0x1f) as u8,
+                destination_gpr: ((raw_word >> 16) & 0x1f) as u8,
+                immediate: raw_word as u16,
+            });
+        }
         if opcode == RSP_SCALAR_ORI_OPCODE {
             return Ok(MachineRspDecodedInstruction::Ori {
                 source_gpr: ((raw_word >> 21) & 0x1f) as u8,
@@ -3288,13 +3406,22 @@ impl MachineRspExecutionState {
                 shift_amount: ((raw_word >> 6) & 0x1f) as u8,
             });
         }
-        let class = if opcode == RSP_VECTOR_COMPUTE_OPCODE {
-            MachineRspUnrepresentedInstructionClass::Vector
-        } else {
-            MachineRspUnrepresentedInstructionClass::Scalar
-        };
+        if opcode == RSP_VECTOR_COMPUTE_OPCODE {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::UnrepresentedInstruction {
+                    class: MachineRspUnrepresentedInstructionClass::Vector,
+                },
+            ));
+        }
+        if opcode == 0 {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::ScalarFunctionUnsupported {
+                    function: (raw_word & 0x3f) as u8,
+                },
+            ));
+        }
         Err(MachineRspStepRejection::new(
-            MachineRspStepRejectionReason::UnrepresentedInstruction { class },
+            MachineRspStepRejectionReason::ScalarOpcodeUnsupported { opcode },
         ))
     }
 
@@ -3887,6 +4014,44 @@ impl MachineRspExecutionState {
         })
     }
 
+    pub(crate) fn plan_andi(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+        byte_provenance: [SpImemByteProvenance; 4],
+    ) -> Result<MachineRspAndiPlan, MachineRspStepRejection> {
+        let MachineRspDecodedInstruction::Andi {
+            source_gpr,
+            destination_gpr,
+            immediate,
+        } = decoded
+        else {
+            unreachable!("Andi planner receives only decoded Andi")
+        };
+        let MachineRspScalarRegisterState::Available {
+            value: source_value,
+            source,
+        } = &self.scalar_registers[usize::from(source_gpr)]
+        else {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::AndiSourceUnavailable { source_gpr },
+            ));
+        };
+        Ok(MachineRspAndiPlan {
+            instruction_pc,
+            old_next_pc: self
+                .next_pc
+                .unwrap_or_else(|| sequential_local_pc(instruction_pc)),
+            source_gpr,
+            source_value: *source_value,
+            source: source.clone(),
+            destination_gpr,
+            immediate,
+            result_value: *source_value & u32::from(immediate),
+            byte_provenance,
+        })
+    }
+
     pub(crate) fn plan_sll(
         &self,
         instruction_pc: u16,
@@ -3952,6 +4117,39 @@ impl MachineRspExecutionState {
             byte_provenance: plan.byte_provenance,
         });
         MachineRspStepOutcome::ScalarOriCommitted {
+            instruction_pc: plan.instruction_pc,
+            destination_gpr: plan.destination_gpr,
+            result_value: plan.result_value,
+        }
+    }
+
+    pub(crate) fn apply_andi(&mut self, plan: MachineRspAndiPlan) -> MachineRspStepOutcome {
+        if plan.destination_gpr != 0 {
+            self.scalar_registers[usize::from(plan.destination_gpr)] =
+                MachineRspScalarRegisterState::Available {
+                    value: plan.result_value,
+                    source: MachineRspScalarRegisterSource::Andi(Box::new(MachineRspAndiSource {
+                        instruction_pc: plan.instruction_pc,
+                        instruction_provenance: plan.byte_provenance,
+                        source_gpr: plan.source_gpr,
+                        source_value: plan.source_value,
+                        source: plan.source.clone(),
+                        immediate: plan.immediate,
+                    })),
+                };
+        }
+        self.next_pc = Some(sequential_local_pc(plan.old_next_pc));
+        self.delay_slot_context = None;
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc: plan.instruction_pc,
+            identity: MachineRspInstructionIdentity::Andi,
+            destination: MachineRspLastInstructionDestination::ScalarAndi {
+                destination_gpr: plan.destination_gpr,
+            },
+            byte_provenance: plan.byte_provenance,
+        });
+        MachineRspStepOutcome::ScalarAndiCommitted {
             instruction_pc: plan.instruction_pc,
             destination_gpr: plan.destination_gpr,
             result_value: plan.result_value,
@@ -5062,6 +5260,13 @@ mod tests {
             | immediate as u32
     }
 
+    const fn andi_word(source_gpr: u8, destination_gpr: u8, immediate: u16) -> u32 {
+        ((RSP_SCALAR_ANDI_OPCODE as u32) << 26)
+            | ((source_gpr as u32) << 21)
+            | ((destination_gpr as u32) << 16)
+            | immediate as u32
+    }
+
     const fn sll_word(source_gpr: u8, destination_gpr: u8, shift_amount: u8) -> u32 {
         ((source_gpr as u32) << 16)
             | ((destination_gpr as u32) << 11)
@@ -5401,6 +5606,14 @@ mod tests {
                 immediate: 0x8180,
             })
         );
+        assert_eq!(
+            rsp.decode(andi_word(3, 4, 0x8180)),
+            Ok(MachineRspDecodedInstruction::Andi {
+                source_gpr: 3,
+                destination_gpr: 4,
+                immediate: 0x8180,
+            })
+        );
         assert_eq!(rsp.decode(0), Ok(MachineRspDecodedInstruction::Nop));
         assert_eq!(
             rsp.decode(0x0000_0040),
@@ -5445,15 +5658,11 @@ mod tests {
         }
         assert_eq!(
             rsp.decode(0x0000_000c).unwrap_err().reason(),
-            MachineRspStepRejectionReason::UnrepresentedInstruction {
-                class: MachineRspUnrepresentedInstructionClass::Scalar,
-            }
+            MachineRspStepRejectionReason::ScalarFunctionUnsupported { function: 0x0c }
         );
         assert_eq!(
             rsp.decode(0x2400_000d).unwrap_err().reason(),
-            MachineRspStepRejectionReason::UnrepresentedInstruction {
-                class: MachineRspUnrepresentedInstructionClass::Scalar,
-            }
+            MachineRspStepRejectionReason::ScalarOpcodeUnsupported { opcode: 0x09 }
         );
     }
 
@@ -5671,6 +5880,107 @@ mod tests {
             .unwrap_err()
             .reason(),
             MachineRspStepRejectionReason::OriSourceUnavailable { source_gpr: 2 }
+        );
+        assert_eq!(rsp, before_rejection);
+    }
+
+    #[test]
+    fn rsp_andi_zero_extends_reads_before_write_and_rejects_atomically() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x030);
+        stage_available_scalar(&mut rsp, 3, 0xa5a5_81ff);
+        stage_available_scalar(&mut rsp, 5, 0xffff_00ff);
+        let vector_before = rsp.vector_unit.clone();
+        let accumulator_before = rsp.accumulator_and_flags.clone();
+
+        let alias_plan = rsp
+            .plan_andi(
+                0x030,
+                rsp.decode(andi_word(3, 3, 0x8180)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_andi(alias_plan),
+            MachineRspStepOutcome::ScalarAndiCommitted {
+                instruction_pc: 0x030,
+                destination_gpr: 3,
+                result_value: 0x0000_8180,
+            }
+        );
+        let state = rsp.scalar_register(3).unwrap();
+        assert_eq!(state.value(), Some(0x0000_8180));
+        let source = match state.source().unwrap() {
+            MachineRspScalarRegisterSource::Andi(source) => source,
+            other => panic!("Andi result lacks Andi provenance: {other:?}"),
+        };
+        assert_eq!(source.instruction_pc(), 0x030);
+        assert_eq!(source.instruction_provenance(), TEST_INSTRUCTION_PROVENANCE);
+        assert_eq!(source.source_gpr(), 3);
+        assert_eq!(source.source_value(), 0xa5a5_81ff);
+        assert_eq!(source.immediate(), 0x8180);
+        assert!(matches!(
+            source.source(),
+            MachineRspScalarRegisterSource::Mfc0(_)
+        ));
+        assert_eq!(rsp.next_pc(), Some(0x038));
+        assert_eq!(rsp.delay_slot_context(), None);
+        assert_eq!(rsp.committed_instruction_count(), 1);
+        assert_eq!(
+            rsp.last_instruction().unwrap().identity(),
+            MachineRspInstructionIdentity::Andi
+        );
+        assert_eq!(rsp.last_instruction().unwrap().destination_gpr(), Some(3));
+
+        let non_alias_plan = rsp
+            .plan_andi(
+                0x038,
+                rsp.decode(andi_word(5, 6, 0xf0f0)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_andi(non_alias_plan),
+            MachineRspStepOutcome::ScalarAndiCommitted {
+                instruction_pc: 0x038,
+                destination_gpr: 6,
+                result_value: 0x0000_00f0,
+            }
+        );
+        assert_eq!(rsp.scalar_register(5).unwrap().value(), Some(0xffff_00ff));
+        assert_eq!(rsp.scalar_register(6).unwrap().value(), Some(0x0000_00f0));
+
+        let zero_before = rsp.scalar_register(0).unwrap();
+        let zero_plan = rsp
+            .plan_andi(
+                0x040,
+                rsp.decode(andi_word(5, 0, 0xffff)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_andi(zero_plan),
+            MachineRspStepOutcome::ScalarAndiCommitted {
+                instruction_pc: 0x040,
+                destination_gpr: 0,
+                result_value: 0x0000_00ff,
+            }
+        );
+        assert_eq!(rsp.scalar_register(0).unwrap(), zero_before);
+        assert_eq!(rsp.committed_instruction_count(), 3);
+        assert_eq!(rsp.vector_unit, vector_before);
+        assert_eq!(rsp.accumulator_and_flags, accumulator_before);
+
+        let before_rejection = rsp.clone();
+        assert_eq!(
+            rsp.plan_andi(
+                0x048,
+                rsp.decode(andi_word(2, 4, 1)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::AndiSourceUnavailable { source_gpr: 2 }
         );
         assert_eq!(rsp, before_rejection);
     }

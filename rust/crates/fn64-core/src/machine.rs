@@ -6397,6 +6397,14 @@ impl Machine {
                     .map_err(MachineRepresentedStepError::RspRejected)?;
                 self.sp.apply_rsp_xori(plan)
             }
+            MachineRspDecodedInstruction::Andi { .. } => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_andi(pc, decoded, fetched.byte_provenance())
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                self.sp.apply_rsp_andi(plan)
+            }
             MachineRspDecodedInstruction::Ori { .. } => {
                 let plan = self
                     .sp
@@ -24987,9 +24995,7 @@ mod tests {
             ),
             (
                 0x0000_000c,
-                MachineRspStepRejectionReason::UnrepresentedInstruction {
-                    class: crate::rsp::MachineRspUnrepresentedInstructionClass::Scalar,
-                },
+                MachineRspStepRejectionReason::ScalarFunctionUnsupported { function: 0x0c },
             ),
         ] {
             let mut machine = staged_rsp_running_machine(&[(0, word)], false);
@@ -27197,6 +27203,162 @@ mod tests {
     }
 
     #[test]
+    fn machine_step_rsp_andi_reads_old_source_and_commits_once_without_other_owner_effects() {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (
+                    0,
+                    immediate_word(crate::rsp::RSP_SCALAR_XORI_OPCODE, 0, 3, 0xffff),
+                ),
+                (
+                    4,
+                    immediate_word(crate::rsp::RSP_SCALAR_ANDI_OPCODE, 3, 3, 0x8180),
+                ),
+            ],
+            true,
+        );
+        let mut independent = staged_rsp_running_machine(
+            &[(
+                0,
+                immediate_word(crate::rsp::RSP_SCALAR_ANDI_OPCODE, 0, 4, 0xffff),
+            )],
+            true,
+        );
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarXoriCommitted {
+                    instruction_pc: 0,
+                    destination_gpr: 3,
+                    result_value: 0xffff,
+                },
+            }
+        ));
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+            machine.vi_current_state(),
+        );
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let sp_control_before = (
+            machine.sp_memory_address_state(),
+            machine.sp_dram_address_state(),
+            machine.sp_semaphore_state(),
+            machine.sp_dma_record_count(),
+        );
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        let dpc_before = (
+            machine.dpc_clock_counter_state().clone(),
+            machine.dpc_command_busy_counter_state().clone(),
+            machine.dpc_pipe_busy_counter_state().clone(),
+            machine.dpc_tmem_load_counter_state().clone(),
+        );
+
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarAndiCommitted {
+                    instruction_pc: 4,
+                    destination_gpr: 3,
+                    result_value: 0x8180,
+                },
+            }
+        );
+        let result = machine.rsp_scalar_register(3).unwrap();
+        assert_eq!(result.value(), Some(0x8180));
+        let source = match result.source() {
+            Some(MachineRspScalarRegisterSource::Andi(source)) => source,
+            other => panic!("RSP Andi result lacks exact source: {other:?}"),
+        };
+        assert_eq!(source.source_gpr(), 3);
+        assert_eq!(source.source_value(), 0xffff);
+        assert_eq!(source.immediate(), 0x8180);
+        assert!(matches!(
+            source.source(),
+            MachineRspScalarRegisterSource::Xori(_)
+        ));
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 8);
+        assert_eq!(machine.rsp_next_pc(), Some(12));
+        assert_eq!(machine.rsp_delay_slot_context(), None);
+        assert_eq!(machine.rsp_committed_instruction_count(), 2);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(
+            (
+                machine.sp_memory_address_state(),
+                machine.sp_dram_address_state(),
+                machine.sp_semaphore_state(),
+                machine.sp_dma_record_count(),
+            ),
+            sp_control_before
+        );
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(
+            (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            ),
+            dpc_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+                machine.vi_current_state(),
+            ),
+            cpu_before
+        );
+        assert_eq!(independent.rsp_committed_instruction_count(), 0);
+        assert_eq!(independent.rsp_scalar_register(4).unwrap().value(), None);
+        assert!(matches!(
+            independent.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarAndiCommitted {
+                    destination_gpr: 4,
+                    result_value: 0,
+                    ..
+                },
+            }
+        ));
+        assert_eq!(independent.rsp_committed_instruction_count(), 1);
+        assert_eq!(independent.rsp_scalar_register(4).unwrap().value(), Some(0));
+        assert_eq!(machine.rsp_committed_instruction_count(), 2);
+
+        let mut unavailable = staged_rsp_running_machine(
+            &[(
+                0,
+                immediate_word(crate::rsp::RSP_SCALAR_ANDI_OPCODE, 2, 4, 1),
+            )],
+            true,
+        );
+        let before_rejection = lw_snapshot(&unavailable);
+        assert_eq!(
+            unavailable
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::AndiSourceUnavailable { source_gpr: 2 }
+        );
+        assert_eq!(lw_snapshot(&unavailable), before_rejection);
+    }
+
+    #[test]
     fn second_dma_full_range_preflight_rejection_is_atomic() {
         let mut machine = staged_rsp_running_machine(
             &[
@@ -27897,9 +28059,7 @@ mod tests {
         ));
         cases.push((
             staged_rsp_running_machine(&[(0, 0x2421_0001)], true),
-            MachineRspStepRejectionReason::UnrepresentedInstruction {
-                class: crate::rsp::MachineRspUnrepresentedInstructionClass::Scalar,
-            },
+            MachineRspStepRejectionReason::ScalarOpcodeUnsupported { opcode: 0x09 },
         ));
         cases.push((
             staged_rsp_running_machine(&[(0, 0xc80c_2080)], true),

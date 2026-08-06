@@ -1,8 +1,8 @@
 use crate::cpu::address::CpuAddress;
 use crate::machine::MachineBootstrapGprSource;
 use crate::rsp::{
-    MachineRspAccumulatorAndFlagsState, MachineRspAddiPlan, MachineRspBranchPlan,
-    MachineRspBreakPlan, MachineRspBreakSource, MachineRspControlRegister,
+    MachineRspAccumulatorAndFlagsState, MachineRspAddiPlan, MachineRspAndiPlan,
+    MachineRspBranchPlan, MachineRspBreakPlan, MachineRspBreakSource, MachineRspControlRegister,
     MachineRspDelaySlotContext, MachineRspExecutionState, MachineRspInstructionIdentity,
     MachineRspInstructionSource, MachineRspLastInstructionState, MachineRspLqvPlan,
     MachineRspLuiPlan, MachineRspMfc0ControlSource, MachineRspMfc0Plan, MachineRspMtc0Plan,
@@ -1207,6 +1207,25 @@ impl Sp {
                 provenance,
                 first_rsp_instruction_pc: instruction_pc,
                 first_rsp_identity: MachineRspInstructionIdentity::Ori,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_andi(&mut self, plan: MachineRspAndiPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_andi(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Andi plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Andi,
             });
         }
         outcome

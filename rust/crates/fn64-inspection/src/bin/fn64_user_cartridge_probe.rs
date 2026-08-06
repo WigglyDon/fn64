@@ -1046,6 +1046,9 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::OriSourceUnavailable { .. } => {
             "ori-source-unavailable".to_owned()
         }
+        MachineRspStepRejectionReason::AndiSourceUnavailable { .. } => {
+            "andi-source-unavailable".to_owned()
+        }
         MachineRspStepRejectionReason::MalformedLuiEncoding => "lui-malformed".to_owned(),
         MachineRspStepRejectionReason::AddiSourceUnavailable { .. } => {
             "addi-source-unavailable".to_owned()
@@ -1122,6 +1125,43 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::MalformedSllEncoding => "sll-malformed".to_owned(),
         MachineRspStepRejectionReason::SllSourceUnavailable { .. } => {
             "sll-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarFunctionUnsupported { function } => {
+            let identity = match function {
+                0x02 => "srl",
+                0x03 => "sra",
+                0x04 => "sllv",
+                0x06 => "srlv",
+                0x07 => "srav",
+                0x08 => "jr",
+                0x09 => "jalr",
+                0x20 => "add",
+                0x21 => "addu",
+                0x22 => "sub",
+                0x23 => "subu",
+                0x24 => "and",
+                0x25 => "or",
+                0x26 => "xor",
+                0x27 => "nor",
+                0x2a => "slt",
+                0x2b => "sltu",
+                _ => "reserved",
+            };
+            format!("scalar-function-{identity}-unsupported")
+        }
+        MachineRspStepRejectionReason::ScalarOpcodeUnsupported { opcode } => {
+            let identity = match opcode {
+                0x03 => "jal",
+                0x04 => "beq",
+                0x06 => "blez",
+                0x07 => "bgtz",
+                0x09 => "addiu",
+                0x0a => "slti",
+                0x0b => "sltiu",
+                0x0c => "andi",
+                _ => "reserved",
+            };
+            format!("scalar-opcode-{identity}-unsupported")
         }
         MachineRspStepRejectionReason::VsubElementUnsupported { .. } => {
             "vsub-element-unsupported".to_owned()
@@ -1247,6 +1287,22 @@ mod tests {
                 MachineRspStepRejectionReason::UnsupportedCop0Register { register_index: 10 }
             ),
             "mfc0-dpc-current-unsupported"
+        );
+    }
+
+    #[test]
+    fn rsp_scalar_rejections_name_only_public_instruction_identities() {
+        assert_eq!(
+            redacted_rsp_rejection_category(
+                MachineRspStepRejectionReason::ScalarFunctionUnsupported { function: 0x24 }
+            ),
+            "scalar-function-and-unsupported"
+        );
+        assert_eq!(
+            redacted_rsp_rejection_category(
+                MachineRspStepRejectionReason::ScalarOpcodeUnsupported { opcode: 0x09 }
+            ),
+            "scalar-opcode-addiu-unsupported"
         );
     }
 
