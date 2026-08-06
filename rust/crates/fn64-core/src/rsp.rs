@@ -2358,6 +2358,10 @@ impl MachineRspMtc0Plan {
         self.byte_provenance
     }
 
+    pub(crate) fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.byte_provenance)
+    }
+
     pub(crate) const fn source_index(&self) -> usize {
         self.source_index
     }
@@ -2830,6 +2834,7 @@ impl MachineRspExecutionState {
                     RSP_COP0_SP_READ_LENGTH_INDEX => MachineRspControlRegister::SpReadLength,
                     RSP_COP0_SP_WRITE_LENGTH_INDEX => MachineRspControlRegister::SpWriteLength,
                     RSP_COP0_SP_STATUS_INDEX => MachineRspControlRegister::SpStatus,
+                    RSP_COP0_SP_SEMAPHORE_INDEX => MachineRspControlRegister::SpSemaphore,
                     RSP_COP0_DPC_STATUS_INDEX => MachineRspControlRegister::DpcStatus,
                     _ => {
                         return Err(MachineRspStepRejection::new(

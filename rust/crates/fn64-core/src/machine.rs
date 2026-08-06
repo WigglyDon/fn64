@@ -6342,7 +6342,15 @@ impl Machine {
                         self.dpc.apply_rsp_mtc0_status_clear(dpc_plan);
                     }
                     MachineRspControlRegister::SpSemaphore => {
-                        unreachable!("Mtc0 decoder does not admit SP_SEMAPHORE")
+                        let semaphore = MachineSpSemaphoreState::from_rsp_mtc0_clear(
+                            self.sp
+                                .semaphore_state()
+                                .expect("SP semaphore reset truth is always available"),
+                            plan.instruction_pc(),
+                            plan.instruction_source(),
+                            plan.source_index(),
+                        );
+                        self.sp.apply_semaphore_store(semaphore);
                     }
                     MachineRspControlRegister::SpDmaFull | MachineRspControlRegister::SpDmaBusy => {
                         unreachable!("Mtc0 decoder does not admit read-only SP DMA status")
@@ -27168,6 +27176,143 @@ mod tests {
     }
 
     #[test]
+    fn machine_step_rsp_mtc0_sp_semaphore_clears_with_exact_lineage() {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (0, rsp_mfc0_word(8, crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX)),
+                (4, rsp_mfc0_word(9, crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX)),
+                (8, rsp_mtc0_word(9, crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX)),
+            ],
+            true,
+        );
+        let independent = staged_rsp_running_machine(
+            &[(0, rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX))],
+            true,
+        );
+        assert!(machine.sp_semaphore_state().unwrap().clear());
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 0,
+                    destination_gpr: 8,
+                    control_register: MachineRspControlRegister::SpSemaphore,
+                    result_value: 0,
+                },
+            }
+        ));
+        assert!(machine.sp_semaphore_state().unwrap().set());
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 4,
+                    destination_gpr: 9,
+                    control_register: MachineRspControlRegister::SpSemaphore,
+                    result_value: 1,
+                },
+            }
+        ));
+        assert!(machine.sp_semaphore_state().unwrap().set());
+
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    instruction_pc: 8,
+                    source_gpr: 9,
+                    source_value: 1,
+                    control_register: MachineRspControlRegister::SpSemaphore,
+                    source_index: 0,
+                },
+            }
+        );
+        assert!(machine.sp_semaphore_state().unwrap().clear());
+        assert!(matches!(
+            machine.sp_semaphore_state().unwrap().source(),
+            crate::sp::MachineSpSemaphoreSource::RspMtc0Clear {
+                instruction_pc: 8,
+                instruction_source:
+                    crate::rsp::MachineRspInstructionSource::GeneratedMachineTestStaging,
+                source_index: 0,
+                prior_set: true,
+                ..
+            }
+        ));
+        assert_eq!(machine.rsp_mtc0_source(0).unwrap().source_gpr(), 9);
+        assert_eq!(machine.rsp_mtc0_source(0).unwrap().source_value(), 1);
+        assert_eq!(
+            machine.rsp_mtc0_source(0).unwrap().control_register(),
+            MachineRspControlRegister::SpSemaphore
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 12);
+        assert_eq!(machine.rsp_next_pc(), Some(16));
+        assert_eq!(machine.rsp_committed_instruction_count(), 3);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert!(independent.sp_semaphore_state().unwrap().clear());
+        assert_eq!(independent.rsp_committed_instruction_count(), 0);
+        assert_eq!(independent.rsp_mtc0_source(0), None);
+
+        let mut zero_source = independent;
+        assert!(matches!(
+            zero_source.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMtc0Committed {
+                    source_gpr: 0,
+                    source_value: 0,
+                    control_register: MachineRspControlRegister::SpSemaphore,
+                    ..
+                },
+            }
+        ));
+        assert!(zero_source.sp_semaphore_state().unwrap().clear());
+
+        let mut unavailable = staged_rsp_running_machine(
+            &[(0, rsp_mtc0_word(8, crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX))],
+            true,
+        );
+        let before = lw_snapshot(&unavailable);
+        assert_eq!(
+            unavailable
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::Mtc0SourceUnavailable { source_gpr: 8 }
+        );
+        assert_eq!(lw_snapshot(&unavailable), before);
+    }
+
+    #[test]
     fn rsp_fetch_mfc0_lqv_rejections_are_atomic_and_receive_no_cpu_fallback() {
         let mut cases = Vec::new();
         cases.push((
@@ -27223,9 +27368,7 @@ mod tests {
                 &[(0, rsp_mtc0_word(8, crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX))],
                 true,
             ),
-            MachineRspStepRejectionReason::UnsupportedMtc0ControlRegister {
-                register_index: crate::rsp::RSP_COP0_SP_SEMAPHORE_INDEX,
-            },
+            MachineRspStepRejectionReason::Mtc0SourceUnavailable { source_gpr: 8 },
         ));
         cases.push((
             staged_rsp_running_machine(&[(0, 0x2421_0001)], true),

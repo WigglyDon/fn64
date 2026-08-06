@@ -287,6 +287,11 @@ pub enum MachineSpSemaphorePriorSource {
         instruction_pc: u16,
         instruction_source: MachineRspInstructionSource,
     },
+    RspMtc0Clear {
+        instruction_pc: u16,
+        instruction_source: MachineRspInstructionSource,
+        source_index: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -296,6 +301,13 @@ pub enum MachineSpSemaphoreSource {
     RspMfc0ReadAndSet {
         instruction_pc: u16,
         instruction_source: MachineRspInstructionSource,
+        prior_source: MachineSpSemaphorePriorSource,
+        prior_set: bool,
+    },
+    RspMtc0Clear {
+        instruction_pc: u16,
+        instruction_source: MachineRspInstructionSource,
+        source_index: usize,
         prior_source: MachineSpSemaphorePriorSource,
         prior_set: bool,
     },
@@ -336,12 +348,66 @@ impl MachineSpSemaphoreState {
                 instruction_pc,
                 instruction_source,
             },
+            MachineSpSemaphoreSource::RspMtc0Clear {
+                instruction_pc,
+                instruction_source,
+                source_index,
+                ..
+            } => MachineSpSemaphorePriorSource::RspMtc0Clear {
+                instruction_pc,
+                instruction_source,
+                source_index,
+            },
         };
         Self {
             set: true,
             source: MachineSpSemaphoreSource::RspMfc0ReadAndSet {
                 instruction_pc,
                 instruction_source,
+                prior_source,
+                prior_set: previous.set,
+            },
+        }
+    }
+
+    pub(crate) const fn from_rsp_mtc0_clear(
+        previous: Self,
+        instruction_pc: u16,
+        instruction_source: MachineRspInstructionSource,
+        source_index: usize,
+    ) -> Self {
+        let prior_source = match previous.source {
+            MachineSpSemaphoreSource::SourceDefinedReset => {
+                MachineSpSemaphorePriorSource::SourceDefinedReset
+            }
+            MachineSpSemaphoreSource::CpuStore(source) => {
+                MachineSpSemaphorePriorSource::CpuStore(source)
+            }
+            MachineSpSemaphoreSource::RspMfc0ReadAndSet {
+                instruction_pc,
+                instruction_source,
+                ..
+            } => MachineSpSemaphorePriorSource::RspMfc0ReadAndSet {
+                instruction_pc,
+                instruction_source,
+            },
+            MachineSpSemaphoreSource::RspMtc0Clear {
+                instruction_pc,
+                instruction_source,
+                source_index,
+                ..
+            } => MachineSpSemaphorePriorSource::RspMtc0Clear {
+                instruction_pc,
+                instruction_source,
+                source_index,
+            },
+        };
+        Self {
+            set: false,
+            source: MachineSpSemaphoreSource::RspMtc0Clear {
+                instruction_pc,
+                instruction_source,
+                source_index,
                 prior_source,
                 prior_set: previous.set,
             },
