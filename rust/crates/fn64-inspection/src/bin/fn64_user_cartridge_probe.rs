@@ -1126,6 +1126,10 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::SllSourceUnavailable { .. } => {
             "sll-source-unavailable".to_owned()
         }
+        MachineRspStepRejectionReason::MalformedJrEncoding => "jr-malformed".to_owned(),
+        MachineRspStepRejectionReason::JrSourceUnavailable { .. } => {
+            "jr-source-unavailable".to_owned()
+        }
         MachineRspStepRejectionReason::ScalarFunctionUnsupported { function } => {
             let identity = match function {
                 0x02 => "srl",
@@ -1292,6 +1296,16 @@ mod tests {
 
     #[test]
     fn rsp_scalar_rejections_name_only_public_instruction_identities() {
+        assert_eq!(
+            redacted_rsp_rejection_category(MachineRspStepRejectionReason::JrSourceUnavailable {
+                source_gpr: 31
+            }),
+            "jr-source-unavailable"
+        );
+        assert_eq!(
+            redacted_rsp_rejection_category(MachineRspStepRejectionReason::MalformedJrEncoding),
+            "jr-malformed"
+        );
         assert_eq!(
             redacted_rsp_rejection_category(
                 MachineRspStepRejectionReason::ScalarFunctionUnsupported { function: 0x24 }

@@ -6378,6 +6378,7 @@ impl Machine {
                 self.sp.apply_rsp_addi(plan)
             }
             MachineRspDecodedInstruction::J { .. }
+            | MachineRspDecodedInstruction::Jr { .. }
             | MachineRspDecodedInstruction::Bltz { .. }
             | MachineRspDecodedInstruction::Bgez { .. }
             | MachineRspDecodedInstruction::Bgezal { .. }
@@ -24379,6 +24380,10 @@ mod tests {
         ((crate::rsp::RSP_SCALAR_J_OPCODE as u32) << 26) | ((target_pc as u32) >> 2)
     }
 
+    const fn rsp_jr_word(source_gpr: u8) -> u32 {
+        ((source_gpr as u32) << 21) | crate::rsp::RSP_SCALAR_JR_FUNCTION as u32
+    }
+
     const fn rsp_sll_word(source_gpr: u8, destination_gpr: u8, shift_amount: u8) -> u32 {
         ((source_gpr as u32) << 16)
             | ((destination_gpr as u32) << 11)
@@ -26853,6 +26858,221 @@ mod tests {
         assert_eq!(machine.rsp_delay_slot_context(), None);
         assert_eq!(machine.rsp_committed_instruction_count(), 2);
         assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+    }
+
+    #[test]
+    fn machine_step_rsp_jr_commits_once_and_cpu_interleave_preserves_its_delay() {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (
+                    0,
+                    immediate_word(crate::rsp::RSP_SCALAR_ORI_OPCODE, 0, 3, 0x001f),
+                ),
+                (4, rsp_jr_word(3)),
+                (8, 0),
+                (0x01c, 0),
+            ],
+            true,
+        );
+        machine
+            .write_rdram_u32_be(0, immediate_word(0x0d, 0, 2, 1))
+            .unwrap();
+        machine
+            .write_rdram_u32_be(4, immediate_word(0x0d, 0, 0, 0))
+            .unwrap();
+        machine
+            .write_rdram_u32_be(8, immediate_word(0x0d, 0, 0, 0))
+            .unwrap();
+        machine.stage_cpu_pc(0xa000_0000);
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarOriCommitted {
+                    instruction_pc: 0,
+                    destination_gpr: 3,
+                    result_value: 0x001f,
+                },
+            }
+        ));
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::Ori)
+        );
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+
+        let scalar_before: [MachineRspScalarRegisterState; crate::rsp::RSP_SCALAR_REGISTER_COUNT] =
+            core::array::from_fn(|index| {
+                machine
+                    .rsp_scalar_register(index)
+                    .expect("all scalar registers exist")
+            });
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+            machine.vi_current_state(),
+        );
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        let dpc_before = (
+            machine.dpc_clock_counter_state().clone(),
+            machine.dpc_command_busy_counter_state().clone(),
+            machine.dpc_pipe_busy_counter_state().clone(),
+            machine.dpc_tmem_load_counter_state().clone(),
+        );
+        let sp_control_before = (
+            machine.sp_memory_address_state(),
+            machine.sp_dram_address_state(),
+            machine.sp_semaphore_state(),
+            machine.sp_dma_record_count(),
+        );
+        let rdram_before = (
+            machine.rdram.read_u32_be(0).unwrap(),
+            machine.rdram.read_u32_be(4).unwrap(),
+            machine.rdram.read_u32_be(8).unwrap(),
+        );
+
+        let outcome = machine.step().unwrap();
+        assert_eq!(
+            outcome,
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarJrCommitted {
+                    instruction_pc: 4,
+                    source_gpr: 3,
+                    delay_slot_pc: 8,
+                    target_pc: 0x01c,
+                },
+            }
+        );
+        assert_eq!(outcome.identity(), None);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 8);
+        assert_eq!(machine.rsp_next_pc(), Some(0x01c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 2);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        let delay = machine.rsp_delay_slot_context().unwrap();
+        assert_eq!(
+            delay.identity(),
+            crate::rsp::MachineRspInstructionIdentity::Jr
+        );
+        assert_eq!(delay.owner_pc(), 4);
+        assert_eq!(delay.delay_slot_pc(), 8);
+        assert_eq!(delay.target_pc(), 0x01c);
+        assert_eq!(delay.source_gpr_a(), Some(3));
+        assert_eq!(delay.source_value_a(), Some(0x001f));
+        assert_eq!(delay.source_gpr_b(), None);
+        assert_eq!(delay.signed_offset(), None);
+        assert_eq!(
+            core::array::from_fn(|index| {
+                machine
+                    .rsp_scalar_register(index)
+                    .expect("all scalar registers exist")
+            }),
+            scalar_before
+        );
+        assert_eq!(machine.rsp_scalar_register(0).unwrap().value(), Some(0));
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(
+            (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            ),
+            dpc_before
+        );
+        assert_eq!(
+            (
+                machine.sp_memory_address_state(),
+                machine.sp_dram_address_state(),
+                machine.sp_semaphore_state(),
+                machine.sp_dma_record_count(),
+            ),
+            sp_control_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+                machine.vi_current_state(),
+            ),
+            cpu_before
+        );
+        assert_eq!(
+            (
+                machine.rdram.read_u32_be(0).unwrap(),
+                machine.rdram.read_u32_be(4).unwrap(),
+                machine.rdram.read_u32_be(8).unwrap(),
+            ),
+            rdram_before
+        );
+
+        let delay_before_cpu = machine.rsp_delay_slot_context();
+        let rsp_count_before_cpu = machine.rsp_committed_instruction_count();
+        assert_eq!(
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::Ori)
+        );
+        assert_eq!(machine.rsp_delay_slot_context(), delay_before_cpu);
+        assert_eq!(
+            machine.rsp_committed_instruction_count(),
+            rsp_count_before_cpu
+        );
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::NopCommitted { instruction_pc: 8 },
+            }
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x01c);
+        assert_eq!(machine.rsp_next_pc(), Some(0x020));
+        assert_eq!(machine.rsp_delay_slot_context(), None);
+        assert_eq!(machine.rsp_committed_instruction_count(), 3);
+
+        assert_eq!(
+            machine.step().unwrap().identity(),
+            Some(CpuInstructionIdentity::Ori)
+        );
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Rsp);
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::NopCommitted {
+                    instruction_pc: 0x01c,
+                },
+            }
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x020);
+        assert_eq!(machine.rsp_next_pc(), Some(0x024));
+        assert_eq!(machine.rsp_committed_instruction_count(), 4);
+
+        let mut independent = staged_rsp_running_machine(&[(0, rsp_jr_word(0)), (4, 0)], true);
+        assert!(matches!(
+            independent.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarJrCommitted {
+                    source_gpr: 0,
+                    target_pc: 0,
+                    ..
+                },
+            }
+        ));
+        assert_eq!(independent.rsp_committed_instruction_count(), 1);
+        assert_eq!(machine.rsp_committed_instruction_count(), 4);
     }
 
     #[test]
