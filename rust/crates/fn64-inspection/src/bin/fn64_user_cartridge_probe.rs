@@ -10,8 +10,10 @@ use fn64_core::{
     MachinePiDomainTimingField, MachinePiDomainTimingRegister, MachinePifIpl2HandoffBootMedium,
     MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
     MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspInstructionIdentity,
-    MachineRspStepRejectionReason, MachineSpStatusState, MachineStepCpuLocalInvocationRejection,
-    MachineStepProcessor, PifFirmwareClassification, PifIpl2Profile, RDRAM_SIZE_BYTES,
+    MachineRspStepRejectionReason, MachineRspVectorUnavailableSource,
+    MachineSpDmemByteKnowledgeSource, MachineSpDmemUnavailableSource, MachineSpStatusState,
+    MachineStepCpuLocalInvocationRejection, MachineStepProcessor, PifFirmwareClassification,
+    PifIpl2Profile, RDRAM_SIZE_BYTES,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -716,7 +718,7 @@ fn redacted_machine_step_error(
         MachineRepresentedStepError::RspRejected(rejection) => {
             format!(
                 "Machine::step stopped at the first RSP pressure: {progress} selected_processor=RSP local_pc=redacted category={}",
-                redacted_rsp_rejection_category(rejection.reason())
+                redacted_rsp_rejection_category_for_machine(machine, rejection.reason())
             )
         }
         MachineRepresentedStepError::LoadWordRejected(rejection) => {
@@ -1212,6 +1214,50 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
     }
 }
 
+fn redacted_rsp_rejection_category_for_machine(
+    machine: &Machine,
+    reason: MachineRspStepRejectionReason,
+) -> String {
+    let MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector } = reason else {
+        return redacted_rsp_rejection_category(reason);
+    };
+    let Some(source) = machine
+        .rsp_vector_register(usize::from(source_vector))
+        .and_then(|state| state.unavailable_source())
+    else {
+        return "sqv-source-state-inconsistent".to_owned();
+    };
+    match source {
+        MachineRspVectorUnavailableSource::ConstructionOrReset => {
+            "sqv-source-construction-reset-unavailable".to_owned()
+        }
+        MachineRspVectorUnavailableSource::Lqv(source) => {
+            let mut construction_or_reset = false;
+            let mut bootstrap_uncovered = false;
+            for descriptor in source.dmem_knowledge() {
+                match descriptor.source() {
+                    MachineSpDmemByteKnowledgeSource::Available { .. } => {}
+                    MachineSpDmemByteKnowledgeSource::Unavailable {
+                        source: MachineSpDmemUnavailableSource::ConstructionOrReset,
+                    } => construction_or_reset = true,
+                    MachineSpDmemByteKnowledgeSource::Unavailable {
+                        source: MachineSpDmemUnavailableSource::BootstrapUncovered,
+                    } => bootstrap_uncovered = true,
+                }
+            }
+            match (construction_or_reset, bootstrap_uncovered) {
+                (false, false) => "sqv-source-lqv-knowledge-inconsistent".to_owned(),
+                (true, false) => "sqv-source-lqv-construction-reset-unavailable".to_owned(),
+                (false, true) => "sqv-source-lqv-bootstrap-uncovered".to_owned(),
+                (true, true) => "sqv-source-lqv-mixed-unavailable".to_owned(),
+            }
+        }
+        MachineRspVectorUnavailableSource::Vsub(_) => "sqv-source-vsub-unavailable".to_owned(),
+        MachineRspVectorUnavailableSource::Vaddc(_) => "sqv-source-vaddc-unavailable".to_owned(),
+        MachineRspVectorUnavailableSource::Vxor(_) => "sqv-source-vxor-unavailable".to_owned(),
+    }
+}
+
 fn redacted_input_identity(_path: &Path) -> &'static str {
     "<REDACTED_USER_CARTRIDGE>"
 }
@@ -1370,6 +1416,13 @@ mod tests {
                 byte_count: 2,
             }),
             "sqv-dmem-range-malformed"
+        );
+        assert_eq!(
+            redacted_rsp_rejection_category_for_machine(
+                &generated_hle_machine(),
+                MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector: 31 },
+            ),
+            "sqv-source-construction-reset-unavailable"
         );
     }
 
