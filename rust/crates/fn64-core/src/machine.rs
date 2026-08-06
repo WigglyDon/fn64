@@ -6443,6 +6443,14 @@ impl Machine {
                     .map_err(MachineRepresentedStepError::RspRejected)?;
                 self.sp.apply_rsp_vector_arithmetic(plan)
             }
+            MachineRspDecodedInstruction::Vxor { .. } => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_vxor(pc, decoded, fetched.byte_provenance())
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                self.sp.apply_rsp_vxor(plan)
+            }
             MachineRspDecodedInstruction::Lw { .. } => {
                 let address = self
                     .sp
@@ -24347,6 +24355,22 @@ mod tests {
             | ((signed_offset as u8 & 0x7f) as u32)
     }
 
+    const fn rsp_vector_compute_word(
+        function: u8,
+        destination_vector: u8,
+        source_vector_a: u8,
+        source_vector_b: u8,
+        element: u8,
+    ) -> u32 {
+        ((crate::rsp::RSP_VECTOR_COMPUTE_OPCODE as u32) << 26)
+            | (1 << 25)
+            | ((element as u32) << 21)
+            | ((source_vector_b as u32) << 16)
+            | ((source_vector_a as u32) << 11)
+            | ((destination_vector as u32) << 6)
+            | function as u32
+    }
+
     fn stage_rsp_running(machine: &mut Machine, words: &[(u32, u32)], retain_run_start: bool) {
         let pc = MachineSpPcState::from_cpu_word(
             0,
@@ -27310,6 +27334,175 @@ mod tests {
             MachineRspStepRejectionReason::Mtc0SourceUnavailable { source_gpr: 8 }
         );
         assert_eq!(lw_snapshot(&unavailable), before);
+    }
+
+    #[test]
+    fn machine_step_rsp_vxor_element_zero_commits_once_and_preserves_other_owners() {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (0, rsp_lqv_word(0, 13, 0, 0)),
+                (4, rsp_lqv_word(0, 14, 0, 1)),
+                (
+                    8,
+                    rsp_vector_compute_word(crate::rsp::RSP_VECTOR_VXOR_FUNCTION, 15, 13, 14, 0),
+                ),
+            ],
+            true,
+        );
+        let source_a = [
+            0x00, 0xff, 0x55, 0xaa, 0x12, 0x34, 0x80, 0x01, 0xfe, 0xdc, 0x7f, 0x00, 0x42, 0x24,
+            0x99, 0x66,
+        ];
+        let source_b = [
+            0xff, 0x00, 0xaa, 0x55, 0x43, 0x21, 0x01, 0x80, 0xef, 0xcd, 0x00, 0x7f, 0x24, 0x42,
+            0x66, 0x99,
+        ];
+        let mut dmem = [0_u8; 2 * crate::rsp::RSP_VECTOR_REGISTER_BYTE_COUNT];
+        dmem[..crate::rsp::RSP_VECTOR_REGISTER_BYTE_COUNT].copy_from_slice(&source_a);
+        dmem[crate::rsp::RSP_VECTOR_REGISTER_BYTE_COUNT..].copy_from_slice(&source_b);
+        machine
+            .sp_dmem
+            .write_bytes(SpDmemOffset::new(0), &dmem)
+            .unwrap();
+
+        for expected_pc in [0, 4] {
+            assert!(matches!(
+                machine.step().unwrap(),
+                MachineRepresentedStepOutcome::RspCommitted {
+                    outcome: MachineRspStepOutcome::VectorLqvCommitted {
+                        instruction_pc,
+                        result_available: true,
+                        ..
+                    },
+                } if instruction_pc == expected_pc
+            ));
+            machine.processor_turn = MachineStepProcessor::Rsp;
+        }
+
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let scalar_before: Vec<_> = (0..crate::rsp::RSP_SCALAR_REGISTER_COUNT)
+            .map(|index| machine.rsp_scalar_register(index).unwrap())
+            .collect();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let dpc_before = (
+            machine.dpc_clock_counter_state().clone(),
+            machine.dpc_command_busy_counter_state().clone(),
+            machine.dpc_pipe_busy_counter_state().clone(),
+            machine.dpc_tmem_load_counter_state().clone(),
+        );
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::VectorVxorCommitted {
+                    instruction_pc: 8,
+                    destination_vector: 15,
+                    result_available: true,
+                },
+            }
+        );
+        let expected = core::array::from_fn(|index| source_a[index] ^ source_b[index]);
+        let result = machine.rsp_vector_register(15).unwrap();
+        assert_eq!(result.bytes(), Some(&expected));
+        let source = match result.available_source() {
+            Some(crate::rsp::MachineRspVectorRegisterSource::Vxor(source)) => source,
+            other => panic!("Machine Vxor result lacks exact source: {other:?}"),
+        };
+        assert_eq!(source.instruction_pc(), 8);
+        assert_eq!(source.destination_vector(), 15);
+        assert_eq!(source.source_vector_a(), 13);
+        assert_eq!(source.source_vector_b(), 14);
+        assert_eq!(source.element(), 0);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 12);
+        assert_eq!(machine.rsp_next_pc(), Some(16));
+        assert_eq!(machine.rsp_delay_slot_context(), None);
+        assert_eq!(machine.rsp_committed_instruction_count(), 3);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().identity(),
+            crate::rsp::MachineRspInstructionIdentity::Vxor
+        );
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().destination_vector(),
+            Some(15)
+        );
+        assert_eq!(
+            (0..crate::rsp::RSP_SCALAR_REGISTER_COUNT)
+                .map(|index| machine.rsp_scalar_register(index).unwrap())
+                .collect::<Vec<_>>(),
+            scalar_before
+        );
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(
+            (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            ),
+            dpc_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+
+        let mut independent = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_vector_compute_word(crate::rsp::RSP_VECTOR_VXOR_FUNCTION, 15, 13, 13, 0),
+            )],
+            true,
+        );
+        assert!(matches!(
+            independent.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::VectorVxorCommitted {
+                    result_available: true,
+                    ..
+                },
+            }
+        ));
+        assert_eq!(
+            independent.rsp_vector_register(15).unwrap().bytes(),
+            Some(&[0; crate::rsp::RSP_VECTOR_REGISTER_BYTE_COUNT])
+        );
+        assert_eq!(machine.rsp_committed_instruction_count(), 3);
+
+        let mut rejected = staged_rsp_running_machine(
+            &[(
+                0,
+                rsp_vector_compute_word(crate::rsp::RSP_VECTOR_VXOR_FUNCTION, 15, 13, 14, 1),
+            )],
+            true,
+        );
+        let before = lw_snapshot(&rejected);
+        assert_eq!(
+            rejected
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::VxorElementUnsupported { element: 1 }
+        );
+        assert_eq!(lw_snapshot(&rejected), before);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::rsp::{
     MachineRspMtc0Source, MachineRspNopPlan, MachineRspOriPlan, MachineRspScalarLwPlan,
     MachineRspScalarRegisterState, MachineRspSllPlan, MachineRspStepOutcome,
     MachineRspVectorArithmeticPlan, MachineRspVectorRegisterState, MachineRspVectorUnitState,
-    MachineRspXoriPlan,
+    MachineRspVxorPlan, MachineRspXoriPlan,
 };
 
 pub const SP_STATUS_PHYSICAL_ADDRESS: u32 = 0x0404_0010;
@@ -1049,6 +1049,25 @@ impl Sp {
                 provenance,
                 first_rsp_instruction_pc: instruction_pc,
                 first_rsp_identity: outcome.identity(),
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_vxor(&mut self, plan: MachineRspVxorPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_vxor(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Vxor plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Vxor,
             });
         }
         outcome

@@ -1098,8 +1098,14 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::VaddcElementUnsupported { .. } => {
             "vaddc-element-unsupported".to_owned()
         }
+        MachineRspStepRejectionReason::VxorElementUnsupported { .. } => {
+            "vxor-element-unsupported".to_owned()
+        }
         MachineRspStepRejectionReason::UnrepresentedInstruction { class } => {
             format!("unrepresented-{class:?}-instruction")
+        }
+        MachineRspStepRejectionReason::VectorFunctionUnsupported { function, element } => {
+            format!("vector-function-{function:02x}-element-{element:02x}-unsupported")
         }
     }
 }
