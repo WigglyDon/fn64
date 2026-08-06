@@ -184,8 +184,10 @@ Accepted proof classes are core unit tests, focused `machine_step` tests, the
 construction/reset probe, the 209-case step probe, the bounded user-cartridge
 probe, and exact-source anchors. BOOT-2 now names the first genuine guest RSP
 task submission. Fresh clean-room execution reproduces that boundary and
-advances the first task through 37 RSP commits to atomic scalar-JR rejection;
-it does not prove original-PIF execution or compatibility. The integrated
+advances the first task through 52 RSP commits, including scalar Jr and its one
+delay slot, to atomic rejection of element-zero Sqv whose source vector remains
+construction/reset unavailable; it does not prove original-PIF execution or
+compatibility. The integrated
 partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
 RDRAM, known SP IMEM, and cartridge-bootstrap-staged SP DMEM. Explicit profile
@@ -262,7 +264,9 @@ public Machine stepping. `Pi` retains atomic ranged cartridge-to-RDRAM DMA
 ownership; `Sp` retains reached MEM_ADDR/DRAM_ADDR, status/PC, and atomic
 RDRAM-to-SP DMA records while Rdram/SpDmem/SpImem retain every byte. Guest CPU
 task preparation and its SP_STATUS start write reproduce BOOT-2. The first RSP
-task then commits 37 instructions and rejects scalar JR atomically. This is not
+task then commits 52 instructions, including exact scalar Jr and its separate
+delay slot. Exact element-zero Sqv is selected next and rejects atomically
+because its source vector is construction/reset unavailable. This is not
 original-PIF execution, task completion, BOOT-3, DPC/RDP execution, or
 compatibility.
 
@@ -299,6 +303,17 @@ r1-r31 unavailable, 32 individually available-or-unavailable vector slots,
 explicit accumulator/flag unavailability, local next-PC/delay truth,
 provenance, and a separate committed count. Every vector slot begins
 unavailable and contains no reset bytes.
+
+Exact scalar RSP Jr consumes one Available old scalar source and masks it to an
+aligned twelve-bit local target. It writes no link, commits once, and uses the
+same independent one-slot delay owner as immediate J and represented branches;
+the slot remains a separate RSP-selected instruction after the ordinary CPU
+interleave. Exact element-zero Sqv uses the scalar base low twelve bits plus a
+signed seven-bit offset shifted left four. It atomically stores the Available
+vector prefix from byte zero through the current aligned sixteen-byte DMEM
+boundary, with per-byte provenance. Unavailable base or vector truth, nonzero
+elements, and malformed ranges reject before mutation. Other vector-memory
+forms remain closed.
 
 The public generated x105 halt-clear creates general Pending run-start
 lineage, not a user-task fact. Scalar `Mfc0 r8,SP_SEMAPHORE` and
@@ -369,8 +384,9 @@ Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
 translated TLB memory access, RSP execution beyond the exact identities in the
-detailed capability ledger, scalar JR at the current first-task frontier,
-unearned MFC0/MTC0 controls, nonzero-code/delay-slot Break, CPU continuation,
+detailed capability ledger, a lawful producer for the current
+source-unavailable Sqv vector, unearned MFC0/MTC0 controls,
+nonzero-code/delay-slot Break, CPU continuation,
 generic task completion, other DMA shapes, DPC mode/readback/counter cadence,
 RDP execution, broader vector routing/arithmetic, host presentation, broader
 handoff state, and whether any later fact requires minimal firmware execution.

@@ -1019,6 +1019,27 @@ product or reference lane requires a new explicit product decision.
   DPC/RDP work, rendering, audio, BOOT-3, original-PIF execution, and game
   compatibility remain unearned.
 
+## Era 52 — Register jump and exact quad-vector-store boundary (2026-08-06)
+
+- RSP control ownership: live pressure plus generated public proof added exact
+  scalar `Jr`. It reads one Available scalar source, derives an aligned local
+  target from its low twelve bits, writes no link, and retains the existing
+  one-delay-slot cadence across the intervening CPU selection.
+- RSP memory ownership: the next live identity added exact element-zero `Sqv`.
+  One immutable plan stores the Available vector prefix up to the current
+  sixteen-byte DMEM boundary with low-twelve-bit address arithmetic and exact
+  per-byte source provenance. Other element routes and vector-memory forms
+  remain unsupported.
+- Runtime result: a fresh firmware-free run reproduces BOOT-2, passes `Jr` and
+  its one delay slot, and commits 52 first-task RSP instructions. The selected
+  `Sqv` then rejects atomically because its source vector retains explicit
+  construction/reset unavailability.
+- Boundary: no pinned-profile, cartridge-owned, or executed guest-action source
+  supplies that vector's bytes. No value was fabricated or copied from private
+  execution. The first task has not reached Break; a second task, DPC/RDP work,
+  rendering, audio, BOOT-3, original-PIF execution, and game compatibility
+  remain unearned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
