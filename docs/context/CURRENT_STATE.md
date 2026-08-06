@@ -72,32 +72,47 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   A historical local run reached the first task-start request, but its implicit
   public-synthetic PIF input makes it inadmissible as a current reproduction.
   Ordinary execution now begins from one explicit `CleanRoomHle` post-boot
-  cartridge-entry transition and makes no PIF/IPL/X105 execution claim. BOOT-2
-  still requires the first genuine guest RSP task submission and remains
-  unreproduced after the current fresh run.
+  cartridge-entry transition and makes no PIF/IPL/X105 execution claim. A
+  current fresh run has now reproduced BOOT-2 through genuine guest CPU task
+  preparation, atomic SP DMEM/IMEM transfers, a guest SP_STATUS task-start
+  write, and natural RSP selection through `Machine::step`.
 - `LIVE_REPO_FACT`: `Machine::stage_clean_room_cartridge_entry` owns one atomic
   firmware-free generation point for the pinned NTSC/X105-derived public boot
   profile. It preflights normalized cartridge spans, stages exactly one MiB
   from cartridge offset `0x1000` into RDRAM at the physical cartridge entry,
   records cartridge-plus-HLE provenance, installs the public/profile- and
   cartridge-derived CPU entry state, invalidates primary caches with typed HLE
-  provenance, stages zero FCR31 with distinct clean-room provenance, marks the
-  fixed 4 MiB RDRAM profile initialized with distinct clean-room provenance,
-  leaves boot-local SP memory unavailable, commits no CPU or RSP instruction,
-  and makes the next public `Machine::step` select CPU. The RDRAM fact reuses
-  the existing uncached absent-module read law; it adds no timing or new memory
-  policy.
+  provenance, stages zero FCR31 and zero COP0 PageMask with distinct clean-room
+  provenance, marks the fixed 4 MiB RDRAM profile initialized, stages the four
+  cartridge-header-derived PI domain-one timing registers, and creates only
+  two public post-boot RSP scalar facts: cartridge word offset `0x40` in r4 and
+  pinned-profile zero in r11. SP DMEM and IMEM remain unavailable boot-local
+  truth. Staging commits no CPU or RSP instruction and makes the next public
+  `Machine::step` select CPU. The RDRAM fact reuses the existing uncached
+  absent-module read law; the PI tuple adds register state and readback without
+  a timing model.
 - `RUNTIME_FACT`: one fresh `HISTORICAL_BOOT2_USER_CARTRIDGE` run used no PIF
   or synthetic input, staged the clean-room handoff once, and then called only
-  `Machine::step`. The first cartridge `Lui` committed once. Before the two HLE
-  corrections, execution stopped after 11,753 commits at an uncached absent-
-  RDRAM `Lw`; the initialized-profile correction advanced to 1,308,399 commits,
-  where `Cop1Cfc1` found FCR31 unavailable. The clean-room FCR31 correction
-  advanced to 1,308,711 commits. Attempt 1,308,712 then rejected atomically on
-  `Lw` of the PI domain-one latency register because its clean-room handoff
-  value remains unavailable. No private path, basename, word, address, task
-  bytes, or register value entered output or source. No CPU or RSP identity was
-  added, and BOOT-2 was not reached.
+  `Machine::step`. The first cartridge `Lui` committed once, the earlier PI
+  latency pressure passed through Pi-owned readback, and BOOT-2 was reproduced.
+  The first genuine task then committed 37 RSP instructions. Attempt
+  13,507,890 selected scalar `Jr` and rejected atomically because that exact RSP
+  identity remains unsupported; 13,507,158 total Machine steps had committed.
+  The live-pressure tranche added exact RSP `J`, `Ori`, `Sll`, `Bgezal`,
+  `Mtc0 SP_STATUS`, `Mfc0 SP_DMA_FULL`, `Mtc0 SP_SEMAPHORE`, element-zero
+  `Vxor`, aligned scalar-DMEM `Sw`, `Mfc0 SP_STATUS`, and `Andi`. No private
+  path, basename, instruction word, task bytes, register snapshot, title, or
+  digest entered source, context, or output.
+- `LIVE_REPO_FACT`: exact RSP scalar `J` owns one local jump plus one separate
+  delay-slot commit; `Bgezal` links r31 only on a taken signed-nonnegative
+  branch. `Ori` and `Andi` use zero-extended immediates, while `Sll` performs
+  one fixed 32-bit left shift; all preserve read-before-write and immutable r0.
+  Exact aligned scalar `Sw` writes four big-endian bytes through the singular
+  `SpDmem` owner with per-byte provenance. Element-zero `Vxor` XORs paired
+  lanes without changing accumulator or flags. Exact RSP control transfers now
+  also route MTC0 SP_STATUS and SP_SEMAPHORE plus MFC0 SP_DMA_FULL and SP_STATUS
+  through their existing `Sp` owners. No generic scalar/vector ALU, control
+  bank, DMA timing, or new Mi/Dpc runtime policy was added.
 - `LIVE_REPO_FACT`: each Machine now owns 4 KiB of SP IMEM with explicit
   construction/reset, byte knownness independent of zero backing, and a narrow
   CPU-data route for the represented physical range. Complete aligned `Lw`
@@ -736,9 +751,9 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 ## Blockers and known unknowns
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
-- `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, RSP task
-  execution, behavior after first task submission, graphics/audio output, and
-  host-runtime presentation remain unmeasured or unavailable.
+- `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, user-task RSP
+  execution beyond the first 37 committed instructions, graphics/audio output,
+  and host-runtime presentation remain unmeasured or unavailable.
 - `LIVE_REPO_FACT`: fn64 retains an optional explicit PIF-firmware input,
   structural validation, immutable Machine ownership, and reset/bootstrap
   persistence for low-level verification. It still has no firmware
@@ -746,9 +761,10 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   user-cartridge mode requires no PIF file, never substitutes public synthetic
   bytes, and performs no X105 program injection. An excluded operational
   reference admitted `HISTORICAL_BOOT2_USER_CARTRIDGE` without disclosing its
-  target. The fresh run reached 1,308,711 committed cartridge CPU instructions
-  and stopped atomically at unavailable PI domain-one latency handoff truth.
-  BOOT-2 and the user-RSP pressure ladder remain unreached.
+  target. Fresh clean-room execution now reproduces BOOT-2, commits 37 genuine
+  first-task RSP instructions, and stops atomically at unsupported scalar `Jr`.
+  No original-PIF execution, second task, DPC/RDP execution, rendering, or
+  compatibility fact is claimed.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI

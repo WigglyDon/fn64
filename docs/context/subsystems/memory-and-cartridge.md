@@ -73,7 +73,13 @@ does not generalize cartridge mapping. A separate typed
 `CleanRoomHleNtscX105Pinned` initialization fact owns the fixed 4 MiB profile
 and permits the existing uncached absent-module read result without adding
 timing, detailed low-level register provenance, or general memory policy. Later
-guest writes and DMA remain their own causes.
+guest writes and DMA remain their own causes. The normalized header
+configuration word separately yields one typed four-field PI domain-one timing
+tuple; `Cartridge` owns extraction and `Pi` owns staged current values. One
+bounded big-endian word at cartridge offset `0x40` supplies clean-room RSP r4
+with exact cartridge lineage, while pinned-profile r11 is a separate public
+fact. Neither rule copies private bytes into source, makes cartridge content
+host policy, or installs any SP memory program.
 
 Aligned CPU `Lw` now reuses that exact bootstrap span as the sole production
 knownness owner for direct SP-DMEM data reads. A complete word within

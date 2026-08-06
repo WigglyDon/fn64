@@ -124,9 +124,10 @@ The user-cartridge path adds general BLEZ/BGEZ control flow; signed word DIV;
 unsigned 64-bit DMULTU/DDIVU; aligned LB/LH/LHU/LD/SH/SD; and CFC1/CTC1 for
 the represented FCR31 control word. Existing multiply and scalar identities
 retain architectural HI/LO, sign-extension, alias, and zero-register behavior.
-Clean-room cartridge-entry staging owns an independently sourced zero FCR31
-under `CleanRoomHleNtscX105Pinned` provenance; reset still makes FCR31
-unavailable, and CTC1 retains its own instruction-derived provenance.
+Clean-room cartridge-entry staging owns independently sourced zero FCR31 and
+zero COP0 PageMask under `CleanRoomHleNtscX105Pinned` provenance; reset still
+makes FCR31 unavailable, and CTC1 retains its own instruction-derived
+provenance.
 `LBU` and `SB` retain their direct SP-IMEM route and also use CPU-owned KSEG0
 D-cache byte semantics over Machine-owned RDRAM; KSEG1 remains uncached.
 Aligned opaque-word `Lw`
@@ -202,17 +203,14 @@ include full ISA integration, real timing, unearned likely/REGIMM and broader
 COP0/CACHE identities, NMI, generic MMIO, unrelated load/store families, and
 performance.
 
-One separately authorized local user-cartridge composition starts from the
-same public deterministic cold-x105 path and executes only through
-`Machine::step`. It commits the cartridge entry word once, then advances
-13,988,271 user-cartridge instructions through the represented scalar,
-COP0/TLB-register, FCR31, cache, interrupt, PI, SI, VI, AI, and SP CPU-side
-surface. Two atomic RDRAM-to-SP DMAs populate 64 DMEM bytes and 1,000 IMEM
-bytes. The first genuine SP_STATUS start request commits command
-`0x00000125`, clears halt, and leaves PC/next-PC
-`0x800CF97C / 0x800CF980` before any RSP instruction. This earns one
-user-cartridge CPU-side milestone, not BOOT-3, general cartridge compatibility,
-RSP execution, graphics, audio, or host presentation.
+One separately authorized local user-cartridge composition now starts from the
+firmware-free clean-room cartridge-entry handoff and executes only through
+`Machine::step`. It commits the cartridge entry word, advances through the
+represented scalar, COP0/TLB-register, FCR31, cache, interrupt, PI, SI, VI, AI,
+and SP CPU-side surface, prepares bounded task DMEM/IMEM through atomic SP DMA,
+and issues the genuine guest SP_STATUS task-start write. That reproduces
+BOOT-2; it does not claim original-PIF execution, BOOT-3, general cartridge
+compatibility, rendering, audio, or host presentation.
 
 The sole public `Machine::step` now selects either one CPU or one RSP
 instruction through a private per-Machine token. RSP-selected calls bypass CPU

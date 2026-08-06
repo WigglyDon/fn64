@@ -998,6 +998,27 @@ product or reference lane requires a new explicit product decision.
   user-task RSP instruction, user-task Break, DPC/RDP execution, rendering, and
   compatibility remain unearned.
 
+## Era 51 — Cartridge handoff closure and first user-task RSP ladder (2026-08-05)
+
+- Handoff ownership: normalized cartridge header configuration now supplies the
+  complete PI domain-one LAT/PWD/PGS/RLS tuple to the existing `Pi` owner.
+  Clean-room staging also supplies public zero PageMask, pinned-profile RSP r11,
+  and cartridge word offset `0x40` in RSP r4. Every fact is preflighted and
+  committed in the existing atomic HLE transition; no boot instruction or PI
+  timing model is introduced.
+- RSP ownership: live pressure plus generated public proof added exact `J`,
+  `Ori`, `Sll`, `Bgezal`, `Mtc0 SP_STATUS`, `Mfc0 SP_DMA_FULL`,
+  `Mtc0 SP_SEMAPHORE`, element-zero `Vxor`, aligned scalar-DMEM `Sw`,
+  `Mfc0 SP_STATUS`, and `Andi`. Each identity retains singular scalar/vector,
+  delay, DMEM, or existing `Sp` control ownership; no generic ALU, COP2, MMIO,
+  DMA, Mi, Dpc, or host-task policy was added.
+- Runtime result: fresh firmware-free execution through only `Machine::step`
+  reproduces BOOT-2 and commits 37 instructions of the first genuine user RSP
+  task. The twelve-cycle cap ends on scalar `Jr`, which rejects atomically.
+- Boundary: the first task has not reached Break. JR, later task execution,
+  DPC/RDP work, rendering, audio, BOOT-3, original-PIF execution, and game
+  compatibility remain unearned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

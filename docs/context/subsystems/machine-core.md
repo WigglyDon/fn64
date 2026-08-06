@@ -25,11 +25,11 @@ machine-owned staging/inspection. It now also owns the narrow normalized
 cartridge-bootstrap state, SP-DMEM provenance, and bootstrap GPR-knownness
 ledger. A separate `Machine::stage_clean_room_cartridge_entry` generation point
 now owns the default post-boot HLE transition: one pinned public profile, one
-bounded cartridge-derived RDRAM payload, typed CPU/cache/FCR31 state, an
-initialized fixed-profile RDRAM fact, unavailable boot-local SP memory, existing
-device construction facts, CPU eligibility, and explicit HLE provenance. PI
-domain-one latency handoff truth remains unavailable. `SpImem` owns backing
-bytes, per-byte knowledge and provenance,
+bounded cartridge-derived RDRAM payload, typed CPU/cache/FCR31/PageMask state,
+an initialized fixed-profile RDRAM fact, the cartridge-header-derived PI
+domain-one timing tuple, public post-boot RSP r4/r11 facts, unavailable
+boot-local SP memory, CPU eligibility, and explicit HLE provenance. `SpImem`
+owns backing bytes, per-byte knowledge and provenance,
 and coherent opaque aligned-word records. Concrete reset zero and private opaque
 sentinel zero are not architecturally known values.
 Long-term ownership stays with the smallest
@@ -56,9 +56,11 @@ instruction execution. It preflights every source and destination, builds
 replacement CPU/RDRAM state before mutation, installs no PIF/X105 bytes, and
 changes no committed instruction count. The next public `Machine::step` owns
 the first cartridge instruction through ordinary fetch/decode/execute cadence.
-The pinned profile separately owns zero FCR31 and fixed 4 MiB RDRAM
-initialization under clean-room provenance; the latter reuses the existing
-uncached absent-module read law and adds no timing or general memory policy.
+The pinned profile separately owns zero FCR31, zero PageMask, fixed 4 MiB RDRAM
+initialization, and RSP r11 under clean-room provenance. Cartridge-owned header
+configuration supplies the four Pi domain-one fields, while cartridge word
+offset `0x40` supplies RSP r4. The RDRAM fact reuses the existing uncached
+absent-module read law; the Pi tuple adds no timing or general device policy.
 
 Control-flow snapshots, staged sequential cadence, Count advancement, rollback,
 and exception entry remain distinct owners. Ordinary control flow adds one
@@ -179,9 +181,12 @@ and memory state. PAL/MPAL or incomplete requests reject before mutation.
 ## Proof, integration, and limits
 
 Accepted proof classes are core unit tests, focused `machine_step` tests, the
-construction/reset probe, the 209-case step probe, the bounded BOOT-2
-probe, and exact-source anchors. BOOT-2 proves one authentic cartridge-derived
-`SpecialAdd` commit only. The integrated partial increment proves private
+construction/reset probe, the 209-case step probe, the bounded user-cartridge
+probe, and exact-source anchors. BOOT-2 now names the first genuine guest RSP
+task submission. Fresh clean-room execution reproduces that boundary and
+advances the first task through 37 RSP commits to atomic scalar-JR rejection;
+it does not prove original-PIF execution or compatibility. The integrated
+partial increment proves private
 Machine-owned SP IMEM representation and complete aligned `Lw` for direct
 RDRAM, known SP IMEM, and cartridge-bootstrap-staged SP DMEM. Explicit profile
 materialization now gives generated or user-supplied firmware bytes a
@@ -252,14 +257,13 @@ highest cartridge checkpoint.
 
 One explicit local user-cartridge proof transfers normalized bytes to the
 existing immutable `Cartridge` owner and leaves path handling in the
-inspection shell. Public Machine stepping commits 13,988,271 cartridge
-instructions, including bounded CPU/COP0/cache and device programming. `Pi`
-retains atomic ranged cartridge-to-RDRAM DMA ownership; `Sp` adds reached
-MEM_ADDR/DRAM_ADDR, status/PC, and atomic RDRAM-to-SP DMA records while the
-existing Rdram/SpDmem/SpImem owners retain every byte. Two completed transfers
-populate 64 DMEM bytes and 1,000 IMEM bytes. The proof stops after SP_STATUS
-`0x00000125` clears halt, before RSP execution. This is the
-`USER-CARTRIDGE-CPU-BOOT-TO-FIRST-RSP-TASK` milestone, not BOOT-3 or
+inspection shell. The current route uses one clean-room handoff and then only
+public Machine stepping. `Pi` retains atomic ranged cartridge-to-RDRAM DMA
+ownership; `Sp` retains reached MEM_ADDR/DRAM_ADDR, status/PC, and atomic
+RDRAM-to-SP DMA records while Rdram/SpDmem/SpImem retain every byte. Guest CPU
+task preparation and its SP_STATUS start write reproduce BOOT-2. The first RSP
+task then commits 37 instructions and rejects scalar JR atomically. This is not
+original-PIF execution, task completion, BOOT-3, DPC/RDP execution, or
 compatibility.
 
 Runtime integration is headless/no-window only. Rollback exists for represented
@@ -364,12 +368,9 @@ represented.
 Required validation: `./rust/verify-forward` and the narrow focused test for a
 changed seam. Next authority requires an explicit product packet. Known unknowns
 include unearned full machine scheduling, timing, broad memory/device routing,
-translated TLB memory access, RSP execution beyond exact scalar MFC0, aligned
-full-register LQV, element-zero Vsub/Vaddc, aligned Available-DMEM scalar LW,
-and raw-zero NOP, RSP MTC0 beyond the four reached SP destinations plus the
-sole exact DPC_STATUS command, nonzero-code/delay-slot Break, CPU continuation,
-generic task completion, branches
-beyond BLTZ/BGEZ/BNE, scalar J-family control flow, other scalar identities,
-other DMA shapes, DPC mode/readback/counter cadence, RDP execution, other
-vector consumers/arithmetic, host presentation, broader handoff state, and
-whether any later fact requires minimal firmware execution.
+translated TLB memory access, RSP execution beyond the exact identities in the
+detailed capability ledger, scalar JR at the current first-task frontier,
+unearned MFC0/MTC0 controls, nonzero-code/delay-slot Break, CPU continuation,
+generic task completion, other DMA shapes, DPC mode/readback/counter cadence,
+RDP execution, broader vector routing/arithmetic, host presentation, broader
+handoff state, and whether any later fact requires minimal firmware execution.

@@ -109,9 +109,11 @@ One excluded workbench reference selected
 `HISTORICAL_BOOT2_USER_CARTRIDGE` without entering product state, context, or
 output. The probe omits input shape and renders live rejection through
 value-free architecture categories. Fresh clean-room execution committed the
-entry `Lui`, advanced to 1,308,711 CPU commits, and then rejected atomically on
-an `Lw` because PI domain-one latency handoff truth remains unavailable.
-BOOT-2 and RSP task execution were not reached.
+entry `Lui`, passed the prior PI-latency pressure through Pi-owned handoff
+state, reproduced BOOT-2, and committed 37 instructions of the genuine first
+RSP task. The ending scalar `Jr` rejection is rendered by mnemonic-only public
+identity and atomicity/cadence fields. No private word, task byte, register
+snapshot, path, basename, title, or digest enters output.
 
 Integrated public-source evidence records profile-qualified IPL1 copy ranges
 without copying firmware or external source. The probe may select an explicit
@@ -184,13 +186,12 @@ memory, mailbox, or PC to force completion.
 `fn64_user_cartridge_probe` is a separate optional local no-window instrument.
 It requires one explicit cartridge path, transfers owned bytes to the public
 Cartridge/Machine boundary, enforces a positive step ceiling, and executes only
-`Machine::step`. Its bounded output contains basename, layout/length,
-first-occurrence architectural frontier classes, aggregate counts, and the
-first SP task-start state. It never emits the parent path, hashes, titles,
-IDs, strings, cartridge bytes, code excerpts, bulk disassembly, or microcode.
+`Machine::step`. Its bounded output uses only the fixed redacted input identity,
+boot-source/provenance classes, first-occurrence architecture identities,
+aggregate cadence, and bounded task-start/control state. It never emits a path,
+basename, input shape, hash, title, ID, string, cartridge byte, instruction
+word, code excerpt, register dump, task bytes, disassembly, or microcode.
 Standard CI and detached public validation never require this private input.
-The accepted local run reaches the first SP_STATUS command that clears halt
-after two represented SP DMAs, then stops before RSP execution.
 
 Public synthetic step-probe cases now prove processor-tagged scalar RSP MFC0
 from SP_SEMAPHORE, scalar RSP MFC0 from SP_DRAM_ADDR, aligned full-register

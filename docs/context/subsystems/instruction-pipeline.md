@@ -155,26 +155,29 @@ RSP fetch is a separate selected-processor pipeline inside the same public
 `Machine::step`. It captures singular `Sp::pc`, requires aligned in-range
 known `SpImem` word truth, retains four-byte provenance, and decodes only exact
 MFC0 sources, aligned element-zero full-register LQV, exact element-zero
-VSUB/VADDC, aligned Available-DMEM scalar LW, raw-zero NOP, scalar
-XORI/LUI/ADDI, BLTZ/BGEZ/BNE, and MTC0 for three
-reached SP controls before planning all source effects. LQV reads an
+VSUB/VADDC/VXOR, aligned Available-DMEM scalar LW/SW, raw-zero NOP, scalar
+XORI/ORI/ANDI/LUI/ADDI/SLL, J, BLTZ/BGEZ/BGEZAL/BNE, and the exact reached
+MFC0/MTC0 control indices before planning all source effects. LQV reads an
 available scalar base, uses its low 12
 bits plus a sign-extended seven-bit offset shifted left four, and observes one
 sixteen-byte range through `SpDmem` knowledge. All-available bytes plan an
 available vector; any unavailable byte plans one whole-register unavailable
 result with exact cause and no byte payload. Unknown, opaque, malformed, or
 unsupported words reject before application and receive no CPU fallback.
-Scalar LW reads an Available base, sign-extends its 16-bit offset, retains the
-low 12 address bits, requires four-byte alignment and four Available coherent
-DMEM observations, and constructs a big-endian u32. NOP consumes no register,
-memory, accumulator, flag, or device truth. XORI captures its old Available
-source before destination mutation. MTC0 captures the Available scalar source,
+Scalar LW/SW read an Available base, sign-extend the 16-bit offset, retain the
+low 12 address bits, and require four-byte alignment. LW requires four
+Available coherent DMEM observations and constructs a big-endian u32; SW
+captures one old Available scalar source and plans all four big-endian byte
+writes plus provenance before mutation. NOP consumes no register, memory,
+accumulator, flag, or device truth. XORI/ORI/ANDI and SLL capture old Available
+sources before destination mutation. MTC0 captures the Available scalar source,
 target control index, fetched word, and owner state; `SP_RD_LEN` additionally
 preflights the complete shared-policy DMA before mutation. LUI has no scalar
 source; ADDI captures one Available old source and performs wrapping
 sign-extended-immediate addition without overflow exception. BLTZ tests bit
-31, BGEZ tests its complement, and BNE compares complete Available u32
-operands. MTC0 SP_WR_LEN reuses the same length/count/skip decoder, captures
+31, BGEZ tests its complement, BGEZAL links r31 only on a taken branch, and BNE
+compares complete Available u32 operands. J derives its local target without a
+scalar source. MTC0 SP_WR_LEN reuses the same length/count/skip decoder, captures
 the selected SP-memory bytes through their singular knowledge owner, and
 preflights every RDRAM destination block plus record/address evolution before
 one atomic application. Unavailable, opaque, inconsistent, wrapping, or
@@ -189,7 +192,10 @@ borrow still produces whole-register and low-slice unavailable results.
 Application clears both VCO halves. Vaddc captures both old vector sources but
 does not consume old VCO; available inputs produce unsigned 17-bit low/carry
 truth, while any unavailable input produces whole-register, low-slice, and
-carry unavailability. Both preserve accumulator high/middle and VCC/VCE. A
+carry unavailability. Both preserve accumulator high/middle and VCC/VCE. VXOR
+captures both vector states, computes exact element-zero lane pairs when
+available, propagates non-alias unavailability, resolves self-XOR to known zero,
+and preserves accumulator and all flags. A
 branch commit advances
 to its slot, stages target/fallthrough plus immutable cause in Sp::rsp, commits
 once, and selects CPU. The slot is a separate later RSP instruction; its
@@ -205,9 +211,10 @@ Known unknowns include future public-step integration categories, unearned
 branch-likely/REGIMM members, COP0/CACHE operations beyond the detailed ledger,
 translated TLB access, NMI, generic MMIO, broad CPU or RSP fetch mapping,
 partial/misaligned/nonzero-element LQV, unavailable/misaligned/other scalar
-loads, scalar stores, nonzero SLL, branches beyond BLTZ/BGEZ/BNE, scalar
-J-family control flow, MTC0 beyond the four reached SP controls and the sole
-exact DPC_STATUS command, MFC0 beyond the three reached sources,
+loads/stores, other fixed or variable shifts, branches beyond
+BLTZ/BGEZ/BGEZAL/BNE, scalar JR and other unearned J-family control flow, MTC0
+beyond the six reached SP controls and the sole exact DPC_STATUS command, MFC0
+beyond the five reached sources,
 nonzero-code or delay-slot Break, CPU continuation after Break, generic task
 completion, DPC mode/readback/counter cadence, other DMA shapes,
 other vector consumers/arithmetic or nonzero elements,

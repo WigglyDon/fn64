@@ -28,31 +28,31 @@ history.
   user-cartridge RSP task submission; it is not x105 IPL3 CPU entry, bootstrap
   handoff, game boot, compatibility, timing accuracy, or host-runtime support.
   A fresh `HISTORICAL_BOOT2_USER_CARTRIDGE` clean-room run now commits
-  1,308,711 cartridge CPU instructions and stops before BOOT-2 at unavailable
-  PI domain-one latency handoff truth. That route makes no authentic-PIF
-  execution claim.
+  through BOOT-2 and 37 instructions of the first genuine RSP task, then stops
+  atomically at unsupported scalar `Jr`. That route makes no authentic-PIF
+  execution, task completion, DPC/RDP execution, or compatibility claim.
 
 ## Represented owners
 
 | Owner | Represented truth | Explicit boundary |
 | --- | --- | --- |
-| `Cartridge` | normalized owned bytes, source layout, parsed header metadata, entry/IPL3-span inspection, range-checked byte reads; explicit local user-cartridge bytes remain immutable Machine input | no filesystem path, title/ID/region/digest policy, cartridge writes, or compatibility claim |
+| `Cartridge` | normalized owned bytes, source layout, parsed header metadata including the typed four-field PI domain-one timing tuple, entry/IPL3-span inspection, range-checked byte reads; explicit local user-cartridge bytes remain immutable Machine input | no filesystem path, title/ID/region/digest policy, cartridge writes, or compatibility claim |
 | `PifFirmware` | absent material, private immutable owned bytes for one structurally accepted explicit raw-Boot-ROM-shaped input, or deliberately selected public-synthetic bytes; accepted bytes source explicit profiled copy materialization | no path, implicit absent-to-synthetic fallback, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches and zero FCR31 under distinct HLE provenance | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches, zero FCR31, and zero PageMask under distinct HLE provenance | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance; one atomic MiB cartridge-derived clean-room entry payload plus a typed initialized-profile HLE fact that reuses existing uncached absent-module reads | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general cartridge mapping, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB private backing with explicit per-byte Available/Unavailable knowledge, checked truth-bearing observations, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, unavailable backing exposure as value truth, RSP fetch, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
-| `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP and selected-SP-memory-to-RDRAM DMA records with CPU or exact RSP-MTC0 trigger provenance, general run-start lineage, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, eight sliced accumulator lanes, independent VCO halves and VCC/VCE truth, exact aligned element-zero full-register LQV, exact element-zero VSUB/VADDC, exact aligned Available-DMEM scalar LW, exact raw-zero NOP, scalar XORI/LUI/ADDI, scalar BLTZ/BGEZ/BNE with independent delay context, MFC0 for SP_SEMAPHORE/SP_DRAM_ADDR/SP_DMA_BUSY, exact MTC0 dispatch for SP_MEM_ADDR/SP_DRAM_ADDR/SP_RD_LEN/SP_WR_LEN and the sole exact DPC_STATUS command, exact zero-code Break with Sp halt/broke and conditional Mi SP-pending effects, and separate committed count | no DMA timing/queue, partial/misaligned/nonzero-element vector operations, unavailable/misaligned/other scalar loads, scalar stores, nonzero SLL, other branches or J-family control flow, other RSP MFC0/MTC0 destinations or DPC_STATUS commands, broader vector arithmetic, nonzero-code/delay-slot Break, generic task completion, or CPU continuation after Break |
+| `Sp` | general reached SP_STATUS commands/readback, singular SP_PC low field, semaphore, MEM_ADDR, DRAM_ADDR, atomic RDRAM-to-SP and selected-SP-memory-to-RDRAM DMA records with CPU or exact RSP-MTC0 trigger provenance, general run-start lineage, clean-room post-boot r4/r11 scalar truth, and one private nested RSP execution state with scalar availability, 32 available/unavailable vector slots, eight sliced accumulator lanes, independent VCO halves and VCC/VCE truth, exact aligned element-zero full-register LQV, exact element-zero VSUB/VADDC/VXOR, exact aligned Available-DMEM scalar LW/SW, exact raw-zero NOP, scalar XORI/ORI/ANDI/LUI/ADDI/SLL, scalar J/BLTZ/BGEZ/BGEZAL/BNE with independent delay context, MFC0 for SP_STATUS/SP_SEMAPHORE/SP_DRAM_ADDR/SP_DMA_FULL/SP_DMA_BUSY, exact MTC0 dispatch for SP_MEM_ADDR/SP_DRAM_ADDR/SP_RD_LEN/SP_WR_LEN/SP_STATUS/SP_SEMAPHORE and the sole exact DPC_STATUS command, exact zero-code Break with Sp halt/broke and conditional Mi SP-pending effects, and separate committed count | no DMA timing/queue, partial/misaligned/nonzero-element vector operations, unavailable/misaligned/other scalar memory operations, other shifts/logic, JR or broader J-family control flow, other RSP MFC0/MTC0 destinations or DPC_STATUS commands, broader vector arithmetic, nonzero-code/delay-slot Break, generic task completion, or CPU continuation after Break |
 | `Dpc` | one private per-Machine owner with independent Available-or-Unavailable 24-bit clock, command-busy, pipe-busy, and TMEM-load counters; undefined construction/reset/bootstrap values remain unavailable; exact RSP DPC_STATUS command `0x240` clears only TMEM-load and clock counters with immutable provenance | no status readback or mode bits, counter reads/cadence, command buffer, Rdp owner, rasterization, timing, clock, generic device registry, bus, or MMIO |
 | `Ri` | optional RI_MODE, RI_SELECT, RI_CONFIG, RI_CURRENT_LOAD, and exact RI_REFRESH raw/provenance state with source-clear derived fields | no RI_MODE/RI_CONFIG/RI_CURRENT_LOAD read, general RI_SELECT fields, refresh timing/electrical effect, NMI lifecycle, register bank, MMIO framework, or bus |
 | `Mi` | immutable MI_VERSION `0x02020102`, initialization and RDRAM-register mode, one bounded transfer, and general reached SP/SI/AI/VI/PI/DP pending/mask command truth with CPU provenance | no unrelated MI bank, device timing, generic interrupt-controller framework, MMIO framework, or bus |
-| `Pi` | programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, source-defined domain timing registers, and fully preflighted atomic cart-to-RDRAM DMA records for reached lengths | no clean-room post-boot domain-timing handoff values, PI_RD_LEN, cartridge writes, timing/progress, FIFO, controller reset, generic PI bank, or byte ownership |
+| `Pi` | programmed DRAM/cart/WR_LEN facts, idle status, CPU provenance, source-defined domain timing registers, clean-room cartridge-header-derived domain-one LAT/PWD/PGS/RLS values with typed HLE provenance, and fully preflighted atomic cart-to-RDRAM DMA records for reached lengths | no PI timing simulation, PI_RD_LEN, cartridge writes, progress, FIFO, controller reset, generic PI bank, or byte ownership |
 | `Ai` | reached control, DAC-rate, and bitrate raw request words plus CPU provenance | no audio DMA, samples, clock, mixer, or host audio |
 | `Si` | 64-byte PIF RAM, cold-idle status, CPU provenance, and a fixed hostless no-controller profile | no SI DMA, controller protocol/UI, or private PIF execution |
 | `Vi` | reached raw register words/provenance plus deterministic half-line/current state and MI-owned interrupt assertion/clear relationship | no rendering, framebuffer presentation, scan timing accuracy, or host display |
 | `Machine` | Cartridge, optional accepted or public synthetic PifFirmware/PifIpl2Profile, handoff selectors, Cpu, Rdram, SpDmem, SpImem, Sp, Dpc, Ri, Mi, Pi, Ai, Si, Vi, low-level bootstrap lineage, one atomic `CleanRoomHle` cartridge-entry generation point, powered/reset state, represented fetch/data/device composition, one private CPU/RSP turn, and processor-tagged public step composition | no hidden global machine, platform clock, file path, renderer, audio/output, host input, event loop, hidden boot interpreter, public RSP-only step, or cycle-accuracy claim |
-| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic RSP MFC0/LQV/LW/NOP/MTC0/XORI/LUI/ADDI/BLTZ/BGEZ/BNE/VSUB/VADDC/Break, guest-semaphore, two-read-DMA, idle-busy-read, 256-iteration vector sum, exact SP write DMA, exact DPC counter clear, real CPU interleave, halted-RSP preservation, and read-only CPU-frontier proof, plus one optional redacted user-cartridge probe whose default boot source is clean-room HLE and whose optional `--pif-rom` route remains separate | no emulated truth, public-synthetic fallback in user-cartridge mode, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
+| `fn64-inspection` | construction/reset, represented-step, bounded bootstrap probes, public synthetic proofs for every represented CPU/RSP cluster, guest-semaphore, atomic DMA, vector-sum, exact DPC counter clear, real CPU interleave, halted-RSP preservation, and read-only frontier proof, plus one optional redacted user-cartridge probe whose default boot source is clean-room HLE and whose optional `--pif-rom` route remains separate | no emulated truth, public-synthetic fallback in user-cartridge mode, title/digest policy, guest mutation, private-byte authority, graphics, or compatibility authority |
 
 ## RSP execution foundation
 
@@ -84,13 +84,14 @@ accepted higher-level user-task submission fact.
 
 Selected RSP fetch requires an aligned local PC and one known big-endian
 `SpImem` word. Unknown, opaque, inconsistent, unavailable, or out-of-range
-truth rejects before decode. One represented scalar transfer identity is exact
-RSP MFC0 for SP_SEMAPHORE, SP_DRAM_ADDR, and SP_DMA_BUSY. SP_SEMAPHORE returns
-the old bit and atomically sets it; SP_DRAM_ADDR returns the singular masked
-Sp-owned register without a source side effect. Under the atomic DMA model,
-SP_DMA_BUSY derives idle zero at every later instruction boundary because no
-transfer remains pending. Destination r0 discards only the scalar write.
-SP_DMA_FULL and other MFC0 control indices remain closed.
+truth rejects before decode. Exact RSP MFC0 is represented for SP_STATUS,
+SP_SEMAPHORE, SP_DRAM_ADDR, SP_DMA_FULL, and SP_DMA_BUSY. SP_STATUS reads the
+existing singular status word; SP_SEMAPHORE returns the old bit and atomically
+sets it; SP_DRAM_ADDR returns the singular masked Sp-owned register without a
+source side effect. Under the atomic DMA model, SP_DMA_FULL and SP_DMA_BUSY
+derive idle zero at every later instruction boundary because no transfer
+remains pending. Destination r0 discards only the scalar write. Other MFC0
+control indices remain closed.
 
 `SpDmem` is the singular DMEM backing/knowledge/provenance owner. Its
 truth-bearing observation is either `Available { value, source }` or
@@ -111,25 +112,29 @@ nonzero-element, other vector-memory, and vector consumers remain closed. The
 functional result becomes visible at instruction commit; hardware
 load-delay/stall cycles are not represented.
 
-Exact scalar RSP LW is represented only for a four-byte-aligned local DMEM
-address, an Available base, and four coherent Available `SpDmem` entries. It
-adds a sign-extended 16-bit offset to the old scalar base, retains the low 12
-bits, constructs a big-endian u32, and completely replaces Available or
-Unavailable destination truth without reading the old destination.
-Destination r0 performs the full valid read and discards only the write.
-Unavailable DMEM rejects; no unavailable scalar result exists. Exact raw word
-zero is one semantic NOP that consumes and writes no register, memory, device,
-accumulator, or flag truth. Nonzero SLL, other scalar loads, and stores remain
-closed. Scalar-load functional truth is visible at instruction commit;
-hardware delay/stall cycles are not represented.
+Exact scalar RSP LW and SW are represented only for four-byte-aligned local
+DMEM addresses and Available scalar inputs. Both add a sign-extended 16-bit
+offset to the old scalar base and retain the low 12 bits. LW requires four
+coherent Available `SpDmem` entries, constructs a big-endian u32, and completely
+replaces destination truth without reading the old destination; r0 discards
+only the write. SW captures the old source before mutation and atomically
+writes four big-endian bytes with exact scalar-store provenance. Unavailable
+source/base/DMEM truth rejects before mutation. Other scalar memory identities
+and unaligned forms remain closed. Exact raw word zero is one semantic NOP that
+consumes and writes no register, memory, device, accumulator, or flag truth.
+Functional truth is visible at instruction commit; hardware delay/stall cycles
+are not represented.
 
-Exact scalar RSP XORI reads one Available old scalar source, XORs it with a
-zero-extended 16-bit immediate, and writes a 32-bit result after read-before-
-write capture; destination r0 discards only the write. Exact RSP MTC0 accepts
-only source-defined encodings for control indices zero, one, and two:
-SP_MEM_ADDR, SP_DRAM_ADDR, and SP_RD_LEN. It consumes one Available old scalar
-source and routes the result into the existing singular `Sp` owners. Other
-control destinations and unavailable sources reject before mutation.
+Exact scalar RSP XORI, ORI, and ANDI read one Available old scalar source and
+combine it with a zero-extended 16-bit immediate after read-before-write
+capture; destination r0 discards only the write. Exact fixed SLL reads one old
+scalar source, shifts the low 32-bit word left by its five-bit immediate,
+discards high bits, and fills low bits with zero. Exact RSP MTC0 accepts only
+source-defined encodings for SP_MEM_ADDR, SP_DRAM_ADDR, SP_RD_LEN, SP_WR_LEN,
+SP_STATUS, SP_SEMAPHORE, and the sole represented DPC_STATUS command. SP_STATUS
+and SP_SEMAPHORE route through the existing singular `Sp` control owners; no
+new Mi behavior, timing, or generic control bank is introduced. Other control
+destinations and unavailable sources reject before mutation.
 
 Exact scalar RSP LUI consumes no source and writes
 `zero_extend(immediate) << 16`. Exact ADDI requires one Available old source,
@@ -139,16 +144,25 @@ r0 discards only the write. Their immutable sources record exact local PC,
 SpImem fetch provenance, and genuine scalar inputs without duplicating the
 register-owned result.
 
-Exact RSP BLTZ requires an Available source and tests bit 31. Exact RSP BNE
-requires two Available sources and compares all 32 bits. Targets add the
-signed offset shifted left two to the delay-slot address and retain low twelve
-aligned PC bits. Every taken or not-taken branch commits once, moves current PC
+Exact RSP BLTZ and BGEZ test bit 31; BGEZAL uses the same signed-nonnegative
+condition and writes r31 with the post-slot link only when taken. Exact RSP BNE
+requires two Available sources and compares all 32 bits. Targets add the signed
+offset shifted left two to the delay-slot address and retain low twelve aligned
+PC bits. Exact RSP J derives one local target from its instruction and consumes
+no scalar source. Every represented branch/jump commits once, moves current PC
 to its slot, stages target/fallthrough plus exact cause in the independent
 Sp::rsp delay owner, and selects CPU. The slot is a separate RSP-selected
 commit after one CPU-selected instruction; CPU execution cannot consume the
 RSP context. Slot success follows the staged successor and clears the context
-once. Slot rejection preserves the committed branch. Control flow in an active
-RSP slot remains closed.
+once. Slot rejection preserves the committed control instruction. Control flow
+in an active RSP slot and scalar JR remain closed.
+
+Exact element-zero VXOR captures both old vector sources before destination
+mutation. Available non-alias sources produce their lane-wise bitwise XOR;
+unavailable non-alias input produces cause-known unavailable output; identical
+source registers cancel to Available zero without exposing unavailable bits.
+Accumulator, VCO, VCC, and VCE are preserved. Other element routes and broader
+vector logic remain closed.
 
 SP_RD_LEN reuses the same private owner-local length decoder, address masks,
 range preflight, transfer record, byte application, and register evolution as
@@ -273,12 +287,16 @@ Successful staging records `CleanRoomHle` boot provenance and one
 byte count, and cause remain inspectable. `Rdram` owns every destination byte.
 `Cpu` owns the entry `pc` / sequential `next_pc`, cleared delay context,
 architectural zero, the exact profile-required GPR/HI/LO/COP0 state, zero
-FCR31 with `CleanRoomHleNtscX105Pinned` provenance, and HLE-invalid I/D cache
-lines. `Rdram` separately records `CleanRoomHleNtscX105Pinned` initialization
-for the fixed 4 MiB profile, allowing its existing uncached absent-module read
-result without inventing timing or detailed low-level register provenance.
-Count and Compare remain zero because no skipped instruction executed. SP DMEM
-and IMEM return to unavailable boot-local truth;
+FCR31, zero PageMask with `CleanRoomHleNtscX105Pinned` provenance, and
+HLE-invalid I/D cache lines. `Rdram` separately records
+`CleanRoomHleNtscX105Pinned` initialization for the fixed 4 MiB profile,
+allowing its existing uncached absent-module read result without inventing
+timing or detailed low-level register provenance. `Pi` owns the four decoded
+domain-one timing fields from the normalized cartridge header configuration
+word with cartridge-header-plus-HLE provenance. `Sp::rsp` owns exactly two
+post-boot scalar facts: cartridge-derived word offset `0x40` in r4 and
+pinned-profile zero in r11. Count and Compare remain zero because no skipped
+instruction executed. SP DMEM and IMEM return to unavailable boot-local truth;
 no public X105 program, proprietary boot bytes, or hidden instruction sequence
 is installed. Represented devices return to their existing construction facts,
 and processor eligibility is CPU.
@@ -1130,12 +1148,22 @@ Public-synthetic firmware is never reachable from this user-cartridge route.
 
 One excluded workbench reference selected `HISTORICAL_BOOT2_USER_CARTRIDGE`
 without entering product state or output. Fresh HLE execution committed the
-entry `Lui` and reached 1,308,711 CPU commits. Value-free pressure output names
-only attempt/commit cadence, decoded identity, public owner region, direct
-segment/capacity relation, source-lineage class, and exact public COP1/PI
-rejection category. The ending `Lw` rejects atomically because PI domain-one
-latency handoff state is unavailable. BOOT-2 and RSP task execution were not
-reached.
+entry `Lui`, passed the prior PI-latency read through cartridge-header-derived
+Pi state, and reproduced BOOT-2. The genuine guest task committed 37 RSP
+instructions through exact `J`, `Ori`, `Sll`, `Bgezal`, `Mtc0 SP_STATUS`,
+`Mfc0 SP_DMA_FULL`, `Mtc0 SP_SEMAPHORE`, element-zero `Vxor`, aligned scalar
+`Sw`, `Mfc0 SP_STATUS`, and `Andi` pressure clusters. Value-free pressure output
+names only attempt/commit cadence, decoded architecture identity, public owner
+class, and rejection category. The ending scalar `Jr` rejects atomically after
+13,507,158 committed Machine steps. The first task has not reached Break, and
+no second task, DPC/RDP execution, rendering, or compatibility claim is earned.
+
+Generated public tests cover the PI four-field extraction/readback tuple,
+PageMask and RSP r4/r11 HLE facts, every added scalar/vector/control identity,
+read-before-write and r0 behavior, delay-slot cadence, accumulator/flag
+preservation, DMEM byte provenance, selected-step atomic rejection, and
+independent Machines. No selected cartridge value or task byte is a test
+fixture.
 
 ## Required gate
 
