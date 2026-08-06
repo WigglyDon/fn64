@@ -1309,10 +1309,12 @@ impl Sp {
             MachineRspControlRegister::SpDmaFull => {
                 MachineRspMfc0ControlSource::SpDmaFull { full: false }
             }
+            MachineRspControlRegister::SpStatus => MachineRspMfc0ControlSource::SpStatus {
+                status: self.status,
+            },
             MachineRspControlRegister::SpMemoryAddress
             | MachineRspControlRegister::SpReadLength
             | MachineRspControlRegister::SpWriteLength
-            | MachineRspControlRegister::SpStatus
             | MachineRspControlRegister::DpcStatus => {
                 unreachable!("Mfc0 decoder does not admit write-only packet destinations")
             }

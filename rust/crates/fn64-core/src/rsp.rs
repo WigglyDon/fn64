@@ -90,6 +90,9 @@ pub enum MachineRspMfc0ControlSource {
     SpDmaFull {
         full: bool,
     },
+    SpStatus {
+        status: Option<MachineSpStatusState>,
+    },
     SpSemaphore {
         old_set: bool,
         source: MachineSpSemaphoreSource,
@@ -102,6 +105,7 @@ impl MachineRspMfc0ControlSource {
             Self::SpDramAddress { .. } => MachineRspControlRegister::SpDramAddress,
             Self::SpDmaBusy { .. } => MachineRspControlRegister::SpDmaBusy,
             Self::SpDmaFull { .. } => MachineRspControlRegister::SpDmaFull,
+            Self::SpStatus { .. } => MachineRspControlRegister::SpStatus,
             Self::SpSemaphore { .. } => MachineRspControlRegister::SpSemaphore,
         }
     }
@@ -111,6 +115,10 @@ impl MachineRspMfc0ControlSource {
             Self::SpDramAddress { value, .. } => value,
             Self::SpDmaBusy { busy } => busy as u32,
             Self::SpDmaFull { full } => full as u32,
+            Self::SpStatus { status } => match status {
+                Some(status) => status.read_word(),
+                None => 1,
+            },
             Self::SpSemaphore { old_set, .. } => old_set as u32,
         }
     }
@@ -3118,6 +3126,7 @@ impl MachineRspExecutionState {
             let register_index = ((raw_word >> 11) & 0x1f) as u8;
             let control_register = match register_index {
                 RSP_COP0_SP_DRAM_ADDRESS_INDEX => MachineRspControlRegister::SpDramAddress,
+                RSP_COP0_SP_STATUS_INDEX => MachineRspControlRegister::SpStatus,
                 RSP_COP0_SP_DMA_FULL_INDEX => MachineRspControlRegister::SpDmaFull,
                 RSP_COP0_SP_DMA_BUSY_INDEX => MachineRspControlRegister::SpDmaBusy,
                 RSP_COP0_SP_SEMAPHORE_INDEX => MachineRspControlRegister::SpSemaphore,
@@ -5311,6 +5320,13 @@ mod tests {
             })
         );
         assert_eq!(
+            rsp.decode(mfc0_word(10, RSP_COP0_SP_STATUS_INDEX)),
+            Ok(MachineRspDecodedInstruction::Mfc0 {
+                destination_gpr: 10,
+                control_register: MachineRspControlRegister::SpStatus,
+            })
+        );
+        assert_eq!(
             rsp.decode(0xc80c_2000),
             Ok(MachineRspDecodedInstruction::Lqv {
                 base_gpr: 0,
@@ -6484,6 +6500,37 @@ mod tests {
                 element: 0,
             })
         );
+    }
+
+    #[test]
+    fn rsp_mfc0_sp_status_uses_the_exact_existing_readback_word() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x05c);
+        let decoded = rsp.decode(mfc0_word(3, RSP_COP0_SP_STATUS_INDEX)).unwrap();
+        let plan = rsp.plan_mfc0(
+            0x05c,
+            decoded,
+            MachineRspMfc0ControlSource::SpStatus { status: None },
+            TEST_INSTRUCTION_PROVENANCE,
+        );
+        assert_eq!(
+            rsp.apply_mfc0(plan),
+            MachineRspStepOutcome::ScalarMfc0Committed {
+                instruction_pc: 0x05c,
+                destination_gpr: 3,
+                control_register: MachineRspControlRegister::SpStatus,
+                result_value: 1,
+            }
+        );
+        assert!(matches!(
+            rsp.scalar_register(3).unwrap().source(),
+            Some(MachineRspScalarRegisterSource::Mfc0(source))
+                if source.control_source()
+                    == MachineRspMfc0ControlSource::SpStatus { status: None }
+        ));
+        assert_eq!(rsp.next_pc(), Some(0x064));
+        assert_eq!(rsp.delay_slot_context(), None);
+        assert_eq!(rsp.committed_instruction_count(), 1);
     }
 
     #[test]

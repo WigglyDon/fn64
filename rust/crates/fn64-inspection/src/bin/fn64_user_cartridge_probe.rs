@@ -963,8 +963,27 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         }
         MachineRspStepRejectionReason::Fetch(_) => "fetch-rejected".to_owned(),
         MachineRspStepRejectionReason::MalformedMfc0Encoding => "mfc0-malformed".to_owned(),
-        MachineRspStepRejectionReason::UnsupportedCop0Register { .. } => {
-            "mfc0-control-source-unsupported".to_owned()
+        MachineRspStepRejectionReason::UnsupportedCop0Register { register_index } => {
+            let control = match register_index {
+                0 => "sp-mem-addr",
+                1 => "sp-dram-addr",
+                2 => "sp-rd-len",
+                3 => "sp-wr-len",
+                4 => "sp-status",
+                5 => "sp-dma-full",
+                6 => "sp-dma-busy",
+                7 => "sp-semaphore",
+                8 => "dpc-start",
+                9 => "dpc-end",
+                10 => "dpc-current",
+                11 => "dpc-status",
+                12 => "dpc-clock",
+                13 => "dpc-bufbusy",
+                14 => "dpc-pipebusy",
+                15 => "dpc-tmem",
+                _ => "cop0-reserved",
+            };
+            format!("mfc0-{control}-unsupported")
         }
         MachineRspStepRejectionReason::MalformedMtc0Encoding => "mtc0-malformed".to_owned(),
         MachineRspStepRejectionReason::Mtc0SourceUnavailable { .. } => {
@@ -1212,6 +1231,22 @@ mod tests {
                 MachineRspStepRejectionReason::ScalarSwSourceUnavailable { source_gpr: 4 }
             ),
             "sw-source-r04-unavailable"
+        );
+    }
+
+    #[test]
+    fn rsp_mfc0_rejection_names_only_the_architectural_control_source() {
+        assert_eq!(
+            redacted_rsp_rejection_category(
+                MachineRspStepRejectionReason::UnsupportedCop0Register { register_index: 4 }
+            ),
+            "mfc0-sp-status-unsupported"
+        );
+        assert_eq!(
+            redacted_rsp_rejection_category(
+                MachineRspStepRejectionReason::UnsupportedCop0Register { register_index: 10 }
+            ),
+            "mfc0-dpc-current-unsupported"
         );
     }
 

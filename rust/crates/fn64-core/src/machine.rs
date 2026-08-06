@@ -25420,6 +25420,103 @@ mod tests {
     }
 
     #[test]
+    fn rsp_mfc0_sp_status_reads_existing_status_without_other_owner_effects() {
+        let status_word = rsp_mfc0_word(3, crate::rsp::RSP_COP0_SP_STATUS_INDEX);
+        let mut first = staged_rsp_running_machine(&[(0, status_word)], true);
+        let second = staged_rsp_running_machine(&[(0, status_word)], true);
+        let updated_status = MachineSpStatusState::from_command(
+            (1 << 8) | (1 << 10),
+            rsp_test_cpu_store_source(0x8000_1020, 4, SP_STATUS_PHYSICAL_ADDRESS),
+            first.sp.status_state(),
+        )
+        .expect("generated public SP status command is defined");
+        assert_eq!(
+            first.sp.apply_status_store(updated_status),
+            crate::sp::MachineSpStatusTransition::Unchanged
+        );
+        let status_before = first.sp_status_state();
+        let expected_word = status_before.unwrap().read_word();
+        let cpu_before = (
+            first.cpu().pc(),
+            first.cpu().next_pc(),
+            first.cpu().cop0_count(),
+            first.cpu_delay_slot_context(),
+            first.vi_current_state(),
+        );
+        let mi_before = first.mi_interrupt_state();
+        let dma_before = first.sp_dma_record_count();
+        let vector_before = first.rsp_vector_unit_state().clone();
+        let accumulator_before = first.rsp_accumulator_and_flags_state();
+        let dpc_before = (
+            first.dpc_clock_counter_state().clone(),
+            first.dpc_command_busy_counter_state().clone(),
+            first.dpc_pipe_busy_counter_state().clone(),
+            first.dpc_tmem_load_counter_state().clone(),
+        );
+
+        assert_eq!(
+            first.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarMfc0Committed {
+                    instruction_pc: 0,
+                    destination_gpr: 3,
+                    control_register: MachineRspControlRegister::SpStatus,
+                    result_value: expected_word,
+                },
+            }
+        );
+        let result_source = match first.rsp_scalar_register(3).unwrap().source() {
+            Some(crate::rsp::MachineRspScalarRegisterSource::Mfc0(source)) => source,
+            other => panic!("SP_STATUS result lacks exact Mfc0 source: {other:?}"),
+        };
+        assert_eq!(
+            result_source.control_source(),
+            crate::rsp::MachineRspMfc0ControlSource::SpStatus {
+                status: status_before,
+            }
+        );
+        assert_eq!(first.sp_status_state(), status_before);
+        assert_eq!(first.mi_interrupt_state(), mi_before);
+        assert_eq!(first.sp_dma_record_count(), dma_before);
+        assert_eq!(first.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(first.rsp_accumulator_and_flags_state(), accumulator_before);
+        assert_eq!(
+            (
+                first.dpc_clock_counter_state().clone(),
+                first.dpc_command_busy_counter_state().clone(),
+                first.dpc_pipe_busy_counter_state().clone(),
+                first.dpc_tmem_load_counter_state().clone(),
+            ),
+            dpc_before
+        );
+        assert_eq!(first.sp_pc_state().unwrap().raw_low_field(), 4);
+        assert_eq!(first.rsp_next_pc(), Some(8));
+        assert_eq!(first.rsp_committed_instruction_count(), 1);
+        assert_eq!(first.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            (
+                first.cpu().pc(),
+                first.cpu().next_pc(),
+                first.cpu().cop0_count(),
+                first.cpu_delay_slot_context(),
+                first.vi_current_state(),
+            ),
+            cpu_before
+        );
+        assert_eq!(second.rsp_scalar_register(3).unwrap().value(), None);
+        assert_eq!(second.rsp_committed_instruction_count(), 0);
+
+        let mut r0 = staged_rsp_running_machine(
+            &[(0, rsp_mfc0_word(0, crate::rsp::RSP_COP0_SP_STATUS_INDEX))],
+            false,
+        );
+        let r0_before = r0.rsp_scalar_register(0).unwrap();
+        r0.step().unwrap();
+        assert_eq!(r0.rsp_scalar_register(0).unwrap(), r0_before);
+        assert_eq!(r0.rsp_committed_instruction_count(), 1);
+    }
+
+    #[test]
     fn rsp_vector_lqv_machine_step_concrete_unavailable_and_mixed_truth_are_exact() {
         let lqv_word = rsp_lqv_word(0, 12, 0, 0);
         let concrete_bytes = core::array::from_fn(|index| 0xb3_u8.wrapping_add(index as u8 * 9));
