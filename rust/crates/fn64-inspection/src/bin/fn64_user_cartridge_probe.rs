@@ -1089,8 +1089,35 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::VectorLoadUnsupported { .. } => {
             "vector-load-unsupported".to_owned()
         }
-        MachineRspStepRejectionReason::VectorStoreUnsupported => {
-            "vector-store-unsupported".to_owned()
+        MachineRspStepRejectionReason::SqvScalarBaseUnavailable { .. } => {
+            "sqv-base-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::SqvSourceUnavailable { .. } => {
+            "sqv-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::SqvElementUnsupported { .. } => {
+            "sqv-element-unsupported".to_owned()
+        }
+        MachineRspStepRejectionReason::SqvDmemRangeMalformed { .. } => {
+            "sqv-dmem-range-malformed".to_owned()
+        }
+        MachineRspStepRejectionReason::VectorStoreUnsupported { subopcode, element } => {
+            let identity = match subopcode {
+                0x00 => "sbv",
+                0x01 => "ssv",
+                0x02 => "slv",
+                0x03 => "sdv",
+                0x04 => "sqv",
+                0x05 => "srv",
+                0x06 => "spv",
+                0x07 => "suv",
+                0x08 => "shv",
+                0x09 => "sfv",
+                0x0a => "swv",
+                0x0b => "stv",
+                _ => "unknown",
+            };
+            format!("vector-store-{identity}-element-{element:02x}-unsupported")
         }
         MachineRspStepRejectionReason::ScalarLwBaseUnavailable { .. } => {
             "lw-base-unavailable".to_owned()
@@ -1317,6 +1344,32 @@ mod tests {
                 MachineRspStepRejectionReason::ScalarOpcodeUnsupported { opcode: 0x09 }
             ),
             "scalar-opcode-addiu-unsupported"
+        );
+    }
+
+    #[test]
+    fn rsp_vector_store_rejection_names_only_public_identity_and_element() {
+        assert_eq!(
+            redacted_rsp_rejection_category(
+                MachineRspStepRejectionReason::VectorStoreUnsupported {
+                    subopcode: 4,
+                    element: 7,
+                }
+            ),
+            "vector-store-sqv-element-07-unsupported"
+        );
+        assert_eq!(
+            redacted_rsp_rejection_category(MachineRspStepRejectionReason::SqvSourceUnavailable {
+                source_vector: 31
+            }),
+            "sqv-source-unavailable"
+        );
+        assert_eq!(
+            redacted_rsp_rejection_category(MachineRspStepRejectionReason::SqvDmemRangeMalformed {
+                local_dmem_address: 0xfff,
+                byte_count: 2,
+            }),
+            "sqv-dmem-range-malformed"
         );
     }
 

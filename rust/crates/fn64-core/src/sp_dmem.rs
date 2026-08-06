@@ -121,6 +121,77 @@ impl MachineSpDmemRspStoreWordProvenance {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSpDmemRspSqvProvenance {
+    instruction_pc: u16,
+    instruction_source: MachineRspInstructionSource,
+    base_gpr: u8,
+    base_value: u32,
+    source_vector: u8,
+    element: u8,
+    signed_offset: i8,
+    local_dmem_address: u16,
+    byte_count: u8,
+}
+
+impl MachineSpDmemRspSqvProvenance {
+    pub(crate) const fn new(
+        instruction_pc: u16,
+        instruction_source: MachineRspInstructionSource,
+        base: (u8, u32),
+        source: (u8, u8),
+        transfer: (i8, u16, u8),
+    ) -> Self {
+        Self {
+            instruction_pc,
+            instruction_source,
+            base_gpr: base.0,
+            base_value: base.1,
+            source_vector: source.0,
+            element: source.1,
+            signed_offset: transfer.0,
+            local_dmem_address: transfer.1,
+            byte_count: transfer.2,
+        }
+    }
+
+    pub const fn instruction_pc(self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub const fn instruction_source(self) -> MachineRspInstructionSource {
+        self.instruction_source
+    }
+
+    pub const fn base_gpr(self) -> u8 {
+        self.base_gpr
+    }
+
+    pub const fn base_value(self) -> u32 {
+        self.base_value
+    }
+
+    pub const fn source_vector(self) -> u8 {
+        self.source_vector
+    }
+
+    pub const fn element(self) -> u8 {
+        self.element
+    }
+
+    pub const fn signed_offset(self) -> i8 {
+        self.signed_offset
+    }
+
+    pub const fn local_dmem_address(self) -> u16 {
+        self.local_dmem_address
+    }
+
+    pub const fn byte_count(self) -> u8 {
+        self.byte_count
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineSpDmemUnavailableSource {
     ConstructionOrReset,
     BootstrapUncovered,
@@ -136,6 +207,10 @@ pub enum MachineSpDmemByteSource {
     },
     RspStoreWord {
         provenance: MachineSpDmemRspStoreWordProvenance,
+    },
+    RspSqv {
+        provenance: MachineSpDmemRspSqvProvenance,
+        source_byte_index: u8,
     },
     SpDma {
         record_index: u8,
@@ -289,6 +364,14 @@ pub(crate) struct MachineSpDmemRspStoreWordPlan {
     offset: SpDmemOffset,
     value: u32,
     provenance: MachineSpDmemRspStoreWordProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineSpDmemRspSqvPlan {
+    offset: SpDmemOffset,
+    bytes: [u8; 16],
+    byte_count: u8,
+    provenance: MachineSpDmemRspSqvProvenance,
 }
 
 impl SpDmemWriteError {
@@ -594,6 +677,49 @@ impl SpDmem {
                 provenance: plan.provenance,
             },
         });
+    }
+
+    pub(crate) fn plan_rsp_sqv(
+        &self,
+        offset: SpDmemOffset,
+        bytes: [u8; 16],
+        byte_count: u8,
+        provenance: MachineSpDmemRspSqvProvenance,
+    ) -> Result<MachineSpDmemRspSqvPlan, SpDmemWriteError> {
+        let width = usize::from(byte_count);
+        if width == 0 || width > bytes.len() {
+            return Err(SpDmemWriteError { offset, width });
+        }
+        let start = offset.as_usize();
+        let Some(end) = start.checked_add(width) else {
+            return Err(SpDmemWriteError { offset, width });
+        };
+        if end > self.bytes.len() {
+            return Err(SpDmemWriteError { offset, width });
+        }
+        Ok(MachineSpDmemRspSqvPlan {
+            offset,
+            bytes,
+            byte_count,
+            provenance,
+        })
+    }
+
+    pub(crate) fn apply_rsp_sqv(&mut self, plan: MachineSpDmemRspSqvPlan) {
+        let start = plan.offset.as_usize();
+        let width = usize::from(plan.byte_count);
+        self.bytes[start..start + width].copy_from_slice(&plan.bytes[..width]);
+        for (source_byte_index, knowledge) in self.byte_knowledge[start..start + width]
+            .iter_mut()
+            .enumerate()
+        {
+            *knowledge = MachineSpDmemStoredByteKnowledge::Available {
+                source: MachineSpDmemByteSource::RspSqv {
+                    provenance: plan.provenance,
+                    source_byte_index: source_byte_index as u8,
+                },
+            };
+        }
     }
 
     pub(crate) fn apply_sp_dma_byte(
@@ -903,6 +1029,104 @@ mod tests {
             assert_eq!(error.width(), 4);
             assert_eq!(
                 first.observe_range::<8>(SpDmemOffset::new(0x018)).unwrap(),
+                before
+            );
+        }
+    }
+
+    #[test]
+    fn sp_dmem_rsp_sqv_plan_commits_exact_prefix_provenance_and_rejects_atomically() {
+        let mut first = SpDmem::default();
+        let second = SpDmem::default();
+        let bytes = core::array::from_fn(|index| 0x31_u8.wrapping_add(index as u8 * 5));
+        let provenance = MachineSpDmemRspSqvProvenance::new(
+            0x028,
+            MachineRspInstructionSource::GeneratedMachineTestStaging,
+            (3, 0xabcd_f027),
+            (12, 0),
+            (0, 0x027, 9),
+        );
+        let plan = first
+            .plan_rsp_sqv(SpDmemOffset::new(0x027), bytes, 9, provenance)
+            .unwrap();
+        assert!(first
+            .observe_range::<9>(SpDmemOffset::new(0x027))
+            .unwrap()
+            .iter()
+            .all(|knowledge| !knowledge.is_available()));
+        first.apply_rsp_sqv(plan);
+        for index in 0..9 {
+            assert_eq!(
+                first.observe_byte(SpDmemOffset::new(0x027 + index)),
+                Ok(MachineSpDmemByteKnowledge::Available {
+                    value: bytes[index as usize],
+                    source: MachineSpDmemByteSource::RspSqv {
+                        provenance,
+                        source_byte_index: index as u8,
+                    },
+                })
+            );
+        }
+        assert_eq!(provenance.instruction_pc(), 0x028);
+        assert_eq!(
+            provenance.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(provenance.base_gpr(), 3);
+        assert_eq!(provenance.base_value(), 0xabcd_f027);
+        assert_eq!(provenance.source_vector(), 12);
+        assert_eq!(provenance.element(), 0);
+        assert_eq!(provenance.signed_offset(), 0);
+        assert_eq!(provenance.local_dmem_address(), 0x027);
+        assert_eq!(provenance.byte_count(), 9);
+        assert!(matches!(
+            first.observe_byte(SpDmemOffset::new(0x030)),
+            Ok(MachineSpDmemByteKnowledge::Unavailable { .. })
+        ));
+        assert!(matches!(
+            second.observe_byte(SpDmemOffset::new(0x027)),
+            Ok(MachineSpDmemByteKnowledge::Unavailable { .. })
+        ));
+
+        let mut aligned = SpDmem::default();
+        let aligned_provenance = MachineSpDmemRspSqvProvenance::new(
+            0x040,
+            MachineRspInstructionSource::GeneratedMachineTestStaging,
+            (0, 0),
+            (7, 0),
+            (4, 0x040, 16),
+        );
+        let aligned_plan = aligned
+            .plan_rsp_sqv(SpDmemOffset::new(0x040), bytes, 16, aligned_provenance)
+            .unwrap();
+        aligned.apply_rsp_sqv(aligned_plan);
+        assert_eq!(aligned.read_u8(SpDmemOffset::new(0x040)), Ok(bytes[0]));
+        assert_eq!(aligned.read_u8(SpDmemOffset::new(0x04f)), Ok(bytes[15]));
+        assert!(aligned
+            .observe_range::<16>(SpDmemOffset::new(0x040))
+            .unwrap()
+            .iter()
+            .enumerate()
+            .all(|(index, knowledge)| matches!(
+                knowledge,
+                MachineSpDmemByteKnowledge::Available {
+                    source: MachineSpDmemByteSource::RspSqv {
+                        provenance: candidate,
+                        source_byte_index,
+                    },
+                    ..
+                } if *candidate == aligned_provenance && usize::from(*source_byte_index) == index
+            )));
+
+        for (offset, byte_count) in [(0x020, 0), (0x020, 17), (0xfff, 2)] {
+            let before = first.observe_range::<32>(SpDmemOffset::new(0x020)).unwrap();
+            let error = first
+                .plan_rsp_sqv(SpDmemOffset::new(offset), bytes, byte_count, provenance)
+                .unwrap_err();
+            assert_eq!(error.offset(), SpDmemOffset::new(offset));
+            assert_eq!(error.width(), usize::from(byte_count));
+            assert_eq!(
+                first.observe_range::<32>(SpDmemOffset::new(0x020)).unwrap(),
                 before
             );
         }

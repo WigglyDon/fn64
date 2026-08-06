@@ -7,7 +7,7 @@ use crate::rsp::{
     MachineRspInstructionSource, MachineRspLastInstructionState, MachineRspLqvPlan,
     MachineRspLuiPlan, MachineRspMfc0ControlSource, MachineRspMfc0Plan, MachineRspMtc0Plan,
     MachineRspMtc0Source, MachineRspNopPlan, MachineRspOriPlan, MachineRspScalarLwPlan,
-    MachineRspScalarRegisterState, MachineRspScalarSwPlan, MachineRspSllPlan,
+    MachineRspScalarRegisterState, MachineRspScalarSwPlan, MachineRspSllPlan, MachineRspSqvPlan,
     MachineRspStepOutcome, MachineRspVectorArithmeticPlan, MachineRspVectorRegisterState,
     MachineRspVectorUnitState, MachineRspVxorPlan, MachineRspXoriPlan,
 };
@@ -1027,6 +1027,25 @@ impl Sp {
                 provenance,
                 first_rsp_instruction_pc: instruction_pc,
                 first_rsp_identity: MachineRspInstructionIdentity::Lqv,
+            });
+        }
+        outcome
+    }
+
+    pub(crate) fn apply_rsp_sqv(&mut self, plan: MachineRspSqvPlan) -> MachineRspStepOutcome {
+        let instruction_pc = plan.instruction_pc();
+        let old_next_pc = plan.old_next_pc();
+        let outcome = self.rsp.apply_sqv(plan);
+        let pc = self
+            .pc
+            .as_mut()
+            .expect("RSP Sqv plan requires one available singular SP PC");
+        pc.raw_low_field = u32::from(old_next_pc);
+        if let Some(MachineRspRunStartState::Pending { provenance }) = self.rsp_run_start {
+            self.rsp_run_start = Some(MachineRspRunStartState::Consumed {
+                provenance,
+                first_rsp_instruction_pc: instruction_pc,
+                first_rsp_identity: MachineRspInstructionIdentity::Sqv,
             });
         }
         outcome
