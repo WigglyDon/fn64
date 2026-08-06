@@ -1085,7 +1085,10 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::ScalarStoreUnsupported { .. } => {
             "scalar-store-unsupported".to_owned()
         }
-        MachineRspStepRejectionReason::ScalarSllUnsupported => "sll-unsupported".to_owned(),
+        MachineRspStepRejectionReason::MalformedSllEncoding => "sll-malformed".to_owned(),
+        MachineRspStepRejectionReason::SllSourceUnavailable { .. } => {
+            "sll-source-unavailable".to_owned()
+        }
         MachineRspStepRejectionReason::VsubElementUnsupported { .. } => {
             "vsub-element-unsupported".to_owned()
         }

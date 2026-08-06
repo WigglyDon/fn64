@@ -6284,8 +6284,7 @@ impl Machine {
                     }
                     MachineRspControlRegister::SpStatus => {
                         if source_value
-                            & (SP_STATUS_CLEAR_INTERRUPT_COMMAND
-                                | SP_STATUS_SET_INTERRUPT_COMMAND)
+                            & (SP_STATUS_CLEAR_INTERRUPT_COMMAND | SP_STATUS_SET_INTERRUPT_COMMAND)
                             != 0
                         {
                             return Err(MachineRepresentedStepError::RspRejected(
@@ -6345,8 +6344,7 @@ impl Machine {
                     MachineRspControlRegister::SpSemaphore => {
                         unreachable!("Mtc0 decoder does not admit SP_SEMAPHORE")
                     }
-                    MachineRspControlRegister::SpDmaFull
-                    | MachineRspControlRegister::SpDmaBusy => {
+                    MachineRspControlRegister::SpDmaFull | MachineRspControlRegister::SpDmaBusy => {
                         unreachable!("Mtc0 decoder does not admit read-only SP DMA status")
                     }
                 }
@@ -6393,6 +6391,14 @@ impl Machine {
                     .plan_ori(pc, decoded, fetched.byte_provenance())
                     .map_err(MachineRepresentedStepError::RspRejected)?;
                 self.sp.apply_rsp_ori(plan)
+            }
+            MachineRspDecodedInstruction::Sll { .. } => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_sll(pc, decoded, fetched.byte_provenance())
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                self.sp.apply_rsp_sll(plan)
             }
             MachineRspDecodedInstruction::Lqv { .. } => {
                 let address = self
@@ -24305,6 +24311,12 @@ mod tests {
         ((crate::rsp::RSP_SCALAR_J_OPCODE as u32) << 26) | ((target_pc as u32) >> 2)
     }
 
+    const fn rsp_sll_word(source_gpr: u8, destination_gpr: u8, shift_amount: u8) -> u32 {
+        ((source_gpr as u32) << 16)
+            | ((destination_gpr as u32) << 11)
+            | ((shift_amount as u32) << 6)
+    }
+
     const fn rsp_lqv_word(
         base_gpr: u8,
         destination_vector: u8,
@@ -24406,11 +24418,11 @@ mod tests {
 
     fn staged_rsp_sp_status_command_machine(command: u16) -> Machine {
         let words = [
-            (0, immediate_word(crate::rsp::RSP_SCALAR_ORI_OPCODE, 0, 3, command)),
             (
-                4,
-                rsp_mtc0_word(3, crate::rsp::RSP_COP0_SP_STATUS_INDEX),
+                0,
+                immediate_word(crate::rsp::RSP_SCALAR_ORI_OPCODE, 0, 3, command),
             ),
+            (4, rsp_mtc0_word(3, crate::rsp::RSP_COP0_SP_STATUS_INDEX)),
         ];
         let mut machine = staged_rsp_running_machine(&words, false);
         assert!(matches!(
@@ -25310,10 +25322,7 @@ mod tests {
         assert_eq!(second.rsp_committed_instruction_count(), 0);
 
         let mut r0 = staged_rsp_running_machine(
-            &[(
-                0,
-                rsp_mfc0_word(0, crate::rsp::RSP_COP0_SP_DMA_FULL_INDEX),
-            )],
+            &[(0, rsp_mfc0_word(0, crate::rsp::RSP_COP0_SP_DMA_FULL_INDEX))],
             false,
         );
         assert!(r0.step().is_ok());
@@ -26402,10 +26411,7 @@ mod tests {
     #[test]
     fn rsp_mtc0_sp_status_uses_existing_sp_commands_with_exact_provenance_and_atomic_rejection() {
         let mut no_effect = staged_rsp_running_machine(
-            &[(
-                0,
-                rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_STATUS_INDEX),
-            )],
+            &[(0, rsp_mtc0_word(0, crate::rsp::RSP_COP0_SP_STATUS_INDEX))],
             true,
         );
         let status_before = no_effect.sp_status_state().unwrap();
@@ -26451,7 +26457,10 @@ mod tests {
             transfer.source(),
             crate::rsp::MachineRspScalarRegisterSource::ArchitecturalZero
         );
-        assert_eq!(transfer.control_register(), MachineRspControlRegister::SpStatus);
+        assert_eq!(
+            transfer.control_register(),
+            MachineRspControlRegister::SpStatus
+        );
         assert_eq!(no_effect.mi_interrupt_state(), mi_before);
         assert_eq!(no_effect.sp_pc_state().unwrap().raw_low_field(), 4);
         assert_eq!(no_effect.rsp_next_pc(), Some(8));
@@ -26484,7 +26493,10 @@ mod tests {
         ));
         let status = halt_and_signal.sp_status_state().unwrap();
         assert!(status.halt());
-        assert_eq!(status.signals(), [true, false, false, false, false, false, false, false]);
+        assert_eq!(
+            status.signals(),
+            [true, false, false, false, false, false, false, false]
+        );
         assert_eq!(
             status.source(),
             MachineSpRegisterWriteSource::RspMtc0 { source_index: 0 }
@@ -26494,7 +26506,10 @@ mod tests {
         assert_eq!(halt_and_signal.processor_turn(), MachineStepProcessor::Cpu);
 
         for (command, expected) in [
-            (3, MachineRspStepRejectionReason::Mtc0SpStatusCommandMalformed),
+            (
+                3,
+                MachineRspStepRejectionReason::Mtc0SpStatusCommandMalformed,
+            ),
             (
                 SP_STATUS_CLEAR_INTERRUPT_COMMAND as u16,
                 MachineRspStepRejectionReason::Mtc0SpStatusInterruptCommandUnsupported,
@@ -26503,7 +26518,12 @@ mod tests {
             let mut rejected = staged_rsp_sp_status_command_machine(command);
             let before = lw_snapshot(&rejected);
             assert_eq!(
-                rejected.step().unwrap_err().rsp_rejection().unwrap().reason(),
+                rejected
+                    .step()
+                    .unwrap_err()
+                    .rsp_rejection()
+                    .unwrap()
+                    .reason(),
                 expected
             );
             assert_eq!(lw_snapshot(&rejected), before);
@@ -26639,6 +26659,163 @@ mod tests {
         assert_eq!(machine.rsp_delay_slot_context(), None);
         assert_eq!(machine.rsp_committed_instruction_count(), 2);
         assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+    }
+
+    #[test]
+    fn machine_step_rsp_sll_consumes_j_delay_and_rejects_before_mutation() {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (0, rsp_j_word(0x00c)),
+                (4, rsp_sll_word(0, 3, 17)),
+                (0x00c, 0),
+            ],
+            true,
+        );
+        let mut independent = staged_rsp_running_machine(&[(0, rsp_sll_word(0, 4, 0))], true);
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarJCommitted { .. },
+            }
+        ));
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+            machine.vi_current_state(),
+        );
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        let dpc_before = (
+            machine.dpc_clock_counter_state().clone(),
+            machine.dpc_command_busy_counter_state().clone(),
+            machine.dpc_pipe_busy_counter_state().clone(),
+            machine.dpc_tmem_load_counter_state().clone(),
+        );
+        let sp_control_before = (
+            machine.sp_memory_address_state(),
+            machine.sp_dram_address_state(),
+            machine.sp_semaphore_state(),
+            machine.sp_dma_record_count(),
+        );
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarSllCommitted {
+                    instruction_pc: 4,
+                    destination_gpr: 3,
+                    result_value: 0,
+                },
+            }
+        );
+        assert_eq!(machine.rsp_scalar_register(3).unwrap().value(), Some(0));
+        assert!(matches!(
+            machine.rsp_scalar_register(3).unwrap().source(),
+            Some(crate::rsp::MachineRspScalarRegisterSource::Sll(source))
+                if source.instruction_pc() == 4
+                    && source.source_gpr() == 0
+                    && source.source_value() == 0
+                    && source.shift_amount() == 17
+                    && matches!(
+                        source.source(),
+                        crate::rsp::MachineRspScalarRegisterSource::ArchitecturalZero
+                    )
+        ));
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x00c);
+        assert_eq!(machine.rsp_next_pc(), Some(0x010));
+        assert_eq!(machine.rsp_delay_slot_context(), None);
+        assert_eq!(machine.rsp_committed_instruction_count(), 2);
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().identity(),
+            crate::rsp::MachineRspInstructionIdentity::Sll
+        );
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().destination_gpr(),
+            Some(3)
+        );
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(
+            (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            ),
+            dpc_before
+        );
+        assert_eq!(
+            (
+                machine.sp_memory_address_state(),
+                machine.sp_dram_address_state(),
+                machine.sp_semaphore_state(),
+                machine.sp_dma_record_count(),
+            ),
+            sp_control_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+                machine.vi_current_state(),
+            ),
+            cpu_before
+        );
+        assert_eq!(independent.rsp_committed_instruction_count(), 0);
+        assert_eq!(independent.rsp_scalar_register(4).unwrap().value(), None);
+        assert!(matches!(
+            independent.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarSllCommitted {
+                    destination_gpr: 4,
+                    result_value: 0,
+                    ..
+                },
+            }
+        ));
+        assert_eq!(independent.rsp_committed_instruction_count(), 1);
+        assert_eq!(independent.rsp_scalar_register(4).unwrap().value(), Some(0));
+        assert_eq!(machine.rsp_committed_instruction_count(), 2);
+        assert_eq!(machine.rsp_scalar_register(4).unwrap().value(), None);
+
+        let mut unavailable = staged_rsp_running_machine(&[(0, rsp_sll_word(1, 2, 3))], true);
+        let unavailable_before = lw_snapshot(&unavailable);
+        assert_eq!(
+            unavailable
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::SllSourceUnavailable { source_gpr: 1 }
+        );
+        assert_eq!(lw_snapshot(&unavailable), unavailable_before);
+
+        let mut malformed =
+            staged_rsp_running_machine(&[(0, rsp_sll_word(0, 2, 3) | (1 << 21))], true);
+        let malformed_before = lw_snapshot(&malformed);
+        assert_eq!(
+            malformed
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::MalformedSllEncoding
+        );
+        assert_eq!(lw_snapshot(&malformed), malformed_before);
     }
 
     #[test]
@@ -38328,10 +38505,7 @@ mod tests {
                     assert!(matches!(pc, 0xa400_0490 | 0xa400_0508));
                     let source = state.source().cpu_store().unwrap();
                     assert_eq!(source.instruction_pc(), CpuAddress::new(pc));
-                    assert_eq!(
-                        source.physical_address(),
-                        SP_STATUS_PHYSICAL_ADDRESS
-                    );
+                    assert_eq!(source.physical_address(), SP_STATUS_PHYSICAL_ADDRESS);
                     if pc == 0xa400_0490 {
                         assert_eq!(state.command_word(), SP_STATUS_X105_HALT_CONFIGURE_WORD);
                         assert!(state.halt());
@@ -38487,10 +38661,7 @@ mod tests {
         assert!(!status.interrupt_on_break());
         assert_eq!(status.signals(), [false; 8]);
         let status_source = status.source().cpu_store().unwrap();
-        assert_eq!(
-            status_source.instruction_pc(),
-            CpuAddress::new(0xa400_0508)
-        );
+        assert_eq!(status_source.instruction_pc(), CpuAddress::new(0xa400_0508));
         assert_eq!(status_source.source_gpr(), 10);
         assert_eq!(
             status_source.source_lineage(),
@@ -38503,10 +38674,7 @@ mod tests {
         );
         assert_eq!(status_source.effective_address(), 0xffff_ffff_a404_0010);
         assert_eq!(status_source.cpu_address(), CpuAddress::new(0xa404_0010));
-        assert_eq!(
-            status_source.physical_address(),
-            SP_STATUS_PHYSICAL_ADDRESS
-        );
+        assert_eq!(status_source.physical_address(), SP_STATUS_PHYSICAL_ADDRESS);
         let sp_pc = machine.sp_pc_state().unwrap();
         assert_eq!(sp_pc.raw_low_field(), 0);
         assert_eq!(

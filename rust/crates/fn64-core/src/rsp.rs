@@ -149,6 +149,48 @@ pub enum MachineRspScalarRegisterSource {
     Lw(Box<MachineRspScalarLwSource>),
     Ori(Box<MachineRspOriSource>),
     Xori(Box<MachineRspXoriSource>),
+    Sll(Box<MachineRspSllSource>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspSllSource {
+    instruction_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    source_gpr: u8,
+    source_value: u32,
+    source: MachineRspScalarRegisterSource,
+    shift_amount: u8,
+}
+
+impl MachineRspSllSource {
+    pub const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    pub const fn source_gpr(&self) -> u8 {
+        self.source_gpr
+    }
+
+    pub const fn source_value(&self) -> u32 {
+        self.source_value
+    }
+
+    pub fn source(&self) -> MachineRspScalarRegisterSource {
+        self.source.clone()
+    }
+
+    pub const fn shift_amount(&self) -> u8 {
+        self.shift_amount
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn instruction_provenance(&self) -> [SpImemByteProvenance; 4] {
+        self.instruction_provenance
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1137,6 +1179,7 @@ pub enum MachineRspInstructionIdentity {
     Bne,
     Ori,
     Xori,
+    Sll,
     Lqv,
     Vsub,
     Vaddc,
@@ -1259,6 +1302,9 @@ enum MachineRspLastInstructionDestination {
     ScalarXori {
         destination_gpr: u8,
     },
+    ScalarSll {
+        destination_gpr: u8,
+    },
     None,
 }
 
@@ -1292,7 +1338,8 @@ impl MachineRspLastInstructionState {
                 Some(destination_gpr)
             }
             MachineRspLastInstructionDestination::ScalarOri { destination_gpr }
-            | MachineRspLastInstructionDestination::ScalarXori { destination_gpr } => {
+            | MachineRspLastInstructionDestination::ScalarXori { destination_gpr }
+            | MachineRspLastInstructionDestination::ScalarSll { destination_gpr } => {
                 Some(destination_gpr)
             }
             MachineRspLastInstructionDestination::VectorLqv { .. }
@@ -1319,6 +1366,7 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::ScalarOri { .. }
             | MachineRspLastInstructionDestination::ScalarXori { .. }
+            | MachineRspLastInstructionDestination::ScalarSll { .. }
             | MachineRspLastInstructionDestination::None => None,
         }
     }
@@ -1349,6 +1397,7 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::Branch
             | MachineRspLastInstructionDestination::ScalarOri { .. }
             | MachineRspLastInstructionDestination::ScalarXori { .. }
+            | MachineRspLastInstructionDestination::ScalarSll { .. }
             | MachineRspLastInstructionDestination::None => None,
             MachineRspLastInstructionDestination::VectorLqv { destination_vector } => {
                 Some(destination_vector)
@@ -1439,6 +1488,11 @@ pub enum MachineRspStepOutcome {
         destination_gpr: u8,
         result_value: u32,
     },
+    ScalarSllCommitted {
+        instruction_pc: u16,
+        destination_gpr: u8,
+        result_value: u32,
+    },
     VectorVsubCommitted {
         instruction_pc: u16,
         destination_vector: u8,
@@ -1472,6 +1526,7 @@ impl MachineRspStepOutcome {
             Self::ScalarBneCommitted { .. } => MachineRspInstructionIdentity::Bne,
             Self::ScalarOriCommitted { .. } => MachineRspInstructionIdentity::Ori,
             Self::ScalarXoriCommitted { .. } => MachineRspInstructionIdentity::Xori,
+            Self::ScalarSllCommitted { .. } => MachineRspInstructionIdentity::Sll,
             Self::VectorLqvCommitted { .. } => MachineRspInstructionIdentity::Lqv,
             Self::VectorVsubCommitted { .. } => MachineRspInstructionIdentity::Vsub,
             Self::VectorVaddcCommitted { .. } => MachineRspInstructionIdentity::Vaddc,
@@ -1493,6 +1548,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBneCommitted { instruction_pc, .. }
             | Self::ScalarOriCommitted { instruction_pc, .. }
             | Self::ScalarXoriCommitted { instruction_pc, .. }
+            | Self::ScalarSllCommitted { instruction_pc, .. }
             | Self::VectorLqvCommitted { instruction_pc, .. }
             | Self::VectorVsubCommitted { instruction_pc, .. }
             | Self::VectorVaddcCommitted { instruction_pc, .. }
@@ -1520,6 +1576,9 @@ impl MachineRspStepOutcome {
                 destination_gpr, ..
             }
             | Self::ScalarXoriCommitted {
+                destination_gpr, ..
+            }
+            | Self::ScalarSllCommitted {
                 destination_gpr, ..
             } => Some(destination_gpr),
             Self::ScalarMtc0Committed { .. }
@@ -1554,6 +1613,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
+            | Self::ScalarSllCommitted { .. }
             | Self::ScalarLwCommitted { .. }
             | Self::NopCommitted { .. }
             | Self::BreakCommitted { .. } => None,
@@ -1568,6 +1628,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarAddiCommitted { result_value, .. }
             | Self::ScalarOriCommitted { result_value, .. }
             | Self::ScalarXoriCommitted { result_value, .. } => Some(result_value),
+            Self::ScalarSllCommitted { result_value, .. } => Some(result_value),
             Self::ScalarMtc0Committed { .. }
             | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
@@ -1593,6 +1654,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
+            | Self::ScalarSllCommitted { .. }
             | Self::ScalarLwCommitted { .. }
             | Self::NopCommitted { .. }
             | Self::BreakCommitted { .. } => None,
@@ -1620,6 +1682,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
+            | Self::ScalarSllCommitted { .. }
             | Self::VectorVsubCommitted { .. }
             | Self::VectorVaddcCommitted { .. }
             | Self::NopCommitted { .. }
@@ -1645,6 +1708,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. } => None,
+            Self::ScalarSllCommitted { .. } => None,
             Self::ScalarLwCommitted { .. }
             | Self::NopCommitted { .. }
             | Self::BreakCommitted { .. } => None,
@@ -1811,7 +1875,10 @@ pub enum MachineRspStepRejectionReason {
     ScalarStoreUnsupported {
         opcode: u8,
     },
-    ScalarSllUnsupported,
+    MalformedSllEncoding,
+    SllSourceUnavailable {
+        source_gpr: u8,
+    },
     VsubElementUnsupported {
         element: u8,
     },
@@ -2052,8 +2119,11 @@ impl fmt::Display for MachineRspStepRejection {
             MachineRspStepRejectionReason::ScalarStoreUnsupported { opcode } => {
                 write!(f, "RSP scalar-store opcode 0x{opcode:02x} is not represented")
             }
-            MachineRspStepRejectionReason::ScalarSllUnsupported => {
-                write!(f, "RSP scalar Sll is not represented beyond the exact raw-zero Nop")
+            MachineRspStepRejectionReason::MalformedSllEncoding => {
+                write!(f, "RSP scalar Sll encoding is malformed")
+            }
+            MachineRspStepRejectionReason::SllSourceUnavailable { source_gpr } => {
+                write!(f, "RSP scalar Sll source r{source_gpr} is unavailable")
             }
             MachineRspStepRejectionReason::VsubElementUnsupported { element } => write!(
                 f,
@@ -2228,6 +2298,29 @@ pub(crate) struct MachineRspOriPlan {
     immediate: u16,
     result_value: u32,
     byte_provenance: [SpImemByteProvenance; 4],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MachineRspSllPlan {
+    instruction_pc: u16,
+    old_next_pc: u16,
+    source_gpr: u8,
+    source_value: u32,
+    source: MachineRspScalarRegisterSource,
+    destination_gpr: u8,
+    shift_amount: u8,
+    result_value: u32,
+    byte_provenance: [SpImemByteProvenance; 4],
+}
+
+impl MachineRspSllPlan {
+    pub(crate) const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub(crate) const fn old_next_pc(&self) -> u16 {
+        self.old_next_pc
+    }
 }
 
 impl MachineRspOriPlan {
@@ -2451,6 +2544,11 @@ pub(crate) enum MachineRspDecodedInstruction {
         source_gpr: u8,
         destination_gpr: u8,
         immediate: u16,
+    },
+    Sll {
+        source_gpr: u8,
+        destination_gpr: u8,
+        shift_amount: u8,
     },
     Lqv {
         base_gpr: u8,
@@ -2744,9 +2842,16 @@ impl MachineRspExecutionState {
             ));
         }
         if opcode == 0 && raw_word & 0x3f == 0 {
-            return Err(MachineRspStepRejection::new(
-                MachineRspStepRejectionReason::ScalarSllUnsupported,
-            ));
+            if (raw_word >> 21) & 0x1f != 0 {
+                return Err(MachineRspStepRejection::new(
+                    MachineRspStepRejectionReason::MalformedSllEncoding,
+                ));
+            }
+            return Ok(MachineRspDecodedInstruction::Sll {
+                source_gpr: ((raw_word >> 16) & 0x1f) as u8,
+                destination_gpr: ((raw_word >> 11) & 0x1f) as u8,
+                shift_amount: ((raw_word >> 6) & 0x1f) as u8,
+            });
         }
         let class = if opcode == RSP_VECTOR_COMPUTE_OPCODE {
             MachineRspUnrepresentedInstructionClass::Vector
@@ -3299,6 +3404,44 @@ impl MachineRspExecutionState {
         })
     }
 
+    pub(crate) fn plan_sll(
+        &self,
+        instruction_pc: u16,
+        decoded: MachineRspDecodedInstruction,
+        byte_provenance: [SpImemByteProvenance; 4],
+    ) -> Result<MachineRspSllPlan, MachineRspStepRejection> {
+        let MachineRspDecodedInstruction::Sll {
+            source_gpr,
+            destination_gpr,
+            shift_amount,
+        } = decoded
+        else {
+            unreachable!("Sll planner receives only decoded Sll")
+        };
+        let MachineRspScalarRegisterState::Available {
+            value: source_value,
+            source,
+        } = &self.scalar_registers[usize::from(source_gpr)]
+        else {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::SllSourceUnavailable { source_gpr },
+            ));
+        };
+        Ok(MachineRspSllPlan {
+            instruction_pc,
+            old_next_pc: self
+                .next_pc
+                .unwrap_or_else(|| sequential_local_pc(instruction_pc)),
+            source_gpr,
+            source_value: *source_value,
+            source: source.clone(),
+            destination_gpr,
+            shift_amount,
+            result_value: source_value.wrapping_shl(u32::from(shift_amount)),
+            byte_provenance,
+        })
+    }
+
     pub(crate) fn apply_ori(&mut self, plan: MachineRspOriPlan) -> MachineRspStepOutcome {
         if plan.destination_gpr != 0 {
             self.scalar_registers[usize::from(plan.destination_gpr)] =
@@ -3326,6 +3469,39 @@ impl MachineRspExecutionState {
             byte_provenance: plan.byte_provenance,
         });
         MachineRspStepOutcome::ScalarOriCommitted {
+            instruction_pc: plan.instruction_pc,
+            destination_gpr: plan.destination_gpr,
+            result_value: plan.result_value,
+        }
+    }
+
+    pub(crate) fn apply_sll(&mut self, plan: MachineRspSllPlan) -> MachineRspStepOutcome {
+        if plan.destination_gpr != 0 {
+            self.scalar_registers[usize::from(plan.destination_gpr)] =
+                MachineRspScalarRegisterState::Available {
+                    value: plan.result_value,
+                    source: MachineRspScalarRegisterSource::Sll(Box::new(MachineRspSllSource {
+                        instruction_pc: plan.instruction_pc,
+                        instruction_provenance: plan.byte_provenance,
+                        source_gpr: plan.source_gpr,
+                        source_value: plan.source_value,
+                        source: plan.source.clone(),
+                        shift_amount: plan.shift_amount,
+                    })),
+                };
+        }
+        self.next_pc = Some(sequential_local_pc(plan.old_next_pc));
+        self.delay_slot_context = None;
+        self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
+        self.last_instruction = Some(MachineRspLastInstructionState {
+            instruction_pc: plan.instruction_pc,
+            identity: MachineRspInstructionIdentity::Sll,
+            destination: MachineRspLastInstructionDestination::ScalarSll {
+                destination_gpr: plan.destination_gpr,
+            },
+            byte_provenance: plan.byte_provenance,
+        });
+        MachineRspStepOutcome::ScalarSllCommitted {
             instruction_pc: plan.instruction_pc,
             destination_gpr: plan.destination_gpr,
             result_value: plan.result_value,
@@ -4214,6 +4390,12 @@ mod tests {
             | immediate as u32
     }
 
+    const fn sll_word(source_gpr: u8, destination_gpr: u8, shift_amount: u8) -> u32 {
+        ((source_gpr as u32) << 16)
+            | ((destination_gpr as u32) << 11)
+            | (((shift_amount & 0x1f) as u32) << 6)
+    }
+
     const fn vector_compute_word(
         function: u8,
         destination_vector: u8,
@@ -4532,8 +4714,18 @@ mod tests {
         );
         assert_eq!(rsp.decode(0), Ok(MachineRspDecodedInstruction::Nop));
         assert_eq!(
-            rsp.decode(0x0000_0040).unwrap_err().reason(),
-            MachineRspStepRejectionReason::ScalarSllUnsupported
+            rsp.decode(0x0000_0040),
+            Ok(MachineRspDecodedInstruction::Sll {
+                source_gpr: 0,
+                destination_gpr: 0,
+                shift_amount: 1,
+            })
+        );
+        assert_eq!(
+            rsp.decode(sll_word(3, 4, 17) | (1 << 21))
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::MalformedSllEncoding
         );
         assert_eq!(
             rsp.decode(mtc0_word(0, 10)).unwrap_err().reason(),
@@ -4792,6 +4984,170 @@ mod tests {
             MachineRspStepRejectionReason::OriSourceUnavailable { source_gpr: 2 }
         );
         assert_eq!(rsp, before_rejection);
+    }
+
+    #[test]
+    fn rsp_sll_reads_before_alias_write_preserves_r0_and_rejects_atomically() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0x034);
+        stage_available_scalar(&mut rsp, 3, 0x8000_0001);
+        let vector_before = rsp.vector_unit.clone();
+        let accumulator_before = rsp.accumulator_and_flags.clone();
+        let alias_plan = rsp
+            .plan_sll(
+                0x034,
+                rsp.decode(sll_word(3, 3, 1)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_sll(alias_plan),
+            MachineRspStepOutcome::ScalarSllCommitted {
+                instruction_pc: 0x034,
+                destination_gpr: 3,
+                result_value: 2,
+            }
+        );
+        let state = rsp.scalar_register(3).unwrap();
+        assert_eq!(state.value(), Some(2));
+        let source = match state.source().unwrap() {
+            MachineRspScalarRegisterSource::Sll(source) => source,
+            other => panic!("Sll result lacks Sll provenance: {other:?}"),
+        };
+        assert_eq!(source.instruction_pc(), 0x034);
+        assert_eq!(source.instruction_provenance(), TEST_INSTRUCTION_PROVENANCE);
+        assert_eq!(source.source_gpr(), 3);
+        assert_eq!(source.source_value(), 0x8000_0001);
+        assert_eq!(source.shift_amount(), 1);
+        assert!(matches!(
+            source.source(),
+            MachineRspScalarRegisterSource::Mfc0(_)
+        ));
+        assert_eq!(rsp.vector_unit, vector_before);
+        assert_eq!(rsp.accumulator_and_flags, accumulator_before);
+        assert_eq!(rsp.next_pc(), Some(0x03c));
+        assert_eq!(rsp.delay_slot_context(), None);
+        assert_eq!(rsp.committed_instruction_count(), 1);
+        assert_eq!(
+            rsp.last_instruction().unwrap().identity(),
+            MachineRspInstructionIdentity::Sll
+        );
+        assert_eq!(rsp.last_instruction().unwrap().destination_gpr(), Some(3));
+
+        let zero_before = rsp.scalar_register(0).unwrap();
+        let zero_plan = rsp
+            .plan_sll(
+                0x03c,
+                rsp.decode(sll_word(3, 0, 31)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_sll(zero_plan),
+            MachineRspStepOutcome::ScalarSllCommitted {
+                instruction_pc: 0x03c,
+                destination_gpr: 0,
+                result_value: 0,
+            }
+        );
+        assert_eq!(rsp.scalar_register(0).unwrap(), zero_before);
+        assert_eq!(rsp.scalar_register(3).unwrap().value(), Some(2));
+        assert_eq!(rsp.committed_instruction_count(), 2);
+
+        let before_rejection = rsp.clone();
+        assert_eq!(
+            rsp.plan_sll(
+                0x040,
+                rsp.decode(sll_word(2, 4, 7)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap_err()
+            .reason(),
+            MachineRspStepRejectionReason::SllSourceUnavailable { source_gpr: 2 }
+        );
+        assert_eq!(rsp, before_rejection);
+    }
+
+    #[test]
+    fn rsp_sll_shift_boundaries_and_non_alias_destinations_are_exact() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0);
+        stage_available_scalar(&mut rsp, 1, 0x8000_0001);
+        stage_available_scalar(&mut rsp, 2, 1);
+
+        let shift_zero = rsp
+            .plan_sll(
+                0,
+                rsp.decode(sll_word(1, 4, 0)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_sll(shift_zero),
+            MachineRspStepOutcome::ScalarSllCommitted {
+                instruction_pc: 0,
+                destination_gpr: 4,
+                result_value: 0x8000_0001,
+            }
+        );
+
+        let shift_one = rsp
+            .plan_sll(
+                4,
+                rsp.decode(sll_word(1, 5, 1)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_sll(shift_one),
+            MachineRspStepOutcome::ScalarSllCommitted {
+                instruction_pc: 4,
+                destination_gpr: 5,
+                result_value: 2,
+            }
+        );
+
+        let shift_thirty_one = rsp
+            .plan_sll(
+                8,
+                rsp.decode(sll_word(2, 6, 31)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_sll(shift_thirty_one),
+            MachineRspStepOutcome::ScalarSllCommitted {
+                instruction_pc: 8,
+                destination_gpr: 6,
+                result_value: 0x8000_0000,
+            }
+        );
+
+        let zero_source = rsp
+            .plan_sll(
+                12,
+                rsp.decode(sll_word(0, 7, 31)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            rsp.apply_sll(zero_source),
+            MachineRspStepOutcome::ScalarSllCommitted {
+                instruction_pc: 12,
+                destination_gpr: 7,
+                result_value: 0,
+            }
+        );
+
+        assert_eq!(rsp.scalar_register(1).unwrap().value(), Some(0x8000_0001));
+        assert_eq!(rsp.scalar_register(2).unwrap().value(), Some(1));
+        assert_eq!(rsp.scalar_register(4).unwrap().value(), Some(0x8000_0001));
+        assert_eq!(rsp.scalar_register(5).unwrap().value(), Some(2));
+        assert_eq!(rsp.scalar_register(6).unwrap().value(), Some(0x8000_0000));
+        assert_eq!(rsp.scalar_register(7).unwrap().value(), Some(0));
+        assert_eq!(rsp.next_pc(), Some(20));
+        assert_eq!(rsp.delay_slot_context(), None);
+        assert_eq!(rsp.committed_instruction_count(), 4);
     }
 
     #[test]
