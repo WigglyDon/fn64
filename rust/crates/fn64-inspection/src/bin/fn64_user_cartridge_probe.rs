@@ -1040,6 +1040,9 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::BgezSourceUnavailable { .. } => {
             "bgez-source-unavailable".to_owned()
         }
+        MachineRspStepRejectionReason::BgezalSourceUnavailable { .. } => {
+            "bgezal-source-unavailable".to_owned()
+        }
         MachineRspStepRejectionReason::BneSourceAUnavailable { .. } => {
             "bne-source-a-unavailable".to_owned()
         }

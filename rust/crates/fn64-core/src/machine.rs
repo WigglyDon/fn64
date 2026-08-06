@@ -6368,6 +6368,7 @@ impl Machine {
             MachineRspDecodedInstruction::J { .. }
             | MachineRspDecodedInstruction::Bltz { .. }
             | MachineRspDecodedInstruction::Bgez { .. }
+            | MachineRspDecodedInstruction::Bgezal { .. }
             | MachineRspDecodedInstruction::Bne { .. } => {
                 let plan = self
                     .sp
@@ -24317,6 +24318,13 @@ mod tests {
             | ((shift_amount as u32) << 6)
     }
 
+    const fn rsp_bgezal_word(source_gpr: u8, signed_offset: i16) -> u32 {
+        ((crate::rsp::RSP_SCALAR_REGIMM_OPCODE as u32) << 26)
+            | ((source_gpr as u32) << 21)
+            | ((crate::rsp::RSP_SCALAR_BGEZAL_SELECTOR as u32) << 16)
+            | signed_offset as u16 as u32
+    }
+
     const fn rsp_lqv_word(
         base_gpr: u8,
         destination_vector: u8,
@@ -26816,6 +26824,100 @@ mod tests {
             MachineRspStepRejectionReason::MalformedSllEncoding
         );
         assert_eq!(lw_snapshot(&malformed), malformed_before);
+    }
+
+    #[test]
+    fn machine_step_rsp_bgezal_links_and_schedules_exactly_one_delay_slot() {
+        let mut machine =
+            staged_rsp_running_machine(&[(0, rsp_bgezal_word(0, 2)), (4, 0), (0x00c, 0)], true);
+        let independent = staged_rsp_running_machine(&[(0, rsp_bgezal_word(0, 1))], true);
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarBgezalCommitted {
+                    instruction_pc: 0,
+                    delay_slot_pc: 4,
+                    target_pc: 0x00c,
+                    taken: true,
+                    link_value: Some(8),
+                },
+            }
+        );
+        assert_eq!(machine.rsp_scalar_register(31).unwrap().value(), Some(8));
+        assert!(matches!(
+            machine.rsp_scalar_register(31).unwrap().source(),
+            Some(crate::rsp::MachineRspScalarRegisterSource::Bgezal(source))
+                if source.instruction_pc() == 0
+                    && source.source_gpr() == 0
+                    && source.source_value() == 0
+                    && source.signed_offset() == 2
+                    && source.link_value() == 8
+                    && matches!(
+                        source.source(),
+                        crate::rsp::MachineRspScalarRegisterSource::ArchitecturalZero
+                    )
+        ));
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 4);
+        assert_eq!(machine.rsp_next_pc(), Some(0x00c));
+        assert_eq!(machine.rsp_committed_instruction_count(), 1);
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().destination_gpr(),
+            Some(31)
+        );
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert_eq!(independent.rsp_committed_instruction_count(), 0);
+        assert_eq!(independent.rsp_scalar_register(31).unwrap().value(), None);
+
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::NopCommitted { instruction_pc: 4 },
+            }
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 0x00c);
+        assert_eq!(machine.rsp_next_pc(), Some(0x010));
+        assert_eq!(machine.rsp_delay_slot_context(), None);
+        assert_eq!(machine.rsp_committed_instruction_count(), 2);
+
+        let mut unavailable = staged_rsp_running_machine(&[(0, rsp_bgezal_word(3, 1))], true);
+        let before = lw_snapshot(&unavailable);
+        assert_eq!(
+            unavailable
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::BgezalSourceUnavailable { source_gpr: 3 }
+        );
+        assert_eq!(lw_snapshot(&unavailable), before);
     }
 
     #[test]

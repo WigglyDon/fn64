@@ -37,6 +37,7 @@ pub const RSP_SCALAR_REGIMM_OPCODE: u8 = 0x01;
 pub const RSP_SCALAR_J_OPCODE: u8 = 0x02;
 pub const RSP_SCALAR_BLTZ_SELECTOR: u8 = 0;
 pub const RSP_SCALAR_BGEZ_SELECTOR: u8 = 1;
+pub const RSP_SCALAR_BGEZAL_SELECTOR: u8 = 0x11;
 pub const RSP_SCALAR_BNE_OPCODE: u8 = 0x05;
 pub const RSP_SCALAR_ADDI_OPCODE: u8 = 0x08;
 pub const RSP_SCALAR_ORI_OPCODE: u8 = 0x0d;
@@ -150,6 +151,48 @@ pub enum MachineRspScalarRegisterSource {
     Ori(Box<MachineRspOriSource>),
     Xori(Box<MachineRspXoriSource>),
     Sll(Box<MachineRspSllSource>),
+    Bgezal(Box<MachineRspBgezalSource>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineRspBgezalSource {
+    instruction_pc: u16,
+    instruction_provenance: [SpImemByteProvenance; 4],
+    source_gpr: u8,
+    source_value: u32,
+    source: MachineRspScalarRegisterSource,
+    signed_offset: i16,
+    link_value: u32,
+}
+
+impl MachineRspBgezalSource {
+    pub const fn instruction_pc(&self) -> u16 {
+        self.instruction_pc
+    }
+
+    pub fn instruction_source(&self) -> MachineRspInstructionSource {
+        classify_instruction_source(self.instruction_provenance)
+    }
+
+    pub const fn source_gpr(&self) -> u8 {
+        self.source_gpr
+    }
+
+    pub const fn source_value(&self) -> u32 {
+        self.source_value
+    }
+
+    pub fn source(&self) -> MachineRspScalarRegisterSource {
+        self.source.clone()
+    }
+
+    pub const fn signed_offset(&self) -> i16 {
+        self.signed_offset
+    }
+
+    pub const fn link_value(&self) -> u32 {
+        self.link_value
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -945,6 +988,18 @@ pub(crate) enum MachineRspBranchSource {
         target_pc: u16,
         taken: bool,
     },
+    Bgezal {
+        instruction_pc: u16,
+        instruction_provenance: [SpImemByteProvenance; 4],
+        source_gpr: u8,
+        source_value: u32,
+        source: MachineRspScalarRegisterSource,
+        signed_offset: i16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+        link_value: u32,
+    },
     Bne {
         instruction_pc: u16,
         instruction_provenance: [SpImemByteProvenance; 4],
@@ -967,6 +1022,7 @@ impl MachineRspBranchSource {
             Self::J { instruction_pc, .. }
             | Self::Bltz { instruction_pc, .. }
             | Self::Bgez { instruction_pc, .. }
+            | Self::Bgezal { instruction_pc, .. }
             | Self::Bne { instruction_pc, .. } => *instruction_pc,
         }
     }
@@ -976,6 +1032,7 @@ impl MachineRspBranchSource {
             Self::J { .. } => MachineRspInstructionIdentity::J,
             Self::Bltz { .. } => MachineRspInstructionIdentity::Bltz,
             Self::Bgez { .. } => MachineRspInstructionIdentity::Bgez,
+            Self::Bgezal { .. } => MachineRspInstructionIdentity::Bgezal,
             Self::Bne { .. } => MachineRspInstructionIdentity::Bne,
         }
     }
@@ -994,6 +1051,10 @@ impl MachineRspBranchSource {
                 instruction_provenance,
                 ..
             }
+            | Self::Bgezal {
+                instruction_provenance,
+                ..
+            }
             | Self::Bne {
                 instruction_provenance,
                 ..
@@ -1004,7 +1065,9 @@ impl MachineRspBranchSource {
     pub const fn source_gpr_a(&self) -> Option<u8> {
         match self {
             Self::J { .. } => None,
-            Self::Bltz { source_gpr, .. } | Self::Bgez { source_gpr, .. } => Some(*source_gpr),
+            Self::Bltz { source_gpr, .. }
+            | Self::Bgez { source_gpr, .. }
+            | Self::Bgezal { source_gpr, .. } => Some(*source_gpr),
             Self::Bne { source_gpr_a, .. } => Some(*source_gpr_a),
         }
     }
@@ -1012,9 +1075,9 @@ impl MachineRspBranchSource {
     pub const fn source_value_a(&self) -> Option<u32> {
         match self {
             Self::J { .. } => None,
-            Self::Bltz { source_value, .. } | Self::Bgez { source_value, .. } => {
-                Some(*source_value)
-            }
+            Self::Bltz { source_value, .. }
+            | Self::Bgez { source_value, .. }
+            | Self::Bgezal { source_value, .. } => Some(*source_value),
             Self::Bne { source_value_a, .. } => Some(*source_value_a),
         }
     }
@@ -1022,28 +1085,30 @@ impl MachineRspBranchSource {
     pub fn source_a(&self) -> Option<MachineRspScalarRegisterSource> {
         match self {
             Self::J { .. } => None,
-            Self::Bltz { source, .. } | Self::Bgez { source, .. } => Some(source.clone()),
+            Self::Bltz { source, .. } | Self::Bgez { source, .. } | Self::Bgezal { source, .. } => {
+                Some(source.clone())
+            }
             Self::Bne { source_a, .. } => Some(source_a.clone()),
         }
     }
 
     pub const fn source_gpr_b(&self) -> Option<u8> {
         match self {
-            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } => None,
+            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } | Self::Bgezal { .. } => None,
             Self::Bne { source_gpr_b, .. } => Some(*source_gpr_b),
         }
     }
 
     pub const fn source_value_b(&self) -> Option<u32> {
         match self {
-            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } => None,
+            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } | Self::Bgezal { .. } => None,
             Self::Bne { source_value_b, .. } => Some(*source_value_b),
         }
     }
 
     pub fn source_b(&self) -> Option<MachineRspScalarRegisterSource> {
         match self {
-            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } => None,
+            Self::J { .. } | Self::Bltz { .. } | Self::Bgez { .. } | Self::Bgezal { .. } => None,
             Self::Bne { source_b, .. } => Some(source_b.clone()),
         }
     }
@@ -1053,6 +1118,7 @@ impl MachineRspBranchSource {
             Self::J { .. } => None,
             Self::Bltz { signed_offset, .. }
             | Self::Bgez { signed_offset, .. }
+            | Self::Bgezal { signed_offset, .. }
             | Self::Bne { signed_offset, .. } => Some(*signed_offset),
         }
     }
@@ -1062,6 +1128,7 @@ impl MachineRspBranchSource {
             Self::J { delay_slot_pc, .. }
             | Self::Bltz { delay_slot_pc, .. }
             | Self::Bgez { delay_slot_pc, .. }
+            | Self::Bgezal { delay_slot_pc, .. }
             | Self::Bne { delay_slot_pc, .. } => *delay_slot_pc,
         }
     }
@@ -1071,6 +1138,7 @@ impl MachineRspBranchSource {
             Self::J { target_pc, .. }
             | Self::Bltz { target_pc, .. }
             | Self::Bgez { target_pc, .. }
+            | Self::Bgezal { target_pc, .. }
             | Self::Bne { target_pc, .. } => *target_pc,
         }
     }
@@ -1078,7 +1146,10 @@ impl MachineRspBranchSource {
     pub const fn taken(&self) -> bool {
         match self {
             Self::J { .. } => true,
-            Self::Bltz { taken, .. } | Self::Bgez { taken, .. } | Self::Bne { taken, .. } => *taken,
+            Self::Bltz { taken, .. }
+            | Self::Bgez { taken, .. }
+            | Self::Bgezal { taken, .. }
+            | Self::Bne { taken, .. } => *taken,
         }
     }
 
@@ -1096,11 +1167,46 @@ impl MachineRspBranchSource {
                 instruction_provenance,
                 ..
             }
+            | Self::Bgezal {
+                instruction_provenance,
+                ..
+            }
             | Self::Bne {
                 instruction_provenance,
                 ..
             } => *instruction_provenance,
         }
+    }
+
+    fn bgezal_link(&self) -> Option<(u32, MachineRspBgezalSource)> {
+        let Self::Bgezal {
+            instruction_pc,
+            instruction_provenance,
+            source_gpr,
+            source_value,
+            source,
+            signed_offset,
+            taken,
+            link_value,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        taken.then(|| {
+            (
+                *link_value,
+                MachineRspBgezalSource {
+                    instruction_pc: *instruction_pc,
+                    instruction_provenance: *instruction_provenance,
+                    source_gpr: *source_gpr,
+                    source_value: *source_value,
+                    source: source.clone(),
+                    signed_offset: *signed_offset,
+                    link_value: *link_value,
+                },
+            )
+        })
     }
 }
 
@@ -1176,6 +1282,7 @@ pub enum MachineRspInstructionIdentity {
     J,
     Bltz,
     Bgez,
+    Bgezal,
     Bne,
     Ori,
     Xori,
@@ -1296,6 +1403,9 @@ enum MachineRspLastInstructionDestination {
         destination_gpr: u8,
     },
     Branch,
+    BranchAndLink {
+        destination_gpr: u8,
+    },
     ScalarOri {
         destination_gpr: u8,
     },
@@ -1342,6 +1452,9 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::ScalarSll { destination_gpr } => {
                 Some(destination_gpr)
             }
+            MachineRspLastInstructionDestination::BranchAndLink { destination_gpr } => {
+                Some(destination_gpr)
+            }
             MachineRspLastInstructionDestination::VectorLqv { .. }
             | MachineRspLastInstructionDestination::VectorArithmetic { .. }
             | MachineRspLastInstructionDestination::ScalarMtc0 { .. }
@@ -1364,6 +1477,7 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::ScalarLui { .. }
             | MachineRspLastInstructionDestination::ScalarAddi { .. }
             | MachineRspLastInstructionDestination::Branch
+            | MachineRspLastInstructionDestination::BranchAndLink { .. }
             | MachineRspLastInstructionDestination::ScalarOri { .. }
             | MachineRspLastInstructionDestination::ScalarXori { .. }
             | MachineRspLastInstructionDestination::ScalarSll { .. }
@@ -1395,6 +1509,7 @@ impl MachineRspLastInstructionState {
             | MachineRspLastInstructionDestination::ScalarLui { .. }
             | MachineRspLastInstructionDestination::ScalarAddi { .. }
             | MachineRspLastInstructionDestination::Branch
+            | MachineRspLastInstructionDestination::BranchAndLink { .. }
             | MachineRspLastInstructionDestination::ScalarOri { .. }
             | MachineRspLastInstructionDestination::ScalarXori { .. }
             | MachineRspLastInstructionDestination::ScalarSll { .. }
@@ -1472,6 +1587,13 @@ pub enum MachineRspStepOutcome {
         target_pc: u16,
         taken: bool,
     },
+    ScalarBgezalCommitted {
+        instruction_pc: u16,
+        delay_slot_pc: u16,
+        target_pc: u16,
+        taken: bool,
+        link_value: Option<u32>,
+    },
     ScalarBneCommitted {
         instruction_pc: u16,
         delay_slot_pc: u16,
@@ -1523,6 +1645,7 @@ impl MachineRspStepOutcome {
             Self::ScalarJCommitted { .. } => MachineRspInstructionIdentity::J,
             Self::ScalarBltzCommitted { .. } => MachineRspInstructionIdentity::Bltz,
             Self::ScalarBgezCommitted { .. } => MachineRspInstructionIdentity::Bgez,
+            Self::ScalarBgezalCommitted { .. } => MachineRspInstructionIdentity::Bgezal,
             Self::ScalarBneCommitted { .. } => MachineRspInstructionIdentity::Bne,
             Self::ScalarOriCommitted { .. } => MachineRspInstructionIdentity::Ori,
             Self::ScalarXoriCommitted { .. } => MachineRspInstructionIdentity::Xori,
@@ -1545,6 +1668,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarJCommitted { instruction_pc, .. }
             | Self::ScalarBltzCommitted { instruction_pc, .. }
             | Self::ScalarBgezCommitted { instruction_pc, .. }
+            | Self::ScalarBgezalCommitted { instruction_pc, .. }
             | Self::ScalarBneCommitted { instruction_pc, .. }
             | Self::ScalarOriCommitted { instruction_pc, .. }
             | Self::ScalarXoriCommitted { instruction_pc, .. }
@@ -1585,12 +1709,19 @@ impl MachineRspStepOutcome {
             | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
+            | Self::ScalarBgezalCommitted {
+                link_value: None, ..
+            }
             | Self::ScalarBneCommitted { .. }
             | Self::VectorLqvCommitted { .. }
             | Self::VectorVsubCommitted { .. }
             | Self::VectorVaddcCommitted { .. }
             | Self::NopCommitted { .. }
             | Self::BreakCommitted { .. } => None,
+            Self::ScalarBgezalCommitted {
+                link_value: Some(_),
+                ..
+            } => Some(31),
         }
     }
 
@@ -1610,6 +1741,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
+            | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
@@ -1633,12 +1765,19 @@ impl MachineRspStepOutcome {
             | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
+            | Self::ScalarBgezalCommitted {
+                link_value: None, ..
+            }
             | Self::ScalarBneCommitted { .. }
             | Self::VectorLqvCommitted { .. }
             | Self::VectorVsubCommitted { .. }
             | Self::VectorVaddcCommitted { .. }
             | Self::NopCommitted { .. }
             | Self::BreakCommitted { .. } => None,
+            Self::ScalarBgezalCommitted {
+                link_value: Some(link_value),
+                ..
+            } => Some(link_value),
         }
     }
 
@@ -1651,6 +1790,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
+            | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
@@ -1679,6 +1819,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
+            | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. }
@@ -1705,6 +1846,7 @@ impl MachineRspStepOutcome {
             | Self::ScalarJCommitted { .. }
             | Self::ScalarBltzCommitted { .. }
             | Self::ScalarBgezCommitted { .. }
+            | Self::ScalarBgezalCommitted { .. }
             | Self::ScalarBneCommitted { .. }
             | Self::ScalarOriCommitted { .. }
             | Self::ScalarXoriCommitted { .. } => None,
@@ -1829,6 +1971,9 @@ pub enum MachineRspStepRejectionReason {
         source_gpr: u8,
     },
     BgezSourceUnavailable {
+        source_gpr: u8,
+    },
+    BgezalSourceUnavailable {
         source_gpr: u8,
     },
     BneSourceAUnavailable {
@@ -2053,6 +2198,9 @@ impl fmt::Display for MachineRspStepRejection {
             }
             MachineRspStepRejectionReason::BgezSourceUnavailable { source_gpr } => {
                 write!(f, "RSP Bgez scalar source r{source_gpr} is unavailable")
+            }
+            MachineRspStepRejectionReason::BgezalSourceUnavailable { source_gpr } => {
+                write!(f, "RSP Bgezal scalar source r{source_gpr} is unavailable")
             }
             MachineRspStepRejectionReason::BneSourceAUnavailable { source_gpr } => {
                 write!(f, "RSP Bne scalar source A r{source_gpr} is unavailable")
@@ -2530,6 +2678,10 @@ pub(crate) enum MachineRspDecodedInstruction {
         source_gpr: u8,
         signed_offset: i16,
     },
+    Bgezal {
+        source_gpr: u8,
+        signed_offset: i16,
+    },
     Bne {
         source_gpr_a: u8,
         source_gpr_b: u8,
@@ -2731,6 +2883,10 @@ impl MachineRspExecutionState {
                     signed_offset,
                 }),
                 RSP_SCALAR_BGEZ_SELECTOR => Ok(MachineRspDecodedInstruction::Bgez {
+                    source_gpr,
+                    signed_offset,
+                }),
+                RSP_SCALAR_BGEZAL_SELECTOR => Ok(MachineRspDecodedInstruction::Bgezal {
                     source_gpr,
                     signed_offset,
                 }),
@@ -3228,6 +3384,33 @@ impl MachineRspExecutionState {
                     taken: source_value & 0x8000_0000 == 0,
                 }
             }
+            MachineRspDecodedInstruction::Bgezal {
+                source_gpr,
+                signed_offset,
+            } => {
+                let MachineRspScalarRegisterState::Available {
+                    value: source_value,
+                    source,
+                } = &self.scalar_registers[usize::from(source_gpr)]
+                else {
+                    return Err(MachineRspStepRejection::new(
+                        MachineRspStepRejectionReason::BgezalSourceUnavailable { source_gpr },
+                    ));
+                };
+                let target_pc = branch_target_local_pc(delay_slot_pc, signed_offset);
+                MachineRspBranchSource::Bgezal {
+                    instruction_pc,
+                    instruction_provenance: byte_provenance,
+                    source_gpr,
+                    source_value: *source_value,
+                    source: source.clone(),
+                    signed_offset,
+                    delay_slot_pc,
+                    target_pc,
+                    taken: source_value & 0x8000_0000 == 0,
+                    link_value: sequential_local_pc(delay_slot_pc).into(),
+                }
+            }
             MachineRspDecodedInstruction::Bne {
                 source_gpr_a,
                 source_gpr_b,
@@ -3271,7 +3454,7 @@ impl MachineRspExecutionState {
                     taken: source_value_a != source_value_b,
                 }
             }
-            _ => unreachable!("branch planner receives only decoded J, Bltz, Bgez, or Bne"),
+            _ => unreachable!("branch planner receives only decoded J, Bltz, Bgez, Bgezal, or Bne"),
         };
         let selected_next_pc = if source.taken() {
             source.target_pc()
@@ -3291,13 +3474,27 @@ impl MachineRspExecutionState {
         let target_pc = plan.source.target_pc();
         let taken = plan.source.taken();
         let byte_provenance = plan.source.instruction_provenance();
+        let bgezal_link = plan.source.bgezal_link();
+        let link_value = bgezal_link.as_ref().map(|(value, _)| *value);
         self.next_pc = Some(plan.selected_next_pc);
         self.delay_slot_context = Some(MachineRspDelaySlotContext::new(plan.source));
+        if let Some((link_value, link_source)) = bgezal_link {
+            self.scalar_registers[31] = MachineRspScalarRegisterState::Available {
+                value: link_value,
+                source: MachineRspScalarRegisterSource::Bgezal(Box::new(link_source)),
+            };
+        }
         self.committed_instruction_count = self.committed_instruction_count.wrapping_add(1);
         self.last_instruction = Some(MachineRspLastInstructionState {
             instruction_pc,
             identity,
-            destination: MachineRspLastInstructionDestination::Branch,
+            destination: if link_value.is_some() {
+                MachineRspLastInstructionDestination::BranchAndLink {
+                    destination_gpr: 31,
+                }
+            } else {
+                MachineRspLastInstructionDestination::Branch
+            },
             byte_provenance,
         });
         match identity {
@@ -3318,13 +3515,20 @@ impl MachineRspExecutionState {
                 target_pc,
                 taken,
             },
+            MachineRspInstructionIdentity::Bgezal => MachineRspStepOutcome::ScalarBgezalCommitted {
+                instruction_pc,
+                delay_slot_pc,
+                target_pc,
+                taken,
+                link_value,
+            },
             MachineRspInstructionIdentity::Bne => MachineRspStepOutcome::ScalarBneCommitted {
                 instruction_pc,
                 delay_slot_pc,
                 target_pc,
                 taken,
             },
-            _ => unreachable!("branch plan identity is exactly J, Bltz, Bgez, or Bne"),
+            _ => unreachable!("branch plan identity is exactly J, Bltz, Bgez, Bgezal, or Bne"),
         }
     }
 
@@ -4366,6 +4570,13 @@ mod tests {
         ((RSP_SCALAR_REGIMM_OPCODE as u32) << 26)
             | ((source_gpr as u32) << 21)
             | ((RSP_SCALAR_BGEZ_SELECTOR as u32) << 16)
+            | signed_offset as u16 as u32
+    }
+
+    const fn bgezal_word(source_gpr: u8, signed_offset: i16) -> u32 {
+        ((RSP_SCALAR_REGIMM_OPCODE as u32) << 26)
+            | ((source_gpr as u32) << 21)
+            | ((RSP_SCALAR_BGEZAL_SELECTOR as u32) << 16)
             | signed_offset as u16 as u32
     }
 
@@ -5447,6 +5658,141 @@ mod tests {
             },
             "Bne compares all 32 bits rather than only the low half"
         );
+    }
+
+    #[test]
+    fn rsp_bgezal_links_only_when_taken_and_reads_alias_before_write() {
+        let mut taken = MachineRspExecutionState::default();
+        taken.synchronize_pc_write(0x02c);
+        stage_available_scalar(&mut taken, 5, 0x7fff_ffff);
+        stage_available_scalar(&mut taken, 31, 0xaaaa_5555);
+        assert_eq!(
+            taken.decode(bgezal_word(5, 0x001b)),
+            Ok(MachineRspDecodedInstruction::Bgezal {
+                source_gpr: 5,
+                signed_offset: 0x001b,
+            })
+        );
+        let plan = taken
+            .plan_branch(
+                0x02c,
+                taken.decode(bgezal_word(5, 0x001b)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            taken.apply_branch(plan),
+            MachineRspStepOutcome::ScalarBgezalCommitted {
+                instruction_pc: 0x02c,
+                delay_slot_pc: 0x030,
+                target_pc: 0x09c,
+                taken: true,
+                link_value: Some(0x034),
+            }
+        );
+        assert_eq!(taken.next_pc(), Some(0x09c));
+        assert_eq!(taken.committed_instruction_count(), 1);
+        assert_eq!(taken.scalar_register(31).unwrap().value(), Some(0x034));
+        let link_source = match taken.scalar_register(31).unwrap().source() {
+            Some(MachineRspScalarRegisterSource::Bgezal(source)) => source,
+            other => panic!("Bgezal link lacks exact source: {other:?}"),
+        };
+        assert_eq!(link_source.instruction_pc(), 0x02c);
+        assert_eq!(link_source.source_gpr(), 5);
+        assert_eq!(link_source.source_value(), 0x7fff_ffff);
+        assert_eq!(link_source.signed_offset(), 0x001b);
+        assert_eq!(link_source.link_value(), 0x034);
+        assert_eq!(
+            link_source.instruction_source(),
+            MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(
+            taken.last_instruction().unwrap().identity(),
+            MachineRspInstructionIdentity::Bgezal
+        );
+        assert_eq!(
+            taken.last_instruction().unwrap().destination_gpr(),
+            Some(31)
+        );
+        let context = taken.delay_slot_context().unwrap();
+        assert_eq!(context.identity(), MachineRspInstructionIdentity::Bgezal);
+        assert_eq!(context.source_gpr_a(), Some(5));
+        assert_eq!(context.source_value_a(), Some(0x7fff_ffff));
+        assert_eq!(context.signed_offset(), Some(0x001b));
+        assert!(context.taken());
+
+        let mut not_taken = MachineRspExecutionState::default();
+        not_taken.synchronize_pc_write(0x02c);
+        stage_available_scalar(&mut not_taken, 5, 0x8000_0000);
+        stage_available_scalar(&mut not_taken, 31, 0x1234_5678);
+        let prior_link = not_taken.scalar_register(31).unwrap().clone();
+        let plan = not_taken
+            .plan_branch(
+                0x02c,
+                not_taken.decode(bgezal_word(5, -3)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            not_taken.apply_branch(plan),
+            MachineRspStepOutcome::ScalarBgezalCommitted {
+                instruction_pc: 0x02c,
+                delay_slot_pc: 0x030,
+                target_pc: 0x024,
+                taken: false,
+                link_value: None,
+            }
+        );
+        assert_eq!(not_taken.next_pc(), Some(0x034));
+        assert_eq!(not_taken.scalar_register(31), Some(prior_link));
+        assert_eq!(
+            not_taken.last_instruction().unwrap().destination_gpr(),
+            None
+        );
+
+        let mut aliased = MachineRspExecutionState::default();
+        aliased.synchronize_pc_write(0x0ff8);
+        stage_available_scalar(&mut aliased, 31, 1);
+        let plan = aliased
+            .plan_branch(
+                0x0ff8,
+                aliased.decode(bgezal_word(31, 1)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            aliased.apply_branch(plan),
+            MachineRspStepOutcome::ScalarBgezalCommitted {
+                instruction_pc: 0x0ff8,
+                delay_slot_pc: 0x0ffc,
+                target_pc: 0,
+                taken: true,
+                link_value: Some(0),
+            }
+        );
+        assert_eq!(aliased.scalar_register(31).unwrap().value(), Some(0));
+        let source = match aliased.scalar_register(31).unwrap().source() {
+            Some(MachineRspScalarRegisterSource::Bgezal(source)) => source,
+            other => panic!("aliased Bgezal link lacks exact source: {other:?}"),
+        };
+        assert_eq!(source.source_gpr(), 31);
+        assert_eq!(source.source_value(), 1);
+
+        let mut unavailable = MachineRspExecutionState::default();
+        unavailable.synchronize_pc_write(0x040);
+        let before = unavailable.clone();
+        assert_eq!(
+            unavailable
+                .plan_branch(
+                    0x040,
+                    unavailable.decode(bgezal_word(3, 1)).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap_err()
+                .reason(),
+            MachineRspStepRejectionReason::BgezalSourceUnavailable { source_gpr: 3 }
+        );
+        assert_eq!(unavailable, before);
     }
 
     #[test]
