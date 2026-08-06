@@ -1058,6 +1058,12 @@ fn format_load_word_rejection_frontier(
                     offset.value()
                 )
             }
+            MachineSpDmemLoadWordProvenance::RspStoreWord { .. } => {
+                format!(
+                    "sp-dmem offset=0x{:08X} source=rsp-store-word",
+                    offset.value()
+                )
+            }
             MachineSpDmemLoadWordProvenance::SpDma { record_index } => format!(
                 "sp-dmem offset=0x{:08X} source=sp-dma record={record_index}",
                 offset.value()

@@ -1082,11 +1082,23 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::ScalarLwDmemKnowledgeMalformed { .. } => {
             "lw-dmem-knowledge-malformed".to_owned()
         }
+        MachineRspStepRejectionReason::ScalarSwBaseUnavailable { .. } => {
+            "sw-base-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarSwSourceUnavailable { .. } => {
+            "sw-source-unavailable".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarSwAddressMisaligned { .. } => {
+            "sw-address-misaligned".to_owned()
+        }
+        MachineRspStepRejectionReason::ScalarSwDmemRangeMalformed { .. } => {
+            "sw-dmem-range-malformed".to_owned()
+        }
         MachineRspStepRejectionReason::ScalarLoadUnsupported { .. } => {
             "scalar-load-unsupported".to_owned()
         }
-        MachineRspStepRejectionReason::ScalarStoreUnsupported { .. } => {
-            "scalar-store-unsupported".to_owned()
+        MachineRspStepRejectionReason::ScalarStoreUnsupported { opcode } => {
+            format!("scalar-store-opcode-{opcode:02x}-unsupported")
         }
         MachineRspStepRejectionReason::MalformedSllEncoding => "sll-malformed".to_owned(),
         MachineRspStepRejectionReason::SllSourceUnavailable { .. } => {

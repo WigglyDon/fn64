@@ -107,8 +107,8 @@ use crate::sp::{
 #[cfg(test)]
 use crate::sp::{SP_STATUS_X105_HALT_CONFIGURE_WORD, SP_STATUS_X105_START_WORD};
 use crate::sp_dmem::{
-    MachineSpDmemByteKnowledge, MachineSpDmemByteSource, MachineSpDmemStoreWordProvenance, SpDmem,
-    SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
+    MachineSpDmemByteKnowledge, MachineSpDmemByteSource, MachineSpDmemRspStoreWordProvenance,
+    MachineSpDmemStoreWordProvenance, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
 };
 #[cfg(test)]
 use crate::sp_imem::SpImemByteProvenance;
@@ -216,6 +216,9 @@ pub enum MachineSpDmemLoadWordProvenance {
     CpuStoreWord {
         provenance: MachineSpDmemStoreWordProvenance,
     },
+    RspStoreWord {
+        provenance: MachineSpDmemRspStoreWordProvenance,
+    },
     SpDma {
         record_index: u8,
     },
@@ -230,6 +233,7 @@ impl MachineSpDmemLoadWordProvenance {
         match self {
             Self::CartridgeBootstrap { cartridge_offset } => Some(cartridge_offset),
             Self::CpuStoreWord { .. }
+            | Self::RspStoreWord { .. }
             | Self::SpDma { .. }
             | Self::MixedAvailable
             | Self::UnclassifiedMachineStorage => None,
@@ -6482,6 +6486,30 @@ impl Machine {
                     .map_err(MachineRepresentedStepError::RspRejected)?;
                 self.sp.apply_rsp_lw(plan)
             }
+            MachineRspDecodedInstruction::Sw { .. } => {
+                let plan = self
+                    .sp
+                    .rsp_execution()
+                    .plan_sw(pc, decoded, fetched.byte_provenance())
+                    .map_err(MachineRepresentedStepError::RspRejected)?;
+                let local_dmem_address = plan.local_dmem_address();
+                let dmem_plan = self
+                    .sp_dmem
+                    .plan_rsp_store_word(
+                        SpDmemOffset::new(u32::from(local_dmem_address)),
+                        plan.stored_word(),
+                        plan.dmem_provenance(),
+                    )
+                    .map_err(|_| {
+                        MachineRepresentedStepError::RspRejected(MachineRspStepRejection::new(
+                            MachineRspStepRejectionReason::ScalarSwDmemRangeMalformed {
+                                local_dmem_address,
+                            },
+                        ))
+                    })?;
+                self.sp_dmem.apply_rsp_store_word(dmem_plan);
+                self.sp.apply_rsp_sw(plan)
+            }
             MachineRspDecodedInstruction::Nop => {
                 let plan = self
                     .sp
@@ -9870,6 +9898,21 @@ impl Machine {
                 }) =>
             {
                 MachineSpDmemLoadWordProvenance::CpuStoreWord { provenance }
+            }
+            MachineSpDmemByteSource::RspStoreWord { provenance }
+                if observations.iter().all(|observation| {
+                    matches!(
+                        observation,
+                        MachineSpDmemByteKnowledge::Available {
+                            source: MachineSpDmemByteSource::RspStoreWord {
+                                provenance: candidate,
+                            },
+                            ..
+                        } if *candidate == provenance
+                    )
+                }) =>
+            {
+                MachineSpDmemLoadWordProvenance::RspStoreWord { provenance }
             }
             MachineSpDmemByteSource::SpDma { record_index }
                 if observations.iter().all(|observation| {
@@ -24341,6 +24384,13 @@ mod tests {
             | signed_offset as u16 as u32
     }
 
+    const fn rsp_sw_word(base_gpr: u8, source_gpr: u8, signed_offset: i16) -> u32 {
+        ((crate::rsp::RSP_SCALAR_SW_OPCODE as u32) << 26)
+            | ((base_gpr as u32) << 21)
+            | ((source_gpr as u32) << 16)
+            | signed_offset as u16 as u32
+    }
+
     const fn rsp_lqv_word(
         base_gpr: u8,
         destination_vector: u8,
@@ -27503,6 +27553,190 @@ mod tests {
             MachineRspStepRejectionReason::VxorElementUnsupported { element: 1 }
         );
         assert_eq!(lw_snapshot(&rejected), before);
+    }
+
+    #[test]
+    fn machine_step_rsp_sw_commits_big_endian_dmem_truth_then_lw_reads_it() {
+        let mut machine = staged_rsp_running_machine(
+            &[
+                (
+                    0,
+                    immediate_word(crate::rsp::RSP_SCALAR_LUI_OPCODE, 0, 3, 0x1122),
+                ),
+                (
+                    4,
+                    immediate_word(crate::rsp::RSP_SCALAR_ORI_OPCODE, 3, 3, 0x3344),
+                ),
+                (8, rsp_sw_word(0, 3, 0x040)),
+                (12, 0x8c04_0040),
+            ],
+            true,
+        );
+        let independent = staged_rsp_running_machine(&[(0, rsp_sw_word(0, 0, 0x040))], true);
+        for expected_pc in [0, 4] {
+            assert!(matches!(
+                machine.step().unwrap(),
+                MachineRepresentedStepOutcome::RspCommitted { outcome }
+                    if outcome.instruction_pc() == expected_pc
+            ));
+            machine.processor_turn = MachineStepProcessor::Rsp;
+        }
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+        let scalar_before: Vec<_> = (0..crate::rsp::RSP_SCALAR_REGISTER_COUNT)
+            .map(|index| machine.rsp_scalar_register(index).unwrap())
+            .collect();
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let dpc_before = (
+            machine.dpc_clock_counter_state().clone(),
+            machine.dpc_command_busy_counter_state().clone(),
+            machine.dpc_pipe_busy_counter_state().clone(),
+            machine.dpc_tmem_load_counter_state().clone(),
+        );
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarSwCommitted {
+                    instruction_pc: 8,
+                    source_gpr: 3,
+                    local_dmem_address: 0x040,
+                    stored_word: 0x1122_3344,
+                },
+            }
+        );
+        assert_eq!(
+            machine.sp_dmem().read_u32_be(SpDmemOffset::new(0x040)),
+            Ok(0x1122_3344)
+        );
+        let provenance = machine
+            .sp_dmem()
+            .rsp_store_word_provenance(SpDmemOffset::new(0x040))
+            .unwrap();
+        assert_eq!(provenance.instruction_pc(), 8);
+        assert_eq!(
+            provenance.instruction_source(),
+            crate::rsp::MachineRspInstructionSource::GeneratedMachineTestStaging
+        );
+        assert_eq!(provenance.base_gpr(), 0);
+        assert_eq!(provenance.base_value(), 0);
+        assert_eq!(provenance.source_gpr(), 3);
+        assert_eq!(provenance.source_value(), 0x1122_3344);
+        assert_eq!(provenance.signed_offset(), 0x040);
+        assert_eq!(provenance.local_dmem_address(), 0x040);
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 12);
+        assert_eq!(machine.rsp_next_pc(), Some(16));
+        assert_eq!(machine.rsp_delay_slot_context(), None);
+        assert_eq!(machine.rsp_committed_instruction_count(), 3);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().identity(),
+            crate::rsp::MachineRspInstructionIdentity::Sw
+        );
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().source_gpr(),
+            Some(3)
+        );
+        assert_eq!(
+            machine.rsp_last_instruction().unwrap().local_dmem_address(),
+            Some(0x040)
+        );
+        assert_eq!(
+            (0..crate::rsp::RSP_SCALAR_REGISTER_COUNT)
+                .map(|index| machine.rsp_scalar_register(index).unwrap())
+                .collect::<Vec<_>>(),
+            scalar_before
+        );
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(
+            (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            ),
+            dpc_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert!(matches!(
+            independent.sp_dmem().observe_byte(SpDmemOffset::new(0x040)),
+            Ok(MachineSpDmemByteKnowledge::Unavailable { .. })
+        ));
+
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLwCommitted {
+                    instruction_pc: 12,
+                    destination_gpr: 4,
+                    local_dmem_address: 0x040,
+                    result_value: 0x1122_3344,
+                },
+            }
+        );
+        let lw_source = match machine.rsp_scalar_register(4).unwrap().source() {
+            Some(crate::rsp::MachineRspScalarRegisterSource::Lw(source)) => source,
+            other => panic!("RSP Lw after Sw lacks exact source: {other:?}"),
+        };
+        assert!(lw_source.dmem_knowledge().iter().all(|descriptor| matches!(
+            descriptor.source(),
+            crate::sp_dmem::MachineSpDmemByteKnowledgeSource::Available {
+                source: crate::sp_dmem::MachineSpDmemByteSource::RspStoreWord {
+                    provenance: candidate,
+                },
+            } if candidate == provenance
+        )));
+
+        for (word, expected) in [
+            (
+                rsp_sw_word(0, 3, 0),
+                MachineRspStepRejectionReason::ScalarSwSourceUnavailable { source_gpr: 3 },
+            ),
+            (
+                rsp_sw_word(3, 0, 0),
+                MachineRspStepRejectionReason::ScalarSwBaseUnavailable { base_gpr: 3 },
+            ),
+            (
+                rsp_sw_word(0, 0, 2),
+                MachineRspStepRejectionReason::ScalarSwAddressMisaligned {
+                    local_dmem_address: 2,
+                },
+            ),
+        ] {
+            let mut rejected = staged_rsp_running_machine(&[(0, word)], true);
+            let before = lw_snapshot(&rejected);
+            assert_eq!(
+                rejected
+                    .step()
+                    .unwrap_err()
+                    .rsp_rejection()
+                    .unwrap()
+                    .reason(),
+                expected
+            );
+            assert_eq!(lw_snapshot(&rejected), before);
+        }
     }
 
     #[test]

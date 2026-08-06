@@ -191,10 +191,11 @@ pub use rsp::{
     RSP_SCALAR_BGEZ_SELECTOR, RSP_SCALAR_BLTZ_SELECTOR, RSP_SCALAR_BNE_OPCODE,
     RSP_SCALAR_BREAK_CODE_MASK, RSP_SCALAR_BREAK_FUNCTION, RSP_SCALAR_BREAK_WORD,
     RSP_SCALAR_LUI_OPCODE, RSP_SCALAR_LW_BYTE_COUNT, RSP_SCALAR_LW_OPCODE,
-    RSP_SCALAR_REGIMM_OPCODE, RSP_SCALAR_REGISTER_COUNT, RSP_SCALAR_XORI_OPCODE,
-    RSP_VECTOR_COMPUTE_OPCODE, RSP_VECTOR_LANE_COUNT, RSP_VECTOR_LOAD_OPCODE,
-    RSP_VECTOR_LQV_SUBOPCODE, RSP_VECTOR_REGISTER_BYTE_COUNT, RSP_VECTOR_REGISTER_COUNT,
-    RSP_VECTOR_VADDC_FUNCTION, RSP_VECTOR_VSUB_FUNCTION, RSP_VECTOR_VXOR_FUNCTION,
+    RSP_SCALAR_REGIMM_OPCODE, RSP_SCALAR_REGISTER_COUNT, RSP_SCALAR_SW_BYTE_COUNT,
+    RSP_SCALAR_SW_OPCODE, RSP_SCALAR_XORI_OPCODE, RSP_VECTOR_COMPUTE_OPCODE, RSP_VECTOR_LANE_COUNT,
+    RSP_VECTOR_LOAD_OPCODE, RSP_VECTOR_LQV_SUBOPCODE, RSP_VECTOR_REGISTER_BYTE_COUNT,
+    RSP_VECTOR_REGISTER_COUNT, RSP_VECTOR_VADDC_FUNCTION, RSP_VECTOR_VSUB_FUNCTION,
+    RSP_VECTOR_VXOR_FUNCTION,
 };
 pub use si::{
     MachinePifRamState, MachineSiCpuStoreProvenance, MachineSiInputProfile, MachineSiStatusState,
@@ -214,8 +215,9 @@ pub use sp::{
 };
 pub use sp_dmem::{
     MachineSpDmemByteKnowledge, MachineSpDmemByteKnowledgeDescriptor,
-    MachineSpDmemByteKnowledgeSource, MachineSpDmemByteSource, MachineSpDmemStoreWordProvenance,
-    MachineSpDmemUnavailableSource, SpDmem, SpDmemOffset, SpDmemReadError, SP_DMEM_SIZE_BYTES,
+    MachineSpDmemByteKnowledgeSource, MachineSpDmemByteSource, MachineSpDmemRspStoreWordProvenance,
+    MachineSpDmemStoreWordProvenance, MachineSpDmemUnavailableSource, SpDmem, SpDmemOffset,
+    SpDmemReadError, SP_DMEM_SIZE_BYTES,
 };
 pub use vi::{
     MachineViCpuStoreProvenance, MachineViCurrentState, MachineViRegister, MachineViRegisterState,
