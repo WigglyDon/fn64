@@ -1085,8 +1085,8 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
         MachineRspStepRejectionReason::ScalarSwBaseUnavailable { .. } => {
             "sw-base-unavailable".to_owned()
         }
-        MachineRspStepRejectionReason::ScalarSwSourceUnavailable { .. } => {
-            "sw-source-unavailable".to_owned()
+        MachineRspStepRejectionReason::ScalarSwSourceUnavailable { source_gpr } => {
+            format!("sw-source-r{source_gpr:02}-unavailable")
         }
         MachineRspStepRejectionReason::ScalarSwAddressMisaligned { .. } => {
             "sw-address-misaligned".to_owned()
@@ -1203,6 +1203,16 @@ mod tests {
             "<REDACTED_USER_CARTRIDGE>"
         );
         assert_eq!(REDACTED_USER_PIF_FIRMWARE, "<REDACTED_USER_PIF_FIRMWARE>");
+    }
+
+    #[test]
+    fn rsp_sw_source_rejection_names_only_the_architectural_register() {
+        assert_eq!(
+            redacted_rsp_rejection_category(
+                MachineRspStepRejectionReason::ScalarSwSourceUnavailable { source_gpr: 4 }
+            ),
+            "sw-source-r04-unavailable"
+        );
     }
 
     #[test]

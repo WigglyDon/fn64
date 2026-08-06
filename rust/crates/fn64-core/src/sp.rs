@@ -817,9 +817,9 @@ pub(crate) struct Sp {
 }
 
 impl Sp {
-    pub(crate) fn clean_room_ntsc_x105_post_boot() -> Self {
+    pub(crate) fn clean_room_ntsc_x105_post_boot(gpr4_value: u32) -> Self {
         Self {
-            rsp: MachineRspExecutionState::clean_room_ntsc_x105_post_boot(),
+            rsp: MachineRspExecutionState::clean_room_ntsc_x105_post_boot(gpr4_value),
             ..Self::default()
         }
     }

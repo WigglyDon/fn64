@@ -273,12 +273,22 @@ impl Machine {
         let side_data: [u8; MACHINE_CLEAN_ROOM_SIDE_DATA_BYTE_COUNT] = side_data
             .try_into()
             .expect("preflighted side-data span has one exact public-profile width");
+        let rsp_gpr4_bytes = read_cartridge_span(
+            &self.cartridge,
+            crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET,
+            crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_BYTE_COUNT,
+        )?;
+        let rsp_gpr4_value = u32::from_be_bytes(
+            rsp_gpr4_bytes
+                .try_into()
+                .expect("preflighted RSP GPR 4 source has one exact word width"),
+        );
         let cpu_plan = clean_room_cpu_plan(profile, entry_address, &payload, &side_data);
         let replacement_pi =
             Pi::clean_room_hle_cartridge_entry(self.cartridge.pi_domain_one_timing());
         let replacement_sp = match profile {
             MachineCleanRoomBootProfile::NtscX105Pinned => {
-                crate::sp::Sp::clean_room_ntsc_x105_post_boot()
+                crate::sp::Sp::clean_room_ntsc_x105_post_boot(rsp_gpr4_value)
             }
         };
 
@@ -527,6 +537,7 @@ mod tests {
 
     const GENERATED_ENTRY: u32 = 0x8000_1000;
     const GENERATED_ENTRY_INSTRUCTION: u32 = 0x2402_0042;
+    const GENERATED_RSP_GPR_4_VALUE: u32 = 0x1357_9bdf;
 
     fn write_be_u32(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
@@ -545,6 +556,11 @@ mod tests {
         bytes[0x3d] = b'L';
         bytes[0x3e] = 0x45;
         bytes[0x3f] = 1;
+        write_be_u32(
+            &mut bytes,
+            crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET as usize,
+            GENERATED_RSP_GPR_4_VALUE,
+        );
 
         for (index, word_bytes) in bytes
             [MACHINE_CLEAN_ROOM_CARTRIDGE_SOURCE_START_OFFSET as usize..]
@@ -567,17 +583,6 @@ mod tests {
     fn generated_machine(entry: u32, payload_variant: u32) -> Machine {
         let cartridge = load_cartridge(generated_cartridge(entry, payload_variant))
             .expect("generated cartridge should normalize");
-        Machine::from_cartridge(cartridge)
-    }
-
-    fn generated_machine_with_pi_timing(
-        entry: u32,
-        payload_variant: u32,
-        timing: CartridgePiDomain1Timing,
-    ) -> Machine {
-        let cartridge = load_cartridge(generated_cartridge(entry, payload_variant))
-            .expect("generated cartridge should normalize")
-            .with_generated_public_pi_domain_one_timing(timing);
         Machine::from_cartridge(cartridge)
     }
 
@@ -825,6 +830,18 @@ mod tests {
         assert_eq!(machine.rsp_scalar_register(0).unwrap().value(), Some(0));
         assert_eq!(
             machine
+                .rsp_scalar_register(crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_INDEX)
+                .unwrap(),
+            crate::rsp::MachineRspScalarRegisterState::Available {
+                value: GENERATED_RSP_GPR_4_VALUE,
+                source: crate::rsp::MachineRspScalarRegisterSource::CleanRoomHleNtscX105PinnedCartridgeBootstrapWord {
+                    cartridge_offset:
+                        crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET,
+                },
+            }
+        );
+        assert_eq!(
+            machine
                 .rsp_scalar_register(crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX)
                 .unwrap(),
             crate::rsp::MachineRspScalarRegisterState::Available {
@@ -834,7 +851,9 @@ mod tests {
             }
         );
         for index in 1..crate::rsp::RSP_SCALAR_REGISTER_COUNT {
-            if index != crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX {
+            if index != crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_INDEX
+                && index != crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX
+            {
                 assert_eq!(machine.rsp_scalar_register(index).unwrap().value(), None);
             }
         }
@@ -1051,8 +1070,28 @@ mod tests {
     fn clean_room_hle_staging_and_execution_are_machine_local() {
         let first_timing = CartridgePiDomain1Timing::from_header_configuration_word(0x9135_27c2);
         let second_timing = CartridgePiDomain1Timing::from_header_configuration_word(0xa64a_18fd);
-        let mut first = generated_machine_with_pi_timing(GENERATED_ENTRY, 0, first_timing);
-        let mut second = generated_machine_with_pi_timing(GENERATED_ENTRY, 1, second_timing);
+        let mut first_bytes = generated_cartridge(GENERATED_ENTRY, 0);
+        let mut second_bytes = generated_cartridge(GENERATED_ENTRY, 1);
+        write_be_u32(
+            &mut first_bytes,
+            crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET as usize,
+            0x2468_ace0,
+        );
+        write_be_u32(
+            &mut second_bytes,
+            crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET as usize,
+            0x1020_3040,
+        );
+        let mut first = Machine::from_cartridge(
+            load_cartridge(first_bytes)
+                .expect("generated cartridge should normalize")
+                .with_generated_public_pi_domain_one_timing(first_timing),
+        );
+        let mut second = Machine::from_cartridge(
+            load_cartridge(second_bytes)
+                .expect("generated cartridge should normalize")
+                .with_generated_public_pi_domain_one_timing(second_timing),
+        );
 
         first
             .stage_clean_room_cartridge_entry(MachineCleanRoomBootProfile::NtscX105Pinned)
@@ -1067,6 +1106,20 @@ mod tests {
         assert_ne!(
             domain_one_timing_states(&first),
             domain_one_timing_states(&second)
+        );
+        assert_eq!(
+            first
+                .rsp_scalar_register(crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_INDEX)
+                .unwrap()
+                .value(),
+            Some(0x2468_ace0)
+        );
+        assert_eq!(
+            second
+                .rsp_scalar_register(crate::rsp::RSP_NTSC_X105_POST_BOOT_GPR_4_INDEX)
+                .unwrap()
+                .value(),
+            Some(0x1020_3040)
         );
         let second_before = rejection_snapshot(&second);
         first.step().unwrap();

@@ -53,6 +53,9 @@ pub const RSP_VECTOR_COMPUTE_OPCODE: u8 = 0x12;
 pub const RSP_VECTOR_VSUB_FUNCTION: u8 = 0x11;
 pub const RSP_VECTOR_VADDC_FUNCTION: u8 = 0x14;
 pub const RSP_VECTOR_VXOR_FUNCTION: u8 = 0x2c;
+pub(crate) const RSP_NTSC_X105_POST_BOOT_GPR_4_INDEX: usize = 4;
+pub(crate) const RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET: u32 = 0x40;
+pub(crate) const RSP_NTSC_X105_POST_BOOT_GPR_4_BYTE_COUNT: usize = 4;
 pub(crate) const RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX: usize = 11;
 pub(crate) const RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE: u32 = 0;
 pub const RSP_VECTOR_LANE_COUNT: usize = 8;
@@ -146,6 +149,7 @@ impl MachineRspMfc0ResultSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MachineRspScalarRegisterSource {
     ArchitecturalZero,
+    CleanRoomHleNtscX105PinnedCartridgeBootstrapWord { cartridge_offset: u32 },
     CleanRoomHleNtscX105PinnedPostBoot,
     Mfc0(MachineRspMfc0ResultSource),
     Lui(Box<MachineRspLuiSource>),
@@ -2988,8 +2992,16 @@ pub(crate) struct MachineRspExecutionState {
 }
 
 impl MachineRspExecutionState {
-    pub(crate) fn clean_room_ntsc_x105_post_boot() -> Self {
+    pub(crate) fn clean_room_ntsc_x105_post_boot(gpr4_value: u32) -> Self {
         let mut state = Self::default();
+        state.scalar_registers[RSP_NTSC_X105_POST_BOOT_GPR_4_INDEX] =
+            MachineRspScalarRegisterState::Available {
+                value: gpr4_value,
+                source:
+                    MachineRspScalarRegisterSource::CleanRoomHleNtscX105PinnedCartridgeBootstrapWord {
+                        cartridge_offset: RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET,
+                    },
+            };
         state.scalar_registers[RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX] =
             MachineRspScalarRegisterState::Available {
                 value: RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE,
@@ -5256,14 +5268,24 @@ mod tests {
     }
 
     #[test]
-    fn clean_room_ntsc_x105_post_boot_stages_only_public_gpr_11_truth() {
+    fn clean_room_ntsc_x105_post_boot_stages_only_public_gpr_4_and_gpr_11_truth() {
+        const GENERATED_GPR_4_VALUE: u32 = 0x1357_9bdf;
         let mut expected = MachineRspExecutionState::default();
+        expected.scalar_registers[RSP_NTSC_X105_POST_BOOT_GPR_4_INDEX] =
+            MachineRspScalarRegisterState::Available {
+                value: GENERATED_GPR_4_VALUE,
+                source:
+                    MachineRspScalarRegisterSource::CleanRoomHleNtscX105PinnedCartridgeBootstrapWord {
+                        cartridge_offset: RSP_NTSC_X105_POST_BOOT_GPR_4_CARTRIDGE_OFFSET,
+                    },
+            };
         expected.scalar_registers[RSP_NTSC_X105_POST_BOOT_GPR_11_INDEX] =
             MachineRspScalarRegisterState::Available {
                 value: RSP_NTSC_X105_POST_BOOT_GPR_11_VALUE,
                 source: MachineRspScalarRegisterSource::CleanRoomHleNtscX105PinnedPostBoot,
             };
-        let staged = MachineRspExecutionState::clean_room_ntsc_x105_post_boot();
+        let staged =
+            MachineRspExecutionState::clean_room_ntsc_x105_post_boot(GENERATED_GPR_4_VALUE);
         assert_eq!(staged, expected);
         assert_eq!(staged.committed_instruction_count(), 0);
         assert_eq!(staged.next_pc(), None);
