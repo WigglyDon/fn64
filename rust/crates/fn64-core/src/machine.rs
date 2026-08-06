@@ -25674,8 +25674,9 @@ mod tests {
                 .rsp_rejection()
                 .unwrap()
                 .reason(),
-            MachineRspStepRejectionReason::UnrepresentedInstruction {
-                class: crate::rsp::MachineRspUnrepresentedInstructionClass::Vector,
+            MachineRspStepRejectionReason::VectorFunctionUnsupported {
+                function: 0,
+                element: 0,
             }
         );
         assert_eq!(lw_snapshot(&unavailable), before_consumer);
