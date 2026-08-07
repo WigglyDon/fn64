@@ -6,14 +6,14 @@ use fn64_core::{
     load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource, MachineBootstrapGprSource,
     MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCop0TlbOperationError,
     MachineCop1ControlTransferRejectionReason, MachineCpuInstructionFetchError,
-    MachineCpuInstructionInspection, MachineLoadWordRejectionReason, MachinePiDomain,
-    MachinePiDomainTimingField, MachinePiDomainTimingRegister, MachinePifIpl2HandoffBootMedium,
-    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspInstructionIdentity,
-    MachineRspStepRejectionReason, MachineRspVectorUnavailableSource,
-    MachineSpDmemByteKnowledgeSource, MachineSpDmemUnavailableSource, MachineSpStatusState,
-    MachineStepCpuLocalInvocationRejection, MachineStepProcessor, PifFirmwareClassification,
-    PifIpl2Profile, RDRAM_SIZE_BYTES,
+    MachineCpuInstructionInspection, MachineLoadWordRejectionReason, MachineLwc1RejectionReason,
+    MachinePiDomain, MachinePiDomainTimingField, MachinePiDomainTimingRegister,
+    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
+    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineRspInstructionIdentity, MachineRspStepRejectionReason,
+    MachineRspVectorUnavailableSource, MachineSpDmemByteKnowledgeSource,
+    MachineSpDmemUnavailableSource, MachineSpStatusState, MachineStepCpuLocalInvocationRejection,
+    MachineStepProcessor, PifFirmwareClassification, PifIpl2Profile, RDRAM_SIZE_BYTES,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -786,6 +786,12 @@ fn redacted_machine_step_error(
             rejection.kind().identity(),
             redacted_cop1_control_rejection_category(rejection.reason())
         ),
+        MachineRepresentedStepError::Lwc1Rejected(rejection) => {
+            let category = redacted_lwc1_rejection_category(rejection.reason());
+            format!(
+                "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity=Lwc1 category=lwc1-{category}"
+            )
+        }
         cpu_error => {
             let category = match cpu_error {
                 MachineRepresentedStepError::FetchRejected(_) => "fetch-rejected",
@@ -804,6 +810,9 @@ fn redacted_machine_step_error(
                 MachineRepresentedStepError::Cop1ControlTransferRejected(_) => unreachable!(
                     "COP1 control-transfer rejection was structurally classified above"
                 ),
+                MachineRepresentedStepError::Lwc1Rejected(_) => {
+                    unreachable!("Lwc1 rejection was structurally classified above")
+                }
                 MachineRepresentedStepError::CacheRejected(_) => "cache-rejected",
                 MachineRepresentedStepError::CpuLocalInvocationRejected(rejection) => {
                     redacted_cpu_local_invocation_rejection_category(machine, rejection)
@@ -931,6 +940,13 @@ fn redacted_cop1_control_rejection_category(
         }
         MachineCop1ControlTransferRejectionReason::StateUnavailable => "state-unavailable",
         MachineCop1ControlTransferRejectionReason::SourceUnavailable { .. } => "source-unavailable",
+    }
+}
+
+fn redacted_lwc1_rejection_category(reason: MachineLwc1RejectionReason) -> &'static str {
+    match reason {
+        MachineLwc1RejectionReason::CoprocessorUnusable { .. } => "coprocessor-unusable",
+        MachineLwc1RejectionReason::Fr1WordPlacementUnsupported => "fr1-word-placement-unsupported",
     }
 }
 
@@ -1659,6 +1675,22 @@ mod tests {
                 }
             ),
             "source-unavailable"
+        );
+    }
+
+    #[test]
+    fn lwc1_rejections_are_value_free_categories() {
+        assert_eq!(
+            redacted_lwc1_rejection_category(MachineLwc1RejectionReason::CoprocessorUnusable {
+                status: u32::MAX,
+            }),
+            "coprocessor-unusable"
+        );
+        assert_eq!(
+            redacted_lwc1_rejection_category(
+                MachineLwc1RejectionReason::Fr1WordPlacementUnsupported,
+            ),
+            "fr1-word-placement-unsupported"
         );
     }
 

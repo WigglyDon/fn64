@@ -7,7 +7,7 @@ use core::fmt;
 use fn64_core::cpu::address::CpuAddress;
 use fn64_core::{
     load_cartridge, CartridgeLoadError, CartridgeReadError, DirectRdramAccessError, Machine,
-    MachineDirectRdramCpuDataAccessError, RdramAccessError, RomSourceLayout,
+    MachineCop1FrMode, MachineDirectRdramCpuDataAccessError, RdramAccessError, RomSourceLayout,
     NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC, RDRAM_SIZE_BYTES,
 };
 
@@ -20,6 +20,59 @@ pub struct MachineProbeReport;
 impl MachineProbeReport {
     pub const fn output(&self) -> &'static str {
         MACHINE_PROBE_OUTPUT
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineCop1DataInspection {
+    fr_mode: MachineCop1FrMode,
+    available_word_count: u8,
+    unavailable_word_count: u8,
+    construction_unavailable_word_count: u8,
+    lwc1_word_count: u8,
+}
+
+impl MachineCop1DataInspection {
+    pub const fn fr_mode(self) -> MachineCop1FrMode {
+        self.fr_mode
+    }
+
+    pub const fn available_word_count(self) -> u8 {
+        self.available_word_count
+    }
+
+    pub const fn unavailable_word_count(self) -> u8 {
+        self.unavailable_word_count
+    }
+
+    pub const fn construction_unavailable_word_count(self) -> u8 {
+        self.construction_unavailable_word_count
+    }
+
+    pub const fn lwc1_word_count(self) -> u8 {
+        self.lwc1_word_count
+    }
+
+    pub fn output(self) -> String {
+        format!(
+            "COP1_DATA_INSPECTION: fr={:?} available_words={} unavailable_words={} construction_unavailable_words={} lwc1_words={}\n",
+            self.fr_mode,
+            self.available_word_count,
+            self.unavailable_word_count,
+            self.construction_unavailable_word_count,
+            self.lwc1_word_count
+        )
+    }
+}
+
+pub fn inspect_machine_cop1_data(machine: &Machine) -> MachineCop1DataInspection {
+    let summary = machine.cpu().cop1_data_word_summary();
+    MachineCop1DataInspection {
+        fr_mode: machine.cpu().cop1_fr_mode(),
+        available_word_count: summary.available_word_count(),
+        unavailable_word_count: summary.unavailable_word_count(),
+        construction_unavailable_word_count: summary.construction_unavailable_word_count(),
+        lwc1_word_count: summary.lwc1_word_count(),
     }
 }
 
@@ -258,5 +311,25 @@ mod tests {
         assert!(!first.output().contains("execute"));
         assert!(!first.output().contains("SDL"));
         assert!(!first.output().contains("window runtime"));
+    }
+
+    #[test]
+    fn cop1_data_inspection_is_value_free_and_selector_free() {
+        let machine = Machine::from_cartridge(fn64_core::Cartridge::default());
+        let inspection = inspect_machine_cop1_data(&machine);
+        let output = inspection.output();
+
+        assert_eq!(inspection.fr_mode(), MachineCop1FrMode::Fr0);
+        assert_eq!(inspection.available_word_count(), 0);
+        assert_eq!(inspection.unavailable_word_count(), 32);
+        assert_eq!(inspection.construction_unavailable_word_count(), 32);
+        assert_eq!(inspection.lwc1_word_count(), 0);
+        assert_eq!(
+            output,
+            "COP1_DATA_INSPECTION: fr=Fr0 available_words=0 unavailable_words=32 construction_unavailable_words=32 lwc1_words=0\n"
+        );
+        assert!(!output.contains("0x"));
+        assert!(!output.contains("payload"));
+        assert!(!output.contains("selector"));
     }
 }

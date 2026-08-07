@@ -36,8 +36,10 @@ pub use cache::{
     PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
 pub use cop1::{
-    MachineCop1Fcr31Source, MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance,
-    COP1_FCR31_DEFINED_FIELDS_MASK,
+    MachineCop1DataWordAvailability, MachineCop1DataWordSource, MachineCop1DataWordState,
+    MachineCop1DataWordSummary, MachineCop1Fcr31Source, MachineCop1Fcr31State,
+    MachineCop1Fcr31WriteProvenance, MachineCop1FrMode, MachineCop1Lwc1Provenance,
+    COP1_FCR31_DEFINED_FIELDS_MASK, COP1_FGR_COUNT,
 };
 #[cfg(test)]
 pub(crate) use instruction::CpuLocalExecutedHelperFamily;

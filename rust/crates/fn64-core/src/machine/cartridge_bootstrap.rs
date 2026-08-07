@@ -968,6 +968,11 @@ const fn bootstrap_gpr_access(
             source_b: None,
             destination: Some(fields.rt()),
         },
+        Lwc1 => BootstrapGprAccess {
+            source_a: Some(fields.rs()),
+            source_b: None,
+            destination: None,
+        },
         Cop0Mfc0 => BootstrapGprAccess {
             source_a: None,
             source_b: None,
