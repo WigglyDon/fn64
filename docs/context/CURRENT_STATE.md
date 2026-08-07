@@ -99,11 +99,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   pass the prior 37-commit frontier. The first genuine task commits 52 RSP
   instructions before attempt 13,507,920 selects exact element-zero `Sqv` and
   rejects atomically because its source vector is still construction/reset
-  unavailable; 13,507,173 total Machine steps have committed. No public
-  profile, cartridge fact, or executed guest action supplies that vector's
+  unavailable; 13,507,173 total Machine steps have committed. Exact demand
+  planning proves this aligned live store consumes the contiguous byte-zero
+  prefix of all sixteen source bytes. A value-free destination-write audit
+  finds no earlier committed guest vector producer for the source. No public
+  profile, cartridge fact, or executed guest action supplies the demanded
   bytes, so fn64 does not fabricate a task-input value. No private path,
-  basename, instruction word, task bytes, register snapshot, title, or digest
-  entered source, context, or output.
+  basename, instruction word, vector value or identity, task bytes, register
+  snapshot, title, or digest entered source, context, or output.
 - `LIVE_REPO_FACT`: exact RSP scalar `J` owns one local jump plus one separate
   delay-slot commit; exact scalar `Jr` reads one Available old scalar source,
   masks it to the aligned twelve-bit local instruction range, writes no link,
@@ -116,10 +119,14 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   accumulator or flags. Exact element-zero `Sqv` stores the Available vector
   prefix ending at the current sixteen-byte DMEM boundary, using low-twelve-bit
   address arithmetic and typed per-byte provenance; unavailable vector input
-  rejects before mutation. Exact RSP control transfers also route MTC0
-  SP_STATUS and SP_SEMAPHORE plus MFC0 SP_DMA_FULL and SP_STATUS through their
-  existing `Sp` owners. No generic scalar/vector ALU, control bank, vector
-  memory framework, DMA timing, or new Mi/Dpc runtime policy was added.
+  rejects before mutation and now carries the exact demanded prefix count.
+  Generated proof covers all sixteen address-alignment classes. The private
+  probe retains only an anonymous, value-free last-writer audit for vector
+  destinations. Exact RSP control transfers also route MTC0 SP_STATUS and
+  SP_SEMAPHORE plus MFC0 SP_DMA_FULL and SP_STATUS through their existing `Sp`
+  owners. No partial vector-value model, reset-zero assumption, generic
+  scalar/vector ALU, control bank, vector-memory framework, DMA timing, or new
+  Mi/Dpc runtime policy was added.
 - `LIVE_REPO_FACT`: each Machine now owns 4 KiB of SP IMEM with explicit
   construction/reset, byte knownness independent of zero backing, and a narrow
   CPU-data route for the represented physical range. Complete aligned `Lw`
@@ -771,7 +778,8 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   target. Fresh clean-room execution now reproduces BOOT-2, passes exact scalar
   `Jr` plus its single delay slot, commits 52 genuine first-task RSP
   instructions, and stops atomically when exact element-zero `Sqv` requires a
-  construction/reset-unavailable vector source with no lawful current producer.
+  full sixteen-byte construction/reset-unavailable vector source. A value-free
+  audit proves no earlier guest vector write produced it.
   No original-PIF execution, second task, DPC/RDP execution, rendering, or
   compatibility fact is claimed.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.

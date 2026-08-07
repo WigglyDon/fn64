@@ -30,9 +30,11 @@ history.
   A fresh `HISTORICAL_BOOT2_USER_CARTRIDGE` clean-room run now commits
   through BOOT-2 and 52 instructions of the first genuine RSP task, including
   exact scalar `Jr` and its one delay slot. It then stops atomically when exact
-  element-zero `Sqv` requires a construction/reset-unavailable source vector.
-  That route makes no authentic-PIF execution, task completion, DPC/RDP
-  execution, or compatibility claim.
+  element-zero `Sqv` requires all sixteen bytes of a
+  construction/reset-unavailable source vector. An anonymous destination-write
+  audit proves no earlier committed guest vector instruction produced it. That
+  route makes no authentic-PIF execution, task completion, DPC/RDP execution,
+  or compatibility claim.
 
 ## Represented owners
 
@@ -122,8 +124,11 @@ DMEM boundary, so aligned addresses write sixteen bytes and later addresses
 write the corresponding prefix. The complete destination range is planned
 before one atomic `SpDmem` commit, and every byte records exact instruction,
 base, vector-source, and source-byte provenance. Unavailable base or vector
-truth, nonzero elements, or malformed ranges reject before mutation. Other
-vector-memory forms remain closed; no timing or generic COP2 layer is implied.
+truth, nonzero elements, or malformed ranges reject before mutation. Exact
+demand is derived before the vector availability gate, so rejection names the
+one-to-sixteen-byte prefix without exposing vector values; generated proof
+covers every low address-nibble class. Other vector-memory forms remain closed;
+no timing or generic COP2 layer is implied.
 
 Exact scalar RSP LW and SW are represented only for four-byte-aligned local
 DMEM addresses and Available scalar inputs. Both add a sign-extended 16-bit
@@ -1170,12 +1175,16 @@ Value-free pressure output names only attempt/commit cadence, decoded
 architecture identity, public owner class, and rejection category. Attempt
 13,507,920 selects exact element-zero `Sqv`; it rejects atomically after
 13,507,173 committed Machine steps because its source vector is still
-construction/reset unavailable. The first task has not reached Break, and no
-second task, DPC/RDP execution, rendering, or compatibility claim is earned.
+construction/reset unavailable. The live address is aligned, so exact demand is
+the contiguous byte-zero prefix of all sixteen bytes. The value-free audit
+finds no earlier committed guest vector destination for that source. The first
+task has not reached Break, and no second task, DPC/RDP execution, rendering,
+or compatibility claim is earned.
 
 Generated public tests cover the PI four-field extraction/readback tuple,
 PageMask and RSP r4/r11 HLE facts, every added scalar/vector/control identity,
 JR target masking and one-slot cadence, exact SQV quad-boundary writes,
+all sixteen SQV demand-alignment classes, anonymous producer reporting,
 read-before-write and r0 behavior, accumulator/flag preservation, DMEM byte
 provenance, selected-step atomic rejection, and independent Machines. No
 selected cartridge value or task byte is a test fixture.

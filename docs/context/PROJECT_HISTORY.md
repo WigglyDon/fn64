@@ -1040,6 +1040,23 @@ product or reference lane requires a new explicit product decision.
   rendering, audio, BOOT-3, original-PIF execution, and game compatibility
   remain unearned.
 
+## Era 53 — Exact Sqv demand and value-free producer audit (2026-08-07)
+
+- Demand ownership: Sqv now derives its exact one-to-sixteen-byte source prefix
+  before testing vector availability. Generated public proof covers every low
+  address-nibble class and preserves rejection atomicity.
+- Inspection ownership: the no-window user-cartridge probe records only
+  anonymous committed vector-destination identities, cadence, and result
+  availability. It emits no vector index, value, address, word, or task byte.
+- Runtime result: a fresh firmware-free run reproduces BOOT-2 and the prior 52
+  first-task commits. The selected aligned Sqv demands all sixteen source bytes;
+  no earlier committed guest vector write produced them, and their state remains
+  construction/reset unavailable.
+- Boundary: no vector value, partial availability, or reset-zero assumption was
+  introduced. The first task remains stopped before Sqv and Break; later task
+  execution, DPC/RDP work, rendering, audio, BOOT-3, original-PIF execution, and
+  game compatibility remain unearned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but
