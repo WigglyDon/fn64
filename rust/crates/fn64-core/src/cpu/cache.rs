@@ -1,4 +1,5 @@
 use super::address::CpuAddress;
+use super::cop1::MachineCop1DataWordSourceKind;
 use super::Cpu;
 use crate::machine::MachineBootstrapGprSource;
 
@@ -374,11 +375,25 @@ pub enum MachinePrimaryDataCacheStoreWidth {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum MachinePrimaryDataCacheStoreSource {
+    CpuGpr {
+        register_index: u8,
+        lineage: MachineBootstrapGprSource,
+    },
+    Cop1DataWord {
+        selector: u8,
+        source_kind: MachineCop1DataWordSourceKind,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachinePrimaryDataCacheStoreProvenance {
     instruction_pc: CpuAddress,
     raw_instruction_word: u32,
-    source_gpr: u8,
-    source_lineage: MachineBootstrapGprSource,
+    source_register: u8,
+    source_lineage: Option<MachineBootstrapGprSource>,
+    cop1_source_kind: Option<MachineCop1DataWordSourceKind>,
     effective_address: u64,
     cpu_address: CpuAddress,
     physical_address: u32,
@@ -478,8 +493,35 @@ impl MachinePrimaryDataCacheStoreProvenance {
         Self {
             instruction_pc,
             raw_instruction_word,
-            source_gpr,
-            source_lineage,
+            source_register: source_gpr,
+            source_lineage: Some(source_lineage),
+            cop1_source_kind: None,
+            effective_address,
+            cpu_address,
+            physical_address,
+            width,
+            delay_slot_owner,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn from_cop1_data_word(
+        instruction_pc: CpuAddress,
+        raw_instruction_word: u32,
+        selector: u8,
+        source_kind: MachineCop1DataWordSourceKind,
+        effective_address: u64,
+        cpu_address: CpuAddress,
+        physical_address: u32,
+        width: MachinePrimaryDataCacheStoreWidth,
+        delay_slot_owner: Option<CpuAddress>,
+    ) -> Self {
+        Self {
+            instruction_pc,
+            raw_instruction_word,
+            source_register: selector,
+            source_lineage: None,
+            cop1_source_kind: Some(source_kind),
             effective_address,
             cpu_address,
             physical_address,
@@ -496,12 +538,36 @@ impl MachinePrimaryDataCacheStoreProvenance {
         self.raw_instruction_word
     }
 
-    pub const fn source_gpr(self) -> u8 {
-        self.source_gpr
+    pub const fn source(self) -> MachinePrimaryDataCacheStoreSource {
+        match (self.source_lineage, self.cop1_source_kind) {
+            (Some(lineage), None) => MachinePrimaryDataCacheStoreSource::CpuGpr {
+                register_index: self.source_register,
+                lineage,
+            },
+            (None, Some(source_kind)) => MachinePrimaryDataCacheStoreSource::Cop1DataWord {
+                selector: self.source_register,
+                source_kind,
+            },
+            _ => panic!("primary data cache store source invariant violated"),
+        }
     }
 
-    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+    pub const fn source_gpr(self) -> Option<u8> {
+        match self.cop1_source_kind {
+            None => Some(self.source_register),
+            Some(_) => None,
+        }
+    }
+
+    pub const fn source_lineage(self) -> Option<MachineBootstrapGprSource> {
         self.source_lineage
+    }
+
+    pub const fn cop1_data_word_source(self) -> Option<(u8, MachineCop1DataWordSourceKind)> {
+        match self.cop1_source_kind {
+            Some(source_kind) => Some((self.source_register, source_kind)),
+            None => None,
+        }
     }
 
     pub const fn effective_address(self) -> u64 {

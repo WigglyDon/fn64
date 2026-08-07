@@ -748,6 +748,7 @@ pub enum MachineStoreWordRejectionReason {
         register_index: u8,
         source: MachineBootstrapGprSource,
     },
+    Cop1SourceUnavailable,
     NonDirectUnsupported,
     DirectTargetMiss,
     UnsupportedTarget {
@@ -924,7 +925,8 @@ impl fmt::Display for MachineStoreWordRejection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Sw rejected before mutation: effective_address={:?} cpu_address={:?} target={:?} reason={:?}",
+            "{:?} rejected before mutation: effective_address={:?} cpu_address={:?} target={:?} reason={:?}",
+            self.identity,
             self.effective_address,
             self.cpu_address.map(CpuAddress::value),
             self.target,
@@ -1746,7 +1748,6 @@ pub(crate) const fn classify_step_unsupported_instruction(
         | CpuInstructionIdentity::Cop3
         | CpuInstructionIdentity::Lwc2
         | CpuInstructionIdentity::Ldc2
-        | CpuInstructionIdentity::Swc1
         | CpuInstructionIdentity::Swc2
         | CpuInstructionIdentity::Sdc1
         | CpuInstructionIdentity::Sdc2 => {
@@ -1754,7 +1755,8 @@ pub(crate) const fn classify_step_unsupported_instruction(
         }
         CpuInstructionIdentity::Cache
         | CpuInstructionIdentity::Lwc1
-        | CpuInstructionIdentity::Ldc1 => None,
+        | CpuInstructionIdentity::Ldc1
+        | CpuInstructionIdentity::Swc1 => None,
         _ => None,
     };
 
@@ -2676,6 +2678,7 @@ impl std::error::Error for MachineLoadWordStepApplicationError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MachineStoreWordCommitPlan {
+    identity: CpuInstructionIdentity,
     fields: CpuInstructionFields,
     execution_address: CpuAddress,
     effective_address: u64,
@@ -2851,6 +2854,7 @@ struct MachineSpWriteDmaPlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MachineStoreWordAddressErrorPlan {
+    identity: CpuInstructionIdentity,
     fields: CpuInstructionFields,
     effective_address: u64,
     address_error: CpuDataAddressError,
@@ -4049,6 +4053,13 @@ impl MachineCoprocessorUnusableExceptionPlan {
             coprocessor: COP1_COPROCESSOR_NUMBER,
         }
     }
+
+    const fn cop1_swc1() -> Self {
+        Self {
+            identity: CpuInstructionIdentity::Swc1,
+            coprocessor: COP1_COPROCESSOR_NUMBER,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4203,6 +4214,15 @@ pub enum MachineRepresentedStepOutcome {
         target: MachineLoadWordTarget,
         fr_mode: MachineCop1FrMode,
         destination_availability: MachineCop1DataWordAvailability,
+        data_cache_hit: Option<bool>,
+        data_cache_writeback: bool,
+        cadence_plan: MachineStepCadencePlan,
+    },
+    Cop1StoreWordCommitted {
+        effective_address: u64,
+        target: MachineStoreWordTarget,
+        fr_mode: MachineCop1FrMode,
+        source_availability: MachineCop1DataWordAvailability,
         data_cache_hit: Option<bool>,
         data_cache_writeback: bool,
         cadence_plan: MachineStepCadencePlan,
@@ -4610,25 +4630,49 @@ impl MachineRepresentedStepOutcome {
                 | MachineStoreWordMutationPlan::RdramModuleMode { .. }
                 | MachineStoreWordMutationPlan::RdramGlobalMode { .. }
                 | MachineStoreWordMutationPlan::RdramModuleRasInterval { .. } => {
-                    Self::RdramStoreWordCommitted {
-                        effective_address: plan.effective_address,
-                        target: plan.target,
-                        source_gpr: plan.fields.rt(),
-                        stored_word: plan.known_stored_word(),
-                        data_cache_hit: None,
-                        data_cache_writeback: false,
-                        cadence_plan,
+                    if plan.identity == CpuInstructionIdentity::Swc1 {
+                        Self::Cop1StoreWordCommitted {
+                            effective_address: plan.effective_address,
+                            target: plan.target,
+                            fr_mode: MachineCop1FrMode::Fr0,
+                            source_availability: MachineCop1DataWordAvailability::Available,
+                            data_cache_hit: None,
+                            data_cache_writeback: false,
+                            cadence_plan,
+                        }
+                    } else {
+                        Self::RdramStoreWordCommitted {
+                            effective_address: plan.effective_address,
+                            target: plan.target,
+                            source_gpr: plan.fields.rt(),
+                            stored_word: plan.known_stored_word(),
+                            data_cache_hit: None,
+                            data_cache_writeback: false,
+                            cadence_plan,
+                        }
                     }
                 }
                 MachineStoreWordMutationPlan::CachedRdram { cache_plan, .. } => {
-                    Self::RdramStoreWordCommitted {
-                        effective_address: plan.effective_address,
-                        target: plan.target,
-                        source_gpr: plan.fields.rt(),
-                        stored_word: plan.known_stored_word(),
-                        data_cache_hit: Some(cache_plan.cache_hit()),
-                        data_cache_writeback: cache_plan.writeback().is_some(),
-                        cadence_plan,
+                    if plan.identity == CpuInstructionIdentity::Swc1 {
+                        Self::Cop1StoreWordCommitted {
+                            effective_address: plan.effective_address,
+                            target: plan.target,
+                            fr_mode: MachineCop1FrMode::Fr0,
+                            source_availability: MachineCop1DataWordAvailability::Available,
+                            data_cache_hit: Some(cache_plan.cache_hit()),
+                            data_cache_writeback: cache_plan.writeback().is_some(),
+                            cadence_plan,
+                        }
+                    } else {
+                        Self::RdramStoreWordCommitted {
+                            effective_address: plan.effective_address,
+                            target: plan.target,
+                            source_gpr: plan.fields.rt(),
+                            stored_word: plan.known_stored_word(),
+                            data_cache_hit: Some(cache_plan.cache_hit()),
+                            data_cache_writeback: cache_plan.writeback().is_some(),
+                            cadence_plan,
+                        }
                     }
                 }
                 MachineStoreWordMutationPlan::SpDmem { .. }
@@ -4817,7 +4861,7 @@ impl MachineRepresentedStepOutcome {
             MachineClassifiedStepActionApplication::StoreWord(
                 MachineStoreWordStepApplication::DataAddressError { plan, cadence_plan },
             ) => Self::DataAddressError {
-                identity: CpuInstructionIdentity::Sw,
+                identity: plan.identity,
                 effective_address: plan.effective_address,
                 address_error: plan.address_error,
                 cadence_plan,
@@ -5084,6 +5128,7 @@ impl MachineRepresentedStepOutcome {
             Self::LoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lw),
             Self::Cop1LoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lwc1),
             Self::Cop1LoadDoublewordCommitted { .. } => Some(CpuInstructionIdentity::Ldc1),
+            Self::Cop1StoreWordCommitted { .. } => Some(CpuInstructionIdentity::Swc1),
             Self::LoadDoublewordCommitted { .. } => Some(CpuInstructionIdentity::Ld),
             Self::OpaqueSpImemLoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lw),
             Self::StoreWordCommitted { .. }
@@ -5134,6 +5179,7 @@ impl MachineRepresentedStepOutcome {
             | Self::LoadWordCommitted { cadence_plan, .. }
             | Self::Cop1LoadWordCommitted { cadence_plan, .. }
             | Self::Cop1LoadDoublewordCommitted { cadence_plan, .. }
+            | Self::Cop1StoreWordCommitted { cadence_plan, .. }
             | Self::LoadDoublewordCommitted { cadence_plan, .. }
             | Self::OpaqueSpImemLoadWordCommitted { cadence_plan, .. }
             | Self::StoreWordCommitted { cadence_plan, .. }
@@ -5186,6 +5232,7 @@ impl MachineRepresentedStepOutcome {
             | Self::LoadWordCommitted { .. }
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
+            | Self::Cop1StoreWordCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -5237,6 +5284,7 @@ impl MachineRepresentedStepOutcome {
             | Self::LoadWordCommitted { .. }
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
+            | Self::Cop1StoreWordCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -5288,6 +5336,7 @@ impl MachineRepresentedStepOutcome {
             | Self::LoadWordCommitted { .. }
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
+            | Self::Cop1StoreWordCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -5339,6 +5388,7 @@ impl MachineRepresentedStepOutcome {
             | Self::LoadWordCommitted { .. }
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
+            | Self::Cop1StoreWordCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -9016,6 +9066,188 @@ impl Machine {
         self.sp.apply_dma(record);
     }
 
+    fn produce_cop1_store_word_step_action(
+        &self,
+        execution_address: CpuAddress,
+        fields: CpuInstructionFields,
+    ) -> Result<MachineStoreWordStepAction, MachineStoreWordRejection> {
+        let identity = CpuInstructionIdentity::Swc1;
+        let base_source = self.store_word_gpr_source(fields.rs());
+        if !base_source.is_known() {
+            return Err(MachineStoreWordRejection::new_for_identity(
+                identity,
+                fields,
+                None,
+                None,
+                None,
+                MachineStoreWordRejectionReason::BaseSourceUnavailable {
+                    register_index: fields.rs(),
+                    source: base_source,
+                },
+            ));
+        }
+
+        let base_value = self
+            .cpu
+            .gpr(usize::from(fields.rs()))
+            .expect("decoded CPU register index is five bits");
+        let effective_address =
+            base_value.wrapping_add_signed(i64::from(fields.immediate_u16() as i16));
+        let cpu_address = CpuAddress::new(effective_address as u32);
+
+        if let Err(alignment_error) =
+            check_cpu_data_alignment(CpuDataAccessKind::Write, cpu_address, CpuDataWidth::Word)
+        {
+            return Ok(MachineStoreWordStepAction::EnterDataAddressError(
+                MachineStoreWordAddressErrorPlan {
+                    identity,
+                    fields,
+                    effective_address,
+                    address_error: select_cpu_data_address_error(alignment_error),
+                },
+            ));
+        }
+
+        let CpuAddressTarget::DirectRdram(offset) =
+            classify_direct_rdram_address(cpu_address, CPU_DATA_WORD_WIDTH)
+        else {
+            let reason = if translate_direct_cpu_physical_address(cpu_address).is_some() {
+                MachineStoreWordRejectionReason::DirectTargetMiss
+            } else {
+                MachineStoreWordRejectionReason::NonDirectUnsupported
+            };
+            return Err(MachineStoreWordRejection::new_for_identity(
+                identity,
+                fields,
+                Some(effective_address),
+                Some(cpu_address),
+                None,
+                reason,
+            ));
+        };
+        let target = MachineStoreWordTarget::DirectRdram { offset };
+
+        let source_state = self
+            .cpu
+            .cop1_data_word_state(usize::from(fields.rt()))
+            .expect("decoded COP1 selector is five bits");
+        let Some(stored_word) = source_state.raw_word() else {
+            return Err(MachineStoreWordRejection::new_for_identity(
+                identity,
+                fields,
+                Some(effective_address),
+                Some(cpu_address),
+                Some(target),
+                MachineStoreWordRejectionReason::Cop1SourceUnavailable,
+            ));
+        };
+
+        let physical_address = offset.value();
+        let mutation = if (0x8000_0000..=0x9fff_ffff).contains(&cpu_address.value()) {
+            let physical_line_address =
+                physical_address & !((PRIMARY_DATA_CACHE_LINE_SIZE_BYTES as u32) - 1);
+            let mut data = [0_u8; PRIMARY_DATA_CACHE_LINE_SIZE_BYTES];
+            for (index, byte) in data.iter_mut().enumerate() {
+                *byte = self
+                    .rdram
+                    .read_u8(physical_line_address as usize + index)
+                    .map_err(|_| {
+                        MachineStoreWordRejection::new_for_identity(
+                            identity,
+                            fields,
+                            Some(effective_address),
+                            Some(cpu_address),
+                            Some(target),
+                            MachineStoreWordRejectionReason::PrimaryDataCacheBackingRejected,
+                        )
+                    })?;
+            }
+            let cache_plan = self
+                .cpu
+                .plan_primary_data_cache_store_word(
+                    cpu_address,
+                    physical_address,
+                    data,
+                    stored_word,
+                    MachinePrimaryDataCacheStoreProvenance::from_cop1_data_word(
+                        execution_address,
+                        fields.raw().bits(),
+                        fields.rt(),
+                        source_state.source().kind(),
+                        effective_address,
+                        cpu_address,
+                        physical_address,
+                        MachinePrimaryDataCacheStoreWidth::Word,
+                        self.cpu
+                            .delay_slot_context()
+                            .map(|context| CpuAddress::new(context.branch_or_jump_pc())),
+                    ),
+                )
+                .map_err(|_| {
+                    MachineStoreWordRejection::new_for_identity(
+                        identity,
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::PrimaryDataCacheStateUnavailable,
+                    )
+                })?;
+            if let Some(writeback) = cache_plan.writeback() {
+                self.rdram
+                    .require_u8_offset(
+                        writeback.physical_line_address() as usize
+                            + PRIMARY_DATA_CACHE_LINE_SIZE_BYTES
+                            - 1,
+                    )
+                    .map_err(|_| {
+                        MachineStoreWordRejection::new_for_identity(
+                            identity,
+                            fields,
+                            Some(effective_address),
+                            Some(cpu_address),
+                            Some(target),
+                            MachineStoreWordRejectionReason::PrimaryDataCacheBackingRejected,
+                        )
+                    })?;
+            }
+            MachineStoreWordMutationPlan::CachedRdram {
+                offset,
+                stored_word,
+                cache_plan,
+            }
+        } else {
+            self.rdram
+                .require_u32_be_offset(offset.as_usize())
+                .map_err(|_| {
+                    MachineStoreWordRejection::new_for_identity(
+                        identity,
+                        fields,
+                        Some(effective_address),
+                        Some(cpu_address),
+                        Some(target),
+                        MachineStoreWordRejectionReason::DirectTargetMiss,
+                    )
+                })?;
+            MachineStoreWordMutationPlan::DirectRdram {
+                offset,
+                stored_word,
+            }
+        };
+
+        Ok(MachineStoreWordStepAction::Commit(
+            MachineStoreWordCommitPlan {
+                identity,
+                fields,
+                execution_address,
+                effective_address,
+                target,
+                stored_word: Some(stored_word),
+                mutation,
+            },
+        ))
+    }
+
     fn produce_store_word_step_action(
         &self,
         execution_address: CpuAddress,
@@ -9048,6 +9280,7 @@ impl Machine {
         {
             return Ok(MachineStoreWordStepAction::EnterDataAddressError(
                 MachineStoreWordAddressErrorPlan {
+                    identity: CpuInstructionIdentity::Sw,
                     fields,
                     effective_address,
                     address_error: select_cpu_data_address_error(alignment_error),
@@ -9149,6 +9382,7 @@ impl Machine {
                     })?;
                 return Ok(MachineStoreWordStepAction::Commit(
                     MachineStoreWordCommitPlan {
+                        identity: CpuInstructionIdentity::Sw,
                         fields,
                         execution_address,
                         effective_address,
@@ -10226,6 +10460,7 @@ impl Machine {
 
         Ok(MachineStoreWordStepAction::Commit(
             MachineStoreWordCommitPlan {
+                identity: CpuInstructionIdentity::Sw,
                 fields,
                 execution_address,
                 effective_address,
@@ -11945,6 +12180,45 @@ impl Machine {
             };
         }
 
+        if identity == CpuInstructionIdentity::Swc1 {
+            if (self.cpu.cop0_status() & COP0_STATUS_COP1_USABLE) == 0 {
+                return Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::CoprocessorUnusableException(
+                        MachineCoprocessorUnusableExceptionPlan::cop1_swc1(),
+                    ),
+                ));
+            }
+            if self.cpu.cop1_fr_mode() != MachineCop1FrMode::Fr0 {
+                return Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::NonCpuLocalFrontier(
+                        MachineNonCpuLocalStepFrontierAction::Unsupported(
+                            MachineStepUnsupportedInstruction::new(
+                                fields,
+                                identity,
+                                MachineStepUnsupportedInstructionCategory::CoprocessorUnimplemented,
+                            ),
+                        ),
+                    ),
+                ));
+            }
+            let execution_address = CpuAddress::new(control_flow_snapshot.pc());
+            return match self.produce_cop1_store_word_step_action(execution_address, fields) {
+                Ok(action) => Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::StoreWord(action),
+                )),
+                Err(rejection) => {
+                    self.cpu.restore_control_flow(control_flow_snapshot);
+                    Err(MachineCurrentPcClassifiedStepActionError::StoreWordRejected(rejection))
+                }
+            };
+        }
+
         if let Some(instruction) = classify_step_unsupported_instruction(fields, identity) {
             return Ok(MachineCurrentPcClassifiedStepAction::new(
                 control_flow_snapshot,
@@ -13320,6 +13594,10 @@ mod tests {
 
     fn ldc1_word(base: u8, destination: u8, immediate: u16) -> u32 {
         immediate_word(0x35, base, destination, immediate)
+    }
+
+    fn swc1_word(base: u8, source: u8, immediate: u16) -> u32 {
+        immediate_word(0x39, base, source, immediate)
     }
 
     const COP0_STATUS_EXL: u32 = 0x0000_0002;
@@ -17846,11 +18124,6 @@ mod tests {
                 MachineStepUnsupportedInstructionCategory::CoprocessorUnimplemented,
             ),
             (
-                instruction_fields(0xe400_0000),
-                CpuInstructionIdentity::Swc1,
-                MachineStepUnsupportedInstructionCategory::CoprocessorUnimplemented,
-            ),
-            (
                 instruction_fields(0xe800_0000),
                 CpuInstructionIdentity::Swc2,
                 MachineStepUnsupportedInstructionCategory::CoprocessorUnimplemented,
@@ -17976,6 +18249,10 @@ mod tests {
         let ldc1 = instruction_fields(0xd400_0000);
         assert_eq!(identify_cpu_instruction(ldc1), CpuInstructionIdentity::Ldc1);
         assert_eq!(classify_step_unsupported_instruction(ldc1), None);
+
+        let swc1 = instruction_fields(0xe400_0000);
+        assert_eq!(identify_cpu_instruction(swc1), CpuInstructionIdentity::Swc1);
+        assert_eq!(classify_step_unsupported_instruction(swc1), None);
     }
 
     #[test]
@@ -35804,6 +36081,217 @@ mod tests {
         assert_eq!(
             cu1_clear.cpu().cop1_data_word_state(6).unwrap(),
             MachineCop1DataWordState::construction_unavailable()
+        );
+    }
+
+    #[test]
+    fn swc1_fr0_stores_exact_raw_word_through_cached_and_uncached_rdram() {
+        let raw_word = 0x7fa1_2345;
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x8000)),
+            (0x44, lwc1_word(8, 6, 0)),
+            (0x48, swc1_word(8, 6, 4)),
+            (0x4c, immediate_word(0x23, 8, 10, 4)),
+        ];
+        let mut cached = staged_public_synthetic_cold_x105_machine(&words);
+        cached.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        cached.write_rdram_u32_be(0, raw_word).unwrap();
+        cached.write_rdram_u32_be(4, 0x1122_3344).unwrap();
+        cached.step().unwrap();
+        cached.step().unwrap();
+        let source_before = cached.cpu().cop1_data_word_state(6).unwrap();
+        let fcr31_before = cached.cpu().cop1_fcr31_state();
+        let gprs_before: [u64; CPU_GPR_COUNT] =
+            core::array::from_fn(|index| cached.cpu().gpr(index).unwrap());
+
+        assert!(matches!(
+            cached.step().unwrap(),
+            MachineRepresentedStepOutcome::Cop1StoreWordCommitted {
+                target: MachineStoreWordTarget::DirectRdram { offset },
+                fr_mode: MachineCop1FrMode::Fr0,
+                source_availability: MachineCop1DataWordAvailability::Available,
+                data_cache_hit: Some(true),
+                data_cache_writeback: false,
+                cadence_plan,
+                ..
+            } if offset.value() == 4 && cadence_plan.advances_count()
+        ));
+        assert_eq!(cached.cpu().cop1_data_word_state(6), Some(source_before));
+        assert_eq!(cached.cpu().cop1_fcr31_state(), fcr31_before);
+        assert_eq!(
+            core::array::from_fn(|index| cached.cpu().gpr(index).unwrap()),
+            gprs_before
+        );
+        let line = cached
+            .cpu()
+            .primary_caches()
+            .data_line(primary_data_cache_line_index(4))
+            .unwrap();
+        assert_eq!(&line.data().unwrap()[4..8], &raw_word.to_be_bytes());
+        let provenance = line.store_provenance().unwrap();
+        assert_eq!(provenance.source_gpr(), None);
+        assert_eq!(provenance.source_lineage(), None);
+        assert_eq!(
+            provenance.cop1_data_word_source(),
+            Some((6, source_before.source().kind()))
+        );
+        assert!(matches!(
+            cached.step().unwrap(),
+            MachineRepresentedStepOutcome::LoadWordCommitted {
+                loaded_word,
+                result_value,
+                data_cache_hit: Some(true),
+                ..
+            } if loaded_word == raw_word && result_value == u64::from(raw_word)
+        ));
+
+        let uncached_words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x8000)),
+            (0x44, lwc1_word(8, 9, 0)),
+            (0x48, immediate_word(0x0f, 0, 9, 0xa000)),
+            (0x4c, swc1_word(9, 9, 4)),
+        ];
+        let mut uncached = staged_public_synthetic_cold_x105_machine(&uncached_words);
+        uncached.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        uncached.write_rdram_u32_be(0, raw_word).unwrap();
+        uncached.write_rdram_u32_be(4, 0).unwrap();
+        uncached.step().unwrap();
+        uncached.step().unwrap();
+        uncached.step().unwrap();
+        let source_before = uncached.cpu().cop1_data_word_state(9).unwrap();
+        assert!(matches!(
+            uncached.step().unwrap(),
+            MachineRepresentedStepOutcome::Cop1StoreWordCommitted {
+                target: MachineStoreWordTarget::DirectRdram { offset },
+                fr_mode: MachineCop1FrMode::Fr0,
+                source_availability: MachineCop1DataWordAvailability::Available,
+                data_cache_hit: None,
+                data_cache_writeback: false,
+                cadence_plan,
+                ..
+            } if offset.value() == 4 && cadence_plan.advances_count()
+        ));
+        assert_eq!(uncached.rdram.read_u32_be(4), Ok(raw_word));
+        assert_eq!(uncached.cpu().cop1_data_word_state(9), Some(source_before));
+    }
+
+    #[test]
+    fn swc1_preflight_source_and_address_boundaries_are_atomic_and_multiboxed() {
+        let unavailable_base_swc1 = swc1_word(2, 5, 1);
+        let mut cu1_clear =
+            staged_public_synthetic_cold_x105_machine(&[(0x40, unavailable_base_swc1)]);
+        cu1_clear.cpu.write_cop0_status(0);
+        let before = lw_snapshot(&cu1_clear);
+        assert!(matches!(
+            cu1_clear.step().unwrap(),
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Swc1,
+                coprocessor: 1,
+                epc,
+                branch_delay: false,
+                vector: MachineCpuCommonExceptionVector::Normal,
+                cadence_plan,
+            } if epc == CpuAddress::new(before.pc)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && !cadence_plan.advances_count()
+        ));
+        let after = lw_snapshot(&cu1_clear);
+        assert_eq!(after.exception_code, 11);
+        assert_eq!(after.coprocessor_error, 1);
+        assert_eq!(after.gprs, before.gprs);
+        assert_eq!(after.cop1_data_words, before.cop1_data_words);
+        assert_eq!(after.data_cache, before.data_cache);
+        assert_eq!(after.rdram, before.rdram);
+
+        let mut fr1 = staged_public_synthetic_cold_x105_machine(&[(0x40, swc1_word(0, 5, 0))]);
+        fr1.cpu
+            .write_cop0_status(COP0_STATUS_COP1_USABLE | 0x0400_0000);
+        let before = lw_snapshot(&fr1);
+        assert!(matches!(
+            fr1.step().unwrap(),
+            MachineRepresentedStepOutcome::Unsupported { instruction, cadence_plan }
+                if instruction.identity() == CpuInstructionIdentity::Swc1
+                    && !cadence_plan.advances_count()
+        ));
+        assert_eq!(lw_snapshot(&fr1), before);
+
+        let mut unavailable_base =
+            staged_public_synthetic_cold_x105_machine(&[(0x40, swc1_word(2, 5, 0))]);
+        unavailable_base
+            .cpu
+            .write_cop0_status(COP0_STATUS_COP1_USABLE);
+        let before = lw_snapshot(&unavailable_base);
+        assert!(matches!(
+            unavailable_base
+                .step()
+                .unwrap_err()
+                .store_word_rejection()
+                .map(MachineStoreWordRejection::reason),
+            Some(MachineStoreWordRejectionReason::BaseSourceUnavailable { .. })
+        ));
+        assert_eq!(lw_snapshot(&unavailable_base), before);
+
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x8000)),
+            (0x44, swc1_word(8, 5, 0)),
+        ];
+        let mut unavailable_source = staged_public_synthetic_cold_x105_machine(&words);
+        unavailable_source
+            .cpu
+            .write_cop0_status(COP0_STATUS_COP1_USABLE);
+        unavailable_source.step().unwrap();
+        let before = lw_snapshot(&unavailable_source);
+        assert_eq!(
+            unavailable_source
+                .step()
+                .unwrap_err()
+                .store_word_rejection()
+                .map(MachineStoreWordRejection::reason),
+            Some(MachineStoreWordRejectionReason::Cop1SourceUnavailable)
+        );
+        assert_eq!(lw_snapshot(&unavailable_source), before);
+
+        let misaligned_words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x8000)),
+            (0x44, swc1_word(8, 5, 1)),
+        ];
+        let mut misaligned = staged_public_synthetic_cold_x105_machine(&misaligned_words);
+        misaligned.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        misaligned.step().unwrap();
+        let before = lw_snapshot(&misaligned);
+        assert!(matches!(
+            misaligned.step().unwrap(),
+            MachineRepresentedStepOutcome::DataAddressError {
+                identity: CpuInstructionIdentity::Swc1,
+                address_error,
+                cadence_plan,
+                ..
+            } if address_error.exception_kind() == CpuAddressErrorKind::AddressErrorStore
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+        ));
+        let after = lw_snapshot(&misaligned);
+        assert_eq!(after.cop1_data_words, before.cop1_data_words);
+        assert_eq!(after.data_cache, before.data_cache);
+        assert_eq!(after.rdram, before.rdram);
+
+        let source_words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x8000)),
+            (0x44, lwc1_word(8, 6, 0)),
+            (0x48, immediate_word(0x0f, 0, 9, 0xa000)),
+            (0x4c, swc1_word(9, 6, 4)),
+        ];
+        let mut first = staged_public_synthetic_cold_x105_machine(&source_words);
+        let second = staged_public_synthetic_cold_x105_machine(&source_words);
+        first.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        first.write_rdram_u32_be(0, 0x5566_7788).unwrap();
+        for _ in 0..4 {
+            first.step().unwrap();
+        }
+        assert_eq!(first.rdram.read_u32_be(4), Ok(0x5566_7788));
+        assert_eq!(second.rdram.read_u32_be(4), Ok(0));
+        assert_eq!(
+            second.cpu().cop1_data_word_state(6),
+            Some(MachineCop1DataWordState::construction_unavailable())
         );
     }
 

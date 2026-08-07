@@ -35,18 +35,18 @@ pub use cache::{
     MachinePrimaryCacheOperationProvenance, MachinePrimaryCaches,
     MachinePrimaryDataCacheFillProvenance, MachinePrimaryDataCacheHitWritebackProvenance,
     MachinePrimaryDataCacheLineState, MachinePrimaryDataCacheStoreProvenance,
-    MachinePrimaryDataCacheStoreWidth, MachinePrimaryInstructionCacheFillProvenance,
-    MachinePrimaryInstructionCacheLineState, PRIMARY_DATA_CACHE_LINE_COUNT,
-    PRIMARY_DATA_CACHE_LINE_SIZE_BYTES, PRIMARY_DATA_CACHE_SIZE_BYTES,
-    PRIMARY_INSTRUCTION_CACHE_LINE_COUNT, PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES,
-    PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
+    MachinePrimaryDataCacheStoreSource, MachinePrimaryDataCacheStoreWidth,
+    MachinePrimaryInstructionCacheFillProvenance, MachinePrimaryInstructionCacheLineState,
+    PRIMARY_DATA_CACHE_LINE_COUNT, PRIMARY_DATA_CACHE_LINE_SIZE_BYTES,
+    PRIMARY_DATA_CACHE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_COUNT,
+    PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
 pub use cop1::{
-    MachineCop1DataWordAvailability, MachineCop1DataWordSource, MachineCop1DataWordState,
-    MachineCop1DataWordSummary, MachineCop1Fcr31Source, MachineCop1Fcr31State,
-    MachineCop1Fcr31WriteProvenance, MachineCop1FrMode, MachineCop1Ldc1Provenance,
-    MachineCop1Ldc1WordRole, MachineCop1Lwc1Provenance, COP1_FCR31_DEFINED_FIELDS_MASK,
-    COP1_FGR_COUNT,
+    MachineCop1DataWordAvailability, MachineCop1DataWordSource, MachineCop1DataWordSourceKind,
+    MachineCop1DataWordState, MachineCop1DataWordSummary, MachineCop1Fcr31Source,
+    MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance, MachineCop1FrMode,
+    MachineCop1Ldc1Provenance, MachineCop1Ldc1WordRole, MachineCop1Lwc1Provenance,
+    COP1_FCR31_DEFINED_FIELDS_MASK, COP1_FGR_COUNT,
 };
 #[cfg(test)]
 pub(crate) use instruction::CpuLocalExecutedHelperFamily;

@@ -98,6 +98,23 @@ pub enum MachineCop1DataWordSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineCop1DataWordSourceKind {
+    ConstructionUnavailable,
+    Lwc1,
+    Ldc1,
+}
+
+impl MachineCop1DataWordSource {
+    pub const fn kind(self) -> MachineCop1DataWordSourceKind {
+        match self {
+            Self::ConstructionUnavailable => MachineCop1DataWordSourceKind::ConstructionUnavailable,
+            Self::Lwc1(_) => MachineCop1DataWordSourceKind::Lwc1,
+            Self::Ldc1(_) => MachineCop1DataWordSourceKind::Ldc1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineCop1DataWordState {
     raw_word: u32,
     availability: MachineCop1DataWordAvailability,

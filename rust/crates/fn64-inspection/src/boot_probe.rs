@@ -602,6 +602,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::Cop1LoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::Cop1LoadDoublewordCommitted { .. }
+                    | MachineRepresentedStepOutcome::Cop1StoreWordCommitted { .. }
                     | MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. }
                     | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
@@ -793,6 +794,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::LoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::Cop1LoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::Cop1LoadDoublewordCommitted { .. }
+            | MachineRepresentedStepOutcome::Cop1StoreWordCommitted { .. }
             | MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. }
             | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
@@ -853,6 +855,7 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         MachineRepresentedStepOutcome::Cop1LoadDoublewordCommitted { .. } => {
             "cop1-load-doubleword-committed"
         }
+        MachineRepresentedStepOutcome::Cop1StoreWordCommitted { .. } => "cop1-store-word-committed",
         MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. } => {
             "load-doubleword-committed"
         }
