@@ -2293,6 +2293,7 @@ pub enum MachineRspStepRejectionReason {
     },
     SqvSourceUnavailable {
         source_vector: u8,
+        byte_count: u8,
     },
     SqvElementUnsupported {
         element: u8,
@@ -2574,9 +2575,13 @@ impl fmt::Display for MachineRspStepRejection {
             MachineRspStepRejectionReason::SqvScalarBaseUnavailable { base_gpr } => {
                 write!(f, "RSP Sqv scalar base r{base_gpr} is unavailable")
             }
-            MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector } => {
-                write!(f, "RSP Sqv vector source v{source_vector} is unavailable")
-            }
+            MachineRspStepRejectionReason::SqvSourceUnavailable {
+                source_vector,
+                byte_count,
+            } => write!(
+                f,
+                "RSP Sqv vector source v{source_vector} is unavailable for the demanded {byte_count}-byte prefix"
+            ),
             MachineRspStepRejectionReason::SqvElementUnsupported { element } => write!(
                 f,
                 "RSP Sqv byte element {element} is outside the element-zero boundary"
@@ -4636,18 +4641,21 @@ impl MachineRspExecutionState {
                 MachineRspStepRejectionReason::SqvElementUnsupported { element },
             ));
         }
-        let source_state = self.vector_unit.registers[usize::from(source_vector)].clone();
-        let Some(stored_bytes) = source_state.bytes().copied() else {
-            return Err(MachineRspStepRejection::new(
-                MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector },
-            ));
-        };
         let scaled_offset = i32::from(signed_offset) << 4;
         let local_dmem_address = ((*base_value & u32::from(RSP_LOCAL_ADDRESS_MASK))
             .wrapping_add_signed(scaled_offset)) as u16
             & RSP_LOCAL_ADDRESS_MASK;
         let byte_count =
             (RSP_VECTOR_REGISTER_BYTE_COUNT - usize::from(local_dmem_address & 0x0f)) as u8;
+        let source_state = self.vector_unit.registers[usize::from(source_vector)].clone();
+        let Some(stored_bytes) = source_state.bytes().copied() else {
+            return Err(MachineRspStepRejection::new(
+                MachineRspStepRejectionReason::SqvSourceUnavailable {
+                    source_vector,
+                    byte_count,
+                },
+            ));
+        };
         Ok(MachineRspSqvPlan {
             instruction_pc,
             old_next_pc: self
@@ -7648,7 +7656,10 @@ mod tests {
             ),
             (
                 sqv_word(0, 13, 0, 0),
-                MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector: 13 },
+                MachineRspStepRejectionReason::SqvSourceUnavailable {
+                    source_vector: 13,
+                    byte_count: 16,
+                },
             ),
             (
                 sqv_word(0, 12, 1, 0),
@@ -7661,6 +7672,31 @@ mod tests {
                     .unwrap_err()
                     .reason(),
                 expected
+            );
+            assert_eq!(rsp, before);
+        }
+    }
+
+    #[test]
+    fn rsp_sqv_unavailable_source_reports_exact_prefix_demand_for_every_alignment_class() {
+        let mut rsp = MachineRspExecutionState::default();
+        rsp.synchronize_pc_write(0);
+
+        for low_nibble in 0_u8..16 {
+            stage_available_scalar(&mut rsp, 3, u32::from(low_nibble));
+            let before = rsp.clone();
+            assert_eq!(
+                rsp.plan_sqv(
+                    0,
+                    rsp.decode(sqv_word(3, 13, 0, 0)).unwrap(),
+                    TEST_INSTRUCTION_PROVENANCE,
+                )
+                .unwrap_err()
+                .reason(),
+                MachineRspStepRejectionReason::SqvSourceUnavailable {
+                    source_vector: 13,
+                    byte_count: 16 - low_nibble,
+                }
             );
             assert_eq!(rsp, before);
         }

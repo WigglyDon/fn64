@@ -28227,7 +28227,10 @@ mod tests {
         for (word, expected) in [
             (
                 rsp_sqv_word(0, 12, 0, 0),
-                MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector: 12 },
+                MachineRspStepRejectionReason::SqvSourceUnavailable {
+                    source_vector: 12,
+                    byte_count: 16,
+                },
             ),
             (
                 rsp_sqv_word(3, 12, 0, 0),

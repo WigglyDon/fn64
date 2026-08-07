@@ -100,6 +100,23 @@ struct RuntimeFrontier {
     identity: Option<CpuInstructionIdentity>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RspVectorWriteAudit {
+    identity: MachineRspInstructionIdentity,
+    machine_step: u64,
+    rsp_commit: u64,
+    result_available: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MachineStepProgress {
+    attempted_step: u64,
+    committed_steps: u64,
+    entry_executions: u64,
+    rsp_committed_steps: u64,
+    first_rsp_identity: Option<MachineRspInstructionIdentity>,
+}
+
 fn record_runtime_frontier(
     frontiers: &mut Vec<RuntimeFrontier>,
     class: String,
@@ -155,6 +172,7 @@ fn run() -> Result<(), String> {
     let mut prior_sp_dma_records = machine.sp_dma_record_count();
     let mut rsp_committed_steps = 0_u64;
     let mut first_rsp_identity: Option<MachineRspInstructionIdentity> = None;
+    let mut rsp_vector_writes: [Option<RspVectorWriteAudit>; 32] = [None; 32];
     let mut rsp_break_committed = false;
     let mut post_break_processor: Option<MachineStepProcessor> = None;
 
@@ -176,11 +194,14 @@ fn run() -> Result<(), String> {
             Err(error) => {
                 return Err(redacted_machine_step_error(
                     &machine,
-                    attempted_steps.saturating_add(1),
-                    committed_steps,
-                    entry_executions,
-                    rsp_committed_steps,
-                    first_rsp_identity,
+                    MachineStepProgress {
+                        attempted_step: attempted_steps.saturating_add(1),
+                        committed_steps,
+                        entry_executions,
+                        rsp_committed_steps,
+                        first_rsp_identity,
+                    },
+                    &rsp_vector_writes,
                     error,
                 ));
             }
@@ -206,6 +227,17 @@ fn run() -> Result<(), String> {
         if let MachineRepresentedStepOutcome::RspCommitted { outcome } = outcome {
             rsp_committed_steps += 1;
             first_rsp_identity.get_or_insert(outcome.identity());
+            if let (Some(destination_vector), Some(result_available)) = (
+                outcome.destination_vector(),
+                outcome.vector_result_available(),
+            ) {
+                rsp_vector_writes[usize::from(destination_vector)] = Some(RspVectorWriteAudit {
+                    identity: outcome.identity(),
+                    machine_step: attempted_steps,
+                    rsp_commit: rsp_committed_steps,
+                    result_available,
+                });
+            }
             if outcome.identity() == MachineRspInstructionIdentity::Break {
                 rsp_break_committed = true;
             }
@@ -700,13 +732,17 @@ fn redacted_cpu_inspection_error(pc: u32, error: MachineCpuInstructionFetchError
 
 fn redacted_machine_step_error(
     machine: &Machine,
-    attempted_step: u64,
-    committed_steps: u64,
-    entry_executions: u64,
-    rsp_committed_steps: u64,
-    first_rsp_identity: Option<MachineRspInstructionIdentity>,
+    progress: MachineStepProgress,
+    rsp_vector_writes: &[Option<RspVectorWriteAudit>; 32],
     error: MachineRepresentedStepError,
 ) -> String {
+    let MachineStepProgress {
+        attempted_step,
+        committed_steps,
+        entry_executions,
+        rsp_committed_steps,
+        first_rsp_identity,
+    } = progress;
     let progress = format!(
         "attempt={attempted_step} committed_steps={committed_steps} entry_commits={entry_executions} rsp_committed={rsp_committed_steps} rsp_first_identity={}",
         first_rsp_identity.map_or_else(
@@ -718,7 +754,11 @@ fn redacted_machine_step_error(
         MachineRepresentedStepError::RspRejected(rejection) => {
             format!(
                 "Machine::step stopped at the first RSP pressure: {progress} selected_processor=RSP local_pc=redacted category={}",
-                redacted_rsp_rejection_category_for_machine(machine, rejection.reason())
+                redacted_rsp_rejection_category_for_machine(
+                    machine,
+                    rejection.reason(),
+                    rsp_vector_writes,
+                )
             )
         }
         MachineRepresentedStepError::LoadWordRejected(rejection) => {
@@ -1217,8 +1257,13 @@ fn redacted_rsp_rejection_category(reason: MachineRspStepRejectionReason) -> Str
 fn redacted_rsp_rejection_category_for_machine(
     machine: &Machine,
     reason: MachineRspStepRejectionReason,
+    rsp_vector_writes: &[Option<RspVectorWriteAudit>; 32],
 ) -> String {
-    let MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector } = reason else {
+    let MachineRspStepRejectionReason::SqvSourceUnavailable {
+        source_vector,
+        byte_count,
+    } = reason
+    else {
         return redacted_rsp_rejection_category(reason);
     };
     let Some(source) = machine
@@ -1227,9 +1272,9 @@ fn redacted_rsp_rejection_category_for_machine(
     else {
         return "sqv-source-state-inconsistent".to_owned();
     };
-    match source {
+    let source_category = match source {
         MachineRspVectorUnavailableSource::ConstructionOrReset => {
-            "sqv-source-construction-reset-unavailable".to_owned()
+            "sqv-source-construction-reset-unavailable"
         }
         MachineRspVectorUnavailableSource::Lqv(source) => {
             let mut construction_or_reset = false;
@@ -1246,16 +1291,36 @@ fn redacted_rsp_rejection_category_for_machine(
                 }
             }
             match (construction_or_reset, bootstrap_uncovered) {
-                (false, false) => "sqv-source-lqv-knowledge-inconsistent".to_owned(),
-                (true, false) => "sqv-source-lqv-construction-reset-unavailable".to_owned(),
-                (false, true) => "sqv-source-lqv-bootstrap-uncovered".to_owned(),
-                (true, true) => "sqv-source-lqv-mixed-unavailable".to_owned(),
+                (false, false) => "sqv-source-lqv-knowledge-inconsistent",
+                (true, false) => "sqv-source-lqv-construction-reset-unavailable",
+                (false, true) => "sqv-source-lqv-bootstrap-uncovered",
+                (true, true) => "sqv-source-lqv-mixed-unavailable",
             }
         }
-        MachineRspVectorUnavailableSource::Vsub(_) => "sqv-source-vsub-unavailable".to_owned(),
-        MachineRspVectorUnavailableSource::Vaddc(_) => "sqv-source-vaddc-unavailable".to_owned(),
-        MachineRspVectorUnavailableSource::Vxor(_) => "sqv-source-vxor-unavailable".to_owned(),
-    }
+        MachineRspVectorUnavailableSource::Vsub(_) => "sqv-source-vsub-unavailable",
+        MachineRspVectorUnavailableSource::Vaddc(_) => "sqv-source-vaddc-unavailable",
+        MachineRspVectorUnavailableSource::Vxor(_) => "sqv-source-vxor-unavailable",
+    };
+    let producer = rsp_vector_writes[usize::from(source_vector)].map_or_else(
+        || "none".to_owned(),
+        |write| {
+            format!(
+                "present producer_identity={:?} producer_machine_step={} producer_rsp_commit={} producer_result_available={} producer_local_pc_class=first-task-local",
+                write.identity,
+                write.machine_step,
+                write.rsp_commit,
+                write.result_available,
+            )
+        },
+    );
+    format!(
+        "{source_category} demanded_byte_count={byte_count} demanded_source_class=contiguous-prefix-byte-zero-to-aligned-boundary whole_vector_required={} producer_before_consumption={producer}",
+        if usize::from(byte_count) == 16 {
+            "yes"
+        } else {
+            "no"
+        }
+    )
 }
 
 fn redacted_input_identity(_path: &Path) -> &'static str {
@@ -1406,7 +1471,8 @@ mod tests {
         );
         assert_eq!(
             redacted_rsp_rejection_category(MachineRspStepRejectionReason::SqvSourceUnavailable {
-                source_vector: 31
+                source_vector: 31,
+                byte_count: 1,
             }),
             "sqv-source-unavailable"
         );
@@ -1420,10 +1486,35 @@ mod tests {
         assert_eq!(
             redacted_rsp_rejection_category_for_machine(
                 &generated_hle_machine(),
-                MachineRspStepRejectionReason::SqvSourceUnavailable { source_vector: 31 },
+                MachineRspStepRejectionReason::SqvSourceUnavailable {
+                    source_vector: 31,
+                    byte_count: 9,
+                },
+                &[None; 32],
             ),
-            "sqv-source-construction-reset-unavailable"
+            "sqv-source-construction-reset-unavailable demanded_byte_count=9 demanded_source_class=contiguous-prefix-byte-zero-to-aligned-boundary whole_vector_required=no producer_before_consumption=none"
         );
+
+        let mut writes = [None; 32];
+        writes[31] = Some(RspVectorWriteAudit {
+            identity: MachineRspInstructionIdentity::Vxor,
+            machine_step: 21,
+            rsp_commit: 7,
+            result_available: true,
+        });
+        let category = redacted_rsp_rejection_category_for_machine(
+            &generated_hle_machine(),
+            MachineRspStepRejectionReason::SqvSourceUnavailable {
+                source_vector: 31,
+                byte_count: 16,
+            },
+            &writes,
+        );
+        assert_eq!(
+            category,
+            "sqv-source-construction-reset-unavailable demanded_byte_count=16 demanded_source_class=contiguous-prefix-byte-zero-to-aligned-boundary whole_vector_required=yes producer_before_consumption=present producer_identity=Vxor producer_machine_step=21 producer_rsp_commit=7 producer_result_available=true producer_local_pc_class=first-task-local"
+        );
+        assert!(!category.contains("v31"));
     }
 
     #[test]
