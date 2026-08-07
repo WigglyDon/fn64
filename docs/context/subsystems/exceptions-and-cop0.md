@@ -39,6 +39,12 @@ transport with ordinary cadence; its canonical backing zero remains non-truth
 and cannot satisfy a later source-knownness gate.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
+CU1-disabled `Lwc1` remains the existing coprocessor-usability rejection, not
+a represented exception entry: it preflights before effective-address or FGR
+mutation and restores all relevant state. Exact VR4300 Coprocessor Unusable
+entry, including Cause.CE ownership and its interaction with EPC/BD/EXL and
+Count cadence, remains unrepresented rather than being inferred from the
+data-transfer identity.
 Prior JAL link-destination state is no longer misclassified as an input, but a
 control-flow identity in an active delay slot and unknown JR/JALR/branch
 sources still reject before link or COP0 mutation. Unknown device and SP-DMEM

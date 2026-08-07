@@ -128,6 +128,16 @@ Clean-room cartridge-entry staging owns independently sourced zero FCR31 and
 zero COP0 PageMask under `CleanRoomHleNtscX105Pinned` provenance; reset still
 makes FCR31 unavailable, and CTC1 retains its own instruction-derived
 provenance.
+`Cpu::Cop1` separately owns 32 raw 32-bit data-word states. Construction makes
+every word unavailable rather than zero; each word records independent
+availability and provenance, and no host floating-point type interprets its
+bits. Status.FR selects the explicit FR=0 or FR=1 view. Exact `Lwc1` is
+represented only for FR=0: after existing CU1 preflight it reuses the current
+effective-address, alignment, translation, cache, physical-load, and exception
+composition, then replaces exactly one selected data word with known raw bits
+or unavailable source provenance. It changes no GPR, FCR31 arithmetic field,
+rounding, or floating exception truth. FR=1 word placement and every other
+COP1 data or computational identity remain unavailable.
 `LBU` and `SB` retain their direct SP-IMEM route and also use CPU-owned KSEG0
 D-cache byte semantics over Machine-owned RDRAM; KSEG1 remains uncached.
 Aligned opaque-word `Lw`
