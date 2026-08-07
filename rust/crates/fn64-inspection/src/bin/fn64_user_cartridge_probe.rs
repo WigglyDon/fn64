@@ -823,6 +823,9 @@ fn redacted_machine_step_error(
                 MachineRepresentedStepError::ArithmeticOverflowExceptionEntryRejected(_) => {
                     "arithmetic-overflow-entry-rejected"
                 }
+                MachineRepresentedStepError::CoprocessorUnusableExceptionEntryRejected(_) => {
+                    "coprocessor-unusable-entry-rejected"
+                }
                 MachineRepresentedStepError::DataAddressErrorExceptionEntryRejected(_) => {
                     "data-address-error-entry-rejected"
                 }

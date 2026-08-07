@@ -7,8 +7,14 @@ mod registers;
 mod scalars;
 
 use cop0::Cop0;
-pub(crate) use cop0::{CpuArithmeticOverflowExceptionEntryError, CpuCop0ExceptionReturnError};
-pub use cop0::{MachineCop0TlbEntry, MachineCop0TlbOperationError, COP0_TLB_ENTRY_COUNT};
+pub(crate) use cop0::{
+    CpuArithmeticOverflowExceptionEntryError, CpuCop0ExceptionReturnError,
+    CpuCoprocessorUnusableExceptionEntryError,
+};
+pub use cop0::{
+    MachineCop0TlbEntry, MachineCop0TlbOperationError, MachineCpuCommonExceptionVector,
+    COP0_TLB_ENTRY_COUNT,
+};
 use cop1::Cop1;
 
 pub use address::{

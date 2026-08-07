@@ -9,21 +9,48 @@ use crate::cpu::address::{
 const COP0_STATUS_INTERRUPT_ENABLE: u32 = 0x0000_0001;
 const COP0_STATUS_EXL: u32 = 0x0000_0002;
 const COP0_STATUS_ERL: u32 = 0x0000_0004;
+const COP0_STATUS_BEV: u32 = 0x0040_0000;
 const COP0_STATUS_INTERRUPT_MASK: u32 = 0x0000_ff00;
 const COP0_CAUSE_SOFTWARE_INTERRUPT_PENDING_MASK: u32 = 0x0000_0300;
 const COP0_CAUSE_RCP_INTERRUPT_PENDING: u32 = 0x0000_0400;
 const COP0_CAUSE_TIMER_INTERRUPT_PENDING: u32 = 0x0000_8000;
 const COP0_CAUSE_EXCEPTION_CODE_SHIFT: u32 = 2;
+const COP0_CAUSE_COPROCESSOR_ERROR_SHIFT: u32 = 28;
 const COP0_CAUSE_BRANCH_DELAY: u32 = 0x8000_0000;
+const COP0_EXCEPTION_CODE_COPROCESSOR_UNUSABLE: u8 = 11;
 const COP0_EXCEPTION_CODE_SIGNED_OVERFLOW: u8 = 12;
 const LOCAL_EXCEPTION_VECTOR_PC: u32 = 0x8000_0180;
 const LOCAL_EXCEPTION_VECTOR_NEXT_PC: u32 = 0x8000_0184;
+const BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC: u32 = 0xbfc0_0380;
+const BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC: u32 = 0xbfc0_0384;
 const COP0_ENTRY_HI_DEFINED_32_BIT_MASK: u32 = 0xffff_e0ff;
 const COP0_ENTRY_LO_DEFINED_32_BIT_MASK: u32 = 0x3fff_ffff;
 const COP0_INDEX_DEFINED_32_BIT_MASK: u32 = 0x8000_003f;
 const COP0_PAGE_MASK_DEFINED_32_BIT_MASK: u32 = 0x01ff_e000;
 const COP0_CONTEXT_PTE_BASE_MASK: u32 = 0xff80_0000;
 pub const COP0_TLB_ENTRY_COUNT: usize = 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineCpuCommonExceptionVector {
+    Normal,
+    Bootstrap,
+}
+
+impl MachineCpuCommonExceptionVector {
+    pub const fn pc(self) -> CpuAddress {
+        CpuAddress::new(match self {
+            Self::Normal => LOCAL_EXCEPTION_VECTOR_PC,
+            Self::Bootstrap => BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC,
+        })
+    }
+
+    pub const fn next_pc(self) -> CpuAddress {
+        CpuAddress::new(match self {
+            Self::Normal => LOCAL_EXCEPTION_VECTOR_NEXT_PC,
+            Self::Bootstrap => BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineCop0TlbEntry {
@@ -116,6 +143,7 @@ pub(super) struct Cop0 {
     entry_hi: u32,
     tlb_entries: [Option<MachineCop0TlbEntry>; COP0_TLB_ENTRY_COUNT],
     exception_code: u8,
+    coprocessor_error: u8,
     exception_branch_delay: bool,
     tag_lo: Option<MachineCop0TagState>,
     tag_hi: Option<MachineCop0TagState>,
@@ -143,6 +171,7 @@ impl Cop0 {
             entry_hi: 0,
             tlb_entries: [None; COP0_TLB_ENTRY_COUNT],
             exception_code: 0,
+            coprocessor_error: 0,
             exception_branch_delay: false,
             tag_lo: None,
             tag_hi: None,
@@ -363,6 +392,10 @@ impl Cop0 {
         self.exception_code
     }
 
+    fn coprocessor_error(&self) -> u8 {
+        self.coprocessor_error
+    }
+
     fn exception_branch_delay(&self) -> bool {
         self.exception_branch_delay
     }
@@ -427,6 +460,49 @@ impl fmt::Display for CpuArithmeticOverflowExceptionEntryError {
 
 impl std::error::Error for CpuArithmeticOverflowExceptionEntryError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CpuCoprocessorUnusableExceptionEntryError {
+    pc: CpuAddress,
+    next_pc: CpuAddress,
+    status: u32,
+}
+
+impl CpuCoprocessorUnusableExceptionEntryError {
+    pub(crate) const fn new(pc: CpuAddress, next_pc: CpuAddress, status: u32) -> Self {
+        Self {
+            pc,
+            next_pc,
+            status,
+        }
+    }
+
+    pub(crate) const fn pc(self) -> CpuAddress {
+        self.pc
+    }
+
+    pub(crate) const fn next_pc(self) -> CpuAddress {
+        self.next_pc
+    }
+
+    pub(crate) const fn status(self) -> u32 {
+        self.status
+    }
+}
+
+impl fmt::Display for CpuCoprocessorUnusableExceptionEntryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CPU Coprocessor Unusable exception entry blocked: pc={} next_pc={} status={}",
+            self.pc.value(),
+            self.next_pc.value(),
+            self.status
+        )
+    }
+}
+
+impl std::error::Error for CpuCoprocessorUnusableExceptionEntryError {}
+
 impl Cpu {
     pub fn cop0_count(&self) -> u32 {
         self.cop0.count()
@@ -468,6 +544,7 @@ impl Cpu {
         Some(
             self.cop0.pending_interrupt_word()
                 | (u32::from(self.cop0.exception_code()) << COP0_CAUSE_EXCEPTION_CODE_SHIFT)
+                | (u32::from(self.cop0.coprocessor_error()) << COP0_CAUSE_COPROCESSOR_ERROR_SHIFT)
                 | if self.cop0.exception_branch_delay() {
                     COP0_CAUSE_BRANCH_DELAY
                 } else {
@@ -522,6 +599,10 @@ impl Cpu {
 
     pub fn cop0_exception_code(&self) -> u8 {
         self.cop0.exception_code()
+    }
+
+    pub fn cop0_coprocessor_error(&self) -> u8 {
+        self.cop0.coprocessor_error()
     }
 
     pub fn cop0_exception_branch_delay(&self) -> bool {
@@ -702,6 +783,11 @@ impl Cpu {
         self.cop0.exception_branch_delay = exception_branch_delay;
     }
 
+    #[cfg(test)]
+    pub(crate) fn stage_cop0_coprocessor_error_for_test(&mut self, coprocessor: u8) {
+        self.cop0.coprocessor_error = coprocessor & 0x03;
+    }
+
     pub fn enter_data_address_error_exception(
         &mut self,
         address_error: CpuDataAddressError,
@@ -773,6 +859,38 @@ impl Cpu {
         Ok(())
     }
 
+    pub(crate) fn enter_coprocessor_unusable_exception(
+        &mut self,
+        coprocessor: u8,
+    ) -> Result<MachineCpuCommonExceptionVector, CpuCoprocessorUnusableExceptionEntryError> {
+        let exl_was_set = (self.cop0.status & COP0_STATUS_EXL) != 0;
+        if !exl_was_set {
+            let Some((epc, branch_delay)) = self.local_synchronous_exception_lineage() else {
+                return Err(CpuCoprocessorUnusableExceptionEntryError::new(
+                    CpuAddress::new(self.pc),
+                    CpuAddress::new(self.next_pc),
+                    self.cop0.status,
+                ));
+            };
+            self.cop0.epc = epc;
+            self.cop0.exception_branch_delay = branch_delay;
+        }
+
+        self.cop0.exception_code = COP0_EXCEPTION_CODE_COPROCESSOR_UNUSABLE;
+        self.cop0.coprocessor_error = coprocessor & 0x03;
+        self.cop0.status |= COP0_STATUS_EXL;
+        let vector = if (self.cop0.status & COP0_STATUS_BEV) == 0 {
+            MachineCpuCommonExceptionVector::Normal
+        } else {
+            MachineCpuCommonExceptionVector::Bootstrap
+        };
+        self.pc = vector.pc().value();
+        self.next_pc = vector.next_pc().value();
+        self.clear_delay_slot_context();
+
+        Ok(vector)
+    }
+
     pub(crate) fn enter_interrupt_exception(&mut self) {
         debug_assert!(self.cop0_interrupt_should_enter());
         let (epc, branch_delay) = match self.delay_slot_context() {
@@ -803,10 +921,11 @@ impl Cpu {
 #[cfg(test)]
 mod tests {
     use super::{
-        CpuCop0ExceptionReturnError, MachineCop0TlbOperationError,
-        COP0_EXCEPTION_CODE_SIGNED_OVERFLOW, COP0_STATUS_ERL, COP0_STATUS_EXL,
-        COP0_STATUS_INTERRUPT_ENABLE, COP0_STATUS_INTERRUPT_MASK, LOCAL_EXCEPTION_VECTOR_NEXT_PC,
-        LOCAL_EXCEPTION_VECTOR_PC,
+        CpuCop0ExceptionReturnError, MachineCop0TlbOperationError, MachineCpuCommonExceptionVector,
+        BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC, BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC,
+        COP0_EXCEPTION_CODE_COPROCESSOR_UNUSABLE, COP0_EXCEPTION_CODE_SIGNED_OVERFLOW,
+        COP0_STATUS_BEV, COP0_STATUS_ERL, COP0_STATUS_EXL, COP0_STATUS_INTERRUPT_ENABLE,
+        COP0_STATUS_INTERRUPT_MASK, LOCAL_EXCEPTION_VECTOR_NEXT_PC, LOCAL_EXCEPTION_VECTOR_PC,
     };
     use crate::cpu::address::{
         check_cpu_data_alignment, select_cpu_data_address_error, CpuAddress, CpuAddressErrorKind,
@@ -838,6 +957,7 @@ mod tests {
         assert_eq!(cpu.cop0_bad_vaddr(), 0);
         assert_eq!(cpu.cop0_entry_hi(), 0);
         assert_eq!(cpu.cop0_exception_code(), 0);
+        assert_eq!(cpu.cop0_coprocessor_error(), 0);
         assert!(!cpu.cop0_exception_branch_delay());
         assert_eq!(cpu.cop0_tag_lo(), None);
         assert_eq!(cpu.cop0_tag_hi(), None);
@@ -1028,6 +1148,137 @@ mod tests {
         assert_eq!(cpu.pc(), LOCAL_EXCEPTION_VECTOR_PC);
         assert_eq!(cpu.next_pc(), LOCAL_EXCEPTION_VECTOR_NEXT_PC);
         assert_eq!(cpu.delay_slot_context(), None);
+    }
+
+    #[test]
+    fn cop1_unusable_exception_owns_cause_epc_delay_and_normal_vector_without_data_side_effects() {
+        let mut ordinary = Cpu::new();
+        ordinary.stage_pc(0x8000_1400);
+        ordinary.write_cop0_status(0x0000_ff01);
+        ordinary.cop0.software_interrupt_pending = 0x0000_0300;
+        ordinary.cop0.software_interrupt_pending_known = true;
+        ordinary.cop0.rcp_interrupt_pending = true;
+        ordinary.cop0.timer_interrupt_pending = true;
+        ordinary.cop0.count = 0x1234_5678;
+        ordinary.cop0.bad_vaddr = 0x8765_4321;
+        ordinary.cop0.context = Some(0x1111_2220);
+        ordinary.cop0.entry_hi = 0x3333_4044;
+        assert_eq!(ordinary.set_gpr(8, 0x0123_4567_89ab_cdef), Ok(()));
+        let data_before = ordinary.cop1_data_word_summary();
+        let fcr31_before = ordinary.cop1_fcr31_state();
+
+        assert_eq!(
+            ordinary.enter_coprocessor_unusable_exception(1),
+            Ok(MachineCpuCommonExceptionVector::Normal)
+        );
+
+        assert_eq!(
+            ordinary.cop0_exception_code(),
+            COP0_EXCEPTION_CODE_COPROCESSOR_UNUSABLE
+        );
+        assert_eq!(ordinary.cop0_coprocessor_error(), 1);
+        assert!(!ordinary.cop0_exception_branch_delay());
+        assert_eq!(ordinary.cop0_epc(), 0x8000_1400);
+        assert_eq!(ordinary.cop0_status() & COP0_STATUS_EXL, COP0_STATUS_EXL);
+        assert_eq!(ordinary.pc(), LOCAL_EXCEPTION_VECTOR_PC);
+        assert_eq!(ordinary.next_pc(), LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(ordinary.cop0_pending_interrupt_word(), 0x0000_8700);
+        assert_eq!(ordinary.cop0_count(), 0x1234_5678);
+        assert_eq!(ordinary.cop0_bad_vaddr(), 0x8765_4321);
+        assert_eq!(ordinary.cop0_context(), Some(0x1111_2220));
+        assert_eq!(ordinary.cop0_entry_hi(), 0x3333_4044);
+        assert_eq!(ordinary.gpr(8), Some(0x0123_4567_89ab_cdef));
+        assert_eq!(ordinary.cop1_data_word_summary(), data_before);
+        assert_eq!(ordinary.cop1_fcr31_state(), fcr31_before);
+
+        let mut delay = Cpu::new();
+        delay.stage_pc(0x8000_1504);
+        delay.stage_next_pc(0x8000_2400);
+        delay.stage_delay_slot_context_for_test(0x8000_1500);
+        assert_eq!(
+            delay.enter_coprocessor_unusable_exception(1),
+            Ok(MachineCpuCommonExceptionVector::Normal)
+        );
+        assert_eq!(delay.cop0_epc(), 0x8000_1500);
+        assert!(delay.cop0_exception_branch_delay());
+        assert_eq!(delay.delay_slot_context(), None);
+    }
+
+    #[test]
+    fn cop1_unusable_exception_selects_bev_vector_and_protects_nested_epc_and_bd() {
+        let mut bev = Cpu::new();
+        bev.stage_pc(0x8000_1600);
+        bev.write_cop0_status(COP0_STATUS_BEV);
+        assert_eq!(
+            bev.enter_coprocessor_unusable_exception(1),
+            Ok(MachineCpuCommonExceptionVector::Bootstrap)
+        );
+        assert_eq!(bev.cop0_epc(), 0x8000_1600);
+        assert!(!bev.cop0_exception_branch_delay());
+        assert_eq!(bev.pc(), BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC);
+        assert_eq!(bev.next_pc(), BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC);
+
+        let mut nested = Cpu::new();
+        nested.stage_pc(0x8000_1700);
+        nested.write_cop0_status(COP0_STATUS_BEV | COP0_STATUS_EXL);
+        nested.cop0.epc = 0x8000_1234;
+        nested.cop0.exception_branch_delay = true;
+        nested.cop0.exception_code = 4;
+        nested.cop0.coprocessor_error = 2;
+        nested.stage_delay_slot_context_for_test(0x8000_16fc);
+
+        assert_eq!(
+            nested.enter_coprocessor_unusable_exception(1),
+            Ok(MachineCpuCommonExceptionVector::Bootstrap)
+        );
+        assert_eq!(nested.cop0_epc(), 0x8000_1234);
+        assert!(nested.cop0_exception_branch_delay());
+        assert_eq!(
+            nested.cop0_exception_code(),
+            COP0_EXCEPTION_CODE_COPROCESSOR_UNUSABLE
+        );
+        assert_eq!(nested.cop0_coprocessor_error(), 1);
+        assert_eq!(nested.pc(), BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC);
+        assert_eq!(nested.next_pc(), BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(nested.delay_slot_context(), None);
+    }
+
+    #[test]
+    fn cop1_unusable_exception_rejects_unowned_nonsequential_lineage_atomically() {
+        let mut cpu = Cpu::new();
+        cpu.stage_pc(0x8000_1800);
+        cpu.stage_next_pc(0x8000_2800);
+        cpu.write_cop0_status(COP0_STATUS_BEV);
+        cpu.cop0.epc = 0x8000_0100;
+        cpu.cop0.exception_code = 5;
+        cpu.cop0.coprocessor_error = 3;
+        let before = (
+            cpu.pc(),
+            cpu.next_pc(),
+            cpu.cop0_status(),
+            cpu.cop0_epc(),
+            cpu.cop0_exception_code(),
+            cpu.cop0_coprocessor_error(),
+            cpu.cop0_exception_branch_delay(),
+        );
+
+        let error = cpu.enter_coprocessor_unusable_exception(1).unwrap_err();
+
+        assert_eq!(error.pc(), CpuAddress::new(0x8000_1800));
+        assert_eq!(error.next_pc(), CpuAddress::new(0x8000_2800));
+        assert_eq!(error.status(), COP0_STATUS_BEV);
+        assert_eq!(
+            (
+                cpu.pc(),
+                cpu.next_pc(),
+                cpu.cop0_status(),
+                cpu.cop0_epc(),
+                cpu.cop0_exception_code(),
+                cpu.cop0_coprocessor_error(),
+                cpu.cop0_exception_branch_delay(),
+            ),
+            before
+        );
     }
 
     #[test]

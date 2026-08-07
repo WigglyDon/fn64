@@ -638,6 +638,9 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::CacheHitWritebackCommitted { .. }
                     | MachineRepresentedStepOutcome::CacheHitInvalidateCommitted { .. }
                     | MachineRepresentedStepOutcome::InterruptExceptionEntered { .. }
+                    | MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                        ..
+                    }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
                     MachineRepresentedStepOutcome::DataAddressError { .. } => {
                         first_frontier = Some(format_frontier(
@@ -915,6 +918,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         }
         MachineRepresentedStepOutcome::InterruptExceptionEntered { .. } => {
             "interrupt-exception-entered"
+        }
+        MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered { .. } => {
+            "coprocessor-unusable-exception-entered"
         }
         MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
         MachineRepresentedStepOutcome::ArithmeticOverflowException { .. } => {

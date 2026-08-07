@@ -5,20 +5,20 @@ use fn64_core::cpu::address::CpuAddress;
 use fn64_core::{
     load_cartridge, Cartridge, CartridgeLoadError, CpuAddressErrorKind, CpuInstructionIdentity,
     Machine, MachineBootstrapGprSource, MachineCartridgeBootstrapError,
-    MachineCpuInstructionFetchError, MachineDpcCounterIdentity, MachineDpcCounterUnavailableSource,
-    MachineLoadWordRejectionReason, MachineLoadWordTarget, MachineMiInterruptSource,
-    MachineMtc0Destination, MachineMtc0RejectionReason, MachineOrdinaryControlFlowRejectionReason,
-    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRdramBroadcastDeviceIdAperture,
-    MachineRdramBroadcastRefreshRowAperture, MachineRdramCalibrationStatus,
-    MachineRdramFirstResponderDeviceIdAperture, MachineRdramInitialModeAperture,
-    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRiModeSource,
-    MachineRiSelectSource, MachineRspControlRegister, MachineRspInstructionIdentity,
-    MachineRspInstructionSource, MachineRspStepOutcome, MachineSpDmaDirection,
-    MachineSpDmaSpMemory, MachineSpDmemByteKnowledge, MachineSpDmemByteSource,
-    MachineSpDmemLoadWordProvenance, MachineSpDramAddressSource, MachineSpRegisterWriteSource,
-    MachineStepCadenceSource, MachineStepControlFlowAction, MachineStepCountAction,
-    MachineStepNoEffectExecutedInstructionCategory, MachineStepProcessor,
+    MachineCpuCommonExceptionVector, MachineCpuInstructionFetchError, MachineDpcCounterIdentity,
+    MachineDpcCounterUnavailableSource, MachineLoadWordRejectionReason, MachineLoadWordTarget,
+    MachineMiInterruptSource, MachineMtc0Destination, MachineMtc0RejectionReason,
+    MachineOrdinaryControlFlowRejectionReason, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRdramBroadcastDeviceIdAperture, MachineRdramBroadcastRefreshRowAperture,
+    MachineRdramCalibrationStatus, MachineRdramFirstResponderDeviceIdAperture,
+    MachineRdramInitialModeAperture, MachineRepresentedStepError, MachineRepresentedStepOutcome,
+    MachineRiModeSource, MachineRiSelectSource, MachineRspControlRegister,
+    MachineRspInstructionIdentity, MachineRspInstructionSource, MachineRspStepOutcome,
+    MachineSpDmaDirection, MachineSpDmaSpMemory, MachineSpDmemByteKnowledge,
+    MachineSpDmemByteSource, MachineSpDmemLoadWordProvenance, MachineSpDramAddressSource,
+    MachineSpRegisterWriteSource, MachineStepCadenceSource, MachineStepControlFlowAction,
+    MachineStepCountAction, MachineStepNoEffectExecutedInstructionCategory, MachineStepProcessor,
     MachineStepStoppedInstructionCategory, MachineStepUnsupportedInstructionCategory,
     MachineStoreWordRejectionReason, MachineStoreWordTarget, MachineStoreWordUnsupportedTarget,
     PifFirmwareValidationError, PifIpl2Profile, RdramAccessError, SpDmemOffset,
@@ -41,6 +41,7 @@ const GENERAL_EXCEPTION_VECTOR_NEXT_PC: u32 = 0x8000_0184;
 const STEP_PROBE_OUTPUT: &str = "fn64 rust step probe\
 \ncase: cpu-local-committed ok\
 \ncase: cpu-local-arithmetic-overflow ok\
+\ncase: cop1-unusable-exception ok\
 \ncase: sync-no-effect ok\
 \ncase: syscall-stopped ok\
 \ncase: break-stopped ok\
@@ -325,6 +326,7 @@ fn main() -> ExitCode {
 fn run_step_probe() -> Result<(), StepProbeError> {
     probe_cpu_local_committed_success()?;
     probe_cpu_local_arithmetic_overflow()?;
+    probe_cop1_unusable_exception()?;
     probe_sync_no_effect()?;
     probe_stopped_instruction(
         "syscall-stopped",
@@ -369,6 +371,90 @@ fn run_step_probe() -> Result<(), StepProbeError> {
     probe_control_flow_delay_slot_exception()?;
     probe_control_flow_branch_in_delay_slot_rejection()?;
     Ok(())
+}
+
+fn probe_cop1_unusable_exception() -> Result<(), StepProbeError> {
+    const CASE: &str = "cop1-unusable-exception";
+    const STATUS_EXL: u32 = 0x0000_0002;
+    let instruction = immediate_word(0x31, 2, 5, 1);
+    let mut machine = synthetic_direct_machine_with_instruction(CASE, instruction)?;
+    let independent = synthetic_direct_machine_with_instruction(CASE, instruction)?;
+    let destination_before = machine.cpu().cop1_data_word_state(5);
+    let fcr31_before = machine.cpu().cop1_fcr31_state();
+    let bad_vaddr_before = machine.cpu().cop0_bad_vaddr();
+    let count_before = machine.cpu().cop0_count();
+
+    require(
+        CASE,
+        matches!(
+            step(&mut machine, CASE)?,
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Lwc1,
+                coprocessor: 1,
+                epc,
+                branch_delay: false,
+                vector: MachineCpuCommonExceptionVector::Normal,
+                cadence_plan,
+            } if epc == CpuAddress::new(DIRECT_CPU_PC)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && cadence_plan.count_action() == MachineStepCountAction::DoNotAdvance
+        ),
+        "CpU outcome without data-address consumption",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_exception_code() == 11,
+        "Cause ExcCode CpU",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_coprocessor_error() == 1,
+        "Cause CE COP1",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_status() & STATUS_EXL == STATUS_EXL,
+        "Status EXL set",
+    )?;
+    require(CASE, machine.cpu().cop0_epc() == DIRECT_CPU_PC, "EPC")?;
+    require(
+        CASE,
+        !machine.cpu().cop0_exception_branch_delay(),
+        "Cause BD clear",
+    )?;
+    require(
+        CASE,
+        machine.cpu().pc() == GENERAL_EXCEPTION_VECTOR_PC
+            && machine.cpu().next_pc() == GENERAL_EXCEPTION_VECTOR_NEXT_PC,
+        "normal common exception vector",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_count() == count_before,
+        "synchronous attempt Count cadence",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop0_bad_vaddr() == bad_vaddr_before,
+        "BadVAddr unchanged",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop1_data_word_state(5) == destination_before,
+        "FGR word unchanged",
+    )?;
+    require(
+        CASE,
+        machine.cpu().cop1_fcr31_state() == fcr31_before,
+        "FCR31 unchanged",
+    )?;
+    require(
+        CASE,
+        independent.cpu().cop0_exception_code() == 0
+            && independent.cpu().cop0_coprocessor_error() == 0
+            && independent.cpu().pc() == DIRECT_CPU_PC,
+        "independent Machine unchanged",
+    )
 }
 
 fn probe_pi_dma_and_dcache_path() -> Result<(), StepProbeError> {

@@ -17,12 +17,13 @@ use crate::cpu::{
     decode_cpu_instruction_word, identify_cpu_instruction, primary_data_cache_line_index,
     primary_instruction_cache_line_index, select_cpu_local_executed_helper,
     signed_cpu_value_less_than, Cpu, CpuArithmeticOverflowExceptionEntryError,
-    CpuControlFlowSnapshot, CpuDelaySlotContext, CpuInstructionFields, CpuInstructionIdentity,
-    CpuInstructionWord, CpuLocalExecutedHelperArithmeticOverflow,
-    CpuLocalExecutedHelperExecutedInstruction, CpuLocalExecutedHelperInvocationError,
-    CpuLocalExecutedHelperInvocationOutcome, CpuRegisterIndexError, MachineCop0TagWriteProvenance,
-    MachineCop1DataWordAvailability, MachineCop1DataWordState, MachineCop1Fcr31State,
-    MachineCop1Fcr31WriteProvenance, MachineCop1FrMode, MachineCop1Lwc1Provenance,
+    CpuControlFlowSnapshot, CpuCoprocessorUnusableExceptionEntryError, CpuDelaySlotContext,
+    CpuInstructionFields, CpuInstructionIdentity, CpuInstructionWord,
+    CpuLocalExecutedHelperArithmeticOverflow, CpuLocalExecutedHelperExecutedInstruction,
+    CpuLocalExecutedHelperInvocationError, CpuLocalExecutedHelperInvocationOutcome,
+    CpuRegisterIndexError, MachineCop0TagWriteProvenance, MachineCop1DataWordAvailability,
+    MachineCop1DataWordState, MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance,
+    MachineCop1FrMode, MachineCop1Lwc1Provenance, MachineCpuCommonExceptionVector,
     MachinePrimaryCacheHitInvalidatePlan, MachinePrimaryCacheHitInvalidateProvenance,
     MachinePrimaryCacheHitInvalidateTarget, MachinePrimaryCacheIndexInvalidatePlan,
     MachinePrimaryCacheIndexInvalidateProvenance, MachinePrimaryCacheIndexStoreTagTarget,
@@ -174,6 +175,7 @@ const COP0_TAG_HI_REGISTER_INDEX: u8 = 29;
 const COP0_MFC0_RESERVED_LOW_BITS_MASK: u32 = 0x0000_07ff;
 const COP0_MTC0_RESERVED_LOW_BITS_MASK: u32 = 0x0000_07ff;
 const COP0_STATUS_COP1_USABLE: u32 = 0x2000_0000;
+const COP1_COPROCESSOR_NUMBER: u8 = 1;
 const COP1_FCR31_REGISTER_INDEX: u8 = 31;
 const COP1_CONTROL_TRANSFER_RESERVED_LOW_BITS_MASK: u32 = 0x0000_07ff;
 const SP_DMEM_PHYSICAL_BASE: u32 = 0x0400_0000;
@@ -3582,6 +3584,7 @@ pub(crate) enum MachineClassifiedStepAction {
     Mfc0(MachineMfc0StepAction),
     Mtc0(MachineMtc0StepAction),
     Cop1ControlTransfer(MachineCop1ControlTransferStepAction),
+    CoprocessorUnusableException(MachineCoprocessorUnusableExceptionPlan),
     Cache(MachineCacheOperationStepAction),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierAction),
 }
@@ -3599,6 +3602,7 @@ pub(crate) enum MachineClassifiedStepActionApplication {
     Mfc0(MachineMfc0StepApplication),
     Mtc0(MachineMtc0StepApplication),
     Cop1ControlTransfer(MachineCop1ControlTransferStepApplication),
+    CoprocessorUnusableException(MachineCoprocessorUnusableExceptionApplication),
     Cache(MachineCacheOperationStepApplication),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierApplication),
 }
@@ -3617,6 +3621,7 @@ impl MachineClassifiedStepActionApplication {
             | Self::Mfc0(_)
             | Self::Mtc0(_)
             | Self::Cop1ControlTransfer(_)
+            | Self::CoprocessorUnusableException(_)
             | Self::Cache(_)
             | Self::NonCpuLocalFrontier(_) => None,
         }
@@ -3637,6 +3642,7 @@ impl MachineClassifiedStepActionApplication {
             | Self::Mfc0(_)
             | Self::Mtc0(_)
             | Self::Cop1ControlTransfer(_)
+            | Self::CoprocessorUnusableException(_)
             | Self::Cache(_) => None,
         }
     }
@@ -3651,6 +3657,7 @@ pub(crate) enum MachineClassifiedStepActionApplicationError {
     StoreHalfword(MachineStoreHalfwordStepApplicationError),
     StoreDoubleword(MachineStoreDoublewordStepApplicationError),
     SpImemByte(CpuRegisterIndexError),
+    CoprocessorUnusableException(CpuCoprocessorUnusableExceptionEntryError),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierApplicationError),
 }
 
@@ -3663,6 +3670,7 @@ impl fmt::Display for MachineClassifiedStepActionApplicationError {
             Self::StoreHalfword(error) => error.fmt(f),
             Self::StoreDoubleword(error) => error.fmt(f),
             Self::SpImemByte(error) => error.fmt(f),
+            Self::CoprocessorUnusableException(error) => error.fmt(f),
             Self::NonCpuLocalFrontier(error) => error.fmt(f),
         }
     }
@@ -3988,6 +3996,59 @@ impl MachineArithmeticOverflowExceptionEntryRejection {
     pub const fn status(self) -> u32 {
         self.status
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineCoprocessorUnusableExceptionEntryRejection {
+    pc: CpuAddress,
+    next_pc: CpuAddress,
+    status: u32,
+}
+
+impl MachineCoprocessorUnusableExceptionEntryRejection {
+    const fn from_cpu_error(error: CpuCoprocessorUnusableExceptionEntryError) -> Self {
+        Self {
+            pc: error.pc(),
+            next_pc: error.next_pc(),
+            status: error.status(),
+        }
+    }
+
+    pub const fn pc(self) -> CpuAddress {
+        self.pc
+    }
+
+    pub const fn next_pc(self) -> CpuAddress {
+        self.next_pc
+    }
+
+    pub const fn status(self) -> u32 {
+        self.status
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineCoprocessorUnusableExceptionPlan {
+    identity: CpuInstructionIdentity,
+    coprocessor: u8,
+}
+
+impl MachineCoprocessorUnusableExceptionPlan {
+    const fn cop1_lwc1() -> Self {
+        Self {
+            identity: CpuInstructionIdentity::Lwc1,
+            coprocessor: COP1_COPROCESSOR_NUMBER,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineCoprocessorUnusableExceptionApplication {
+    plan: MachineCoprocessorUnusableExceptionPlan,
+    vector: MachineCpuCommonExceptionVector,
+    epc: CpuAddress,
+    branch_delay: bool,
+    cadence_plan: MachineStepCadencePlan,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4350,6 +4411,14 @@ pub enum MachineRepresentedStepOutcome {
         pending_word: u32,
         epc: CpuAddress,
         branch_delay: bool,
+        cadence_plan: MachineStepCadencePlan,
+    },
+    CoprocessorUnusableExceptionEntered {
+        identity: CpuInstructionIdentity,
+        coprocessor: u8,
+        epc: CpuAddress,
+        branch_delay: bool,
+        vector: MachineCpuCommonExceptionVector,
         cadence_plan: MachineStepCadencePlan,
     },
     DataAddressError {
@@ -4868,6 +4937,16 @@ impl MachineRepresentedStepOutcome {
                 state: plan.state(),
                 cadence_plan,
             },
+            MachineClassifiedStepActionApplication::CoprocessorUnusableException(application) => {
+                Self::CoprocessorUnusableExceptionEntered {
+                    identity: application.plan.identity,
+                    coprocessor: application.plan.coprocessor,
+                    epc: application.epc,
+                    branch_delay: application.branch_delay,
+                    vector: application.vector,
+                    cadence_plan: application.cadence_plan,
+                }
+            }
             MachineClassifiedStepActionApplication::Cache(application) => {
                 match application.plan.kind {
                     MachineCacheOperationCommitKind::IndexInvalidate {
@@ -4967,7 +5046,8 @@ impl MachineRepresentedStepOutcome {
             | Self::SpImemByteCommitted { identity, .. }
             | Self::DirectRdramByteCommitted { identity, .. }
             | Self::DataAddressError { identity, .. }
-            | Self::ArithmeticOverflowException { identity } => Some(identity),
+            | Self::ArithmeticOverflowException { identity }
+            | Self::CoprocessorUnusableExceptionEntered { identity, .. } => Some(identity),
             Self::DirectRdramHalfwordCommitted { .. } => Some(CpuInstructionIdentity::Sh),
             Self::DirectRdramDoublewordCommitted { .. } => Some(CpuInstructionIdentity::Sd),
             Self::LoadHalfwordCommitted { identity, .. } => Some(identity),
@@ -5051,6 +5131,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitWritebackCommitted { cadence_plan, .. }
             | Self::CacheHitInvalidateCommitted { cadence_plan, .. }
             | Self::InterruptExceptionEntered { cadence_plan, .. }
+            | Self::CoprocessorUnusableExceptionEntered { cadence_plan, .. }
             | Self::DataAddressError { cadence_plan, .. }
             | Self::NoEffectCommitted { cadence_plan, .. }
             | Self::Stopped { cadence_plan, .. }
@@ -5101,6 +5182,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitWritebackCommitted { .. }
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
+            | Self::CoprocessorUnusableExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -5150,6 +5232,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitWritebackCommitted { .. }
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
+            | Self::CoprocessorUnusableExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -5199,6 +5282,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitWritebackCommitted { .. }
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
+            | Self::CoprocessorUnusableExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::Stopped { .. }
@@ -5248,6 +5332,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitWritebackCommitted { .. }
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
+            | Self::CoprocessorUnusableExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -5276,6 +5361,7 @@ pub enum MachineRepresentedStepError {
         identity: CpuInstructionIdentity,
     },
     ArithmeticOverflowExceptionEntryRejected(MachineArithmeticOverflowExceptionEntryRejection),
+    CoprocessorUnusableExceptionEntryRejected(MachineCoprocessorUnusableExceptionEntryRejection),
     DataAddressErrorExceptionEntryRejected(CpuAddressErrorExceptionEntryError),
     InstructionFetchAddressErrorEntryRejected(CpuAddressErrorExceptionEntryError),
     CompositionInvariantRejected,
@@ -5363,6 +5449,11 @@ impl MachineRepresentedStepError {
             MachineClassifiedStepActionApplicationError::LoadWord(
                 MachineLoadWordStepApplicationError::DataAddressErrorEntry(error),
             ) => Self::DataAddressErrorExceptionEntryRejected(error),
+            MachineClassifiedStepActionApplicationError::CoprocessorUnusableException(error) => {
+                Self::CoprocessorUnusableExceptionEntryRejected(
+                    MachineCoprocessorUnusableExceptionEntryRejection::from_cpu_error(error),
+                )
+            }
             MachineClassifiedStepActionApplicationError::StoreWord(
                 MachineStoreWordStepApplicationError::DataAddressErrorEntry(error),
             ) => Self::DataAddressErrorExceptionEntryRejected(error),
@@ -5405,6 +5496,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5427,6 +5519,7 @@ impl MachineRepresentedStepError {
             Self::RspRejected(_)
             | Self::FetchRejected(_)
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5451,6 +5544,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5473,6 +5567,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5495,6 +5590,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5517,6 +5613,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5539,6 +5636,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5561,6 +5659,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5585,6 +5684,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5609,6 +5709,7 @@ impl MachineRepresentedStepError {
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
+            | Self::CoprocessorUnusableExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5673,6 +5774,13 @@ impl fmt::Display for MachineRepresentedStepError {
             Self::ArithmeticOverflowExceptionEntryRejected(error) => write!(
                 f,
                 "represented Machine::step arithmetic-overflow entry rejected: pc={} next_pc={} status={}",
+                error.pc().value(),
+                error.next_pc().value(),
+                error.status()
+            ),
+            Self::CoprocessorUnusableExceptionEntryRejected(error) => write!(
+                f,
+                "represented Machine::step Coprocessor Unusable entry rejected: pc={} next_pc={} status={}",
                 error.pc().value(),
                 error.next_pc().value(),
                 error.status()
@@ -10790,6 +10898,27 @@ impl Machine {
         }
     }
 
+    fn apply_coprocessor_unusable_exception(
+        &mut self,
+        plan: MachineCoprocessorUnusableExceptionPlan,
+        control_flow_snapshot: CpuControlFlowSnapshot,
+    ) -> Result<
+        MachineCoprocessorUnusableExceptionApplication,
+        CpuCoprocessorUnusableExceptionEntryError,
+    > {
+        self.cpu.restore_control_flow(control_flow_snapshot);
+        let vector = self
+            .cpu
+            .enter_coprocessor_unusable_exception(plan.coprocessor)?;
+        Ok(MachineCoprocessorUnusableExceptionApplication {
+            plan,
+            vector,
+            epc: CpuAddress::new(self.cpu.cop0_epc()),
+            branch_delay: self.cpu.cop0_exception_branch_delay(),
+            cadence_plan: classify_machine_step_cadence(MachineStepCadenceSource::EnteredException),
+        })
+    }
+
     fn produce_cache_operation_step_action(
         &self,
         control_flow_snapshot: CpuControlFlowSnapshot,
@@ -11462,6 +11591,10 @@ impl Machine {
                     self.apply_cop1_control_transfer_step_action(action, control_flow_snapshot),
                 ))
             }
+            MachineClassifiedStepAction::CoprocessorUnusableException(plan) => self
+                .apply_coprocessor_unusable_exception(plan, control_flow_snapshot)
+                .map(MachineClassifiedStepActionApplication::CoprocessorUnusableException)
+                .map_err(MachineClassifiedStepActionApplicationError::CoprocessorUnusableException),
             MachineClassifiedStepAction::Cache(action) => {
                 Ok(MachineClassifiedStepActionApplication::Cache(
                     self.apply_cache_operation_step_action(action, control_flow_snapshot),
@@ -11651,6 +11784,15 @@ impl Machine {
         }
 
         if identity == CpuInstructionIdentity::Lwc1 {
+            if (self.cpu.cop0_status() & COP0_STATUS_COP1_USABLE) == 0 {
+                return Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::CoprocessorUnusableException(
+                        MachineCoprocessorUnusableExceptionPlan::cop1_lwc1(),
+                    ),
+                ));
+            }
             if let Err(rejection) = self.require_lwc1_data_transfer_mode() {
                 self.cpu.restore_control_flow(control_flow_snapshot);
                 return Err(MachineCurrentPcClassifiedStepActionError::Lwc1Rejected(
@@ -13051,8 +13193,11 @@ mod tests {
     }
 
     const COP0_STATUS_EXL: u32 = 0x0000_0002;
+    const COP0_STATUS_BEV: u32 = 0x0040_0000;
     const LOCAL_EXCEPTION_VECTOR_PC: u32 = 0x8000_0180;
     const LOCAL_EXCEPTION_VECTOR_NEXT_PC: u32 = 0x8000_0184;
+    const BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC: u32 = 0xbfc0_0380;
+    const BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC: u32 = 0xbfc0_0384;
     const GENERATED_X105_CACHE_SP_AND_RELOCATION_WORDS: &[(usize, u32)] = &[
         (0x404, 0x4080e800),
         (0x408, 0xbd080000),
@@ -24269,6 +24414,7 @@ mod tests {
         cop0_tlb_entries:
             [Option<crate::cpu::MachineCop0TlbEntry>; crate::cpu::COP0_TLB_ENTRY_COUNT],
         exception_code: u8,
+        coprocessor_error: u8,
         exception_branch_delay: bool,
         cop0_tag_lo: Option<crate::cpu::MachineCop0TagState>,
         cop0_tag_hi: Option<crate::cpu::MachineCop0TagState>,
@@ -24382,6 +24528,7 @@ mod tests {
             cop0_wired: machine.cpu().cop0_wired(),
             cop0_tlb_entries: core::array::from_fn(|index| machine.cpu().cop0_tlb_entry(index)),
             exception_code: machine.cpu().cop0_exception_code(),
+            coprocessor_error: machine.cpu().cop0_coprocessor_error(),
             exception_branch_delay: machine.cpu().cop0_exception_branch_delay(),
             cop0_tag_lo: machine.cpu().cop0_tag_lo(),
             cop0_tag_hi: machine.cpu().cop0_tag_hi(),
@@ -35239,12 +35386,38 @@ mod tests {
         let mut cu1_clear = staged_public_synthetic_cold_x105_machine(&[(0x40, lwc1)]);
         cu1_clear.cpu.write_cop0_status(0);
         let before = lw_snapshot(&cu1_clear);
-        let rejection = cu1_clear.step().unwrap_err();
-        assert_eq!(
-            rejection.lwc1_rejection().map(MachineLwc1Rejection::reason),
-            Some(MachineLwc1RejectionReason::CoprocessorUnusable { status: 0 })
-        );
-        assert_eq!(lw_snapshot(&cu1_clear), before);
+        assert!(matches!(
+            cu1_clear.step().unwrap(),
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Lwc1,
+                coprocessor: 1,
+                epc,
+                branch_delay: false,
+                vector: MachineCpuCommonExceptionVector::Normal,
+                cadence_plan,
+            } if epc == CpuAddress::new(before.pc)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && !cadence_plan.advances_count()
+        ));
+        let after = lw_snapshot(&cu1_clear);
+        assert_eq!(after.exception_code, 11);
+        assert_eq!(after.coprocessor_error, 1);
+        assert!(!after.exception_branch_delay);
+        assert_eq!(after.epc, before.pc);
+        assert_eq!(after.status & COP0_STATUS_EXL, COP0_STATUS_EXL);
+        assert_eq!(after.pc, LOCAL_EXCEPTION_VECTOR_PC);
+        assert_eq!(after.next_pc, LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(after.count, before.count);
+        assert_eq!(after.gprs, before.gprs);
+        assert_eq!(after.hi, before.hi);
+        assert_eq!(after.lo, before.lo);
+        assert_eq!(after.bad_vaddr, before.bad_vaddr);
+        assert_eq!(after.cop0_context, before.cop0_context);
+        assert_eq!(after.entry_hi, before.entry_hi);
+        assert_eq!(after.cop1_fcr31, before.cop1_fcr31);
+        assert_eq!(after.cop1_data_words, before.cop1_data_words);
+        assert_eq!(after.data_cache, before.data_cache);
+        assert_eq!(after.rdram, before.rdram);
 
         let mut fr1 = staged_public_synthetic_cold_x105_machine(&[(0x40, lwc1_word(0, 5, 0))]);
         fr1.cpu
@@ -35307,6 +35480,134 @@ mod tests {
             cu1_clear.cpu().cop1_data_word_state(5).unwrap(),
             MachineCop1DataWordState::construction_unavailable()
         );
+    }
+
+    #[test]
+    fn lwc1_cop1_unusable_owns_delay_bev_nested_state_and_exception_priority() {
+        let branch = control_flow_branch_word(0x04, 0, 0, 1);
+        let mut delay = staged_public_synthetic_cold_x105_machine(&[
+            (0x40, branch),
+            (0x44, lwc1_word(2, 7, 1)),
+            (0x48, special_shift_word(0, 0, 0, 0, 0)),
+        ]);
+        delay.cpu.write_cop0_status(0);
+        assert_control_flow_commit(delay.step().unwrap(), CpuInstructionIdentity::Beq);
+        let count_before = delay.cpu().cop0_count();
+        let fgr_before = delay.cpu().cop1_data_word_state(7);
+        assert!(matches!(
+            delay.step().unwrap(),
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Lwc1,
+                coprocessor: 1,
+                epc,
+                branch_delay: true,
+                vector: MachineCpuCommonExceptionVector::Normal,
+                cadence_plan,
+            } if epc == CpuAddress::new(0xa400_0040)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(delay.cpu().cop0_exception_code(), 11);
+        assert_eq!(delay.cpu().cop0_coprocessor_error(), 1);
+        assert_eq!(delay.cpu().cop0_count(), count_before);
+        assert_eq!(delay.cpu().cop1_data_word_state(7), fgr_before);
+        assert_eq!(delay.cpu_delay_slot_context(), None);
+
+        let mut bev = staged_public_synthetic_cold_x105_machine(&[(0x40, lwc1_word(2, 9, 3))]);
+        bev.cpu.write_cop0_status(COP0_STATUS_BEV);
+        bev.cpu
+            .stage_cop0_count_compare_timer_for_test(0x7654_3210, 0x1111_2222, true);
+        bev.cpu
+            .stage_cop0_cause_state_for_test(0x0300, true, 4, false);
+        bev.cpu.stage_cop0_coprocessor_error_for_test(2);
+        bev.cpu.stage_cop0_bad_vaddr_for_test(0x1357_9bdf);
+        let before = lw_snapshot(&bev);
+        assert!(matches!(
+            bev.step().unwrap(),
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Lwc1,
+                coprocessor: 1,
+                epc,
+                branch_delay: false,
+                vector: MachineCpuCommonExceptionVector::Bootstrap,
+                cadence_plan,
+            } if epc == CpuAddress::new(before.pc)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && !cadence_plan.advances_count()
+        ));
+        let after = lw_snapshot(&bev);
+        assert_eq!(after.pc, BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC);
+        assert_eq!(after.next_pc, BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(after.exception_code, 11);
+        assert_eq!(after.coprocessor_error, 1);
+        assert_eq!(
+            after.software_interrupt_pending,
+            before.software_interrupt_pending
+        );
+        assert_eq!(
+            after.software_interrupt_pending_known,
+            before.software_interrupt_pending_known
+        );
+        assert_eq!(
+            after.timer_interrupt_pending,
+            before.timer_interrupt_pending
+        );
+        assert_eq!(after.rcp_interrupt_pending, before.rcp_interrupt_pending);
+        assert_eq!(after.bad_vaddr, before.bad_vaddr);
+        assert_eq!(after.cop0_context, before.cop0_context);
+        assert_eq!(after.entry_hi, before.entry_hi);
+        assert_eq!(after.count, before.count);
+        assert_eq!(after.data_cache, before.data_cache);
+        assert_eq!(after.rdram, before.rdram);
+
+        let mut nested = staged_public_synthetic_cold_x105_machine(&[(0x40, lwc1_word(0, 10, 0))]);
+        nested
+            .cpu
+            .write_cop0_status(COP0_STATUS_BEV | COP0_STATUS_EXL);
+        nested.cpu.stage_cop0_epc_for_test(0x8123_4560);
+        nested
+            .cpu
+            .stage_cop0_cause_state_for_test(0x0100, true, 5, true);
+        nested.cpu.stage_cop0_coprocessor_error_for_test(3);
+        let count_before = nested.cpu().cop0_count();
+        assert!(matches!(
+            nested.step().unwrap(),
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Lwc1,
+                coprocessor: 1,
+                epc,
+                branch_delay: true,
+                vector: MachineCpuCommonExceptionVector::Bootstrap,
+                cadence_plan,
+            } if epc == CpuAddress::new(0x8123_4560)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && !cadence_plan.advances_count()
+        ));
+        assert_eq!(nested.cpu().cop0_epc(), 0x8123_4560);
+        assert!(nested.cpu().cop0_exception_branch_delay());
+        assert_eq!(nested.cpu().cop0_exception_code(), 11);
+        assert_eq!(nested.cpu().cop0_coprocessor_error(), 1);
+        assert_eq!(nested.cpu().cop0_count(), count_before);
+    }
+
+    #[test]
+    fn lwc1_cop1_unusable_entry_rejection_preserves_complete_machine_state() {
+        let mut machine = staged_public_synthetic_cold_x105_machine(&[(0x40, lwc1_word(0, 6, 0))]);
+        machine.cpu.write_cop0_status(COP0_STATUS_BEV);
+        machine.cpu.stage_next_pc(0xa400_1040);
+        let before = lw_snapshot(&machine);
+
+        let error = machine.step().unwrap_err();
+
+        assert!(matches!(
+            error,
+            MachineRepresentedStepError::CoprocessorUnusableExceptionEntryRejected(
+                rejection
+            ) if rejection.pc() == CpuAddress::new(0xa400_0040)
+                && rejection.next_pc() == CpuAddress::new(0xa400_1040)
+                && rejection.status() == COP0_STATUS_BEV
+        ));
+        assert_eq!(lw_snapshot(&machine), before);
     }
 
     #[test]
