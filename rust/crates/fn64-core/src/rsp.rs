@@ -9,8 +9,8 @@ use crate::mi::{
 use crate::sp::{MachineSpDramAddressSource, MachineSpSemaphoreSource, MachineSpStatusState};
 use crate::sp_dmem::{
     MachineSpDmemByteKnowledge, MachineSpDmemByteKnowledgeDescriptor,
-    MachineSpDmemByteKnowledgeSource, MachineSpDmemRspSqvProvenance,
-    MachineSpDmemRspStoreWordProvenance, SpDmemOffset,
+    MachineSpDmemByteKnowledgeSource, MachineSpDmemRspSqvPayload, MachineSpDmemRspSqvProvenance,
+    MachineSpDmemRspSqvUnavailableVectorSource, MachineSpDmemRspStoreWordProvenance, SpDmemOffset,
 };
 use crate::sp_imem::SpImemByteProvenance;
 
@@ -2963,6 +2963,7 @@ impl MachineRspLqvPlan {
 pub(crate) struct MachineRspSqvPlan {
     instruction_pc: u16,
     old_next_pc: u16,
+    rsp_commit_index: u64,
     base_gpr: u8,
     base_value: u32,
     base_source: MachineRspScalarRegisterSource,
@@ -2971,7 +2972,7 @@ pub(crate) struct MachineRspSqvPlan {
     element: u8,
     signed_offset: i8,
     local_dmem_address: u16,
-    stored_bytes: [u8; RSP_VECTOR_REGISTER_BYTE_COUNT],
+    payload: MachineSpDmemRspSqvPayload,
     byte_count: u8,
     byte_provenance: [SpImemByteProvenance; 4],
 }
@@ -2989,8 +2990,8 @@ impl MachineRspSqvPlan {
         self.local_dmem_address
     }
 
-    pub(crate) const fn stored_bytes(&self) -> [u8; RSP_VECTOR_REGISTER_BYTE_COUNT] {
-        self.stored_bytes
+    pub(crate) const fn payload(&self) -> MachineSpDmemRspSqvPayload {
+        self.payload
     }
 
     pub(crate) const fn byte_count(&self) -> u8 {
@@ -3001,6 +3002,7 @@ impl MachineRspSqvPlan {
         MachineSpDmemRspSqvProvenance::new(
             self.instruction_pc,
             classify_instruction_source(self.byte_provenance),
+            self.rsp_commit_index,
             (self.base_gpr, self.base_value),
             (self.source_vector, self.element),
             (self.signed_offset, self.local_dmem_address, self.byte_count),
@@ -4648,19 +4650,37 @@ impl MachineRspExecutionState {
         let byte_count =
             (RSP_VECTOR_REGISTER_BYTE_COUNT - usize::from(local_dmem_address & 0x0f)) as u8;
         let source_state = self.vector_unit.registers[usize::from(source_vector)].clone();
-        let Some(stored_bytes) = source_state.bytes().copied() else {
-            return Err(MachineRspStepRejection::new(
-                MachineRspStepRejectionReason::SqvSourceUnavailable {
-                    source_vector,
-                    byte_count,
-                },
-            ));
+        let payload = match &source_state {
+            MachineRspVectorRegisterState::Available { bytes, .. } => {
+                MachineSpDmemRspSqvPayload::Available(*bytes)
+            }
+            MachineRspVectorRegisterState::Unavailable { source } => {
+                let source = match source {
+                    MachineRspVectorUnavailableSource::ConstructionOrReset => {
+                        MachineSpDmemRspSqvUnavailableVectorSource::ConstructionOrReset
+                    }
+                    MachineRspVectorUnavailableSource::Lqv(_) => {
+                        MachineSpDmemRspSqvUnavailableVectorSource::Lqv
+                    }
+                    MachineRspVectorUnavailableSource::Vsub(_) => {
+                        MachineSpDmemRspSqvUnavailableVectorSource::Vsub
+                    }
+                    MachineRspVectorUnavailableSource::Vaddc(_) => {
+                        MachineSpDmemRspSqvUnavailableVectorSource::Vaddc
+                    }
+                    MachineRspVectorUnavailableSource::Vxor(_) => {
+                        MachineSpDmemRspSqvUnavailableVectorSource::Vxor
+                    }
+                };
+                MachineSpDmemRspSqvPayload::Unavailable { source }
+            }
         };
         Ok(MachineRspSqvPlan {
             instruction_pc,
             old_next_pc: self
                 .next_pc
                 .unwrap_or_else(|| sequential_local_pc(instruction_pc)),
+            rsp_commit_index: self.committed_instruction_count.wrapping_add(1),
             base_gpr,
             base_value: *base_value,
             base_source: base_source.clone(),
@@ -4669,7 +4689,7 @@ impl MachineRspExecutionState {
             element,
             signed_offset,
             local_dmem_address,
-            stored_bytes,
+            payload,
             byte_count,
             byte_provenance,
         })
@@ -7572,7 +7592,7 @@ mod tests {
         assert_eq!(plan.element, 0);
         assert_eq!(plan.signed_offset, 0);
         assert_eq!(plan.local_dmem_address(), 0x027);
-        assert_eq!(plan.stored_bytes(), bytes);
+        assert_eq!(plan.payload(), MachineSpDmemRspSqvPayload::Available(bytes));
         assert_eq!(plan.byte_count(), 9);
         let provenance = plan.dmem_provenance();
         assert_eq!(provenance.instruction_pc(), 0x020);
@@ -7580,6 +7600,7 @@ mod tests {
             provenance.instruction_source(),
             MachineRspInstructionSource::GeneratedMachineTestStaging
         );
+        assert_eq!(provenance.rsp_commit_index(), 1);
         assert_eq!(provenance.base_gpr(), 3);
         assert_eq!(provenance.base_value(), 0xabcd_f027);
         assert_eq!(provenance.source_vector(), 12);
@@ -7649,17 +7670,25 @@ mod tests {
         assert_eq!(wrapped.local_dmem_address(), 0);
         assert_eq!(wrapped.byte_count(), 16);
 
+        let unavailable = rsp
+            .plan_sqv(
+                0,
+                rsp.decode(sqv_word(0, 13, 0, 0)).unwrap(),
+                TEST_INSTRUCTION_PROVENANCE,
+            )
+            .unwrap();
+        assert_eq!(
+            unavailable.payload(),
+            MachineSpDmemRspSqvPayload::Unavailable {
+                source: MachineSpDmemRspSqvUnavailableVectorSource::ConstructionOrReset,
+            }
+        );
+        assert_eq!(unavailable.byte_count(), 16);
+
         for (word, expected) in [
             (
                 sqv_word(1, 12, 0, 0),
                 MachineRspStepRejectionReason::SqvScalarBaseUnavailable { base_gpr: 1 },
-            ),
-            (
-                sqv_word(0, 13, 0, 0),
-                MachineRspStepRejectionReason::SqvSourceUnavailable {
-                    source_vector: 13,
-                    byte_count: 16,
-                },
             ),
             (
                 sqv_word(0, 12, 1, 0),
@@ -7678,24 +7707,25 @@ mod tests {
     }
 
     #[test]
-    fn rsp_sqv_unavailable_source_reports_exact_prefix_demand_for_every_alignment_class() {
+    fn rsp_sqv_unavailable_source_plans_exact_opaque_prefix_for_every_alignment_class() {
         let mut rsp = MachineRspExecutionState::default();
         rsp.synchronize_pc_write(0);
 
         for low_nibble in 0_u8..16 {
             stage_available_scalar(&mut rsp, 3, u32::from(low_nibble));
             let before = rsp.clone();
-            assert_eq!(
-                rsp.plan_sqv(
+            let plan = rsp
+                .plan_sqv(
                     0,
                     rsp.decode(sqv_word(3, 13, 0, 0)).unwrap(),
                     TEST_INSTRUCTION_PROVENANCE,
                 )
-                .unwrap_err()
-                .reason(),
-                MachineRspStepRejectionReason::SqvSourceUnavailable {
-                    source_vector: 13,
-                    byte_count: 16 - low_nibble,
+                .unwrap();
+            assert_eq!(plan.byte_count(), 16 - low_nibble);
+            assert_eq!(
+                plan.payload(),
+                MachineSpDmemRspSqvPayload::Unavailable {
+                    source: MachineSpDmemRspSqvUnavailableVectorSource::ConstructionOrReset,
                 }
             );
             assert_eq!(rsp, before);

@@ -1279,6 +1279,7 @@ fn redacted_rsp_rejection_category_for_machine(
         MachineRspVectorUnavailableSource::Lqv(source) => {
             let mut construction_or_reset = false;
             let mut bootstrap_uncovered = false;
+            let mut rsp_sqv_opaque = false;
             for descriptor in source.dmem_knowledge() {
                 match descriptor.source() {
                     MachineSpDmemByteKnowledgeSource::Available { .. } => {}
@@ -1288,13 +1289,24 @@ fn redacted_rsp_rejection_category_for_machine(
                     MachineSpDmemByteKnowledgeSource::Unavailable {
                         source: MachineSpDmemUnavailableSource::BootstrapUncovered,
                     } => bootstrap_uncovered = true,
+                    MachineSpDmemByteKnowledgeSource::Unavailable {
+                        source: MachineSpDmemUnavailableSource::RspSqvOpaque { .. },
+                    } => rsp_sqv_opaque = true,
                 }
             }
-            match (construction_or_reset, bootstrap_uncovered) {
-                (false, false) => "sqv-source-lqv-knowledge-inconsistent",
-                (true, false) => "sqv-source-lqv-construction-reset-unavailable",
-                (false, true) => "sqv-source-lqv-bootstrap-uncovered",
-                (true, true) => "sqv-source-lqv-mixed-unavailable",
+            if rsp_sqv_opaque {
+                if construction_or_reset || bootstrap_uncovered {
+                    "sqv-source-lqv-mixed-unavailable"
+                } else {
+                    "sqv-source-lqv-rsp-sqv-opaque"
+                }
+            } else {
+                match (construction_or_reset, bootstrap_uncovered) {
+                    (false, false) => "sqv-source-lqv-knowledge-inconsistent",
+                    (true, false) => "sqv-source-lqv-construction-reset-unavailable",
+                    (false, true) => "sqv-source-lqv-bootstrap-uncovered",
+                    (true, true) => "sqv-source-lqv-mixed-unavailable",
+                }
             }
         }
         MachineRspVectorUnavailableSource::Vsub(_) => "sqv-source-vsub-unavailable",

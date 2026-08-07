@@ -124,6 +124,7 @@ impl MachineSpDmemRspStoreWordProvenance {
 pub struct MachineSpDmemRspSqvProvenance {
     instruction_pc: u16,
     instruction_source: MachineRspInstructionSource,
+    rsp_commit_index: u64,
     base_gpr: u8,
     base_value: u32,
     source_vector: u8,
@@ -133,10 +134,28 @@ pub struct MachineSpDmemRspSqvProvenance {
     byte_count: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSpDmemRspSqvUnavailableVectorSource {
+    ConstructionOrReset,
+    Lqv,
+    Vsub,
+    Vaddc,
+    Vxor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MachineSpDmemRspSqvPayload {
+    Available([u8; 16]),
+    Unavailable {
+        source: MachineSpDmemRspSqvUnavailableVectorSource,
+    },
+}
+
 impl MachineSpDmemRspSqvProvenance {
     pub(crate) const fn new(
         instruction_pc: u16,
         instruction_source: MachineRspInstructionSource,
+        rsp_commit_index: u64,
         base: (u8, u32),
         source: (u8, u8),
         transfer: (i8, u16, u8),
@@ -144,6 +163,7 @@ impl MachineSpDmemRspSqvProvenance {
         Self {
             instruction_pc,
             instruction_source,
+            rsp_commit_index,
             base_gpr: base.0,
             base_value: base.1,
             source_vector: source.0,
@@ -160,6 +180,10 @@ impl MachineSpDmemRspSqvProvenance {
 
     pub const fn instruction_source(self) -> MachineRspInstructionSource {
         self.instruction_source
+    }
+
+    pub const fn rsp_commit_index(self) -> u64 {
+        self.rsp_commit_index
     }
 
     pub const fn base_gpr(self) -> u8 {
@@ -195,6 +219,11 @@ impl MachineSpDmemRspSqvProvenance {
 pub enum MachineSpDmemUnavailableSource {
     ConstructionOrReset,
     BootstrapUncovered,
+    RspSqvOpaque {
+        provenance: MachineSpDmemRspSqvProvenance,
+        source_byte_index: u8,
+        source_vector_source: MachineSpDmemRspSqvUnavailableVectorSource,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -369,7 +398,7 @@ pub(crate) struct MachineSpDmemRspStoreWordPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MachineSpDmemRspSqvPlan {
     offset: SpDmemOffset,
-    bytes: [u8; 16],
+    payload: MachineSpDmemRspSqvPayload,
     byte_count: u8,
     provenance: MachineSpDmemRspSqvProvenance,
 }
@@ -682,12 +711,12 @@ impl SpDmem {
     pub(crate) fn plan_rsp_sqv(
         &self,
         offset: SpDmemOffset,
-        bytes: [u8; 16],
+        payload: MachineSpDmemRspSqvPayload,
         byte_count: u8,
         provenance: MachineSpDmemRspSqvProvenance,
     ) -> Result<MachineSpDmemRspSqvPlan, SpDmemWriteError> {
         let width = usize::from(byte_count);
-        if width == 0 || width > bytes.len() {
+        if width == 0 || width > 16 {
             return Err(SpDmemWriteError { offset, width });
         }
         let start = offset.as_usize();
@@ -699,7 +728,7 @@ impl SpDmem {
         }
         Ok(MachineSpDmemRspSqvPlan {
             offset,
-            bytes,
+            payload,
             byte_count,
             provenance,
         })
@@ -708,17 +737,35 @@ impl SpDmem {
     pub(crate) fn apply_rsp_sqv(&mut self, plan: MachineSpDmemRspSqvPlan) {
         let start = plan.offset.as_usize();
         let width = usize::from(plan.byte_count);
-        self.bytes[start..start + width].copy_from_slice(&plan.bytes[..width]);
-        for (source_byte_index, knowledge) in self.byte_knowledge[start..start + width]
-            .iter_mut()
-            .enumerate()
-        {
-            *knowledge = MachineSpDmemStoredByteKnowledge::Available {
-                source: MachineSpDmemByteSource::RspSqv {
-                    provenance: plan.provenance,
-                    source_byte_index: source_byte_index as u8,
-                },
-            };
+        match plan.payload {
+            MachineSpDmemRspSqvPayload::Available(bytes) => {
+                self.bytes[start..start + width].copy_from_slice(&bytes[..width]);
+                for (source_byte_index, knowledge) in self.byte_knowledge[start..start + width]
+                    .iter_mut()
+                    .enumerate()
+                {
+                    *knowledge = MachineSpDmemStoredByteKnowledge::Available {
+                        source: MachineSpDmemByteSource::RspSqv {
+                            provenance: plan.provenance,
+                            source_byte_index: source_byte_index as u8,
+                        },
+                    };
+                }
+            }
+            MachineSpDmemRspSqvPayload::Unavailable { source } => {
+                for (source_byte_index, knowledge) in self.byte_knowledge[start..start + width]
+                    .iter_mut()
+                    .enumerate()
+                {
+                    *knowledge = MachineSpDmemStoredByteKnowledge::Unavailable {
+                        source: MachineSpDmemUnavailableSource::RspSqvOpaque {
+                            provenance: plan.provenance,
+                            source_byte_index: source_byte_index as u8,
+                            source_vector_source: source,
+                        },
+                    };
+                }
+            }
         }
     }
 
@@ -1042,12 +1089,18 @@ mod tests {
         let provenance = MachineSpDmemRspSqvProvenance::new(
             0x028,
             MachineRspInstructionSource::GeneratedMachineTestStaging,
+            1,
             (3, 0xabcd_f027),
             (12, 0),
             (0, 0x027, 9),
         );
         let plan = first
-            .plan_rsp_sqv(SpDmemOffset::new(0x027), bytes, 9, provenance)
+            .plan_rsp_sqv(
+                SpDmemOffset::new(0x027),
+                MachineSpDmemRspSqvPayload::Available(bytes),
+                9,
+                provenance,
+            )
             .unwrap();
         assert!(first
             .observe_range::<9>(SpDmemOffset::new(0x027))
@@ -1072,6 +1125,7 @@ mod tests {
             provenance.instruction_source(),
             MachineRspInstructionSource::GeneratedMachineTestStaging
         );
+        assert_eq!(provenance.rsp_commit_index(), 1);
         assert_eq!(provenance.base_gpr(), 3);
         assert_eq!(provenance.base_value(), 0xabcd_f027);
         assert_eq!(provenance.source_vector(), 12);
@@ -1092,12 +1146,18 @@ mod tests {
         let aligned_provenance = MachineSpDmemRspSqvProvenance::new(
             0x040,
             MachineRspInstructionSource::GeneratedMachineTestStaging,
+            2,
             (0, 0),
             (7, 0),
             (4, 0x040, 16),
         );
         let aligned_plan = aligned
-            .plan_rsp_sqv(SpDmemOffset::new(0x040), bytes, 16, aligned_provenance)
+            .plan_rsp_sqv(
+                SpDmemOffset::new(0x040),
+                MachineSpDmemRspSqvPayload::Available(bytes),
+                16,
+                aligned_provenance,
+            )
             .unwrap();
         aligned.apply_rsp_sqv(aligned_plan);
         assert_eq!(aligned.read_u8(SpDmemOffset::new(0x040)), Ok(bytes[0]));
@@ -1121,7 +1181,12 @@ mod tests {
         for (offset, byte_count) in [(0x020, 0), (0x020, 17), (0xfff, 2)] {
             let before = first.observe_range::<32>(SpDmemOffset::new(0x020)).unwrap();
             let error = first
-                .plan_rsp_sqv(SpDmemOffset::new(offset), bytes, byte_count, provenance)
+                .plan_rsp_sqv(
+                    SpDmemOffset::new(offset),
+                    MachineSpDmemRspSqvPayload::Available(bytes),
+                    byte_count,
+                    provenance,
+                )
                 .unwrap_err();
             assert_eq!(error.offset(), SpDmemOffset::new(offset));
             assert_eq!(error.width(), usize::from(byte_count));
@@ -1130,6 +1195,134 @@ mod tests {
                 before
             );
         }
+    }
+
+    #[test]
+    fn sp_dmem_rsp_sqv_opaque_payload_supersedes_exact_knowledge_and_restores_exactly() {
+        let mut known_destination = SpDmem::default();
+        known_destination
+            .write_bytes(SpDmemOffset::new(0x03f), &[0xa5; 18])
+            .unwrap();
+        let opaque_provenance = MachineSpDmemRspSqvProvenance::new(
+            0x080,
+            MachineRspInstructionSource::GeneratedMachineTestStaging,
+            7,
+            (0, 0x040),
+            (12, 0),
+            (0, 0x040, 16),
+        );
+        let opaque_plan = known_destination
+            .plan_rsp_sqv(
+                SpDmemOffset::new(0x040),
+                MachineSpDmemRspSqvPayload::Unavailable {
+                    source: MachineSpDmemRspSqvUnavailableVectorSource::ConstructionOrReset,
+                },
+                16,
+                opaque_provenance,
+            )
+            .unwrap();
+        known_destination.apply_rsp_sqv(opaque_plan);
+
+        assert!(known_destination
+            .observe_byte(SpDmemOffset::new(0x03f))
+            .unwrap()
+            .is_available());
+        assert!(known_destination
+            .observe_byte(SpDmemOffset::new(0x050))
+            .unwrap()
+            .is_available());
+        for index in 0_u8..16 {
+            assert_eq!(
+                known_destination.observe_byte(SpDmemOffset::new(0x040 + u32::from(index))),
+                Ok(MachineSpDmemByteKnowledge::Unavailable {
+                    source: MachineSpDmemUnavailableSource::RspSqvOpaque {
+                        provenance: opaque_provenance,
+                        source_byte_index: index,
+                        source_vector_source:
+                            MachineSpDmemRspSqvUnavailableVectorSource::ConstructionOrReset,
+                    },
+                })
+            );
+        }
+
+        let mut prior_unavailable = SpDmem::default();
+        let prior_unavailable_plan = prior_unavailable
+            .plan_rsp_sqv(
+                SpDmemOffset::new(0x040),
+                MachineSpDmemRspSqvPayload::Unavailable {
+                    source: MachineSpDmemRspSqvUnavailableVectorSource::Vxor,
+                },
+                16,
+                opaque_provenance,
+            )
+            .unwrap();
+        prior_unavailable.apply_rsp_sqv(prior_unavailable_plan);
+        assert!(prior_unavailable
+            .observe_range::<16>(SpDmemOffset::new(0x040))
+            .unwrap()
+            .iter()
+            .all(|knowledge| matches!(
+                knowledge,
+                MachineSpDmemByteKnowledge::Unavailable {
+                    source: MachineSpDmemUnavailableSource::RspSqvOpaque {
+                        source_vector_source: MachineSpDmemRspSqvUnavailableVectorSource::Vxor,
+                        ..
+                    }
+                }
+            )));
+
+        let restored_bytes = core::array::from_fn(|index| 0x11_u8.wrapping_add(index as u8));
+        let restored_provenance = MachineSpDmemRspSqvProvenance::new(
+            0x084,
+            MachineRspInstructionSource::GeneratedMachineTestStaging,
+            8,
+            (0, 0x040),
+            (13, 0),
+            (0, 0x040, 16),
+        );
+        let restored_plan = known_destination
+            .plan_rsp_sqv(
+                SpDmemOffset::new(0x040),
+                MachineSpDmemRspSqvPayload::Available(restored_bytes),
+                16,
+                restored_provenance,
+            )
+            .unwrap();
+        known_destination.apply_rsp_sqv(restored_plan);
+        for index in 0_u8..16 {
+            assert_eq!(
+                known_destination.observe_byte(SpDmemOffset::new(0x040 + u32::from(index))),
+                Ok(MachineSpDmemByteKnowledge::Available {
+                    value: restored_bytes[usize::from(index)],
+                    source: MachineSpDmemByteSource::RspSqv {
+                        provenance: restored_provenance,
+                        source_byte_index: index,
+                    },
+                })
+            );
+        }
+
+        let before_failure = known_destination
+            .observe_range::<16>(SpDmemOffset::new(0x040))
+            .unwrap();
+        let failure = known_destination
+            .plan_rsp_sqv(
+                SpDmemOffset::new(0xff1),
+                MachineSpDmemRspSqvPayload::Unavailable {
+                    source: MachineSpDmemRspSqvUnavailableVectorSource::ConstructionOrReset,
+                },
+                16,
+                opaque_provenance,
+            )
+            .unwrap_err();
+        assert_eq!(failure.offset(), SpDmemOffset::new(0xff1));
+        assert_eq!(failure.width(), 16);
+        assert_eq!(
+            known_destination
+                .observe_range::<16>(SpDmemOffset::new(0x040))
+                .unwrap(),
+            before_failure
+        );
     }
 
     #[test]

@@ -6459,7 +6459,7 @@ impl Machine {
                     .sp_dmem
                     .plan_rsp_sqv(
                         SpDmemOffset::new(u32::from(local_dmem_address)),
-                        plan.stored_bytes(),
+                        plan.payload(),
                         byte_count,
                         plan.dmem_provenance(),
                     )
@@ -28226,13 +28226,6 @@ mod tests {
 
         for (word, expected) in [
             (
-                rsp_sqv_word(0, 12, 0, 0),
-                MachineRspStepRejectionReason::SqvSourceUnavailable {
-                    source_vector: 12,
-                    byte_count: 16,
-                },
-            ),
-            (
                 rsp_sqv_word(3, 12, 0, 0),
                 MachineRspStepRejectionReason::SqvScalarBaseUnavailable { base_gpr: 3 },
             ),
@@ -28265,6 +28258,198 @@ mod tests {
                 dmem_before
             );
         }
+    }
+
+    #[test]
+    fn machine_step_rsp_sqv_unavailable_payload_commits_opaque_write_without_stale_truth() {
+        let mut machine =
+            staged_rsp_running_machine(&[(0, rsp_sqv_word(0, 12, 0, 0)), (4, 0x8c03_0000)], true);
+        machine
+            .sp_dmem
+            .write_bytes(SpDmemOffset::new(0), &[0xa5; 16])
+            .unwrap();
+        let scalar_before: Vec<_> = (0..crate::rsp::RSP_SCALAR_REGISTER_COUNT)
+            .map(|index| machine.rsp_scalar_register(index).unwrap())
+            .collect();
+        let vector_before = machine.rsp_vector_unit_state().clone();
+        let accumulator_before = machine.rsp_accumulator_and_flags_state();
+        let status_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+        let dpc_before = (
+            machine.dpc_clock_counter_state().clone(),
+            machine.dpc_command_busy_counter_state().clone(),
+            machine.dpc_pipe_busy_counter_state().clone(),
+            machine.dpc_tmem_load_counter_state().clone(),
+        );
+        let cpu_before = (
+            machine.cpu().pc(),
+            machine.cpu().next_pc(),
+            machine.cpu().cop0_count(),
+            machine.cpu_delay_slot_context(),
+        );
+
+        assert_eq!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::VectorSqvCommitted {
+                    instruction_pc: 0,
+                    source_vector: 12,
+                    local_dmem_address: 0,
+                    byte_count: 16,
+                },
+            }
+        );
+        for index in 0_u8..16 {
+            let knowledge = machine
+                .sp_dmem()
+                .observe_byte(SpDmemOffset::new(u32::from(index)))
+                .unwrap();
+            let (provenance, source_byte_index, source_vector_source) = match knowledge {
+                MachineSpDmemByteKnowledge::Unavailable {
+                    source:
+                        crate::sp_dmem::MachineSpDmemUnavailableSource::RspSqvOpaque {
+                            provenance,
+                            source_byte_index,
+                            source_vector_source,
+                        },
+                } => (provenance, source_byte_index, source_vector_source),
+                other => panic!("opaque Sqv byte was exposed as value truth: {other:?}"),
+            };
+            assert_eq!(source_byte_index, index);
+            assert_eq!(provenance.instruction_pc(), 0);
+            assert_eq!(provenance.rsp_commit_index(), 1);
+            assert_eq!(provenance.local_dmem_address(), 0);
+            assert_eq!(provenance.byte_count(), 16);
+            assert_eq!(
+                source_vector_source,
+                crate::sp_dmem::MachineSpDmemRspSqvUnavailableVectorSource::ConstructionOrReset
+            );
+        }
+        assert_eq!(
+            (0..crate::rsp::RSP_SCALAR_REGISTER_COUNT)
+                .map(|index| machine.rsp_scalar_register(index).unwrap())
+                .collect::<Vec<_>>(),
+            scalar_before
+        );
+        assert_eq!(machine.rsp_vector_unit_state(), &vector_before);
+        assert_eq!(
+            machine.rsp_accumulator_and_flags_state(),
+            accumulator_before
+        );
+        assert_eq!(machine.sp_status_state(), status_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+        assert_eq!(
+            (
+                machine.dpc_clock_counter_state().clone(),
+                machine.dpc_command_busy_counter_state().clone(),
+                machine.dpc_pipe_busy_counter_state().clone(),
+                machine.dpc_tmem_load_counter_state().clone(),
+            ),
+            dpc_before
+        );
+        assert_eq!(
+            (
+                machine.cpu().pc(),
+                machine.cpu().next_pc(),
+                machine.cpu().cop0_count(),
+                machine.cpu_delay_slot_context(),
+            ),
+            cpu_before
+        );
+        assert_eq!(machine.sp_pc_state().unwrap().raw_low_field(), 4);
+        assert_eq!(machine.rsp_next_pc(), Some(8));
+        assert_eq!(machine.rsp_committed_instruction_count(), 1);
+        assert_eq!(machine.processor_turn(), MachineStepProcessor::Cpu);
+
+        machine.processor_turn = MachineStepProcessor::Rsp;
+        let before_load = lw_snapshot(&machine);
+        let dmem_before_load = machine
+            .sp_dmem()
+            .observe_range::<16>(SpDmemOffset::new(0))
+            .unwrap();
+        assert_eq!(
+            machine
+                .step()
+                .unwrap_err()
+                .rsp_rejection()
+                .unwrap()
+                .reason(),
+            MachineRspStepRejectionReason::ScalarLwDmemByteUnavailable {
+                local_dmem_address: 0,
+                first_unavailable_offset: 0,
+            }
+        );
+        assert_eq!(lw_snapshot(&machine), before_load);
+        assert_eq!(
+            machine
+                .sp_dmem()
+                .observe_range::<16>(SpDmemOffset::new(0))
+                .unwrap(),
+            dmem_before_load
+        );
+
+        let mut restored = staged_rsp_running_machine(
+            &[
+                (0, rsp_sqv_word(0, 12, 0, 0)),
+                (4, rsp_sw_word(0, 0, 0)),
+                (8, 0x8c03_0000),
+            ],
+            true,
+        );
+        assert!(matches!(
+            restored.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::VectorSqvCommitted { .. },
+            }
+        ));
+        restored.processor_turn = MachineStepProcessor::Rsp;
+        assert!(matches!(
+            restored.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarSwCommitted { .. },
+            }
+        ));
+        assert!(restored
+            .sp_dmem()
+            .observe_range::<4>(SpDmemOffset::new(0))
+            .unwrap()
+            .iter()
+            .all(|knowledge| knowledge.is_available()));
+        assert!(restored
+            .sp_dmem()
+            .observe_range::<12>(SpDmemOffset::new(4))
+            .unwrap()
+            .iter()
+            .all(|knowledge| !knowledge.is_available()));
+        restored.processor_turn = MachineStepProcessor::Rsp;
+        assert!(matches!(
+            restored.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::ScalarLwCommitted {
+                    result_value: 0,
+                    ..
+                },
+            }
+        ));
+
+        let mut independent = staged_rsp_running_machine(&[(0, rsp_sqv_word(0, 12, 0, 0))], true);
+        assert!(matches!(
+            independent.step().unwrap(),
+            MachineRepresentedStepOutcome::RspCommitted {
+                outcome: MachineRspStepOutcome::VectorSqvCommitted { .. },
+            }
+        ));
+        assert!(independent
+            .sp_dmem()
+            .observe_range::<16>(SpDmemOffset::new(0))
+            .unwrap()
+            .iter()
+            .all(|knowledge| matches!(
+                knowledge,
+                MachineSpDmemByteKnowledge::Unavailable {
+                    source: crate::sp_dmem::MachineSpDmemUnavailableSource::RspSqvOpaque { .. },
+                }
+            )));
     }
 
     #[test]
