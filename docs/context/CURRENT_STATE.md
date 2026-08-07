@@ -104,9 +104,18 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   `SpDmem` bytes become unavailable with Sqv, source-cause, commit-index, and
   range provenance, superseding prior byte truth. The task naturally commits
   zero-code `Break` at RSP commit 56; exactly one subsequent `Machine::step`
-  selects CPU. No private path, basename, instruction word, vector value or
-  identity, task bytes, register snapshot, title, or digest entered source,
-  context, or output.
+  selects CPU and commits `Lw` without recognizing the interrupt because CPU
+  interrupt enable is then clear. Continued bounded execution later recognizes
+  the already-owned SP interrupt exactly once, reads SP and Mi control state,
+  and issues a guest Mi mask command without clearing SP pending or changing
+  the SP mask. After 107,840 committed post-Break CPU instructions, exact
+  `Lwc1` is the first unsupported pressure. `Lwc1` would load one 32-bit word
+  into a COP1 floating-point data register, but `Cpu` owns only FCR31 control
+  truth and no COP1 data-register file or memory-transfer policy; the selected
+  step leaves relevant CPU/device state equal and no semantic patch was made.
+  No private path, basename, instruction word, vector value or identity, task
+  bytes, register snapshot, title, or digest entered source, context, or
+  output.
 - `LIVE_REPO_FACT`: exact RSP scalar `J` owns one local jump plus one separate
   delay-slot commit; exact scalar `Jr` reads one Available old scalar source,
   masks it to the aligned twelve-bit local instruction range, writes no link,
@@ -770,8 +779,8 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
 - `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, execution after
-  the first task's one post-Break CPU step, a second task, graphics/audio output,
-  and host-runtime presentation remain unmeasured or unavailable.
+  the post-first-task `Lwc1` pressure, a second task, graphics/audio output, and
+  host-runtime presentation remain unmeasured or unavailable.
 - `LIVE_REPO_FACT`: fn64 retains an optional explicit PIF-firmware input,
   structural validation, immutable Machine ownership, and reset/bootstrap
   persistence for low-level verification. It still has no firmware
@@ -783,9 +792,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   `Jr` plus its single delay slot, and commits the first task through zero-code
   `Break` at RSP commit 56. The previously unavailable aligned Sqv payload is
   propagated as unavailable into its exact sixteen-byte DMEM footprint; no
-  value is fabricated or exposed. One subsequent `Machine::step` selects CPU,
-  then the proof stops. No original-PIF execution, second task, DPC/RDP
-  execution, rendering, or compatibility fact is claimed.
+  value is fabricated or exposed. Post-Break CPU continuation commits 107,840
+  instructions, recognizes the represented SP interrupt once, observes guest
+  SP/Mi inspection and an Mi mask command, then stops before `Lwc1` because a
+  COP1 data-register owner is absent. No completed SP acknowledgment, second
+  task, DPC submission, original-PIF execution, DPC/RDP execution, rendering,
+  or compatibility fact is claimed.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI

@@ -32,9 +32,11 @@ history.
   element-zero `Sqv` consumes all sixteen bytes of a construction/reset-
   unavailable vector and propagates that unavailability into its concrete DMEM
   footprint without inventing a value. Zero-code `Break` commits at RSP commit
-  56, then one further `Machine::step` selects CPU. That route makes no
-  authentic-PIF execution, second-task, DPC/RDP execution, or compatibility
-  claim.
+  56. Post-Break execution naturally selects CPU, commits 107,840 CPU
+  instructions, recognizes the represented SP interrupt once, and stops with
+  relevant state unchanged when `Lwc1` requires the absent COP1 data-register
+  owner. That route makes no authentic-PIF execution, second-task, DPC
+  submission/execution, RDP execution, or compatibility claim.
 
 ## Represented owners
 
@@ -43,7 +45,7 @@ history.
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata including the typed four-field PI domain-one timing tuple, entry/IPL3-span inspection, range-checked byte reads; explicit local user-cartridge bytes remain immutable Machine input | no filesystem path, title/ID/region/digest policy, cartridge writes, or compatibility claim |
 | `PifFirmware` | absent material, private immutable owned bytes for one structurally accepted explicit raw-Boot-ROM-shaped input, or deliberately selected public-synthetic bytes; accepted bytes source explicit profiled copy materialization | no path, implicit absent-to-synthetic fallback, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches, zero FCR31, and zero PageMask under distinct HLE provenance | no host cadence, full ISA, translated TLB memory route, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB and instruction-boundary interrupt/ERET truth, FCR31 control truth, and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches, zero FCR31, and zero PageMask under distinct HLE provenance | no host cadence, full ISA, translated TLB memory route, COP1 data-register file or memory transfers, broad COP1 arithmetic, secondary cache, cache timing, write buffers, or generic coherence |
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance; one atomic MiB cartridge-derived clean-room entry payload plus a typed initialized-profile HLE fact that reuses existing uncached absent-module reads | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general cartridge mapping, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB private backing with explicit per-byte Available/Unavailable knowledge, checked truth-bearing observations, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, unavailable backing exposure as value truth, RSP fetch, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
@@ -1178,9 +1180,16 @@ Pi state, and reproduced BOOT-2. The genuine guest task passes exact scalar
 aligned element-zero `Sqv` consumes all sixteen bytes of a construction/reset-
 unavailable vector. Its complete destination footprint is concrete, so the
 store commits unavailable byte truth with exact replacement provenance. The
-first task then naturally commits zero-code `Break` at RSP commit 56, and
-exactly one subsequent Machine step selects CPU. No second task, DPC/RDP
-execution, rendering, or compatibility claim is earned.
+first task then naturally commits zero-code `Break` at RSP commit 56.
+Post-Break execution first selects CPU and commits `Lw` while interrupt enable
+is clear. The already-owned SP interrupt is later recognized once; guest code
+reads SP/Mi state and issues an Mi mask command without clearing SP pending or
+changing the SP mask. After 107,840 committed CPU instructions, `Lwc1` is the
+first unsupported identity and leaves relevant state equal. Because only FCR31
+control truth exists and no COP1 floating-point data-register owner exists,
+execution stops without adding that state. No completed SP acknowledgment,
+second task, DPC submission, DPC/RDP execution, rendering, or compatibility
+claim is earned.
 
 Generated public tests cover the PI four-field extraction/readback tuple,
 PageMask and RSP r4/r11 HLE facts, every added scalar/vector/control identity,
