@@ -95,18 +95,18 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   synthetic input, staged the clean-room handoff once, and then called only
   `Machine::step`. The first cartridge `Lui` committed once, the earlier PI
   latency pressure passed through Pi-owned readback, and BOOT-2 was reproduced.
-  Exact scalar `Jr` and its one separately selected delay-slot instruction now
-  pass the prior 37-commit frontier. The first genuine task commits 52 RSP
-  instructions before attempt 13,507,920 selects exact element-zero `Sqv` and
-  rejects atomically because its source vector is still construction/reset
-  unavailable; 13,507,173 total Machine steps have committed. Exact demand
-  planning proves this aligned live store consumes the contiguous byte-zero
-  prefix of all sixteen source bytes. A value-free destination-write audit
-  finds no earlier committed guest vector producer for the source. No public
-  profile, cartridge fact, or executed guest action supplies the demanded
-  bytes, so fn64 does not fabricate a task-input value. No private path,
-  basename, instruction word, vector value or identity, task bytes, register
-  snapshot, title, or digest entered source, context, or output.
+  Exact scalar `Jr` and its one separately selected delay-slot instruction pass
+  the prior 37-commit frontier. The first genuine task reaches the prior
+  52-commit element-zero `Sqv` boundary with all sixteen demanded vector bytes
+  still construction/reset unavailable and no earlier guest producer. Because
+  identity, address, width, destination, and cadence are concrete, Sqv now
+  commits the hardware write without inventing payload bits: the exact sixteen
+  `SpDmem` bytes become unavailable with Sqv, source-cause, commit-index, and
+  range provenance, superseding prior byte truth. The task naturally commits
+  zero-code `Break` at RSP commit 56; exactly one subsequent `Machine::step`
+  selects CPU. No private path, basename, instruction word, vector value or
+  identity, task bytes, register snapshot, title, or digest entered source,
+  context, or output.
 - `LIVE_REPO_FACT`: exact RSP scalar `J` owns one local jump plus one separate
   delay-slot commit; exact scalar `Jr` reads one Available old scalar source,
   masks it to the aligned twelve-bit local instruction range, writes no link,
@@ -118,11 +118,15 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   per-byte provenance. Element-zero `Vxor` XORs paired lanes without changing
   accumulator or flags. Exact element-zero `Sqv` stores the Available vector
   prefix ending at the current sixteen-byte DMEM boundary, using low-twelve-bit
-  address arithmetic and typed per-byte provenance; unavailable vector input
-  rejects before mutation and now carries the exact demanded prefix count.
-  Generated proof covers all sixteen address-alignment classes. The private
-  probe retains only an anonymous, value-free last-writer audit for vector
-  destinations. Exact RSP control transfers also route MTC0 SP_STATUS and
+  address arithmetic and typed per-byte provenance. When vector payload is
+  unavailable but address and transfer shape are concrete, Sqv commits and
+  marks exactly the written DMEM bytes unavailable with replacement provenance;
+  it never promotes stale backing bytes to value truth. Unavailable base,
+  unsupported element, and malformed range still reject before mutation.
+  Generated proof covers all sixteen address-alignment classes, prior-known and
+  prior-unavailable destinations, stale-load rejection, known overwrite
+  restoration, cadence, owner isolation, and independent Machines. Exact RSP
+  control transfers also route MTC0 SP_STATUS and
   SP_SEMAPHORE plus MFC0 SP_DMA_FULL and SP_STATUS through their existing `Sp`
   owners. No partial vector-value model, reset-zero assumption, generic
   scalar/vector ALU, control bank, vector-memory framework, DMA timing, or new
@@ -765,8 +769,8 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 ## Blockers and known unknowns
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
-- `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, user-task RSP
-  execution beyond the first 52 committed instructions, graphics/audio output,
+- `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, execution after
+  the first task's one post-Break CPU step, a second task, graphics/audio output,
   and host-runtime presentation remain unmeasured or unavailable.
 - `LIVE_REPO_FACT`: fn64 retains an optional explicit PIF-firmware input,
   structural validation, immutable Machine ownership, and reset/bootstrap
@@ -776,12 +780,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   bytes, and performs no X105 program injection. An excluded operational
   reference admitted `HISTORICAL_BOOT2_USER_CARTRIDGE` without disclosing its
   target. Fresh clean-room execution now reproduces BOOT-2, passes exact scalar
-  `Jr` plus its single delay slot, commits 52 genuine first-task RSP
-  instructions, and stops atomically when exact element-zero `Sqv` requires a
-  full sixteen-byte construction/reset-unavailable vector source. A value-free
-  audit proves no earlier guest vector write produced it.
-  No original-PIF execution, second task, DPC/RDP execution, rendering, or
-  compatibility fact is claimed.
+  `Jr` plus its single delay slot, and commits the first task through zero-code
+  `Break` at RSP commit 56. The previously unavailable aligned Sqv payload is
+  propagated as unavailable into its exact sixteen-byte DMEM footprint; no
+  value is fabricated or exposed. One subsequent `Machine::step` selects CPU,
+  then the proof stops. No original-PIF execution, second task, DPC/RDP
+  execution, rendering, or compatibility fact is claimed.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI

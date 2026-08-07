@@ -1057,6 +1057,22 @@ product or reference lane requires a new explicit product decision.
   execution, DPC/RDP work, rendering, audio, BOOT-3, original-PIF execution, and
   game compatibility remain unearned.
 
+## Era 54 — Sqv unavailable-payload propagation and first-task Break (2026-08-07)
+
+- Knowledge ownership: unavailable payload bits no longer prevent a concrete
+  Sqv whose identity, address, width, byte mask, and non-payload effects are all
+  known. No placeholder or reset value is introduced.
+- Memory ownership: `SpDmem` supersedes exactly the written bytes with
+  unavailable Sqv provenance carrying the source-unavailable cause, source-byte
+  position, destination range, and RSP commit index. Stale backing bytes remain
+  non-authoritative, and a later known store restores only its exact range.
+- Runtime result: a fresh firmware-free run reproduces BOOT-2, passes the prior
+  52-commit pressure, commits the first genuine task through zero-code Break at
+  RSP commit 56, and makes one subsequent CPU-selected `Machine::step`.
+- Boundary: the run stops after that follow-up. A second task, further CPU
+  continuation, DPC/RDP work, rendering, audio, BOOT-3, original-PIF execution,
+  and game compatibility remain unearned.
+
 ## Unresolved history
 
 The stale local donor clone preserves an earlier two-commit repository shape but

@@ -28,13 +28,13 @@ history.
   user-cartridge RSP task submission; it is not x105 IPL3 CPU entry, bootstrap
   handoff, game boot, compatibility, timing accuracy, or host-runtime support.
   A fresh `HISTORICAL_BOOT2_USER_CARTRIDGE` clean-room run now commits
-  through BOOT-2 and 52 instructions of the first genuine RSP task, including
-  exact scalar `Jr` and its one delay slot. It then stops atomically when exact
-  element-zero `Sqv` requires all sixteen bytes of a
-  construction/reset-unavailable source vector. An anonymous destination-write
-  audit proves no earlier committed guest vector instruction produced it. That
-  route makes no authentic-PIF execution, task completion, DPC/RDP execution,
-  or compatibility claim.
+  through BOOT-2 and the first genuine RSP task. After 52 commits, exact
+  element-zero `Sqv` consumes all sixteen bytes of a construction/reset-
+  unavailable vector and propagates that unavailability into its concrete DMEM
+  footprint without inventing a value. Zero-code `Break` commits at RSP commit
+  56, then one further `Machine::step` selects CPU. That route makes no
+  authentic-PIF execution, second-task, DPC/RDP execution, or compatibility
+  claim.
 
 ## Represented owners
 
@@ -122,13 +122,17 @@ four and local arithmetic retains the low twelve bits. The instruction stores
 vector bytes starting at element zero through the current aligned sixteen-byte
 DMEM boundary, so aligned addresses write sixteen bytes and later addresses
 write the corresponding prefix. The complete destination range is planned
-before one atomic `SpDmem` commit, and every byte records exact instruction,
-base, vector-source, and source-byte provenance. Unavailable base or vector
-truth, nonzero elements, or malformed ranges reject before mutation. Exact
-demand is derived before the vector availability gate, so rejection names the
-one-to-sixteen-byte prefix without exposing vector values; generated proof
-covers every low address-nibble class. Other vector-memory forms remain closed;
-no timing or generic COP2 layer is implied.
+before one atomic `SpDmem` commit. Available payload writes available bytes with
+exact instruction, base, vector-source, and source-byte provenance. An
+unavailable payload may also commit when address and transfer shape are known;
+exactly the destination bytes become unavailable with Sqv instruction,
+source-unavailable cause, source-byte, RSP commit-index, and range provenance.
+Prior byte truth is superseded and stale backing bytes remain non-authoritative.
+Unavailable base, nonzero element, or malformed range still rejects before
+mutation. Generated proof covers every low address-nibble class, exact
+overwrite/restoration, stale-load rejection, owner isolation, cadence, and
+independent Machines. Other vector-memory forms remain closed; no timing,
+symbolic engine, or generic COP2 layer is implied.
 
 Exact scalar RSP LW and SW are represented only for four-byte-aligned local
 DMEM addresses and Available scalar inputs. Both add a sign-extended 16-bit
@@ -1169,25 +1173,24 @@ Public-synthetic firmware is never reachable from this user-cartridge route.
 One excluded workbench reference selected `HISTORICAL_BOOT2_USER_CARTRIDGE`
 without entering product state or output. Fresh HLE execution committed the
 entry `Lui`, passed the prior PI-latency read through cartridge-header-derived
-Pi state, and reproduced BOOT-2. The genuine guest task now passes exact scalar
-`Jr` and its separately selected delay slot and commits 52 RSP instructions.
-Value-free pressure output names only attempt/commit cadence, decoded
-architecture identity, public owner class, and rejection category. Attempt
-13,507,920 selects exact element-zero `Sqv`; it rejects atomically after
-13,507,173 committed Machine steps because its source vector is still
-construction/reset unavailable. The live address is aligned, so exact demand is
-the contiguous byte-zero prefix of all sixteen bytes. The value-free audit
-finds no earlier committed guest vector destination for that source. The first
-task has not reached Break, and no second task, DPC/RDP execution, rendering,
-or compatibility claim is earned.
+Pi state, and reproduced BOOT-2. The genuine guest task passes exact scalar
+`Jr` and its separately selected delay slot. At the prior 52-commit pressure,
+aligned element-zero `Sqv` consumes all sixteen bytes of a construction/reset-
+unavailable vector. Its complete destination footprint is concrete, so the
+store commits unavailable byte truth with exact replacement provenance. The
+first task then naturally commits zero-code `Break` at RSP commit 56, and
+exactly one subsequent Machine step selects CPU. No second task, DPC/RDP
+execution, rendering, or compatibility claim is earned.
 
 Generated public tests cover the PI four-field extraction/readback tuple,
 PageMask and RSP r4/r11 HLE facts, every added scalar/vector/control identity,
 JR target masking and one-slot cadence, exact SQV quad-boundary writes,
-all sixteen SQV demand-alignment classes, anonymous producer reporting,
-read-before-write and r0 behavior, accumulator/flag preservation, DMEM byte
-provenance, selected-step atomic rejection, and independent Machines. No
-selected cartridge value or task byte is a test fixture.
+all sixteen SQV demand-alignment classes, known and unavailable payload writes,
+prior-known and prior-unavailable destination replacement, stale-load
+prevention, known overwrite restoration, read-before-write and r0 behavior,
+accumulator/flag preservation, DMEM byte provenance, selected-step atomic
+rejection, and independent Machines. No selected cartridge value or task byte
+is a test fixture.
 
 ## Required gate
 
