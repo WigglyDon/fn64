@@ -39,12 +39,19 @@ transport with ordinary cadence; its canonical backing zero remains non-truth
 and cannot satisfy a later source-knownness gate.
 Bootstrap unknown-GPR rejection is not an exception: it restores staged
 control flow and leaves COP0 and Count unchanged before helper invocation.
-CU1-disabled `Lwc1` remains the existing coprocessor-usability rejection, not
-a represented exception entry: it preflights before effective-address or FGR
-mutation and restores all relevant state. Exact VR4300 Coprocessor Unusable
-entry, including Cause.CE ownership and its interaction with EPC/BD/EXL and
-Count cadence, remains unrepresented rather than being inferred from the
-data-transfer identity.
+CU1-disabled `Lwc1`, `Ldc1`, `Swc1`, and `Mtc1` now delegate to one exact
+COP1 Coprocessor Unusable entry through the common CPU/COP0 exception owner.
+Cause.ExcCode becomes 11 and Cause.CE becomes one while pending interrupt bits
+retain their existing owners. With EXL clear, ordinary faults write the
+instruction PC to EPC with BD clear and delay-slot faults write the owning
+branch/jump PC with BD set. Nested EXL preserves the prior EPC/BD owner. EXL is
+set without rewriting IE or KSU, BEV selects the existing normal or bootstrap
+common vector, and Count follows the existing zero-normal-cadence synchronous
+attempt law. The CU1 decision precedes effective-address formation, so it wins
+over unavailable bases, data misalignment, translation/mapping failure, and
+unavailable payload without touching FGR, FCR31, BadVAddr, Context, XContext,
+EntryHi, cache, or memory state. Instruction fetch remains earlier in the
+existing priority path.
 Prior JAL link-destination state is no longer misclassified as an input, but a
 control-flow identity in an active delay slot and unknown JR/JALR/branch
 sources still reject before link or COP0 mutation. Unknown device and SP-DMEM

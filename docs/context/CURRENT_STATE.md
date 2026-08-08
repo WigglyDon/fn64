@@ -109,16 +109,24 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   the already-owned SP interrupt exactly once, reads SP and Mi control state,
   and issues a guest Mi mask command without clearing SP pending or changing
   the SP mask. After 107,840 committed post-Break CPU instructions, exact
-  `Lwc1` is selected. `Cpu::Cop1` now owns 32 raw 32-bit data-word states with
-  per-word availability and provenance, separate from FCR31. Exact FR=0
-  `Lwc1` planning reuses current address, alignment, translation, cache,
-  memory, and exception owners; it transfers known raw bits or supersedes the
-  destination with unavailable load provenance without numeric conversion.
-  The live Status has FR=0 and CU1 clear, so the represented identity now
-  rejects at the existing coprocessor-usability preflight before address or
-  FGR mutation and leaves relevant state equal. A Coprocessor Unusable
-  exception entry is not represented and remains the next CPU exception-owner
-  question.
+  `Lwc1` is selected under FR=0 with CU1 clear. The common CPU/COP0 exception
+  owner now enters exact COP1 Coprocessor Unusable: Cause ExcCode becomes 11,
+  Cause.CE becomes one, ordinary or delay-slot EPC/BD ownership is preserved,
+  EXL becomes set, and BEV selects the existing normal or bootstrap common
+  vector. Usability wins before address formation, translation, cache, memory,
+  or FGR mutation. A fresh run reaches that entry, then ordinary guest code
+  reads Cause/EPC/Status, enables CU1, executes ERET, and retries `Lwc1`
+  without a host handler or retry. The live load commits an Available raw word
+  without numeric conversion. Exact FR=0 `Ldc1` then loads an even adjacent raw
+  word pair, `Swc1` stores one Available raw word through the existing RDRAM
+  cache/uncached owners, and `Mtc1` moves one GPR low word into one raw FGR word;
+  known bits stay raw and represented opaque inputs remain unavailable where
+  that exact transfer permits them. At 523,277 post-Break CPU commits, the next
+  instruction is word-format `ConvertSingle`. It is rejected atomically before
+  mutation because signed-word-to-single numerical conversion plus FCR31
+  rounding/inexact effects have no owner. The live requirements are FR=0, one
+  Available operand, nearest-even rounding, FS set, and at least one floating
+  exception enable set. No numerical COP1 identity is represented.
   No private path, basename, instruction word, vector value or identity, task
   bytes, register snapshot, title, or digest entered source, context, or
   output.
@@ -785,7 +793,7 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
 - `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, execution after
-  the post-first-task CU1-disabled `Lwc1` pressure, a second task,
+  the post-first-task word-format `ConvertSingle` boundary, a second task,
   graphics/audio output, and host-runtime presentation remain unmeasured or
   unavailable.
 - `LIVE_REPO_FACT`: fn64 retains an optional explicit PIF-firmware input,
@@ -799,14 +807,16 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   `Jr` plus its single delay slot, and commits the first task through zero-code
   `Break` at RSP commit 56. The previously unavailable aligned Sqv payload is
   propagated as unavailable into its exact sixteen-byte DMEM footprint; no
-  value is fabricated or exposed. Post-Break CPU continuation commits 107,840
-  instructions, recognizes the represented SP interrupt once, and observes
-  guest SP/Mi inspection plus an Mi mask command. The next `Lwc1` is identified
-  by its new raw-data transfer owner, but live CU1 is clear and existing policy
-  rejects atomically before any FGR mutation. No Coprocessor Unusable exception
-  entry, completed SP acknowledgment, second task, DPC submission,
-  original-PIF execution, DPC/RDP execution, rendering, or compatibility fact
-  is claimed.
+  value is fabricated or exposed. Post-Break CPU continuation recognizes the
+  represented SP interrupt once and observes guest SP/Mi inspection plus an Mi
+  mask command. Exact COP1 Coprocessor Unusable entry now handles the live
+  CU1-clear `Lwc1` before address or data access; ordinary guest code enables
+  CU1, returns with ERET, and the retried load commits. Exact FR=0 `Ldc1`,
+  `Swc1`, and `Mtc1` raw transfers then commit before execution stops at the
+  first numerical COP1 identity, word-format `ConvertSingle`, after 523,277
+  post-Break CPU commits. No numerical conversion, completed SP acknowledgment,
+  second task, DPC submission, original-PIF execution, DPC/RDP execution,
+  rendering, or compatibility fact is claimed.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI

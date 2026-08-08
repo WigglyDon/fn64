@@ -131,13 +131,22 @@ provenance.
 `Cpu::Cop1` separately owns 32 raw 32-bit data-word states. Construction makes
 every word unavailable rather than zero; each word records independent
 availability and provenance, and no host floating-point type interprets its
-bits. Status.FR selects the explicit FR=0 or FR=1 view. Exact `Lwc1` is
-represented only for FR=0: after existing CU1 preflight it reuses the current
-effective-address, alignment, translation, cache, physical-load, and exception
-composition, then replaces exactly one selected data word with known raw bits
-or unavailable source provenance. It changes no GPR, FCR31 arithmetic field,
-rounding, or floating exception truth. FR=1 word placement and every other
-COP1 data or computational identity remain unavailable.
+bits. Status.FR selects the explicit FR=0 or FR=1 view. Exact FR=0 `Lwc1`
+reuses current effective-address, alignment, translation, cache,
+physical-load, and exception composition, then replaces one selected word with
+known raw bits or unavailable source provenance. Exact FR=0 `Ldc1` requires an
+even selector and eight-byte alignment, then atomically replaces the selected
+word with the low half and the adjacent word with the high half of the raw
+big-endian doubleword; unavailable memory replaces both words with typed
+unavailable provenance. Exact FR=0 `Swc1` stores one Available raw FGR word
+through existing cached or uncached direct-RDRAM owners and rejects an
+unavailable payload before mutation. Exact FR=0 `Mtc1` copies one GPR low word
+without interpretation; an unavailable GPR source commits an unavailable FGR
+destination with replacement provenance. These transfers change no FCR31
+arithmetic field, rounding, or floating exception truth. Their CU1-clear forms
+enter the represented COP1 Coprocessor Unusable exception before consuming
+address or payload state. FR=1 transfer placement, other COP1 data identities,
+and all numerical COP1 computation remain unavailable.
 `LBU` and `SB` retain their direct SP-IMEM route and also use CPU-owned KSEG0
 D-cache byte semantics over Machine-owned RDRAM; KSEG1 remains uncached.
 Aligned opaque-word `Lw`
