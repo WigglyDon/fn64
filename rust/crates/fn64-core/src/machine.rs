@@ -14,22 +14,26 @@ use crate::cpu::address::{
     CpuDataAddressError, CpuDataWidth, RdramOffset,
 };
 use crate::cpu::{
-    decode_cpu_instruction_word, identify_cpu_instruction, primary_data_cache_line_index,
-    primary_instruction_cache_line_index, select_cpu_local_executed_helper,
-    signed_cpu_value_less_than, Cpu, CpuArithmeticOverflowExceptionEntryError,
-    CpuControlFlowSnapshot, CpuCoprocessorUnusableExceptionEntryError, CpuDelaySlotContext,
-    CpuInstructionFields, CpuInstructionIdentity, CpuInstructionWord,
-    CpuLocalExecutedHelperArithmeticOverflow, CpuLocalExecutedHelperExecutedInstruction,
-    CpuLocalExecutedHelperInvocationError, CpuLocalExecutedHelperInvocationOutcome,
-    CpuRegisterIndexError, MachineCop0TagWriteProvenance, MachineCop1DataWordAvailability,
-    MachineCop1DataWordState, MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance,
-    MachineCop1FrMode, MachineCop1Ldc1Provenance, MachineCop1Ldc1WordRole,
-    MachineCop1Lwc1Provenance, MachineCop1Mtc1Provenance, MachineCpuCommonExceptionVector,
-    MachinePrimaryCacheHitInvalidatePlan, MachinePrimaryCacheHitInvalidateProvenance,
-    MachinePrimaryCacheHitInvalidateTarget, MachinePrimaryCacheIndexInvalidatePlan,
-    MachinePrimaryCacheIndexInvalidateProvenance, MachinePrimaryCacheIndexStoreTagTarget,
-    MachinePrimaryCacheOperationProvenance, MachinePrimaryDataCacheFillPlan,
-    MachinePrimaryDataCacheHitWritebackPlan, MachinePrimaryDataCacheHitWritebackProvenance,
+    convert_signed_word_to_binary32, decode_cpu_instruction_word, identify_cpu_instruction,
+    primary_data_cache_line_index, primary_instruction_cache_line_index,
+    select_cpu_local_executed_helper, signed_cpu_value_less_than, Cpu,
+    CpuArithmeticOverflowExceptionEntryError, CpuControlFlowSnapshot,
+    CpuCoprocessorUnusableExceptionEntryError, CpuDelaySlotContext,
+    CpuFloatingPointExceptionEntryError, CpuInstructionFields, CpuInstructionIdentity,
+    CpuInstructionWord, CpuLocalExecutedHelperArithmeticOverflow,
+    CpuLocalExecutedHelperExecutedInstruction, CpuLocalExecutedHelperInvocationError,
+    CpuLocalExecutedHelperInvocationOutcome, CpuRegisterIndexError, CvtSingleWordResult,
+    MachineCop0TagWriteProvenance, MachineCop1CvtSingleWordFcr31Provenance,
+    MachineCop1CvtSingleWordProvenance, MachineCop1DataWordAvailability,
+    MachineCop1DataWordSourceKind, MachineCop1DataWordState, MachineCop1Fcr31State,
+    MachineCop1Fcr31WriteProvenance, MachineCop1FrMode, MachineCop1Ldc1Provenance,
+    MachineCop1Ldc1WordRole, MachineCop1Lwc1Provenance, MachineCop1Mtc1Provenance,
+    MachineCop1RoundingMode, MachineCpuCommonExceptionVector, MachinePrimaryCacheHitInvalidatePlan,
+    MachinePrimaryCacheHitInvalidateProvenance, MachinePrimaryCacheHitInvalidateTarget,
+    MachinePrimaryCacheIndexInvalidatePlan, MachinePrimaryCacheIndexInvalidateProvenance,
+    MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,
+    MachinePrimaryDataCacheFillPlan, MachinePrimaryDataCacheHitWritebackPlan,
+    MachinePrimaryDataCacheHitWritebackProvenance,
     MachinePrimaryDataCacheIndexWritebackInvalidatePlan, MachinePrimaryDataCacheStorePlan,
     MachinePrimaryDataCacheStoreProvenance, MachinePrimaryDataCacheStoreWidth,
     MachinePrimaryInstructionCacheFillPlan, MachinePrimaryInstructionCacheLineState,
@@ -1755,6 +1759,7 @@ pub(crate) const fn classify_step_unsupported_instruction(
         }
         CpuInstructionIdentity::Cache
         | CpuInstructionIdentity::Cop1Mtc1
+        | CpuInstructionIdentity::Cop1CvtSingleWord
         | CpuInstructionIdentity::Lwc1
         | CpuInstructionIdentity::Ldc1
         | CpuInstructionIdentity::Swc1 => None,
@@ -3211,6 +3216,71 @@ pub(crate) enum MachineCop1MoveWordStepApplication {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineCvtSingleWordRejectionReason {
+    Fr1DestinationUnsupported,
+    Fcr31Unavailable,
+    SourceUnavailable {
+        source_kind: MachineCop1DataWordSourceKind,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineCvtSingleWordRejection {
+    reason: MachineCvtSingleWordRejectionReason,
+}
+
+impl MachineCvtSingleWordRejection {
+    const fn new(reason: MachineCvtSingleWordRejectionReason) -> Self {
+        Self { reason }
+    }
+
+    pub const fn identity(self) -> CpuInstructionIdentity {
+        CpuInstructionIdentity::Cop1CvtSingleWord
+    }
+
+    pub const fn reason(self) -> MachineCvtSingleWordRejectionReason {
+        self.reason
+    }
+}
+
+impl fmt::Display for MachineCvtSingleWordRejection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CVT.S.W rejected before destination or FCR31 mutation: {:?}",
+            self.reason
+        )
+    }
+}
+
+impl std::error::Error for MachineCvtSingleWordRejection {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineCvtSingleWordPlan {
+    fields: CpuInstructionFields,
+    result: CvtSingleWordResult,
+    rounding_mode: MachineCop1RoundingMode,
+    destination_state: MachineCop1DataWordState,
+    fcr31_state: MachineCop1Fcr31State,
+    trapped: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MachineCvtSingleWordApplication {
+    Committed {
+        plan: MachineCvtSingleWordPlan,
+        cadence_plan: MachineStepCadencePlan,
+    },
+    FloatingPointExceptionEntered {
+        plan: MachineCvtSingleWordPlan,
+        vector: MachineCpuCommonExceptionVector,
+        epc: CpuAddress,
+        branch_delay: bool,
+        cadence_plan: MachineStepCadencePlan,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineMtc0RejectionReason {
     ColdX105AccessUnavailable {
         cpu_state_kind: Option<MachineBootstrapCpuStateKind>,
@@ -3612,6 +3682,7 @@ pub(crate) enum MachineClassifiedStepAction {
     Mtc0(MachineMtc0StepAction),
     Cop1ControlTransfer(MachineCop1ControlTransferStepAction),
     Cop1MoveWord(MachineCop1MoveWordStepAction),
+    CvtSingleWord(MachineCvtSingleWordPlan),
     CoprocessorUnusableException(MachineCoprocessorUnusableExceptionPlan),
     Cache(MachineCacheOperationStepAction),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierAction),
@@ -3631,6 +3702,7 @@ pub(crate) enum MachineClassifiedStepActionApplication {
     Mtc0(MachineMtc0StepApplication),
     Cop1ControlTransfer(MachineCop1ControlTransferStepApplication),
     Cop1MoveWord(MachineCop1MoveWordStepApplication),
+    CvtSingleWord(MachineCvtSingleWordApplication),
     CoprocessorUnusableException(MachineCoprocessorUnusableExceptionApplication),
     Cache(MachineCacheOperationStepApplication),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierApplication),
@@ -3651,6 +3723,7 @@ impl MachineClassifiedStepActionApplication {
             | Self::Mtc0(_)
             | Self::Cop1ControlTransfer(_)
             | Self::Cop1MoveWord(_)
+            | Self::CvtSingleWord(_)
             | Self::CoprocessorUnusableException(_)
             | Self::Cache(_)
             | Self::NonCpuLocalFrontier(_) => None,
@@ -3673,6 +3746,7 @@ impl MachineClassifiedStepActionApplication {
             | Self::Mtc0(_)
             | Self::Cop1ControlTransfer(_)
             | Self::Cop1MoveWord(_)
+            | Self::CvtSingleWord(_)
             | Self::CoprocessorUnusableException(_)
             | Self::Cache(_) => None,
         }
@@ -3688,6 +3762,7 @@ pub(crate) enum MachineClassifiedStepActionApplicationError {
     StoreHalfword(MachineStoreHalfwordStepApplicationError),
     StoreDoubleword(MachineStoreDoublewordStepApplicationError),
     SpImemByte(CpuRegisterIndexError),
+    FloatingPointException(CpuFloatingPointExceptionEntryError),
     CoprocessorUnusableException(CpuCoprocessorUnusableExceptionEntryError),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierApplicationError),
 }
@@ -3701,6 +3776,7 @@ impl fmt::Display for MachineClassifiedStepActionApplicationError {
             Self::StoreHalfword(error) => error.fmt(f),
             Self::StoreDoubleword(error) => error.fmt(f),
             Self::SpImemByte(error) => error.fmt(f),
+            Self::FloatingPointException(error) => error.fmt(f),
             Self::CoprocessorUnusableException(error) => error.fmt(f),
             Self::NonCpuLocalFrontier(error) => error.fmt(f),
         }
@@ -3758,6 +3834,7 @@ pub(crate) enum MachineCurrentPcClassifiedStepActionError {
     Mtc0Rejected(MachineMtc0Rejection),
     Cop1ControlTransferRejected(MachineCop1ControlTransferRejection),
     Lwc1Rejected(MachineLwc1Rejection),
+    CvtSingleWordRejected(MachineCvtSingleWordRejection),
     CacheRejected(MachineCacheOperationRejection),
     CpuLocalInvocation(CpuLocalExecutedHelperInvocationError),
     UnrepresentedInstruction {
@@ -3779,6 +3856,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
@@ -3798,6 +3876,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
@@ -3816,6 +3895,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::UnrepresentedInstruction { .. } => None,
         }
@@ -3833,6 +3913,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocation(_) => None,
         }
@@ -3849,6 +3930,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             Self::Mtc0Rejected(_) => Some(CpuInstructionIdentity::Cop0Mtc0),
             Self::Cop1ControlTransferRejected(rejection) => Some(rejection.kind().identity()),
             Self::Lwc1Rejected(rejection) => Some(rejection.identity()),
+            Self::CvtSingleWordRejected(rejection) => Some(rejection.identity()),
             Self::CacheRejected(_) => Some(CpuInstructionIdentity::Cache),
             Self::FetchFaultRethrow(_) | Self::CpuLocalInvocation(_) => None,
         }
@@ -3865,6 +3947,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
@@ -3882,6 +3965,7 @@ impl MachineCurrentPcClassifiedStepActionError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocation(_)
             | Self::UnrepresentedInstruction { .. } => None,
@@ -3927,6 +4011,9 @@ impl fmt::Display for MachineCurrentPcClassifiedStepActionError {
                 write!(f, "current-PC classified step action production {error}")
             }
             Self::Lwc1Rejected(error) => {
+                write!(f, "current-PC classified step action production {error}")
+            }
+            Self::CvtSingleWordRejected(error) => {
                 write!(f, "current-PC classified step action production {error}")
             }
             Self::CacheRejected(error) => {
@@ -4059,6 +4146,35 @@ impl MachineCoprocessorUnusableExceptionEntryRejection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineFloatingPointExceptionEntryRejection {
+    pc: CpuAddress,
+    next_pc: CpuAddress,
+    status: u32,
+}
+
+impl MachineFloatingPointExceptionEntryRejection {
+    const fn from_cpu_error(error: CpuFloatingPointExceptionEntryError) -> Self {
+        Self {
+            pc: error.pc(),
+            next_pc: error.next_pc(),
+            status: error.status(),
+        }
+    }
+
+    pub const fn pc(self) -> CpuAddress {
+        self.pc
+    }
+
+    pub const fn next_pc(self) -> CpuAddress {
+        self.next_pc
+    }
+
+    pub const fn status(self) -> u32 {
+        self.status
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MachineCoprocessorUnusableExceptionPlan {
     identity: CpuInstructionIdentity,
     coprocessor: u8,
@@ -4089,6 +4205,13 @@ impl MachineCoprocessorUnusableExceptionPlan {
     const fn cop1_mtc1() -> Self {
         Self {
             identity: CpuInstructionIdentity::Cop1Mtc1,
+            coprocessor: COP1_COPROCESSOR_NUMBER,
+        }
+    }
+
+    const fn cop1_cvt_single_word() -> Self {
+        Self {
+            identity: CpuInstructionIdentity::Cop1CvtSingleWord,
             coprocessor: COP1_COPROCESSOR_NUMBER,
         }
     }
@@ -4491,6 +4614,15 @@ pub enum MachineRepresentedStepOutcome {
     CoprocessorUnusableExceptionEntered {
         identity: CpuInstructionIdentity,
         coprocessor: u8,
+        epc: CpuAddress,
+        branch_delay: bool,
+        vector: MachineCpuCommonExceptionVector,
+        cadence_plan: MachineStepCadencePlan,
+    },
+    FloatingPointExceptionEntered {
+        identity: CpuInstructionIdentity,
+        inexact: bool,
+        rounding_mode: MachineCop1RoundingMode,
         epc: CpuAddress,
         branch_delay: bool,
         vector: MachineCpuCommonExceptionVector,
@@ -5055,6 +5187,32 @@ impl MachineRepresentedStepOutcome {
                 destination_availability: plan.source_availability,
                 cadence_plan,
             },
+            MachineClassifiedStepActionApplication::CvtSingleWord(
+                MachineCvtSingleWordApplication::Committed {
+                    plan: _,
+                    cadence_plan,
+                },
+            ) => Self::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Cop1CvtSingleWord,
+                cadence_plan,
+            },
+            MachineClassifiedStepActionApplication::CvtSingleWord(
+                MachineCvtSingleWordApplication::FloatingPointExceptionEntered {
+                    plan,
+                    vector,
+                    epc,
+                    branch_delay,
+                    cadence_plan,
+                },
+            ) => Self::FloatingPointExceptionEntered {
+                identity: CpuInstructionIdentity::Cop1CvtSingleWord,
+                inexact: plan.result.inexact(),
+                rounding_mode: plan.rounding_mode,
+                epc,
+                branch_delay,
+                vector,
+                cadence_plan,
+            },
             MachineClassifiedStepActionApplication::CoprocessorUnusableException(application) => {
                 Self::CoprocessorUnusableExceptionEntered {
                     identity: application.plan.identity,
@@ -5165,7 +5323,8 @@ impl MachineRepresentedStepOutcome {
             | Self::DirectRdramByteCommitted { identity, .. }
             | Self::DataAddressError { identity, .. }
             | Self::ArithmeticOverflowException { identity }
-            | Self::CoprocessorUnusableExceptionEntered { identity, .. } => Some(identity),
+            | Self::CoprocessorUnusableExceptionEntered { identity, .. }
+            | Self::FloatingPointExceptionEntered { identity, .. } => Some(identity),
             Self::DirectRdramHalfwordCommitted { .. } => Some(CpuInstructionIdentity::Sh),
             Self::DirectRdramDoublewordCommitted { .. } => Some(CpuInstructionIdentity::Sd),
             Self::LoadHalfwordCommitted { identity, .. } => Some(identity),
@@ -5256,6 +5415,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitInvalidateCommitted { cadence_plan, .. }
             | Self::InterruptExceptionEntered { cadence_plan, .. }
             | Self::CoprocessorUnusableExceptionEntered { cadence_plan, .. }
+            | Self::FloatingPointExceptionEntered { cadence_plan, .. }
             | Self::DataAddressError { cadence_plan, .. }
             | Self::NoEffectCommitted { cadence_plan, .. }
             | Self::Stopped { cadence_plan, .. }
@@ -5310,6 +5470,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
             | Self::CoprocessorUnusableExceptionEntered { .. }
+            | Self::FloatingPointExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -5363,6 +5524,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
             | Self::CoprocessorUnusableExceptionEntered { .. }
+            | Self::FloatingPointExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -5416,6 +5578,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
             | Self::CoprocessorUnusableExceptionEntered { .. }
+            | Self::FloatingPointExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::Stopped { .. }
@@ -5469,6 +5632,7 @@ impl MachineRepresentedStepOutcome {
             | Self::CacheHitInvalidateCommitted { .. }
             | Self::InterruptExceptionEntered { .. }
             | Self::CoprocessorUnusableExceptionEntered { .. }
+            | Self::FloatingPointExceptionEntered { .. }
             | Self::DataAddressError { .. }
             | Self::ArithmeticOverflowException { .. }
             | Self::NoEffectCommitted { .. }
@@ -5490,6 +5654,7 @@ pub enum MachineRepresentedStepError {
     Mtc0Rejected(MachineMtc0Rejection),
     Cop1ControlTransferRejected(MachineCop1ControlTransferRejection),
     Lwc1Rejected(MachineLwc1Rejection),
+    CvtSingleWordRejected(MachineCvtSingleWordRejection),
     CacheRejected(MachineCacheOperationRejection),
     CpuLocalInvocationRejected(MachineStepCpuLocalInvocationRejection),
     UnrepresentedInstruction {
@@ -5498,6 +5663,7 @@ pub enum MachineRepresentedStepError {
     },
     ArithmeticOverflowExceptionEntryRejected(MachineArithmeticOverflowExceptionEntryRejection),
     CoprocessorUnusableExceptionEntryRejected(MachineCoprocessorUnusableExceptionEntryRejection),
+    FloatingPointExceptionEntryRejected(MachineFloatingPointExceptionEntryRejection),
     DataAddressErrorExceptionEntryRejected(CpuAddressErrorExceptionEntryError),
     InstructionFetchAddressErrorEntryRejected(CpuAddressErrorExceptionEntryError),
     CompositionInvariantRejected,
@@ -5547,6 +5713,9 @@ impl MachineRepresentedStepError {
             MachineCurrentPcClassifiedStepActionError::Lwc1Rejected(error) => {
                 Self::Lwc1Rejected(error)
             }
+            MachineCurrentPcClassifiedStepActionError::CvtSingleWordRejected(error) => {
+                Self::CvtSingleWordRejected(error)
+            }
             MachineCurrentPcClassifiedStepActionError::CacheRejected(error) => {
                 Self::CacheRejected(error)
             }
@@ -5590,6 +5759,11 @@ impl MachineRepresentedStepError {
                     MachineCoprocessorUnusableExceptionEntryRejection::from_cpu_error(error),
                 )
             }
+            MachineClassifiedStepActionApplicationError::FloatingPointException(error) => {
+                Self::FloatingPointExceptionEntryRejected(
+                    MachineFloatingPointExceptionEntryRejection::from_cpu_error(error),
+                )
+            }
             MachineClassifiedStepActionApplicationError::StoreWord(
                 MachineStoreWordStepApplicationError::DataAddressErrorEntry(error),
             ) => Self::DataAddressErrorExceptionEntryRejected(error),
@@ -5628,11 +5802,13 @@ impl MachineRepresentedStepError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5649,6 +5825,7 @@ impl MachineRepresentedStepError {
             Self::Mtc0Rejected(_) => Some(CpuInstructionIdentity::Cop0Mtc0),
             Self::Cop1ControlTransferRejected(rejection) => Some(rejection.kind().identity()),
             Self::Lwc1Rejected(rejection) => Some(rejection.identity()),
+            Self::CvtSingleWordRejected(rejection) => Some(rejection.identity()),
             Self::CacheRejected(_) => Some(CpuInstructionIdentity::Cache),
             Self::CpuLocalInvocationRejected(rejection) => rejection.identity(),
             Self::UnrepresentedInstruction { identity, .. } => Some(identity),
@@ -5656,6 +5833,7 @@ impl MachineRepresentedStepError {
             | Self::FetchRejected(_)
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5676,11 +5854,13 @@ impl MachineRepresentedStepError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5699,11 +5879,13 @@ impl MachineRepresentedStepError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5722,11 +5904,13 @@ impl MachineRepresentedStepError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5745,11 +5929,13 @@ impl MachineRepresentedStepError {
             | Self::Mfc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5768,11 +5954,13 @@ impl MachineRepresentedStepError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5792,10 +5980,12 @@ impl MachineRepresentedStepError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5816,11 +6006,13 @@ impl MachineRepresentedStepError {
             | Self::Mtc0Rejected(_)
             | Self::Cop1ControlTransferRejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5841,11 +6033,13 @@ impl MachineRepresentedStepError {
             | Self::Mfc0Rejected(_)
             | Self::Mtc0Rejected(_)
             | Self::Lwc1Rejected(_)
+            | Self::CvtSingleWordRejected(_)
             | Self::CacheRejected(_)
             | Self::CpuLocalInvocationRejected(_)
             | Self::UnrepresentedInstruction { .. }
             | Self::ArithmeticOverflowExceptionEntryRejected(_)
             | Self::CoprocessorUnusableExceptionEntryRejected(_)
+            | Self::FloatingPointExceptionEntryRejected(_)
             | Self::DataAddressErrorExceptionEntryRejected(_)
             | Self::InstructionFetchAddressErrorEntryRejected(_)
             | Self::CompositionInvariantRejected => None,
@@ -5894,6 +6088,9 @@ impl fmt::Display for MachineRepresentedStepError {
             Self::Lwc1Rejected(error) => {
                 write!(f, "represented Machine::step {error}")
             }
+            Self::CvtSingleWordRejected(error) => {
+                write!(f, "represented Machine::step {error}")
+            }
             Self::CacheRejected(error) => {
                 write!(f, "represented Machine::step {error}")
             }
@@ -5917,6 +6114,13 @@ impl fmt::Display for MachineRepresentedStepError {
             Self::CoprocessorUnusableExceptionEntryRejected(error) => write!(
                 f,
                 "represented Machine::step Coprocessor Unusable entry rejected: pc={} next_pc={} status={}",
+                error.pc().value(),
+                error.next_pc().value(),
+                error.status()
+            ),
+            Self::FloatingPointExceptionEntryRejected(error) => write!(
+                f,
+                "represented Machine::step Floating-Point Exception entry rejected: pc={} next_pc={} status={}",
                 error.pc().value(),
                 error.next_pc().value(),
                 error.status()
@@ -11303,6 +11507,101 @@ impl Machine {
         }
     }
 
+    fn produce_cvt_single_word_plan(
+        &self,
+        execution_address: CpuAddress,
+        fields: CpuInstructionFields,
+    ) -> Result<MachineCvtSingleWordPlan, MachineCvtSingleWordRejection> {
+        if self.cpu.cop1_fr_mode() != MachineCop1FrMode::Fr0 {
+            return Err(MachineCvtSingleWordRejection::new(
+                MachineCvtSingleWordRejectionReason::Fr1DestinationUnsupported,
+            ));
+        }
+        let Some(fcr31_before) = self.cpu.cop1_fcr31_state() else {
+            return Err(MachineCvtSingleWordRejection::new(
+                MachineCvtSingleWordRejectionReason::Fcr31Unavailable,
+            ));
+        };
+        let source_state = self
+            .cpu
+            .cop1_data_word_state(usize::from(fields.rd()))
+            .expect("decoded COP1 selector is five bits");
+        let Some(source_word) = source_state.raw_word() else {
+            return Err(MachineCvtSingleWordRejection::new(
+                MachineCvtSingleWordRejectionReason::SourceUnavailable {
+                    source_kind: source_state.source().kind(),
+                },
+            ));
+        };
+        let rounding_mode = fcr31_before.rounding_mode();
+        let result = convert_signed_word_to_binary32(source_word as i32, rounding_mode);
+        let trapped = result.inexact() && fcr31_before.inexact_enable();
+        let destination_state = MachineCop1DataWordState::from_cvt_single_word_available(
+            result.raw_binary32_bits(),
+            MachineCop1CvtSingleWordProvenance::new(
+                execution_address,
+                fields.rd(),
+                source_state.source().kind(),
+                source_state.source().instruction_pc(),
+                result.inexact(),
+            ),
+        );
+        let fcr31_state = MachineCop1Fcr31State::from_cvt_single_word(
+            fcr31_before,
+            result.inexact(),
+            MachineCop1CvtSingleWordFcr31Provenance::new(
+                execution_address,
+                result.inexact(),
+                trapped,
+            ),
+        );
+
+        Ok(MachineCvtSingleWordPlan {
+            fields,
+            result,
+            rounding_mode,
+            destination_state,
+            fcr31_state,
+            trapped,
+        })
+    }
+
+    fn apply_cvt_single_word_plan(
+        &mut self,
+        plan: MachineCvtSingleWordPlan,
+        control_flow_snapshot: CpuControlFlowSnapshot,
+    ) -> Result<MachineCvtSingleWordApplication, CpuFloatingPointExceptionEntryError> {
+        if plan.trapped {
+            self.cpu.restore_control_flow(control_flow_snapshot);
+            let vector = self.cpu.enter_floating_point_exception()?;
+            self.cpu.write_cop1_fcr31(plan.fcr31_state);
+            return Ok(
+                MachineCvtSingleWordApplication::FloatingPointExceptionEntered {
+                    plan,
+                    vector,
+                    epc: CpuAddress::new(self.cpu.cop0_epc()),
+                    branch_delay: self.cpu.cop0_exception_branch_delay(),
+                    cadence_plan: classify_machine_step_cadence(
+                        MachineStepCadenceSource::EnteredException,
+                    ),
+                },
+            );
+        }
+
+        self.cpu
+            .write_cop1_data_word(plan.fields.sa(), plan.destination_state);
+        self.cpu.write_cop1_fcr31(plan.fcr31_state);
+        self.cpu
+            .commit_staged_step_control_flow(control_flow_snapshot);
+        self.cpu.advance_count_for_committed_step();
+        Ok(MachineCvtSingleWordApplication::Committed {
+            plan,
+            cadence_plan: classify_machine_step_cadence(
+                MachineStepCadenceSource::CommittedInstruction,
+            ),
+        })
+    }
+
     fn apply_coprocessor_unusable_exception(
         &mut self,
         plan: MachineCoprocessorUnusableExceptionPlan,
@@ -12001,6 +12300,10 @@ impl Machine {
                     self.apply_cop1_move_word_step_action(action, control_flow_snapshot),
                 ))
             }
+            MachineClassifiedStepAction::CvtSingleWord(plan) => self
+                .apply_cvt_single_word_plan(plan, control_flow_snapshot)
+                .map(MachineClassifiedStepActionApplication::CvtSingleWord)
+                .map_err(MachineClassifiedStepActionApplicationError::FloatingPointException),
             MachineClassifiedStepAction::CoprocessorUnusableException(plan) => self
                 .apply_coprocessor_unusable_exception(plan, control_flow_snapshot)
                 .map(MachineClassifiedStepActionApplication::CoprocessorUnusableException)
@@ -12211,6 +12514,31 @@ impl Machine {
                 instruction_cache_fill,
                 MachineClassifiedStepAction::Cop1MoveWord(action),
             ));
+        }
+
+        if identity == CpuInstructionIdentity::Cop1CvtSingleWord {
+            if (self.cpu.cop0_status() & COP0_STATUS_COP1_USABLE) == 0 {
+                return Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::CoprocessorUnusableException(
+                        MachineCoprocessorUnusableExceptionPlan::cop1_cvt_single_word(),
+                    ),
+                ));
+            }
+            return match self
+                .produce_cvt_single_word_plan(CpuAddress::new(control_flow_snapshot.pc()), fields)
+            {
+                Ok(plan) => Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::CvtSingleWord(plan),
+                )),
+                Err(rejection) => {
+                    self.cpu.restore_control_flow(control_flow_snapshot);
+                    Err(MachineCurrentPcClassifiedStepActionError::CvtSingleWordRejected(rejection))
+                }
+            };
         }
 
         if identity == CpuInstructionIdentity::Cache {
@@ -13649,8 +13977,8 @@ mod tests {
         CpuInstructionFields, CpuInstructionIdentity, CpuInstructionWord,
         CpuLocalExecutedHelperArithmeticOverflow, CpuLocalExecutedHelperExecutedInstruction,
         CpuLocalExecutedHelperFamily, CpuLocalExecutedHelperInvocationError,
-        CpuLocalExecutedHelperInvocationOutcome, CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC,
-        NON_BOOT_RESET_VECTOR_PC,
+        CpuLocalExecutedHelperInvocationOutcome, MachineCop1DataWordSource, MachineCop1Fcr31Source,
+        CPU_GPR_COUNT, NON_BOOT_RESET_VECTOR_NEXT_PC, NON_BOOT_RESET_VECTOR_PC,
     };
     use crate::pi::{PI_X105_DMA_BYTE_COUNT, PI_X105_WR_LEN_WORD};
     use crate::pif_firmware::{
@@ -13732,6 +14060,14 @@ mod tests {
 
     fn mtc1_word(source: u8, destination: u8) -> u32 {
         cop1_control_transfer_word(0x04, source, destination)
+    }
+
+    fn cvt_single_word(source: u8, destination: u8) -> u32 {
+        (0x11_u32 << 26)
+            | (0x14_u32 << 21)
+            | (u32::from(source) << 11)
+            | (u32::from(destination) << 6)
+            | 0x20
     }
 
     fn lwc1_word(base: u8, destination: u8, immediate: u16) -> u32 {
@@ -24815,6 +25151,32 @@ mod tests {
         let mut machine = Machine::from_cartridge(cartridge);
         machine.install_public_synthetic_cold_x105_bootstrap();
         machine.stage_cartridge_bootstrap().unwrap();
+        machine
+    }
+
+    fn staged_cvt_single_word_machine(
+        source_word: i32,
+        fcr31_word: u32,
+        source_selector: u8,
+        destination_selector: u8,
+    ) -> Machine {
+        let source_word = source_word as u32;
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, (source_word >> 16) as u16)),
+            (0x44, immediate_word(0x0d, 8, 8, source_word as u16)),
+            (0x48, mtc1_word(8, source_selector)),
+            (0x4c, mtc1_word(8, destination_selector)),
+            (0x50, immediate_word(0x0f, 0, 9, (fcr31_word >> 16) as u16)),
+            (0x54, immediate_word(0x0d, 9, 9, fcr31_word as u16)),
+            (
+                0x58,
+                cop1_control_transfer_word(0x06, 9, COP1_FCR31_REGISTER_INDEX),
+            ),
+            (0x5c, cvt_single_word(source_selector, destination_selector)),
+        ];
+        let mut machine = staged_public_synthetic_cold_x105_machine(&words);
+        machine.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        commit_steps(&mut machine, 7);
         machine
     }
 
@@ -47197,5 +47559,357 @@ mod tests {
         assert_eq!(machine.cpu_delay_slot_context(), None);
         assert_eq!(machine.cpu().pc(), NON_BOOT_RESET_VECTOR_PC);
         assert_eq!(machine.cpu().next_pc(), NON_BOOT_RESET_VECTOR_NEXT_PC);
+    }
+
+    #[test]
+    fn cvt_s_w_decodes_exact_word_to_single_identity_without_family_completion() {
+        let exact = instruction_fields(cvt_single_word(5, 7));
+        assert_eq!(
+            identify_cpu_instruction(exact),
+            CpuInstructionIdentity::Cop1CvtSingleWord
+        );
+        assert_eq!(classify_step_unsupported_instruction(exact), None);
+
+        for malformed in [
+            cvt_single_word(5, 7) | (1 << 16),
+            cvt_single_word(5, 7) ^ 1,
+            (cvt_single_word(5, 7) & !(0x1f << 21)) | (0x10 << 21),
+        ] {
+            assert_eq!(
+                identify_cpu_instruction(instruction_fields(malformed)),
+                CpuInstructionIdentity::Cop1
+            );
+        }
+    }
+
+    #[test]
+    fn cvt_s_w_commits_exact_and_untrapped_inexact_results_with_precise_fcr31_law() {
+        const CAUSE_MASK: u32 = 0x0003_f000;
+        const INEXACT_CAUSE: u32 = 0x0000_1000;
+        const INEXACT_FLAG: u32 = 0x0000_0004;
+        const INEXACT_ENABLE: u32 = 0x0000_0080;
+        const PRESERVED: u32 = 0x0180_0108;
+
+        let mut exact = staged_cvt_single_word_machine(
+            16_777_216,
+            PRESERVED | CAUSE_MASK | INEXACT_ENABLE,
+            5,
+            6,
+        );
+        let before = lw_snapshot(&exact);
+        assert!(matches!(
+            exact.step().unwrap(),
+            MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Cop1CvtSingleWord,
+                cadence_plan,
+            } if cadence_plan.source() == MachineStepCadenceSource::CommittedInstruction
+                && cadence_plan.advances_count()
+        ));
+        let after = lw_snapshot(&exact);
+        assert_eq!(after.pc, before.next_pc);
+        assert_eq!(after.count, before.count + 1);
+        assert_eq!(
+            exact.cpu().cop1_data_word_state(6).unwrap().raw_word(),
+            Some(0x4b80_0000)
+        );
+        assert_eq!(
+            exact.cpu().cop1_fcr31_state().unwrap().raw_word(),
+            (PRESERVED | INEXACT_ENABLE) & !CAUSE_MASK
+        );
+        assert_eq!(after.gprs, before.gprs);
+        assert_eq!(after.rdram, before.rdram);
+        assert_eq!(after.sp_status, before.sp_status);
+        assert_eq!(after.mi_interrupt, before.mi_interrupt);
+        for selector in 0..crate::cpu::COP1_FGR_COUNT {
+            if selector != 6 {
+                assert_eq!(
+                    after.cop1_data_words[selector],
+                    before.cop1_data_words[selector]
+                );
+            }
+        }
+
+        let cases = [
+            (0_u32, 0x4b80_0000, MachineCop1RoundingMode::NearestEven),
+            (1_u32, 0x4b80_0000, MachineCop1RoundingMode::TowardZero),
+            (
+                2_u32,
+                0x4b80_0001,
+                MachineCop1RoundingMode::TowardPositiveInfinity,
+            ),
+            (
+                3_u32,
+                0x4b80_0000,
+                MachineCop1RoundingMode::TowardNegativeInfinity,
+            ),
+        ];
+        for (rounding_bits, expected, expected_mode) in cases {
+            let initial_fcr31 = PRESERVED | CAUSE_MASK | rounding_bits;
+            let mut machine = staged_cvt_single_word_machine(16_777_217, initial_fcr31, 5, 6);
+            let before = lw_snapshot(&machine);
+            assert!(matches!(
+                machine.step().unwrap(),
+                MachineRepresentedStepOutcome::CpuLocalCommitted {
+                    identity: CpuInstructionIdentity::Cop1CvtSingleWord,
+                    cadence_plan,
+                } if cadence_plan.advances_count()
+            ));
+            let destination = machine.cpu().cop1_data_word_state(6).unwrap();
+            assert_eq!(destination.raw_word(), Some(expected));
+            let MachineCop1DataWordSource::CvtSingleWord(provenance) = destination.source() else {
+                panic!("CVT.S.W must own destination provenance");
+            };
+            assert_eq!(provenance.instruction_pc(), CpuAddress::new(0xa400_005c));
+            assert_eq!(provenance.source_selector(), 5);
+            assert_eq!(
+                provenance.source_instruction_pc(),
+                Some(CpuAddress::new(0xa400_0048))
+            );
+            assert!(provenance.inexact());
+            let fcr31 = machine.cpu().cop1_fcr31_state().unwrap();
+            assert_eq!(fcr31.rounding_mode(), expected_mode);
+            assert!(fcr31.inexact_cause());
+            assert!(fcr31.inexact_flag());
+            assert_eq!(
+                fcr31.raw_word() & !(CAUSE_MASK | INEXACT_FLAG),
+                initial_fcr31 & !(CAUSE_MASK | INEXACT_FLAG)
+            );
+            assert_eq!(fcr31.raw_word() & CAUSE_MASK, INEXACT_CAUSE);
+            assert_eq!(machine.cpu().cop0_count(), before.count + 1);
+        }
+
+        let mut alias = staged_cvt_single_word_machine(16_777_217, 0, 5, 5);
+        assert!(matches!(
+            alias.step().unwrap(),
+            MachineRepresentedStepOutcome::CpuLocalCommitted {
+                identity: CpuInstructionIdentity::Cop1CvtSingleWord,
+                ..
+            }
+        ));
+        assert_eq!(
+            alias.cpu().cop1_data_word_state(5).unwrap().raw_word(),
+            Some(0x4b80_0000)
+        );
+    }
+
+    #[test]
+    fn cvt_s_w_enabled_inexact_enters_fpe_without_destination_or_sticky_flag_commit() {
+        const INEXACT_CAUSE: u32 = 0x0000_1000;
+        const INEXACT_ENABLE: u32 = 0x0000_0080;
+        const UNRELATED_FLAG: u32 = 0x0000_0008;
+        let mut machine = staged_cvt_single_word_machine(
+            16_777_217,
+            0x0180_0000 | INEXACT_ENABLE | UNRELATED_FLAG,
+            5,
+            6,
+        );
+        machine
+            .cpu
+            .stage_cop0_cause_state_for_test(0x0300, true, 4, false);
+        machine.cpu.stage_cop0_coprocessor_error_for_test(2);
+        machine.cpu.stage_cop0_bad_vaddr_for_test(0x1357_9bdf);
+        let before = lw_snapshot(&machine);
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::FloatingPointExceptionEntered {
+                identity: CpuInstructionIdentity::Cop1CvtSingleWord,
+                inexact: true,
+                rounding_mode: MachineCop1RoundingMode::NearestEven,
+                epc,
+                branch_delay: false,
+                vector: MachineCpuCommonExceptionVector::Normal,
+                cadence_plan,
+            } if epc == CpuAddress::new(before.pc)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && !cadence_plan.advances_count()
+        ));
+        let after = lw_snapshot(&machine);
+        assert_eq!(after.exception_code, 15);
+        assert_eq!(after.coprocessor_error, 2);
+        assert_eq!(
+            after.software_interrupt_pending,
+            before.software_interrupt_pending
+        );
+        assert_eq!(
+            after.software_interrupt_pending_known,
+            before.software_interrupt_pending_known
+        );
+        assert_eq!(after.rcp_interrupt_pending, before.rcp_interrupt_pending);
+        assert_eq!(
+            after.timer_interrupt_pending,
+            before.timer_interrupt_pending
+        );
+        assert_eq!(after.status & COP0_STATUS_EXL, COP0_STATUS_EXL);
+        assert_eq!(after.pc, LOCAL_EXCEPTION_VECTOR_PC);
+        assert_eq!(after.next_pc, LOCAL_EXCEPTION_VECTOR_NEXT_PC);
+        assert_eq!(after.count, before.count);
+        assert_eq!(after.bad_vaddr, before.bad_vaddr);
+        assert_eq!(after.cop0_context, before.cop0_context);
+        assert_eq!(after.entry_hi, before.entry_hi);
+        assert_eq!(after.cop1_data_words, before.cop1_data_words);
+        let fcr31 = machine.cpu().cop1_fcr31_state().unwrap();
+        assert_eq!(fcr31.raw_word() & 0x0003_f000, INEXACT_CAUSE);
+        assert_eq!(fcr31.raw_word() & 0x0000_0004, 0);
+        assert_eq!(fcr31.raw_word() & UNRELATED_FLAG, UNRELATED_FLAG);
+        let MachineCop1Fcr31Source::CvtSingleWord(provenance) = fcr31.source() else {
+            panic!("trapped CVT.S.W must own current FCR31 cause provenance");
+        };
+        assert!(provenance.inexact());
+        assert!(provenance.trapped());
+    }
+
+    #[test]
+    fn cvt_s_w_fpe_uses_delay_bev_nested_and_atomic_entry_owners() {
+        const INEXACT_ENABLE: u32 = 0x0000_0080;
+        let source_word = 16_777_217_u32;
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, (source_word >> 16) as u16)),
+            (0x44, immediate_word(0x0d, 8, 8, source_word as u16)),
+            (0x48, mtc1_word(8, 5)),
+            (0x4c, mtc1_word(8, 6)),
+            (0x50, immediate_word(0x0d, 0, 9, INEXACT_ENABLE as u16)),
+            (
+                0x54,
+                cop1_control_transfer_word(0x06, 9, COP1_FCR31_REGISTER_INDEX),
+            ),
+            (0x58, control_flow_branch_word(0x04, 0, 0, 1)),
+            (0x5c, cvt_single_word(5, 6)),
+            (0x60, special_shift_word(0, 0, 0, 0, 0)),
+        ];
+        let mut delay = staged_public_synthetic_cold_x105_machine(&words);
+        delay.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        commit_steps(&mut delay, 6);
+        assert_control_flow_commit(delay.step().unwrap(), CpuInstructionIdentity::Beq);
+        let count_before = delay.cpu().cop0_count();
+        assert!(matches!(
+            delay.step().unwrap(),
+            MachineRepresentedStepOutcome::FloatingPointExceptionEntered {
+                epc,
+                branch_delay: true,
+                vector: MachineCpuCommonExceptionVector::Normal,
+                cadence_plan,
+                ..
+            } if epc == CpuAddress::new(0xa400_0058) && !cadence_plan.advances_count()
+        ));
+        assert_eq!(delay.cpu().cop0_count(), count_before);
+        assert_eq!(delay.cpu_delay_slot_context(), None);
+
+        let mut bev = staged_cvt_single_word_machine(16_777_217, INEXACT_ENABLE, 5, 6);
+        bev.cpu
+            .write_cop0_status(COP0_STATUS_COP1_USABLE | COP0_STATUS_BEV);
+        assert!(matches!(
+            bev.step().unwrap(),
+            MachineRepresentedStepOutcome::FloatingPointExceptionEntered {
+                vector: MachineCpuCommonExceptionVector::Bootstrap,
+                branch_delay: false,
+                ..
+            }
+        ));
+        assert_eq!(bev.cpu().pc(), BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC);
+        assert_eq!(
+            bev.cpu().next_pc(),
+            BOOTSTRAP_COMMON_EXCEPTION_VECTOR_NEXT_PC
+        );
+
+        let mut nested = staged_cvt_single_word_machine(16_777_217, INEXACT_ENABLE, 5, 6);
+        nested
+            .cpu
+            .write_cop0_status(COP0_STATUS_COP1_USABLE | COP0_STATUS_BEV | COP0_STATUS_EXL);
+        nested.cpu.stage_cop0_epc_for_test(0x8123_4560);
+        nested
+            .cpu
+            .stage_cop0_cause_state_for_test(0x0100, true, 4, true);
+        nested.cpu.stage_cop0_coprocessor_error_for_test(3);
+        assert!(matches!(
+            nested.step().unwrap(),
+            MachineRepresentedStepOutcome::FloatingPointExceptionEntered {
+                epc,
+                branch_delay: true,
+                vector: MachineCpuCommonExceptionVector::Bootstrap,
+                ..
+            } if epc == CpuAddress::new(0x8123_4560)
+        ));
+        assert_eq!(nested.cpu().cop0_epc(), 0x8123_4560);
+        assert!(nested.cpu().cop0_exception_branch_delay());
+        assert_eq!(nested.cpu().cop0_coprocessor_error(), 3);
+
+        let mut blocked = staged_cvt_single_word_machine(16_777_217, INEXACT_ENABLE, 5, 6);
+        blocked.cpu.stage_next_pc(0xa400_105c);
+        let before = lw_snapshot(&blocked);
+        assert!(matches!(
+            blocked.step().unwrap_err(),
+            MachineRepresentedStepError::FloatingPointExceptionEntryRejected(rejection)
+                if rejection.pc() == CpuAddress::new(0xa400_005c)
+                    && rejection.next_pc() == CpuAddress::new(0xa400_105c)
+        ));
+        assert_eq!(lw_snapshot(&blocked), before);
+    }
+
+    #[test]
+    fn cvt_s_w_cu1_mode_source_and_multiboxing_boundaries_are_atomic() {
+        let cvt = cvt_single_word(5, 6);
+        let mut cu1_clear = staged_public_synthetic_cold_x105_machine(&[(0x40, cvt)]);
+        cu1_clear.cpu.write_cop0_status(0);
+        let before = lw_snapshot(&cu1_clear);
+        assert!(matches!(
+            cu1_clear.step().unwrap(),
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Cop1CvtSingleWord,
+                coprocessor: 1,
+                ..
+            }
+        ));
+        assert_eq!(cu1_clear.cpu().cop0_exception_code(), 11);
+        assert_eq!(
+            cu1_clear.cpu().cop1_data_word_state(6),
+            before.cop1_data_words.get(6).copied()
+        );
+
+        let mut unavailable = staged_public_synthetic_cold_x105_machine(&[(0x40, cvt)]);
+        unavailable.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        let before = lw_snapshot(&unavailable);
+        assert!(matches!(
+            unavailable.step().unwrap_err(),
+            MachineRepresentedStepError::CvtSingleWordRejected(rejection)
+                if matches!(
+                    rejection.reason(),
+                    MachineCvtSingleWordRejectionReason::SourceUnavailable {
+                        source_kind: MachineCop1DataWordSourceKind::ConstructionUnavailable,
+                    }
+                )
+        ));
+        assert_eq!(lw_snapshot(&unavailable), before);
+
+        let mut fr1 = staged_cvt_single_word_machine(1, 0, 5, 6);
+        fr1.cpu
+            .write_cop0_status(COP0_STATUS_COP1_USABLE | 0x0400_0000);
+        let before = lw_snapshot(&fr1);
+        assert!(matches!(
+            fr1.step().unwrap_err(),
+            MachineRepresentedStepError::CvtSingleWordRejected(rejection)
+                if rejection.reason()
+                    == MachineCvtSingleWordRejectionReason::Fr1DestinationUnsupported
+        ));
+        assert_eq!(lw_snapshot(&fr1), before);
+
+        let mut first = staged_cvt_single_word_machine(16_777_217, 0, 5, 6);
+        let second = staged_cvt_single_word_machine(16_777_217, 0, 5, 6);
+        first.step().unwrap();
+        assert_eq!(
+            first.cpu().cop1_data_word_summary().cvt_single_word_count(),
+            1
+        );
+        assert_eq!(
+            second
+                .cpu()
+                .cop1_data_word_summary()
+                .cvt_single_word_count(),
+            0
+        );
+        assert_ne!(
+            first.cpu().cop1_data_word_state(6),
+            second.cpu().cop1_data_word_state(6)
+        );
     }
 }

@@ -6,14 +6,15 @@ use fn64_core::{
     load_cartridge, CpuInstructionIdentity, Machine, MachineBootSource, MachineBootstrapGprSource,
     MachineCartridgeBootstrapError, MachineCleanRoomBootProfile, MachineCop0TlbOperationError,
     MachineCop1ControlTransferRejectionReason, MachineCpuInstructionFetchError,
-    MachineCpuInstructionInspection, MachineLoadWordRejectionReason, MachineLwc1RejectionReason,
-    MachinePiDomain, MachinePiDomainTimingField, MachinePiDomainTimingRegister,
-    MachinePifIpl2HandoffBootMedium, MachinePifIpl2HandoffResetKind, MachinePifIpl3Family,
-    MachinePifVersionBit, MachineRepresentedStepError, MachineRepresentedStepOutcome,
-    MachineRspInstructionIdentity, MachineRspStepRejectionReason,
-    MachineRspVectorUnavailableSource, MachineSpDmemByteKnowledgeSource,
-    MachineSpDmemUnavailableSource, MachineSpStatusState, MachineStepCpuLocalInvocationRejection,
-    MachineStepProcessor, PifFirmwareClassification, PifIpl2Profile, RDRAM_SIZE_BYTES,
+    MachineCpuInstructionInspection, MachineCvtSingleWordRejectionReason,
+    MachineLoadWordRejectionReason, MachineLwc1RejectionReason, MachinePiDomain,
+    MachinePiDomainTimingField, MachinePiDomainTimingRegister, MachinePifIpl2HandoffBootMedium,
+    MachinePifIpl2HandoffResetKind, MachinePifIpl3Family, MachinePifVersionBit,
+    MachineRepresentedStepError, MachineRepresentedStepOutcome, MachineRspInstructionIdentity,
+    MachineRspStepRejectionReason, MachineRspVectorUnavailableSource,
+    MachineSpDmemByteKnowledgeSource, MachineSpDmemUnavailableSource, MachineSpStatusState,
+    MachineStepCpuLocalInvocationRejection, MachineStepProcessor, PifFirmwareClassification,
+    PifIpl2Profile, RDRAM_SIZE_BYTES,
 };
 
 const DEFAULT_MAX_STEPS: u64 = 100_000_000;
@@ -792,6 +793,20 @@ fn redacted_machine_step_error(
                 "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity=Lwc1 category=lwc1-{category}"
             )
         }
+        MachineRepresentedStepError::CvtSingleWordRejected(rejection) => {
+            let category = match rejection.reason() {
+                MachineCvtSingleWordRejectionReason::Fr1DestinationUnsupported => {
+                    "fr1-destination-unsupported"
+                }
+                MachineCvtSingleWordRejectionReason::Fcr31Unavailable => "fcr31-unavailable",
+                MachineCvtSingleWordRejectionReason::SourceUnavailable { .. } => {
+                    "source-unavailable"
+                }
+            };
+            format!(
+                "Machine::step stopped before the first RSP task: {progress} selected_processor=CPU identity=Cop1CvtSingleWord category=cvt-s-w-{category}"
+            )
+        }
         cpu_error => {
             let category = match cpu_error {
                 MachineRepresentedStepError::FetchRejected(_) => "fetch-rejected",
@@ -813,6 +828,9 @@ fn redacted_machine_step_error(
                 MachineRepresentedStepError::Lwc1Rejected(_) => {
                     unreachable!("Lwc1 rejection was structurally classified above")
                 }
+                MachineRepresentedStepError::CvtSingleWordRejected(_) => {
+                    unreachable!("CVT.S.W rejection was structurally classified above")
+                }
                 MachineRepresentedStepError::CacheRejected(_) => "cache-rejected",
                 MachineRepresentedStepError::CpuLocalInvocationRejected(rejection) => {
                     redacted_cpu_local_invocation_rejection_category(machine, rejection)
@@ -825,6 +843,9 @@ fn redacted_machine_step_error(
                 }
                 MachineRepresentedStepError::CoprocessorUnusableExceptionEntryRejected(_) => {
                     "coprocessor-unusable-entry-rejected"
+                }
+                MachineRepresentedStepError::FloatingPointExceptionEntryRejected(_) => {
+                    "floating-point-exception-entry-rejected"
                 }
                 MachineRepresentedStepError::DataAddressErrorExceptionEntryRejected(_) => {
                     "data-address-error-entry-rejected"

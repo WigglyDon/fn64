@@ -183,6 +183,7 @@ pub enum CpuInstructionIdentity {
     Cop1Cfc1,
     Cop1Ctc1,
     Cop1Mtc1,
+    Cop1CvtSingleWord,
     Cop2,
     Cop3,
     Beql,
@@ -367,6 +368,9 @@ pub const fn identify_cpu_instruction(instruction: CpuInstructionFields) -> CpuI
             0x02 => CpuInstructionIdentity::Cop1Cfc1,
             0x04 if instruction.raw().bits() & 0x07ff == 0 => CpuInstructionIdentity::Cop1Mtc1,
             0x06 => CpuInstructionIdentity::Cop1Ctc1,
+            0x14 if instruction.rt() == 0 && instruction.funct() == 0x20 => {
+                CpuInstructionIdentity::Cop1CvtSingleWord
+            }
             _ => CpuInstructionIdentity::Cop1,
         },
         0x12 => CpuInstructionIdentity::Cop2,

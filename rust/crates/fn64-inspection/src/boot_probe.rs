@@ -644,6 +644,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
                         ..
                     }
+                    | MachineRepresentedStepOutcome::FloatingPointExceptionEntered { .. }
                     | MachineRepresentedStepOutcome::NoEffectCommitted { .. } => {}
                     MachineRepresentedStepOutcome::DataAddressError { .. } => {
                         first_frontier = Some(format_frontier(
@@ -934,6 +935,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
         }
         MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered { .. } => {
             "coprocessor-unusable-exception-entered"
+        }
+        MachineRepresentedStepOutcome::FloatingPointExceptionEntered { .. } => {
+            "floating-point-exception-entered"
         }
         MachineRepresentedStepOutcome::DataAddressError { .. } => "data-address-error",
         MachineRepresentedStepOutcome::ArithmeticOverflowException { .. } => {

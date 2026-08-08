@@ -19,6 +19,7 @@ const COP0_CAUSE_COPROCESSOR_ERROR_SHIFT: u32 = 28;
 const COP0_CAUSE_BRANCH_DELAY: u32 = 0x8000_0000;
 const COP0_EXCEPTION_CODE_COPROCESSOR_UNUSABLE: u8 = 11;
 const COP0_EXCEPTION_CODE_SIGNED_OVERFLOW: u8 = 12;
+const COP0_EXCEPTION_CODE_FLOATING_POINT: u8 = 15;
 const LOCAL_EXCEPTION_VECTOR_PC: u32 = 0x8000_0180;
 const LOCAL_EXCEPTION_VECTOR_NEXT_PC: u32 = 0x8000_0184;
 const BOOTSTRAP_COMMON_EXCEPTION_VECTOR_PC: u32 = 0xbfc0_0380;
@@ -503,6 +504,49 @@ impl fmt::Display for CpuCoprocessorUnusableExceptionEntryError {
 
 impl std::error::Error for CpuCoprocessorUnusableExceptionEntryError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CpuFloatingPointExceptionEntryError {
+    pc: CpuAddress,
+    next_pc: CpuAddress,
+    status: u32,
+}
+
+impl CpuFloatingPointExceptionEntryError {
+    pub(crate) const fn new(pc: CpuAddress, next_pc: CpuAddress, status: u32) -> Self {
+        Self {
+            pc,
+            next_pc,
+            status,
+        }
+    }
+
+    pub(crate) const fn pc(self) -> CpuAddress {
+        self.pc
+    }
+
+    pub(crate) const fn next_pc(self) -> CpuAddress {
+        self.next_pc
+    }
+
+    pub(crate) const fn status(self) -> u32 {
+        self.status
+    }
+}
+
+impl fmt::Display for CpuFloatingPointExceptionEntryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CPU Floating-Point Exception entry blocked: pc={} next_pc={} status={}",
+            self.pc.value(),
+            self.next_pc.value(),
+            self.status
+        )
+    }
+}
+
+impl std::error::Error for CpuFloatingPointExceptionEntryError {}
+
 impl Cpu {
     pub fn cop0_count(&self) -> u32 {
         self.cop0.count()
@@ -878,6 +922,36 @@ impl Cpu {
 
         self.cop0.exception_code = COP0_EXCEPTION_CODE_COPROCESSOR_UNUSABLE;
         self.cop0.coprocessor_error = coprocessor & 0x03;
+        self.cop0.status |= COP0_STATUS_EXL;
+        let vector = if (self.cop0.status & COP0_STATUS_BEV) == 0 {
+            MachineCpuCommonExceptionVector::Normal
+        } else {
+            MachineCpuCommonExceptionVector::Bootstrap
+        };
+        self.pc = vector.pc().value();
+        self.next_pc = vector.next_pc().value();
+        self.clear_delay_slot_context();
+
+        Ok(vector)
+    }
+
+    pub(crate) fn enter_floating_point_exception(
+        &mut self,
+    ) -> Result<MachineCpuCommonExceptionVector, CpuFloatingPointExceptionEntryError> {
+        let exl_was_set = (self.cop0.status & COP0_STATUS_EXL) != 0;
+        if !exl_was_set {
+            let Some((epc, branch_delay)) = self.local_synchronous_exception_lineage() else {
+                return Err(CpuFloatingPointExceptionEntryError::new(
+                    CpuAddress::new(self.pc),
+                    CpuAddress::new(self.next_pc),
+                    self.cop0.status,
+                ));
+            };
+            self.cop0.epc = epc;
+            self.cop0.exception_branch_delay = branch_delay;
+        }
+
+        self.cop0.exception_code = COP0_EXCEPTION_CODE_FLOATING_POINT;
         self.cop0.status |= COP0_STATUS_EXL;
         let vector = if (self.cop0.status & COP0_STATUS_BEV) == 0 {
             MachineCpuCommonExceptionVector::Normal

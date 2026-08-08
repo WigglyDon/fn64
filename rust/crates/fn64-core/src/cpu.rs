@@ -9,7 +9,7 @@ mod scalars;
 use cop0::Cop0;
 pub(crate) use cop0::{
     CpuArithmeticOverflowExceptionEntryError, CpuCop0ExceptionReturnError,
-    CpuCoprocessorUnusableExceptionEntryError,
+    CpuCoprocessorUnusableExceptionEntryError, CpuFloatingPointExceptionEntryError,
 };
 pub use cop0::{
     MachineCop0TlbEntry, MachineCop0TlbOperationError, MachineCpuCommonExceptionVector,
@@ -41,12 +41,15 @@ pub use cache::{
     PRIMARY_DATA_CACHE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_LINE_COUNT,
     PRIMARY_INSTRUCTION_CACHE_LINE_SIZE_BYTES, PRIMARY_INSTRUCTION_CACHE_SIZE_BYTES,
 };
+pub(crate) use cop1::{convert_signed_word_to_binary32, CvtSingleWordResult};
 pub use cop1::{
+    MachineCop1CvtSingleWordFcr31Provenance, MachineCop1CvtSingleWordProvenance,
     MachineCop1DataWordAvailability, MachineCop1DataWordSource, MachineCop1DataWordSourceKind,
     MachineCop1DataWordState, MachineCop1DataWordSummary, MachineCop1Fcr31Source,
     MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance, MachineCop1FrMode,
     MachineCop1Ldc1Provenance, MachineCop1Ldc1WordRole, MachineCop1Lwc1Provenance,
-    MachineCop1Mtc1Provenance, COP1_FCR31_DEFINED_FIELDS_MASK, COP1_FGR_COUNT,
+    MachineCop1Mtc1Provenance, MachineCop1RoundingMode, COP1_FCR31_DEFINED_FIELDS_MASK,
+    COP1_FGR_COUNT,
 };
 #[cfg(test)]
 pub(crate) use instruction::CpuLocalExecutedHelperFamily;
