@@ -24,7 +24,7 @@ use crate::cpu::{
     CpuRegisterIndexError, MachineCop0TagWriteProvenance, MachineCop1DataWordAvailability,
     MachineCop1DataWordState, MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance,
     MachineCop1FrMode, MachineCop1Ldc1Provenance, MachineCop1Ldc1WordRole,
-    MachineCop1Lwc1Provenance, MachineCpuCommonExceptionVector,
+    MachineCop1Lwc1Provenance, MachineCop1Mtc1Provenance, MachineCpuCommonExceptionVector,
     MachinePrimaryCacheHitInvalidatePlan, MachinePrimaryCacheHitInvalidateProvenance,
     MachinePrimaryCacheHitInvalidateTarget, MachinePrimaryCacheIndexInvalidatePlan,
     MachinePrimaryCacheIndexInvalidateProvenance, MachinePrimaryCacheIndexStoreTagTarget,
@@ -1754,6 +1754,7 @@ pub(crate) const fn classify_step_unsupported_instruction(
             Some(MachineStepUnsupportedInstructionCategory::CoprocessorUnimplemented)
         }
         CpuInstructionIdentity::Cache
+        | CpuInstructionIdentity::Cop1Mtc1
         | CpuInstructionIdentity::Lwc1
         | CpuInstructionIdentity::Ldc1
         | CpuInstructionIdentity::Swc1 => None,
@@ -3190,6 +3191,26 @@ pub(crate) enum MachineCop1ControlTransferStepApplication {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MachineCop1MoveWordCommitPlan {
+    fields: CpuInstructionFields,
+    destination_state: MachineCop1DataWordState,
+    source_availability: MachineCop1DataWordAvailability,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MachineCop1MoveWordStepAction {
+    Commit(MachineCop1MoveWordCommitPlan),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MachineCop1MoveWordStepApplication {
+    Committed {
+        plan: MachineCop1MoveWordCommitPlan,
+        cadence_plan: MachineStepCadencePlan,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineMtc0RejectionReason {
     ColdX105AccessUnavailable {
         cpu_state_kind: Option<MachineBootstrapCpuStateKind>,
@@ -3590,6 +3611,7 @@ pub(crate) enum MachineClassifiedStepAction {
     Mfc0(MachineMfc0StepAction),
     Mtc0(MachineMtc0StepAction),
     Cop1ControlTransfer(MachineCop1ControlTransferStepAction),
+    Cop1MoveWord(MachineCop1MoveWordStepAction),
     CoprocessorUnusableException(MachineCoprocessorUnusableExceptionPlan),
     Cache(MachineCacheOperationStepAction),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierAction),
@@ -3608,6 +3630,7 @@ pub(crate) enum MachineClassifiedStepActionApplication {
     Mfc0(MachineMfc0StepApplication),
     Mtc0(MachineMtc0StepApplication),
     Cop1ControlTransfer(MachineCop1ControlTransferStepApplication),
+    Cop1MoveWord(MachineCop1MoveWordStepApplication),
     CoprocessorUnusableException(MachineCoprocessorUnusableExceptionApplication),
     Cache(MachineCacheOperationStepApplication),
     NonCpuLocalFrontier(MachineNonCpuLocalStepFrontierApplication),
@@ -3627,6 +3650,7 @@ impl MachineClassifiedStepActionApplication {
             | Self::Mfc0(_)
             | Self::Mtc0(_)
             | Self::Cop1ControlTransfer(_)
+            | Self::Cop1MoveWord(_)
             | Self::CoprocessorUnusableException(_)
             | Self::Cache(_)
             | Self::NonCpuLocalFrontier(_) => None,
@@ -3648,6 +3672,7 @@ impl MachineClassifiedStepActionApplication {
             | Self::Mfc0(_)
             | Self::Mtc0(_)
             | Self::Cop1ControlTransfer(_)
+            | Self::Cop1MoveWord(_)
             | Self::CoprocessorUnusableException(_)
             | Self::Cache(_) => None,
         }
@@ -4060,6 +4085,13 @@ impl MachineCoprocessorUnusableExceptionPlan {
             coprocessor: COP1_COPROCESSOR_NUMBER,
         }
     }
+
+    const fn cop1_mtc1() -> Self {
+        Self {
+            identity: CpuInstructionIdentity::Cop1Mtc1,
+            coprocessor: COP1_COPROCESSOR_NUMBER,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4225,6 +4257,11 @@ pub enum MachineRepresentedStepOutcome {
         source_availability: MachineCop1DataWordAvailability,
         data_cache_hit: Option<bool>,
         data_cache_writeback: bool,
+        cadence_plan: MachineStepCadencePlan,
+    },
+    Cop1MoveWordToDataCommitted {
+        fr_mode: MachineCop1FrMode,
+        destination_availability: MachineCop1DataWordAvailability,
         cadence_plan: MachineStepCadencePlan,
     },
     LoadDoublewordCommitted {
@@ -5011,6 +5048,13 @@ impl MachineRepresentedStepOutcome {
                 state: plan.state(),
                 cadence_plan,
             },
+            MachineClassifiedStepActionApplication::Cop1MoveWord(
+                MachineCop1MoveWordStepApplication::Committed { plan, cadence_plan },
+            ) => Self::Cop1MoveWordToDataCommitted {
+                fr_mode: MachineCop1FrMode::Fr0,
+                destination_availability: plan.source_availability,
+                cadence_plan,
+            },
             MachineClassifiedStepActionApplication::CoprocessorUnusableException(application) => {
                 Self::CoprocessorUnusableExceptionEntered {
                     identity: application.plan.identity,
@@ -5129,6 +5173,7 @@ impl MachineRepresentedStepOutcome {
             Self::Cop1LoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lwc1),
             Self::Cop1LoadDoublewordCommitted { .. } => Some(CpuInstructionIdentity::Ldc1),
             Self::Cop1StoreWordCommitted { .. } => Some(CpuInstructionIdentity::Swc1),
+            Self::Cop1MoveWordToDataCommitted { .. } => Some(CpuInstructionIdentity::Cop1Mtc1),
             Self::LoadDoublewordCommitted { .. } => Some(CpuInstructionIdentity::Ld),
             Self::OpaqueSpImemLoadWordCommitted { .. } => Some(CpuInstructionIdentity::Lw),
             Self::StoreWordCommitted { .. }
@@ -5180,6 +5225,7 @@ impl MachineRepresentedStepOutcome {
             | Self::Cop1LoadWordCommitted { cadence_plan, .. }
             | Self::Cop1LoadDoublewordCommitted { cadence_plan, .. }
             | Self::Cop1StoreWordCommitted { cadence_plan, .. }
+            | Self::Cop1MoveWordToDataCommitted { cadence_plan, .. }
             | Self::LoadDoublewordCommitted { cadence_plan, .. }
             | Self::OpaqueSpImemLoadWordCommitted { cadence_plan, .. }
             | Self::StoreWordCommitted { cadence_plan, .. }
@@ -5233,6 +5279,7 @@ impl MachineRepresentedStepOutcome {
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
             | Self::Cop1StoreWordCommitted { .. }
+            | Self::Cop1MoveWordToDataCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -5285,6 +5332,7 @@ impl MachineRepresentedStepOutcome {
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
             | Self::Cop1StoreWordCommitted { .. }
+            | Self::Cop1MoveWordToDataCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -5337,6 +5385,7 @@ impl MachineRepresentedStepOutcome {
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
             | Self::Cop1StoreWordCommitted { .. }
+            | Self::Cop1MoveWordToDataCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -5389,6 +5438,7 @@ impl MachineRepresentedStepOutcome {
             | Self::Cop1LoadWordCommitted { .. }
             | Self::Cop1LoadDoublewordCommitted { .. }
             | Self::Cop1StoreWordCommitted { .. }
+            | Self::Cop1MoveWordToDataCommitted { .. }
             | Self::LoadDoublewordCommitted { .. }
             | Self::OpaqueSpImemLoadWordCommitted { .. }
             | Self::StoreWordCommitted { .. }
@@ -11202,6 +11252,57 @@ impl Machine {
         }
     }
 
+    fn produce_cop1_move_word_step_action(
+        &self,
+        execution_address: CpuAddress,
+        fields: CpuInstructionFields,
+    ) -> MachineCop1MoveWordStepAction {
+        let source_lineage = self.store_word_gpr_source(fields.rt());
+        let provenance =
+            MachineCop1Mtc1Provenance::new(execution_address, fields.rt(), source_lineage);
+        let (destination_state, source_availability) = if source_lineage.is_known() {
+            let raw_word =
+                self.cpu
+                    .gpr(usize::from(fields.rt()))
+                    .expect("decoded CPU register index is five bits") as u32;
+            (
+                MachineCop1DataWordState::from_mtc1_available(raw_word, provenance),
+                MachineCop1DataWordAvailability::Available,
+            )
+        } else {
+            (
+                MachineCop1DataWordState::from_mtc1_unavailable(provenance),
+                MachineCop1DataWordAvailability::Unavailable,
+            )
+        };
+
+        MachineCop1MoveWordStepAction::Commit(MachineCop1MoveWordCommitPlan {
+            fields,
+            destination_state,
+            source_availability,
+        })
+    }
+
+    fn apply_cop1_move_word_step_action(
+        &mut self,
+        action: MachineCop1MoveWordStepAction,
+        control_flow_snapshot: CpuControlFlowSnapshot,
+    ) -> MachineCop1MoveWordStepApplication {
+        let MachineCop1MoveWordStepAction::Commit(plan) = action;
+        self.cpu
+            .write_cop1_data_word(plan.fields.rd(), plan.destination_state);
+        self.cpu
+            .commit_staged_step_control_flow(control_flow_snapshot);
+        self.cpu.advance_count_for_committed_step();
+
+        MachineCop1MoveWordStepApplication::Committed {
+            plan,
+            cadence_plan: classify_machine_step_cadence(
+                MachineStepCadenceSource::CommittedInstruction,
+            ),
+        }
+    }
+
     fn apply_coprocessor_unusable_exception(
         &mut self,
         plan: MachineCoprocessorUnusableExceptionPlan,
@@ -11895,6 +11996,11 @@ impl Machine {
                     self.apply_cop1_control_transfer_step_action(action, control_flow_snapshot),
                 ))
             }
+            MachineClassifiedStepAction::Cop1MoveWord(action) => {
+                Ok(MachineClassifiedStepActionApplication::Cop1MoveWord(
+                    self.apply_cop1_move_word_step_action(action, control_flow_snapshot),
+                ))
+            }
             MachineClassifiedStepAction::CoprocessorUnusableException(plan) => self
                 .apply_coprocessor_unusable_exception(plan, control_flow_snapshot)
                 .map(MachineClassifiedStepActionApplication::CoprocessorUnusableException)
@@ -12069,6 +12175,42 @@ impl Machine {
                     )
                 }
             };
+        }
+
+        if identity == CpuInstructionIdentity::Cop1Mtc1 {
+            if (self.cpu.cop0_status() & COP0_STATUS_COP1_USABLE) == 0 {
+                return Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::CoprocessorUnusableException(
+                        MachineCoprocessorUnusableExceptionPlan::cop1_mtc1(),
+                    ),
+                ));
+            }
+            if self.cpu.cop1_fr_mode() != MachineCop1FrMode::Fr0 {
+                return Ok(MachineCurrentPcClassifiedStepAction::new(
+                    control_flow_snapshot,
+                    instruction_cache_fill,
+                    MachineClassifiedStepAction::NonCpuLocalFrontier(
+                        MachineNonCpuLocalStepFrontierAction::Unsupported(
+                            MachineStepUnsupportedInstruction::new(
+                                fields,
+                                identity,
+                                MachineStepUnsupportedInstructionCategory::CoprocessorUnimplemented,
+                            ),
+                        ),
+                    ),
+                ));
+            }
+            let action = self.produce_cop1_move_word_step_action(
+                CpuAddress::new(control_flow_snapshot.pc()),
+                fields,
+            );
+            return Ok(MachineCurrentPcClassifiedStepAction::new(
+                control_flow_snapshot,
+                instruction_cache_fill,
+                MachineClassifiedStepAction::Cop1MoveWord(action),
+            ));
         }
 
         if identity == CpuInstructionIdentity::Cache {
@@ -13586,6 +13728,10 @@ mod tests {
 
     fn cop1_control_transfer_word(rs: u8, rt: u8, rd: u8) -> u32 {
         (0x11_u32 << 26) | (u32::from(rs) << 21) | (u32::from(rt) << 16) | (u32::from(rd) << 11)
+    }
+
+    fn mtc1_word(source: u8, destination: u8) -> u32 {
+        cop1_control_transfer_word(0x04, source, destination)
     }
 
     fn lwc1_word(base: u8, destination: u8, immediate: u16) -> u32 {
@@ -35603,6 +35749,7 @@ mod tests {
         assert_eq!(summary.construction_unavailable_word_count(), 32);
         assert_eq!(summary.lwc1_word_count(), 0);
         assert_eq!(summary.ldc1_word_count(), 0);
+        assert_eq!(summary.mtc1_word_count(), 0);
         for selector in 0..crate::cpu::COP1_FGR_COUNT {
             let state = machine.cpu().cop1_data_word_state(selector).unwrap();
             assert_eq!(
@@ -36293,6 +36440,180 @@ mod tests {
             second.cpu().cop1_data_word_state(6),
             Some(MachineCop1DataWordState::construction_unavailable())
         );
+    }
+
+    #[test]
+    fn mtc1_fr0_moves_exact_low_gpr_word_without_numeric_or_control_effects() {
+        let words = [
+            (0x40, immediate_word(0x0f, 0, 8, 0x7fa1)),
+            (0x44, immediate_word(0x0d, 8, 8, 0x2345)),
+            (0x48, mtc1_word(8, 7)),
+            (0x4c, mtc1_word(0, 8)),
+        ];
+        let mut machine = staged_public_synthetic_cold_x105_machine(&words);
+        machine.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        machine.step().unwrap();
+        machine.step().unwrap();
+        let gprs_before: [u64; CPU_GPR_COUNT] =
+            core::array::from_fn(|index| machine.cpu().gpr(index).unwrap());
+        let fcr31_before = machine.cpu().cop1_fcr31_state();
+        let unrelated_before = machine.cpu().cop1_data_word_state(6);
+        let sp_before = machine.sp_status_state();
+        let mi_before = machine.mi_interrupt_state();
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::Cop1MoveWordToDataCommitted {
+                fr_mode: MachineCop1FrMode::Fr0,
+                destination_availability: MachineCop1DataWordAvailability::Available,
+                cadence_plan,
+            } if cadence_plan.advances_count()
+        ));
+        let state = machine.cpu().cop1_data_word_state(7).unwrap();
+        assert_eq!(state.raw_word(), Some(0x7fa1_2345));
+        let crate::cpu::MachineCop1DataWordSource::Mtc1(source) = state.source() else {
+            panic!("Mtc1 must own the moved COP1 word provenance");
+        };
+        assert_eq!(source.instruction_pc(), CpuAddress::new(0xa400_0048));
+        assert_eq!(source.source_gpr(), 8);
+        assert!(source.source_lineage().is_known());
+        assert_eq!(machine.cpu().cop1_data_word_state(6), unrelated_before);
+        assert_eq!(machine.cpu().cop1_fcr31_state(), fcr31_before);
+        assert_eq!(
+            core::array::from_fn(|index| machine.cpu().gpr(index).unwrap()),
+            gprs_before
+        );
+        assert_eq!(machine.sp_status_state(), sp_before);
+        assert_eq!(machine.mi_interrupt_state(), mi_before);
+
+        assert!(matches!(
+            machine.step().unwrap(),
+            MachineRepresentedStepOutcome::Cop1MoveWordToDataCommitted {
+                destination_availability: MachineCop1DataWordAvailability::Available,
+                cadence_plan,
+                ..
+            } if cadence_plan.advances_count()
+        ));
+        let zero = machine.cpu().cop1_data_word_state(8).unwrap();
+        assert_eq!(zero.raw_word(), Some(0));
+        let crate::cpu::MachineCop1DataWordSource::Mtc1(zero_source) = zero.source() else {
+            panic!("zero-register Mtc1 must retain move provenance");
+        };
+        assert_eq!(
+            zero_source.source_lineage(),
+            MachineBootstrapGprSource::ArchitecturalZero
+        );
+        assert_eq!(machine.cpu().cop1_data_word_summary().mtc1_word_count(), 2);
+        assert_eq!(machine.cpu().cop0_count(), 4);
+    }
+
+    #[test]
+    fn mtc1_propagates_unavailable_payload_and_known_overwrite_restores_the_word() {
+        let words = [
+            (0x40, mtc1_word(2, 5)),
+            (0x44, immediate_word(0x0f, 0, 8, 0xa5a5)),
+            (0x48, immediate_word(0x0d, 8, 8, 0x5a5a)),
+            (0x4c, mtc1_word(8, 5)),
+        ];
+        let mut first = staged_public_synthetic_cold_x105_machine(&words);
+        let second = staged_public_synthetic_cold_x105_machine(&words);
+        first.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+
+        assert!(matches!(
+            first.step().unwrap(),
+            MachineRepresentedStepOutcome::Cop1MoveWordToDataCommitted {
+                destination_availability: MachineCop1DataWordAvailability::Unavailable,
+                cadence_plan,
+                ..
+            } if cadence_plan.advances_count()
+        ));
+        let unavailable = first.cpu().cop1_data_word_state(5).unwrap();
+        assert_eq!(
+            unavailable.availability(),
+            MachineCop1DataWordAvailability::Unavailable
+        );
+        assert_eq!(unavailable.raw_word(), None);
+        let crate::cpu::MachineCop1DataWordSource::Mtc1(source) = unavailable.source() else {
+            panic!("opaque Mtc1 must supersede destination provenance");
+        };
+        assert_eq!(source.source_gpr(), 2);
+        assert_eq!(
+            source.source_lineage(),
+            MachineBootstrapGprSource::UnknownPifProduced
+        );
+        assert_eq!(
+            second.cpu().cop1_data_word_state(5),
+            Some(MachineCop1DataWordState::construction_unavailable())
+        );
+
+        first.step().unwrap();
+        first.step().unwrap();
+        first.step().unwrap();
+        let restored = first.cpu().cop1_data_word_state(5).unwrap();
+        assert_eq!(restored.raw_word(), Some(0xa5a5_5a5a));
+        assert_eq!(
+            restored.availability(),
+            MachineCop1DataWordAvailability::Available
+        );
+        assert_eq!(first.cpu().cop1_data_word_summary().mtc1_word_count(), 1);
+    }
+
+    #[test]
+    fn mtc1_cu1_mode_and_encoding_boundaries_are_explicit_and_atomic() {
+        let mtc1 = mtc1_word(2, 6);
+        let mut cu1_clear = staged_public_synthetic_cold_x105_machine(&[(0x40, mtc1)]);
+        cu1_clear.cpu.write_cop0_status(0);
+        let before = lw_snapshot(&cu1_clear);
+        assert!(matches!(
+            cu1_clear.step().unwrap(),
+            MachineRepresentedStepOutcome::CoprocessorUnusableExceptionEntered {
+                identity: CpuInstructionIdentity::Cop1Mtc1,
+                coprocessor: 1,
+                epc,
+                branch_delay: false,
+                vector: MachineCpuCommonExceptionVector::Normal,
+                cadence_plan,
+            } if epc == CpuAddress::new(before.pc)
+                && cadence_plan.source() == MachineStepCadenceSource::EnteredException
+                && !cadence_plan.advances_count()
+        ));
+        let after = lw_snapshot(&cu1_clear);
+        assert_eq!(after.exception_code, 11);
+        assert_eq!(after.coprocessor_error, 1);
+        assert_eq!(after.cop1_data_words, before.cop1_data_words);
+        assert_eq!(after.gprs, before.gprs);
+        assert_eq!(after.rdram, before.rdram);
+
+        let mut fr1 = staged_public_synthetic_cold_x105_machine(&[(0x40, mtc1_word(0, 6))]);
+        fr1.cpu
+            .write_cop0_status(COP0_STATUS_COP1_USABLE | 0x0400_0000);
+        let before = lw_snapshot(&fr1);
+        assert!(matches!(
+            fr1.step().unwrap(),
+            MachineRepresentedStepOutcome::Unsupported { instruction, cadence_plan }
+                if instruction.identity() == CpuInstructionIdentity::Cop1Mtc1
+                    && instruction.category()
+                        == MachineStepUnsupportedInstructionCategory::CoprocessorUnimplemented
+                    && !cadence_plan.advances_count()
+        ));
+        assert_eq!(lw_snapshot(&fr1), before);
+
+        let malformed_word = mtc1_word(8, 6) | 1;
+        let malformed_fields = decode_cpu_instruction_word(CpuInstructionWord::new(malformed_word));
+        assert_eq!(
+            identify_cpu_instruction(malformed_fields),
+            CpuInstructionIdentity::Cop1
+        );
+        let mut malformed = staged_public_synthetic_cold_x105_machine(&[(0x40, malformed_word)]);
+        malformed.cpu.write_cop0_status(COP0_STATUS_COP1_USABLE);
+        let before = lw_snapshot(&malformed);
+        assert!(matches!(
+            malformed.step().unwrap(),
+            MachineRepresentedStepOutcome::Unsupported { instruction, cadence_plan }
+                if instruction.identity() == CpuInstructionIdentity::Cop1
+                    && !cadence_plan.advances_count()
+        ));
+        assert_eq!(lw_snapshot(&malformed), before);
     }
 
     #[test]

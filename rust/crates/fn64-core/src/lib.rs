@@ -39,7 +39,7 @@ pub use cpu::{
     MachineCop1DataWordSourceKind, MachineCop1DataWordState, MachineCop1DataWordSummary,
     MachineCop1Fcr31Source, MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance,
     MachineCop1FrMode, MachineCop1Ldc1Provenance, MachineCop1Ldc1WordRole,
-    MachineCop1Lwc1Provenance, MachineCpuCommonExceptionVector,
+    MachineCop1Lwc1Provenance, MachineCop1Mtc1Provenance, MachineCpuCommonExceptionVector,
     MachinePrimaryCacheCleanRoomHleSource, MachinePrimaryCacheHitInvalidateProvenance,
     MachinePrimaryCacheHitInvalidateTarget, MachinePrimaryCacheIndexInvalidateProvenance,
     MachinePrimaryCacheIndexStoreTagTarget, MachinePrimaryCacheOperationProvenance,

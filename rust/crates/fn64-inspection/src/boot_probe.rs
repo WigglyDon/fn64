@@ -603,6 +603,7 @@ pub fn run_boot_probe_with_pif_firmware_and_handoff(
                     | MachineRepresentedStepOutcome::Cop1LoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::Cop1LoadDoublewordCommitted { .. }
                     | MachineRepresentedStepOutcome::Cop1StoreWordCommitted { .. }
+                    | MachineRepresentedStepOutcome::Cop1MoveWordToDataCommitted { .. }
                     | MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. }
                     | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
                     | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
@@ -795,6 +796,7 @@ fn is_committed_instruction(outcome: MachineRepresentedStepOutcome) -> bool {
             | MachineRepresentedStepOutcome::Cop1LoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::Cop1LoadDoublewordCommitted { .. }
             | MachineRepresentedStepOutcome::Cop1StoreWordCommitted { .. }
+            | MachineRepresentedStepOutcome::Cop1MoveWordToDataCommitted { .. }
             | MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. }
             | MachineRepresentedStepOutcome::OpaqueSpImemLoadWordCommitted { .. }
             | MachineRepresentedStepOutcome::StoreWordCommitted { .. }
@@ -856,6 +858,9 @@ fn represented_outcome_name(outcome: MachineRepresentedStepOutcome) -> &'static 
             "cop1-load-doubleword-committed"
         }
         MachineRepresentedStepOutcome::Cop1StoreWordCommitted { .. } => "cop1-store-word-committed",
+        MachineRepresentedStepOutcome::Cop1MoveWordToDataCommitted { .. } => {
+            "cop1-move-word-to-data-committed"
+        }
         MachineRepresentedStepOutcome::LoadDoublewordCommitted { .. } => {
             "load-doubleword-committed"
         }

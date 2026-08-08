@@ -91,10 +91,44 @@ impl MachineCop1Ldc1Provenance {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineCop1Mtc1Provenance {
+    instruction_pc: CpuAddress,
+    source_gpr: u8,
+    source_lineage: MachineBootstrapGprSource,
+}
+
+impl MachineCop1Mtc1Provenance {
+    pub(crate) const fn new(
+        instruction_pc: CpuAddress,
+        source_gpr: u8,
+        source_lineage: MachineBootstrapGprSource,
+    ) -> Self {
+        Self {
+            instruction_pc,
+            source_gpr,
+            source_lineage,
+        }
+    }
+
+    pub const fn instruction_pc(self) -> CpuAddress {
+        self.instruction_pc
+    }
+
+    pub const fn source_gpr(self) -> u8 {
+        self.source_gpr
+    }
+
+    pub const fn source_lineage(self) -> MachineBootstrapGprSource {
+        self.source_lineage
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineCop1DataWordSource {
     ConstructionUnavailable,
     Lwc1(MachineCop1Lwc1Provenance),
     Ldc1(MachineCop1Ldc1Provenance),
+    Mtc1(MachineCop1Mtc1Provenance),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +136,7 @@ pub enum MachineCop1DataWordSourceKind {
     ConstructionUnavailable,
     Lwc1,
     Ldc1,
+    Mtc1,
 }
 
 impl MachineCop1DataWordSource {
@@ -110,6 +145,7 @@ impl MachineCop1DataWordSource {
             Self::ConstructionUnavailable => MachineCop1DataWordSourceKind::ConstructionUnavailable,
             Self::Lwc1(_) => MachineCop1DataWordSourceKind::Lwc1,
             Self::Ldc1(_) => MachineCop1DataWordSourceKind::Ldc1,
+            Self::Mtc1(_) => MachineCop1DataWordSourceKind::Mtc1,
         }
     }
 }
@@ -160,6 +196,25 @@ impl MachineCop1DataWordState {
         }
     }
 
+    pub(crate) const fn from_mtc1_available(
+        raw_word: u32,
+        provenance: MachineCop1Mtc1Provenance,
+    ) -> Self {
+        Self {
+            raw_word,
+            availability: MachineCop1DataWordAvailability::Available,
+            source: MachineCop1DataWordSource::Mtc1(provenance),
+        }
+    }
+
+    pub(crate) const fn from_mtc1_unavailable(provenance: MachineCop1Mtc1Provenance) -> Self {
+        Self {
+            raw_word: 0,
+            availability: MachineCop1DataWordAvailability::Unavailable,
+            source: MachineCop1DataWordSource::Mtc1(provenance),
+        }
+    }
+
     pub const fn availability(self) -> MachineCop1DataWordAvailability {
         self.availability
     }
@@ -183,6 +238,7 @@ pub struct MachineCop1DataWordSummary {
     construction_unavailable_word_count: u8,
     lwc1_word_count: u8,
     ldc1_word_count: u8,
+    mtc1_word_count: u8,
 }
 
 impl MachineCop1DataWordSummary {
@@ -204,6 +260,10 @@ impl MachineCop1DataWordSummary {
 
     pub const fn ldc1_word_count(self) -> u8 {
         self.ldc1_word_count
+    }
+
+    pub const fn mtc1_word_count(self) -> u8 {
+        self.mtc1_word_count
     }
 }
 
@@ -319,6 +379,7 @@ impl Cpu {
         let mut construction_unavailable_word_count = 0_u8;
         let mut lwc1_word_count = 0_u8;
         let mut ldc1_word_count = 0_u8;
+        let mut mtc1_word_count = 0_u8;
         for state in self.cop1.data_words {
             match state.availability() {
                 MachineCop1DataWordAvailability::Available => {
@@ -337,6 +398,9 @@ impl Cpu {
                 MachineCop1DataWordSource::Ldc1(_) => {
                     ldc1_word_count = ldc1_word_count.saturating_add(1);
                 }
+                MachineCop1DataWordSource::Mtc1(_) => {
+                    mtc1_word_count = mtc1_word_count.saturating_add(1);
+                }
             }
         }
         MachineCop1DataWordSummary {
@@ -345,6 +409,7 @@ impl Cpu {
             construction_unavailable_word_count,
             lwc1_word_count,
             ldc1_word_count,
+            mtc1_word_count,
         }
     }
 

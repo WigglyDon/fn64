@@ -46,7 +46,7 @@ pub use cop1::{
     MachineCop1DataWordState, MachineCop1DataWordSummary, MachineCop1Fcr31Source,
     MachineCop1Fcr31State, MachineCop1Fcr31WriteProvenance, MachineCop1FrMode,
     MachineCop1Ldc1Provenance, MachineCop1Ldc1WordRole, MachineCop1Lwc1Provenance,
-    COP1_FCR31_DEFINED_FIELDS_MASK, COP1_FGR_COUNT,
+    MachineCop1Mtc1Provenance, COP1_FCR31_DEFINED_FIELDS_MASK, COP1_FGR_COUNT,
 };
 #[cfg(test)]
 pub(crate) use instruction::CpuLocalExecutedHelperFamily;

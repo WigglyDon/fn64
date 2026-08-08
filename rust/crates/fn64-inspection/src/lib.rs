@@ -30,6 +30,8 @@ pub struct MachineCop1DataInspection {
     unavailable_word_count: u8,
     construction_unavailable_word_count: u8,
     lwc1_word_count: u8,
+    ldc1_word_count: u8,
+    mtc1_word_count: u8,
 }
 
 impl MachineCop1DataInspection {
@@ -53,14 +55,24 @@ impl MachineCop1DataInspection {
         self.lwc1_word_count
     }
 
+    pub const fn ldc1_word_count(self) -> u8 {
+        self.ldc1_word_count
+    }
+
+    pub const fn mtc1_word_count(self) -> u8 {
+        self.mtc1_word_count
+    }
+
     pub fn output(self) -> String {
         format!(
-            "COP1_DATA_INSPECTION: fr={:?} available_words={} unavailable_words={} construction_unavailable_words={} lwc1_words={}\n",
+            "COP1_DATA_INSPECTION: fr={:?} available_words={} unavailable_words={} construction_unavailable_words={} lwc1_words={} ldc1_words={} mtc1_words={}\n",
             self.fr_mode,
             self.available_word_count,
             self.unavailable_word_count,
             self.construction_unavailable_word_count,
-            self.lwc1_word_count
+            self.lwc1_word_count,
+            self.ldc1_word_count,
+            self.mtc1_word_count
         )
     }
 }
@@ -73,6 +85,8 @@ pub fn inspect_machine_cop1_data(machine: &Machine) -> MachineCop1DataInspection
         unavailable_word_count: summary.unavailable_word_count(),
         construction_unavailable_word_count: summary.construction_unavailable_word_count(),
         lwc1_word_count: summary.lwc1_word_count(),
+        ldc1_word_count: summary.ldc1_word_count(),
+        mtc1_word_count: summary.mtc1_word_count(),
     }
 }
 
@@ -324,9 +338,11 @@ mod tests {
         assert_eq!(inspection.unavailable_word_count(), 32);
         assert_eq!(inspection.construction_unavailable_word_count(), 32);
         assert_eq!(inspection.lwc1_word_count(), 0);
+        assert_eq!(inspection.ldc1_word_count(), 0);
+        assert_eq!(inspection.mtc1_word_count(), 0);
         assert_eq!(
             output,
-            "COP1_DATA_INSPECTION: fr=Fr0 available_words=0 unavailable_words=32 construction_unavailable_words=32 lwc1_words=0\n"
+            "COP1_DATA_INSPECTION: fr=Fr0 available_words=0 unavailable_words=32 construction_unavailable_words=32 lwc1_words=0 ldc1_words=0 mtc1_words=0\n"
         );
         assert!(!output.contains("0x"));
         assert!(!output.contains("payload"));
