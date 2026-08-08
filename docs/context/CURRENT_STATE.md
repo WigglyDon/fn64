@@ -121,12 +121,20 @@ Update triggers: accepted authority, capability, verification, lane, or retireme
   word pair, `Swc1` stores one Available raw word through the existing RDRAM
   cache/uncached owners, and `Mtc1` moves one GPR low word into one raw FGR word;
   known bits stay raw and represented opaque inputs remain unavailable where
-  that exact transfer permits them. At 523,277 post-Break CPU commits, the next
-  instruction is word-format `ConvertSingle`. It is rejected atomically before
-  mutation because signed-word-to-single numerical conversion plus FCR31
-  rounding/inexact effects have no owner. The live requirements are FR=0, one
-  Available operand, nearest-even rounding, FS set, and at least one floating
-  exception enable set. No numerical COP1 identity is represented.
+  that exact transfer permits them. At 523,277 post-Break CPU commits, exact
+  `CVT.S.W` converts one Available signed-word payload to raw binary32 through
+  an integer-only algorithm. The first live conversion is exact under FR=0,
+  nearest-even rounding, FS set, Inexact Enable clear, and one-or-more other
+  Enables set; it clears all current-operation Cause bits, preserves sticky
+  Flags, and commits an Available destination. A second `CVT.S.W` commits an
+  inexact rounded result without trapping, sets current Inexact Cause plus the
+  sticky Inexact Flag, and leaves rounding, FS, Condition, and Enables intact.
+  Generated proof covers all four rounding modes, exact/untrapped/trapped
+  FCR31 transitions, and enabled-Inexact FPE code 15 through the existing
+  common exception owner; no live FPE handler is entered on this route. After
+  523,280 post-Break CPU commits, `DIV.S` selects two Available binary32
+  operands and rejects atomically with relevant state equal. Single-precision
+  division and general numerical floating-point behavior remain unrepresented.
   No private path, basename, instruction word, vector value or identity, task
   bytes, register snapshot, title, or digest entered source, context, or
   output.
@@ -793,7 +801,7 @@ chronology lives in [project history](PROJECT_HISTORY.md).
 
 - `LIVE_REPO_FACT`: the current Rust product remains deliberately incomplete and headless.
 - `UNKNOWN`: performance, broad hardware compatibility, BOOT-3, execution after
-  the post-first-task word-format `ConvertSingle` boundary, a second task,
+  the post-first-task `DIV.S` boundary, a second task,
   graphics/audio output, and host-runtime presentation remain unmeasured or
   unavailable.
 - `LIVE_REPO_FACT`: fn64 retains an optional explicit PIF-firmware input,
@@ -812,11 +820,12 @@ chronology lives in [project history](PROJECT_HISTORY.md).
   mask command. Exact COP1 Coprocessor Unusable entry now handles the live
   CU1-clear `Lwc1` before address or data access; ordinary guest code enables
   CU1, returns with ERET, and the retried load commits. Exact FR=0 `Ldc1`,
-  `Swc1`, and `Mtc1` raw transfers then commit before execution stops at the
-  first numerical COP1 identity, word-format `ConvertSingle`, after 523,277
-  post-Break CPU commits. No numerical conversion, completed SP acknowledgment,
-  second task, DPC submission, original-PIF execution, DPC/RDP execution,
-  rendering, or compatibility fact is claimed.
+  `Swc1`, and `Mtc1` raw transfers then commit. Two integer-only `CVT.S.W`
+  instructions commit—first exact, then inexact and untrapped—before execution
+  stops atomically at `DIV.S` after 523,280 post-Break CPU commits. No completed
+  SP acknowledgment, second task, DPC submission, original-PIF execution,
+  general floating-point arithmetic, DPC/RDP execution, rendering, or
+  compatibility fact is claimed.
 - `LIVE_REPO_FACT`: the profiled copy is only the represented IPL1 copy effect.
   The NTSC-only cold x105 path now adds the bounded inherited CPU facts consumed
   before first overwrite; it does not represent PIF RAM as a device, PI/SI

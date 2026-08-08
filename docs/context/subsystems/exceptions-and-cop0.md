@@ -52,6 +52,16 @@ over unavailable bases, data misalignment, translation/mapping failure, and
 unavailable payload without touching FGR, FCR31, BadVAddr, Context, XContext,
 EntryHi, cache, or memory state. Instruction fetch remains earlier in the
 existing priority path.
+Enabled `CVT.S.W` Inexact now delegates to one exact Floating-Point Exception
+entry through the same common CPU/COP0 owner. FCR31 current Inexact Cause is
+committed before entry, the sticky Inexact Flag and destination FGR remain
+unchanged, and CPU Cause.ExcCode becomes 15 without fabricating Cause.CE.
+Ordinary and delay-slot EPC/BD, nested-EXL protection, BEV vector selection,
+pending-interrupt preservation, zero normal Count cadence, and one-step entry
+reuse the existing synchronous-exception law. BadVAddr, Context, XContext,
+EntryHi, source FGR, memory, cache, Mi, and Sp remain unchanged. Exact or
+untrapped inexact conversion does not enter this path, and no other
+floating-point cause or general arithmetic exception is represented.
 Prior JAL link-destination state is no longer misclassified as an input, but a
 control-flow identity in an active delay slot and unknown JR/JALR/branch
 sources still reject before link or COP0 mutation. Unknown device and SP-DMEM

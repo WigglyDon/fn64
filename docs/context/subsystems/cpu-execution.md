@@ -145,8 +145,20 @@ without interpretation; an unavailable GPR source commits an unavailable FGR
 destination with replacement provenance. These transfers change no FCR31
 arithmetic field, rounding, or floating exception truth. Their CU1-clear forms
 enter the represented COP1 Coprocessor Unusable exception before consuming
-address or payload state. FR=1 transfer placement, other COP1 data identities,
-and all numerical COP1 computation remain unavailable.
+address or payload state. Exact FR=0 `CVT.S.W` reads one complete Available raw
+source word before any destination mutation, interprets it as signed
+two's-complement, and produces raw binary32 with integer operations only. One
+identity-specific helper owns sign/magnitude decomposition, the retained
+24-bit significand, discarded remainder, nearest-even ties, toward-zero,
+positive-infinity, and negative-infinity rounding, plus one carry
+renormalization. Exact results clear all current Cause bits and preserve sticky
+Flags; untrapped inexact results set Inexact Cause and sticky Inexact Flag;
+trapped inexact results preserve the destination and sticky Flag while entering
+FPE through the common exception owner. RM, FS, Condition, Enables, and
+unrelated FCR31 bits remain unchanged. Unavailable source, FR=1 destination
+mapping, and unavailable FCR31 reject atomically. FR=1 transfer placement,
+other COP1 data identities, `CVT.D.W`, and general numerical COP1 arithmetic
+including `DIV.S` remain unavailable.
 `LBU` and `SB` retain their direct SP-IMEM route and also use CPU-owned KSEG0
 D-cache byte semantics over Machine-owned RDRAM; KSEG1 remains uncached.
 Aligned opaque-word `Lw`

@@ -37,11 +37,13 @@ history.
   live CU1-clear `Lwc1` now enters exact COP1 Coprocessor Unusable before any
   address or FGR mutation. Ordinary guest exception code reads Cause/EPC/Status,
   enables CU1, returns with ERET, and retries the represented raw-word load.
-  Exact FR=0 `Ldc1`, `Swc1`, and `Mtc1` raw transfers then commit before
-  execution reaches the first numerical COP1 boundary: word-format
-  `ConvertSingle`, which rejects atomically after 523,277 post-Break CPU
-  commits. That route makes no
-  numerical floating-point, authentic-PIF execution, second-task, DPC
+  Exact FR=0 `Ldc1`, `Swc1`, and `Mtc1` raw transfers then commit. Two exact
+  identity-specific `CVT.S.W` instructions convert signed words to raw binary32
+  through integer-only rounding: the first is exact, and the second is inexact
+  with Inexact Enable clear, so it commits and sets Inexact Cause plus sticky
+  Inexact Flag. Execution then reaches `DIV.S` with two Available operands and
+  rejects atomically after 523,280 post-Break CPU commits. That route makes no
+  general floating-point arithmetic, authentic-PIF execution, second-task, DPC
   submission/execution, RDP execution, or compatibility claim.
 
 ## Represented owners
@@ -51,7 +53,7 @@ history.
 | `Cartridge` | normalized owned bytes, source layout, parsed header metadata including the typed four-field PI domain-one timing tuple, entry/IPL3-span inspection, range-checked byte reads; explicit local user-cartridge bytes remain immutable Machine input | no filesystem path, title/ID/region/digest policy, cartridge writes, or compatibility claim |
 | `PifFirmware` | absent material, private immutable owned bytes for one structurally accepted explicit raw-Boot-ROM-shaped input, or deliberately selected public-synthetic bytes; accepted bytes source explicit profiled copy materialization | no path, implicit absent-to-synthetic fallback, authenticity/revision claim, profile selection, firmware execution, or compatibility policy |
 | `PifIpl2Profile` | one explicit Machine-owned `NtscPinned`, `PalPinned`, or `MpalPinned` copy layout | no CLI spelling, default, autodetection, firmware-hash policy, or compatibility claim |
-| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB, instruction-boundary interrupt/ERET truth, and exact COP1 Coprocessor Unusable entry for the represented transfer identities; FCR31 control truth; 32 raw COP1 data-word states with per-word availability/provenance; exact FR=0 `Lwc1`, even-pair `Ldc1`, Available-source `Swc1`, and known-or-unavailable-source `Mtc1` raw transfers; and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches, zero FCR31, and zero PageMask under distinct HLE provenance | no host cadence, full ISA, translated TLB memory route, FR=1 COP1 transfer placement, unavailable-source `Swc1`, other COP1 data transfers, numerical COP1 computation, secondary cache, cache timing, write buffers, or generic coherence |
+| `Cpu` | 32 GPRs, HI/LO, `pc` / `next_pc`, one delay-slot owner, represented COP0 including a masked 32-entry TLB, instruction-boundary interrupt/ERET truth, exact COP1 Coprocessor Unusable entry for represented transfers, and exact FPE code 15 entry for trapped CVT.S.W Inexact; FCR31 control truth including CVT.S.W current Cause/sticky Inexact effects; 32 raw COP1 data-word states with per-word availability/provenance; exact FR=0 `Lwc1`, even-pair `Ldc1`, Available-source `Swc1`, known-or-unavailable-source `Mtc1`, and integer-only signed-word-to-binary32 `CVT.S.W`; and per-Machine direct-mapped primary I/D caches; functional KSEG0 byte/halfword/word/doubleword access and the reached invalidation/writeback CACHE operations; one typed public-profile clean-room cartridge-entry state with HLE-invalid primary caches, zero FCR31, and zero PageMask under distinct HLE provenance | no host cadence, full ISA, translated TLB memory route, FR=1 COP1 transfer placement, unavailable-source `Swc1`, other COP1 data transfers, CVT.D.W, general floating-point arithmetic including DIV.S, secondary cache, cache timing, write buffers, or generic coherence |
 | `Rdram` | 4 MiB zero-filled storage; immutable capacity-derived two-module standard-retail profile; checked raw access; concrete module inventory, register/mapping/provenance state; deterministic digital calibration response; prior global/broadcast and DEVICE_ID facts; atomic CPU-primary-D-cache writeback bytes and provenance; one atomic MiB cartridge-derived clean-room entry payload plus a typed initialized-profile HLE fact that reuses existing uncached absent-module reads | no cartridge/host profile selection, arbitrary module topology, analog/current accuracy claim, timing/readiness engine, general cartridge mapping, generic bus, or MMIO framework |
 | `SpDmem` | 4 KiB private backing with explicit per-byte Available/Unavailable knowledge, checked truth-bearing observations, private Machine-owned range staging, known aligned CPU stores, and atomic SP-DMA destination bytes with typed-record provenance | no public mutable backdoor, unavailable backing exposure as value truth, RSP fetch, or COP2 execution |
 | `SpImem` | 4 KiB private backing storage, per-byte provenance/knownness, coherent cause-known value-unavailable aligned words, checked known big-endian reads for bounded RSP fetch, concrete/opaque CPU-store provenance, atomic profiled-copy replacement, and atomic SP-DMA destination bytes | no public mutable access, opaque value exposure as known truth, RSP I-cache, or fetch from unavailable words |
@@ -1200,16 +1202,24 @@ with load provenance and no FCR31 arithmetic effect. Exact FR=0 `Ldc1` then
 atomically loads an even adjacent raw-word pair, `Swc1` stores one Available
 raw FGR word through direct RDRAM/cache ownership, and `Mtc1` copies one GPR
 low word while preserving availability. At 523,277 committed post-Break CPU
-instructions, word-format `ConvertSingle` is selected with one Available
-operand, nearest-even rounding, FS set, and one-or-more exception enables.
-The step rejects atomically with relevant state equal because numerical
-signed-word-to-single conversion and FCR31 rounding/inexact effects remain
-unowned. No completed SP acknowledgment, numerical COP1 identity, second task,
-DPC submission, DPC/RDP execution, rendering, or compatibility claim is
-earned.
+instructions, `CVT.S.W` is selected with one Available signed-word operand,
+nearest-even rounding, FS set, Inexact Enable clear, and one-or-more other
+exception Enables. Integer-only binary32 generation commits an exact first
+conversion. A second `CVT.S.W` is inexact and untrapped, commits its rounded
+raw result, sets current Inexact Cause and sticky Inexact Flag, and preserves
+the other FCR31 fields. At 523,280 post-Break CPU commits, `DIV.S` selects two
+Available binary32 operands and rejects atomically with relevant state equal.
+No completed SP acknowledgment, CVT.D.W, general floating-point arithmetic,
+second task, DPC submission, DPC/RDP execution, rendering, or compatibility
+claim is earned.
 
 Generated public tests cover the PI four-field extraction/readback tuple,
 PageMask and RSP r4/r11 HLE facts, every added scalar/vector/control identity,
+integer-only CVT.S.W across zero, signed extremes, exact and inexact boundaries,
+ties-to-even, directed rounding, and significand carry, exact/untrapped/trapped
+FCR31 Inexact behavior, FPE code 15 common entry with delay/BEV/nested-EXL
+ownership, source/destination aliasing, unavailable-source atomicity, and
+independent Machines,
 JR target masking and one-slot cadence, exact SQV quad-boundary writes,
 all sixteen SQV demand-alignment classes, known and unavailable payload writes,
 prior-known and prior-unavailable destination replacement, stale-load
